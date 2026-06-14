@@ -1,0 +1,19 @@
+{
+  "name": "docmee",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Clean-slate foundation for Docmee, a multi-tenant WhatsApp chatbot platform for clinics.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "node --test",
+    "doctor": "node ./src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

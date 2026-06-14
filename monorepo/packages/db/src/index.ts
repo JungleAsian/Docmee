@@ -38,6 +38,8 @@ export * as messages from "./dal/messages.js";
 export * as audit from "./dal/audit.js";
 export * as errors from "./dal/errors.js";
 export * as auth from "./dal/auth.js";
+export * as kb from "./dal/kb.js";
+export { RETRIEVAL_THRESHOLD } from "./dal/kb.js";
 
 // Services
 export { ingestInbound } from "./services/inbound.js";

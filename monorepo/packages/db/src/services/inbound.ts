@@ -4,14 +4,20 @@ import type { Keyring } from "../crypto/keyring.js";
 import { findClinicByPhoneNumberId } from "../dal/auth.js";
 import { logUnrouted } from "../dal/errors.js";
 import { upsertPatientByPhone } from "../dal/patients.js";
-import { getOrCreateConversation, touchConversation } from "../dal/conversations.js";
+import { getOrCreateConversation, markPatientInbound } from "../dal/conversations.js";
 import { insertMessage } from "../dal/messages.js";
 
 export type { NormalizedInbound } from "@docmee/core";
 
 export type IngestResult =
   | { status: "unrouted" }
-  | { status: "stored" | "duplicate"; clinicId: string; messageId: string };
+  | {
+      status: "stored" | "duplicate";
+      clinicId: string;
+      messageId: string;
+      conversationId: string;
+      patientId: string;
+    };
 
 /**
  * Inbound pipeline (decision #6): route → upsert patient → ensure conversation →
@@ -47,11 +53,13 @@ export async function ingestInbound(
       content: msg.content,
       providerMessageId: msg.providerMessageId,
     });
-    await touchConversation(tx, conversation.id);
+    await markPatientInbound(tx, conversation.id);
     return {
       status: result.duplicate ? "duplicate" : "stored",
       clinicId: clinic.id,
       messageId: result.id,
+      conversationId: conversation.id,
+      patientId: patient.id,
     };
   });
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 import { runMigrations } from "./runner.js";
 import { migrations } from "./migrations/index.js";
 import type { ConnectionProvider } from "../types.js";
@@ -22,7 +23,7 @@ function providerOver(pg: PGlite): ConnectionProvider {
 
 describe("migration runner", () => {
   it("applies all migrations forward from an empty DB, then is idempotent", async () => {
-    const pg = new PGlite();
+    const pg = new PGlite({ extensions: { vector } });
     await pg.waitReady;
     const provider = providerOver(pg);
 
@@ -37,7 +38,7 @@ describe("migration runner", () => {
   });
 
   it("rejects duplicate version numbers", async () => {
-    const pg = new PGlite();
+    const pg = new PGlite({ extensions: { vector } });
     await pg.waitReady;
     await expect(
       runMigrations(providerOver(pg), [

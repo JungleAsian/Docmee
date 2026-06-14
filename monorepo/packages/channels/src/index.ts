@@ -10,3 +10,9 @@ export {
   type VerifyChallengeParams,
 } from "./webhook/meta.js";
 export { normalizeEvolution } from "./webhook/evolution.js";
+export {
+  type TranscriptionProvider,
+  FakeTranscriptionProvider,
+  DeepgramTranscriptionProvider,
+  type DeepgramConfig,
+} from "./transcription.js";

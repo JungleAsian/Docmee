@@ -17,6 +17,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@docmee/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@docmee/channels':
         specifier: workspace:*
         version: link:../../packages/channels
@@ -29,6 +32,9 @@ importers:
       '@docmee/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@docmee/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       fastify:
         specifier: ^4.28.0
         version: 4.29.1
@@ -132,6 +138,37 @@ importers:
         version: 5.9.3
 
   apps/worker: {}
+
+  packages/agents:
+    dependencies:
+      '@docmee/core':
+        specifier: workspace:*
+        version: link:../core
+      '@docmee/db':
+        specifier: workspace:*
+        version: link:../db
+      '@docmee/llm':
+        specifier: workspace:*
+        version: link:../llm
+    devDependencies:
+      '@docmee/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      eslint:
+        specifier: ^9.9.0
+        version: 9.39.4(jiti@1.21.7)
+      tsup:
+        specifier: ^8.2.0
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.43)(msw@2.14.6(@types/node@20.19.43)(typescript@5.9.3))
 
   packages/channels:
     dependencies:
@@ -237,6 +274,31 @@ importers:
       '@types/pg':
         specifier: ^8.11.6
         version: 8.20.0
+      eslint:
+        specifier: ^9.9.0
+        version: 9.39.4(jiti@1.21.7)
+      tsup:
+        specifier: ^8.2.0
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.43)(msw@2.14.6(@types/node@20.19.43)(typescript@5.9.3))
+
+  packages/llm:
+    dependencies:
+      '@docmee/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@docmee/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
       eslint:
         specifier: ^9.9.0
         version: 9.39.4(jiti@1.21.7)

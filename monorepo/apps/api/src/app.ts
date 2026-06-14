@@ -5,7 +5,15 @@ import {
   type Env,
   type NormalizedInbound,
 } from "@docmee/core";
-import { ingestInbound, type Database, type Keyring } from "@docmee/db";
+import {
+  ingestInbound,
+  type Database,
+  type Keyring,
+  type OutboundTransport,
+} from "@docmee/db";
+import type { LlmGateway } from "@docmee/llm";
+import { processTurn } from "@docmee/agents";
+import { buildGateway, createLogTransport } from "./bot.js";
 import { registerAuth } from "./plugins/auth.js";
 import { ReadinessRegistry } from "./health/readiness.js";
 import { healthRoutes } from "./routes/health.js";
@@ -20,6 +28,10 @@ export interface BuildAppOptions {
   db?: Database;
   keyring?: Keyring;
   webhook?: WebhookConfig;
+  /** Override the bot's LLM gateway (defaults to real-if-keys else fakes). */
+  gateway?: LlmGateway;
+  /** Override the outbound transport (defaults to a log-only placeholder). */
+  transport?: OutboundTransport;
   /** Override the inbound enqueue step (tests inject a spy). */
   onInbound?: (msgs: NormalizedInbound[]) => void | Promise<void>;
 }
@@ -97,15 +109,31 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     verifyToken: env.WEBHOOK_VERIFY_TOKEN,
     appSecret: env.META_APP_SECRET,
   };
+  const gateway = opts.gateway ?? (db ? buildGateway(env) : undefined);
+  const transport =
+    opts.transport ?? createLogTransport((msg) => app.log.info(msg));
+
   const onInbound =
     opts.onInbound ??
     (async (msgs: NormalizedInbound[]) => {
-      if (!db || !keyring) return;
+      if (!db || !keyring || !gateway) return;
       for (const msg of msgs) {
         try {
-          await ingestInbound(db, keyring, msg);
+          const res = await ingestInbound(db, keyring, msg);
+          // Auto-reply only for freshly stored inbound (not redeliveries).
+          if (res.status === "stored") {
+            await processTurn(
+              { db, gateway, keyring, transport },
+              {
+                clinicId: res.clinicId,
+                conversationId: res.conversationId,
+                patientId: res.patientId,
+                text: msg.content,
+              },
+            );
+          }
         } catch (err) {
-          app.log.error({ err, routingId: msg.routingId }, "inbound ingest failed");
+          app.log.error({ err, routingId: msg.routingId }, "inbound pipeline failed");
         }
       }
     });

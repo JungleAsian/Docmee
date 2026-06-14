@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 import { Database } from "../database.js";
 import { runMigrations } from "../migrate/runner.js";
 import { migrations } from "../migrate/migrations/index.js";
@@ -45,7 +46,7 @@ export interface TestDb {
 }
 
 export async function createTestDb(): Promise<TestDb> {
-  const pg = new PGlite();
+  const pg = new PGlite({ extensions: { vector } });
   await pg.waitReady;
 
   // Migrations run as the owner (superuser) via a non-role-switching provider.

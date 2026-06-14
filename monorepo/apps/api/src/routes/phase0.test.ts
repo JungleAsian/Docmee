@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { loadEnv, hashPassword } from "@docmee/core";
-import { Keyring, auth, messages as messagesDal } from "@docmee/db";
+import { Keyring, auth, ingestInbound, messages as messagesDal } from "@docmee/db";
 import { createTestDb, type TestDb } from "@docmee/db/testing";
 import { buildApp } from "../app.js";
 
@@ -47,6 +47,10 @@ describe("Phase 0 API — webhooks, login, readiness", () => {
       db: h.db,
       keyring,
       webhook: { verifyToken: VERIFY_TOKEN, appSecret: APP_SECRET },
+      // Phase-0 scope: ingest only (the bot pipeline is covered in @docmee/agents).
+      onInbound: async (msgs) => {
+        for (const m of msgs) await ingestInbound(h.db, keyring, m);
+      },
     });
     await app.ready();
   });

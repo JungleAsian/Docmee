@@ -36,6 +36,12 @@ export const envSchema = z
     // Meta webhook (Phase 0).
     WEBHOOK_VERIFY_TOKEN: z.string().min(1).optional(),
     META_APP_SECRET: z.string().min(1).optional(),
+
+    // AI providers (X5). Absent → the bot uses deterministic fakes (no live calls).
+    ANTHROPIC_API_KEY: z.string().min(1).optional(),
+    DEEPSEEK_API_KEY: z.string().min(1).optional(),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    DEEPGRAM_API_KEY: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production") {

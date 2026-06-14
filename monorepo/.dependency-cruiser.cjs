@@ -10,14 +10,14 @@ module.exports = {
       severity: "error",
       from: { path: "^(apps/web|packages/ui)" },
       to: {
-        path: "^(apps/api|apps/worker|packages/db|packages/core|packages/channels)",
+        path: "^(apps/api|apps/worker|packages/db|packages/core|packages/channels|packages/llm|packages/agents)",
       },
     },
     {
       name: "be-no-frontend",
       comment: "Backend must never import frontend code.",
       severity: "error",
-      from: { path: "^(apps/api|apps/worker|packages/db|packages/core|packages/channels)" },
+      from: { path: "^(apps/api|apps/worker|packages/db|packages/core|packages/channels|packages/llm|packages/agents)" },
       to: { path: "^(apps/web|packages/ui)" },
     },
     {

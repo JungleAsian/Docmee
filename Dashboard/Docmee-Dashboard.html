@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docmee — Command Center</title>
+<style>
+:root{
+  --bg:#0a0e16; --bg2:#0e1320; --panel:#121a28; --panel2:#0f1622;
+  --border:#22304a; --border2:#2c3d5c;
+  --text:#e8eef8; --muted:#8a9bb8; --muted2:#5d6f8e;
+  --prime:#38bdf8; --prime-dim:#1d4e6b;
+  --alpha:#c084fc; --alpha-dim:#5b3d7a;
+  --done:#34d399; --doing:#fbbf24; --todo:#3a4a63;
+  --crit:#f87171; --high:#fb923c; --med:#fbbf24; --low:#34d399;
+  --shadow:0 8px 30px rgba(0,0,0,.45);
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:
+   radial-gradient(1200px 600px at 80% -10%, #14203a 0%, transparent 55%),
+   radial-gradient(900px 500px at -10% 10%, #1a1330 0%, transparent 50%),
+   var(--bg);color:var(--text);
+   font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+   -webkit-font-smoothing:antialiased}
+a{color:var(--prime);text-decoration:none}
+.wrap{max-width:1320px;margin:0 auto;padding:26px 26px 70px}
+
+/* header */
+header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:22px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--prime),var(--alpha));
+  display:grid;place-items:center;font-weight:800;font-size:22px;color:#06101e;box-shadow:var(--shadow)}
+.brand h1{font-size:22px;margin:0;letter-spacing:.3px}
+.brand .sub{color:var(--muted);font-size:13px;margin-top:3px;max-width:560px;line-height:1.4}
+.meta{text-align:right;font-size:12px;color:var(--muted)}
+.meta .pill{display:inline-block;margin:2px 0 2px 6px;padding:4px 10px;border:1px solid var(--border2);
+  border-radius:20px;background:var(--panel);color:var(--text)}
+.meta .live{color:var(--done)}
+
+/* nav */
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 22px;border-bottom:1px solid var(--border);padding-bottom:0}
+nav.tabs button{background:none;border:none;color:var(--muted);font:inherit;font-size:14px;font-weight:600;
+  padding:11px 16px;cursor:pointer;border-bottom:2px solid transparent;border-radius:8px 8px 0 0}
+nav.tabs button:hover{color:var(--text);background:var(--panel2)}
+nav.tabs button.active{color:var(--text);border-bottom-color:var(--prime)}
+
+/* kpi strip */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:22px}
+.kpi{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);
+  border-radius:var(--r);padding:15px 16px}
+.kpi .v{font-size:26px;font-weight:800;line-height:1}
+.kpi .l{color:var(--muted);font-size:12px;margin-top:7px;letter-spacing:.2px}
+.kpi .s{color:var(--muted2);font-size:11px;margin-top:3px}
+
+/* panels */
+.grid{display:grid;gap:16px}
+.panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);
+  border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow)}
+.panel h2{font-size:15px;margin:0 0 4px;letter-spacing:.3px}
+.panel h2 .tag{font-size:11px;font-weight:600;color:var(--muted);margin-left:8px}
+.panel .desc{color:var(--muted);font-size:12.5px;margin:0 0 16px}
+.section-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;margin:30px 0 12px}
+
+/* agent gauges */
+.gauges{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.gaugecard{display:flex;gap:18px;align-items:center}
+.gaugecard .who{font-size:17px;font-weight:800}
+.gaugecard .role{font-size:12px;color:var(--muted);font-weight:600}
+.gaugecard .lanes{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+
+/* roadmap */
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:14px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.roadmap{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px}
+.rcol{min-width:104px;flex:1}
+.rcol .ph{font-size:12px;font-weight:700;text-align:center;padding:6px 4px;border-radius:8px 8px 0 0;color:#06101e}
+.rcol .wk{text-align:center;font-size:10px;color:var(--muted2);margin:5px 0}
+.track{border:1px solid var(--border);border-radius:8px;padding:8px;margin-top:6px;cursor:pointer;
+  transition:border-color .15s,background .15s;background:var(--panel2)}
+.track:hover{border-color:var(--border2);background:#16203200}
+.track .tlab{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+.track .ttxt{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.35;min-height:46px}
+.track.prime{border-left:3px solid var(--prime)}
+.track.alpha{border-left:3px solid var(--alpha)}
+.statusdot{width:10px;height:10px;border-radius:50%}
+.cnt{font-size:10px;color:var(--muted2);margin-top:6px}
+
+/* kanban */
+.kanban{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.kcol{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:12px;min-height:120px}
+.kcol h3{font-size:12px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;display:flex;justify-content:space-between}
+.ticket{background:var(--panel);border:1px solid var(--border2);border-radius:10px;padding:11px 12px;margin-bottom:10px;cursor:pointer;transition:transform .1s}
+.ticket:hover{transform:translateY(-2px)}
+.ticket .th{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ticket .tid{font-size:11px;font-weight:800;letter-spacing:.5px}
+.ticket .agent-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.ticket .tt{font-size:13px;font-weight:600;margin:7px 0 4px}
+.ticket .td{font-size:11px;color:var(--muted);line-height:1.4}
+.badge-prime{background:var(--prime-dim);color:var(--prime)}
+.badge-alpha{background:var(--alpha-dim);color:var(--alpha)}
+.hint{font-size:11px;color:var(--muted2);margin-top:10px;font-style:italic}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px;
+  padding:9px 10px;border-bottom:1px solid var(--border2);position:sticky;top:0;background:var(--panel)}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--panel2)}
+.scroll{max-height:460px;overflow:auto;border:1px solid var(--border);border-radius:12px}
+.chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+.c-crit{background:#3a1414;color:var(--crit)} .c-high{background:#3a2410;color:var(--high)}
+.c-med{background:#3a3410;color:var(--med)} .c-low{background:#0f3024;color:var(--low)}
+.c-ok{background:#0f3024;color:var(--done)} .c-pend{background:#1b2740;color:var(--muted)}
+.c-prog{background:#3a3410;color:var(--doing)} .c-block{background:#3a1414;color:var(--crit)}
+
+/* donut row */
+.charts{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.donutcard{text-align:center}
+.donutcard h3{font-size:13px;margin:0 0 10px}
+.dlegend{font-size:11px;color:var(--muted);text-align:left;margin-top:10px;line-height:1.8}
+.dlegend b{color:var(--text)}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.hidden{display:none}
+.muted{color:var(--muted)}
+.foot{color:var(--muted2);font-size:11px;text-align:center;margin-top:40px}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.charts{grid-template-columns:repeat(2,1fr)}
+  .gauges,.two{grid-template-columns:1fr}}
+@media(max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}.kanban{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">D</div>
+      <div>
+        <h1>Docmee — Command Center</h1>
+        <div class="sub" id="tagline"></div>
+      </div>
+    </div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <nav class="tabs" id="tabs"></nav>
+
+  <div id="view-overview"></div>
+  <div id="view-agents" class="hidden"></div>
+  <div id="view-roadmap" class="hidden"></div>
+  <div id="view-tracker" class="hidden"></div>
+  <div id="view-risk" class="hidden"></div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const DATA = {"generated": "2026-06-14 11:43", "project": {"name": "Docmee", "tagline": "AI chatbot platform for medical clinics in Guatemala — WhatsApp-first, multi-tenant SaaS.", "status": "Sprint 0 — code built, largely uncommitted", "branch": "feat/sprint0-fe-scaffold", "plan_weeks": 26}, "headline": {"phases_total": 12, "phases_sealed": 12, "decisions": 64, "decisions_flagged": 1, "gates_total": 88, "gates_passed": 0, "gaps_total": 63, "gaps_locked": 63, "risks": 13, "security": 25}, "phases": [{"id": "S0", "label": "Sprint 0", "group": "Setup", "short": "Setup & seam", "wstart": 0, "wend": 1, "prime": "Infra, CI, RLS test harness, SEC06 decision, contract v0", "alpha": "App shell, auth flow, design system, i18n framework, mock server", "checkpoint": "Auth round-trips against the real API", "gates_total": 0, "gates_passed": 0, "gaps": 0, "decisions": 0}, {"id": "0", "label": "Phase 0", "group": "Foundation", "short": "Foundation", "wstart": 0, "wend": 2, "prime": "RLS, encryption, chokepoint, idempotency, deploy", "alpha": "Login, clinic-switch, settings scaffold (mocked)", "checkpoint": "Tenant-scoped session works end-to-end", "gates_total": 9, "gates_passed": 0, "gaps": 10, "decisions": 12}, {"id": "1A", "label": "Phase 1A", "group": "MVP", "short": "Core Bot", "wstart": 2, "wend": 6, "prime": "KB, 5-intent pipeline, six-gate, transcription", "alpha": "KB editor UI, inbox shell (mocked), bot-mode toggle", "checkpoint": "KB CRUD live; a message appears in the inbox", "gates_total": 10, "gates_passed": 0, "gaps": 5, "decisions": 9}, {"id": "1B", "label": "Phase 1B", "group": "MVP", "short": "Human Inbox", "wstart": 6, "wend": 9, "prime": "Patient/conversation/notes APIs, assignment, capture allowlist", "alpha": "Unified inbox, CRM, assignment, notes, tags", "checkpoint": "Full inbox operates on real data", "gates_total": 16, "gates_passed": 0, "gaps": 5, "decisions": 9}, {"id": "1C", "label": "Phase 1C", "group": "MVP", "short": "Scheduling", "wstart": 9, "wend": 12, "prime": "Calendar truth, intake state machine, lifecycle", "alpha": "Booking/calendar UI, appointment views", "checkpoint": "Book -> appears on calendar + panel", "gates_total": 14, "gates_passed": 0, "gaps": 7, "decisions": 4}, {"id": "GATE", "label": "Pilot Launch Gate", "group": "Gate", "short": "Pilot Gate", "wstart": 12, "wend": 12, "prime": "Rate-limiting (SEC18), backups (X12)", "alpha": "Polish, empty/error states, a11y pass", "checkpoint": "Launch-gate checklist green", "gates_total": 0, "gates_passed": 0, "gaps": 0, "decisions": 0}, {"id": "2A", "label": "Phase 2A", "group": "Pro ops", "short": "Multi-User", "wstart": 12, "wend": 14, "prime": "RBAC, routing, notifications, invoicing", "alpha": "Role mgmt, IA Studio admin, panel i18n (ES/EN), quick replies", "checkpoint": "RBAC enforced in UI + API", "gates_total": 11, "gates_passed": 0, "gaps": 3, "decisions": 6}, {"id": "2B", "label": "Phase 2B", "group": "Pro ops", "short": "Channels", "wstart": 14, "wend": 16, "prime": "Messenger/IG adapters, unified pipeline", "alpha": "Channel badges, connect flow, merge UI", "checkpoint": "Cross-channel message in one inbox", "gates_total": 8, "gates_passed": 0, "gaps": 3, "decisions": 3}, {"id": "2C", "label": "Phase 2C", "group": "Pro ops", "short": "Automation", "wstart": 16, "wend": 18, "prime": "Templates, six-gate jobs, reminders", "alpha": "Template manager, automation settings UI", "checkpoint": "Reminder fires through the six-gate", "gates_total": 4, "gates_passed": 0, "gaps": 5, "decisions": 5}, {"id": "2D", "label": "Phase 2D", "group": "Pro ops", "short": "Analytics", "wstart": 18, "wend": 20, "prime": "Rollups, error-review, full-text search", "alpha": "Dashboards, error-review UI, search", "checkpoint": "Charts render from real rollups", "gates_total": 3, "gates_passed": 0, "gaps": 5, "decisions": 3}, {"id": "3A", "label": "Phase 3A", "group": "Scale", "short": "Multi-Doctor", "wstart": 20, "wend": 22, "prime": "Doctor entity, per-doctor calendar/KB", "alpha": "Doctor mgmt, doctor-select in booking", "checkpoint": "Book a specific doctor", "gates_total": 4, "gates_passed": 0, "gaps": 5, "decisions": 4}, {"id": "3B", "label": "Phase 3B", "group": "Scale", "short": "Adv. Intake", "wstart": 22, "wend": 23, "prime": "Flow engine, rule engine, copilot API", "alpha": "Flow builder UI, rule editor, copilot panel", "checkpoint": "A custom flow runs end-to-end", "gates_total": 3, "gates_passed": 0, "gaps": 5, "decisions": 3}, {"id": "3C", "label": "Phase 3C", "group": "Scale", "short": "Integrations", "wstart": 23, "wend": 25, "prime": "OCR, Sheets/CRM export, reports", "alpha": "Doc-upload UI, export config, report views", "checkpoint": "OCR'd doc enters KB; export with consent", "gates_total": 3, "gates_passed": 0, "gaps": 5, "decisions": 3}, {"id": "3D", "label": "Phase 3D", "group": "Scale", "short": "Mobile/PWA", "wstart": 25, "wend": 26, "prime": "Push service (VAPID)", "alpha": "PWA manifest/SW, push opt-in, responsive pass", "checkpoint": "Installable PWA receives a push", "gates_total": 3, "gates_passed": 0, "gaps": 5, "decisions": 3}], "track_seed": {"prime:S0": "done", "alpha:S0": "doing"}, "sprint0": [{"id": "S0-P1", "agent": "Prime", "title": "Finalize contract v0", "detail": "Confirm /auth/session + Phase-0/1 shapes in packages/contracts; generate TS types (pnpm contract:types).", "status": "done"}, {"id": "S0-P2", "agent": "Prime", "title": "API + RLS test harness", "detail": "Bootstrap apps/api (Fastify), wire Supabase + auth middleware, implement GET /auth/session, create RLS/tenant-isolation test scaffold.", "status": "done"}, {"id": "S0-A1", "agent": "Alpha", "title": "App shell + design system", "detail": "Bootstrap apps/web (Next.js 14), design system in packages/ui, i18n (ES/EN), run mock server from the contract (pnpm contract:mock).", "status": "done"}, {"id": "S0-A2", "agent": "Alpha", "title": "Auth/login against mock", "detail": "Build login + clinic-context flow against the mocked /auth/session; switches to real at the checkpoint.", "status": "doing"}], "agents": {"prime": {"name": "Prime", "role": "Backend", "packages": [{"path": "apps/api", "desc": "Fastify backend"}, {"path": "apps/worker", "desc": "BullMQ workers"}, {"path": "packages/contracts", "desc": "OpenAPI seam (owner)"}, {"path": "packages/db", "desc": "Supabase schema, RLS"}, {"path": "packages/core", "desc": "Pipeline, six-gate, rules"}, {"path": "packages/channels", "desc": "Meta/WA/Messenger adapters"}]}, "alpha": {"name": "Alpha", "role": "Frontend", "packages": [{"path": "apps/web", "desc": "Next.js 14 panel"}, {"path": "packages/ui", "desc": "Design system"}]}}, "tracker": {"actions": [{"id": "X1", "item": "Transfer Meta (WhatsApp/WABA) asset into Docmee/clinic app", "owner": "Clinic", "blocks": "Per-clinic go-live (off dev path)", "lead": "~Days", "status": "In progress"}, {"id": "X2", "item": "Interim WhatsApp connectivity via self-hosted Evolution API (supervised, interim)", "owner": "Docmee tech", "blocks": "Phase 0 Track A + early onboarding", "lead": "Days", "status": "In progress"}, {"id": "X3", "item": "Draft + publish privacy policy & terms (Spanish)", "owner": "Clinic", "blocks": "Per-clinic launch (off dev path)", "lead": "1–2 weeks", "status": "Not started"}, {"id": "X4", "item": "Draft + submit WhatsApp message templates", "owner": "Clinic (Docmee content)", "blocks": "Per-clinic 2C (off dev path)", "lead": "1–3 wks/batch", "status": "Not started"}, {"id": "X5", "item": "Provision third-party API creds — Docmee platform keys (Model A); transcription provider-abstracted", "owner": "Docmee", "blocks": "1A end-to-end (not start)", "lead": "Hours–days", "status": "Not started"}, {"id": "X6", "item": "Stand up Supabase + Redis + VPS + DNS (+ Storage)", "owner": "Docmee", "blocks": "Phase 0 deploy target", "lead": "Hours–days", "status": "Not started"}, {"id": "X7", "item": "Per-clinic WhatsApp display-name approval + number (Cloud API)", "owner": "Clinic", "blocks": "Per-clinic go-live official API (off dev path)", "lead": "Days", "status": "Blocked/waiting"}, {"id": "X8", "item": "Encryption key source", "owner": "Docmee", "blocks": "Phase 0", "lead": "—", "status": "Closed — Supabase Vault + envelope + key_version; host-store fallback"}, {"id": "X9", "item": "Stand up & maintain self-hosted Evolution API in Docmee infra", "owner": "Docmee tech", "blocks": "X2 interim + 1A end-to-end testing", "lead": "Days", "status": "Not started"}, {"id": "X10", "item": "Per-clinic cutover: Evolution → Meta Cloud API", "owner": "Docmee tech", "blocks": "End-state channel per clinic", "lead": "Per clinic", "status": "Not started"}, {"id": "X11", "item": "Clinic onboarding-support checklist/guide", "owner": "Docmee", "blocks": "Smooth onboarding; protects launch", "lead": "Days", "status": "Not started"}, {"id": "X12", "item": "VPS backup + recovery plan (mitigates R8)", "owner": "Docmee tech", "blocks": "Before real patient traffic", "lead": "Days", "status": "Not started"}, {"id": "X13", "item": "Redundancy / HA build-out (Redis external → multi-node → LB)", "owner": "Docmee tech", "blocks": "Trigger: first real patients / SLA", "lead": "1–4 weeks", "status": "Parked"}, {"id": "X14", "item": "Deflection-message sign-off + local emergency number (mitigates R10)", "owner": "Clinic + Docmee", "blocks": "Before real patient traffic", "lead": "Mins–hours", "status": "Not started"}, {"id": "X15", "item": "Per-clinic Google Calendar connection (OAuth consent + select calendar) + availability schedule config (hours, slot length, buffers)", "owner": "Clinic (Docmee guidance)", "blocks": "Per-clinic booking (1C)", "lead": "Mins–hours", "status": "Not started"}, {"id": "X16", "item": "Per-clinic Messenger + Instagram channel connection (connect Facebook Page / IG account via Meta)", "owner": "Clinic (Docmee guidance)", "blocks": "Per-clinic multi-channel (2B)", "lead": "Mins–hours", "status": "Not started"}, {"id": "X17", "item": "Per-doctor Google Calendar connection (each doctor connects their own calendar; multi-doctor clinics)", "owner": "Clinic + doctor (Docmee guidance)", "blocks": "Per-doctor scheduling (3A)", "lead": "Mins–hours", "status": "Not started"}, {"id": "X18", "item": "Per-clinic Google Sheets / CRM connection (OAuth/credentials + field mapping) for lead/patient export", "owner": "Clinic (Docmee guidance)", "blocks": "Per-clinic integrations (3C)", "lead": "Mins–hours", "status": "Not started"}, {"id": "X19", "item": "Testing/QA execution — layered suite: unit · integration · provider-abstraction contract · E2E · RLS/tenant-isolation · six-gate/idempotency · LLM safety-eval harness; CI per PR + seeded staging", "owner": "Docmee tech", "blocks": "Post-deployment QA hardening (per scope: tracked here, non-blocking to core dev)", "lead": "Ongoing", "status": "Not started"}, {"id": "X20", "item": "Guatemalan data-protection counsel review — consent, retention, health-data + export obligations; confirm GDPR-baseline design (complements X3 privacy policy)", "owner": "Docmee + local counsel", "blocks": "Before real patient traffic", "lead": "Days", "status": "Not started"}], "action_status": {"In progress": 2, "Not started": 15, "Blocked/waiting": 1, "Closed — Supabase Vault + envelope + key_version; host-store fallback": 1, "Parked": 1}, "security": [{"id": "SEC01", "cat": "Tenant Isolation", "concern": "Cross-tenant RLS carve-out leak", "blast": "Catastrophic — all clinics' PHI exposed/crossed", "priority": "Critical", "status": "Mitigated (locked)"}, {"id": "SEC02", "cat": "Encryption / Keys", "concern": "Master encryption key compromise", "blast": "Catastrophic — all PHI at rest", "priority": "Critical", "status": "Mitigated (locked)"}, {"id": "SEC03", "cat": "Encryption / Keys", "concern": "HMAC lookup-key leak (identity correlation)", "blast": "High — patient identity correlation", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC04", "cat": "Third-Party", "concern": "PHI through unofficial WhatsApp gateway (Evolution)", "blast": "High — WhatsApp PHI in transit", "priority": "High", "status": "Mitigated (interim); cutover planned"}, {"id": "SEC05", "cat": "Application / Bot", "concern": "Prompt injection / data exfiltration via patient input", "blast": "Medium-High — bounded to current clinic/patient by RLS", "priority": "High", "status": "Mitigated (by design)"}, {"id": "SEC06", "cat": "Third-Party", "concern": "PHI sent to third-party LLM/ASR providers", "blast": "High — PHI to external processors", "priority": "High", "status": "Open — review needed"}, {"id": "SEC07", "cat": "Auth / Access", "concern": "RBAC enforced only in UI (privilege escalation)", "blast": "Medium — within-clinic over-access", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC08", "cat": "Auth / Access", "concern": "Platform impersonation abuse", "blast": "High — any clinic via impersonation", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC09", "cat": "Network / Transport", "concern": "Webhook spoofing (unverified inbound)", "blast": "Medium — injected messages per clinic", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC10", "cat": "Application / Bot", "concern": "Bot unauthorized data writes", "blast": "Medium — single patient record", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC11", "cat": "Encryption / Keys", "concern": "Secrets exposure (env / boot)", "blast": "High — infra credentials", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC12", "cat": "Third-Party", "concern": "OAuth token theft (Google Calendar / Meta)", "blast": "Medium — single clinic's calendar/page", "priority": "High", "status": "Mitigated (locked)"}, {"id": "SEC13", "cat": "Infrastructure", "concern": "Single-VPS host compromise", "blast": "High — entire deployment", "priority": "Medium-High", "status": "Partial — hardening needed"}, {"id": "SEC14", "cat": "Infrastructure", "concern": "Backup security (PHI in backups)", "blast": "High — all PHI in backup", "priority": "High", "status": "Open — X12 before real patients"}, {"id": "SEC15", "cat": "Compliance", "concern": "Messaging opted-out patients", "blast": "Low-Medium — compliance", "priority": "Medium", "status": "Mitigated (locked)"}, {"id": "SEC16", "cat": "Compliance", "concern": "PHI in logs / URLs", "blast": "Medium — log/URL exposure", "priority": "Medium-High", "status": "Open — build-time discipline"}, {"id": "SEC17", "cat": "Auth / Access", "concern": "JWT / session security", "blast": "Medium — single user/clinic session", "priority": "Medium-High", "status": "Locked (scope) + build discipline"}, {"id": "SEC18", "cat": "Network / Transport", "concern": "API rate limiting / DoS", "blast": "Medium — availability", "priority": "Medium", "status": "Open — recommended"}, {"id": "SEC19", "cat": "Audit / Logging", "concern": "Audit completeness & tamper-resistance", "blast": "Low — forensics/accountability", "priority": "Medium", "status": "Mitigated (locked pattern)"}, {"id": "SEC20", "cat": "Compliance", "concern": "Cross-channel merge PHI mixing", "blast": "Medium — two patients", "priority": "Medium-High", "status": "Mitigated (manual)"}, {"id": "SEC21", "cat": "Application / Bot", "concern": "Distress / safety mishandling", "blast": "Low-Medium — reputation/safety", "priority": "Medium", "status": "Mitigated (locked)"}, {"id": "SEC22", "cat": "Infrastructure", "concern": "Dependency / supply-chain", "blast": "Medium — code execution / compromise", "priority": "Medium", "status": "Open — recommended"}, {"id": "SEC23", "cat": "Compliance", "concern": "Proactive-messaging compliance / WhatsApp number reputation", "blast": "Medium-High — clinic's whole messaging channel", "priority": "Medium-High", "status": "Mitigated (six-gate) for transactional"}, {"id": "SEC24", "cat": "Compliance", "concern": "External data egress (Sheets/CRM export)", "blast": "Medium-High — patient data outside platform", "priority": "Medium-High", "status": "Mitigated (clinic-authorized + audited)"}, {"id": "SEC25", "cat": "Compliance", "concern": "Data retention & right-to-erasure", "blast": "Medium — long-term PHI exposure surface", "priority": "Medium", "status": "Mitigated (D62 retention + G62 cascade)"}], "sec_priority": {"Critical": 2, "High": 11, "Medium-High": 6, "Medium": 6}, "sec_status": {"Mitigated": 19, "Open": 6}, "risks": [{"id": "R1", "risk": "Meta asset transfer / WhatsApp setup (already verified, same entity)", "owner": "Clinic", "likelihood": "Low", "severity": "Med", "priority": "Low", "status": "Largely retired — routine; clinic-owned"}, {"id": "R2", "risk": "Message-template approval (2C, outside 24h window)", "owner": "Clinic", "likelihood": "Med", "severity": "Med", "priority": "Low", "status": "Clinic responsibility; Docmee may supply content"}, {"id": "R3", "risk": "Legal docs (privacy policy, terms, Spanish)", "owner": "Clinic", "likelihood": "Med", "severity": "Med", "priority": "Medium", "status": "Open — clinic-owned; Docmee supplies template (X11)"}, {"id": "R4", "risk": "App-layer encryption breaks SQL filtering", "owner": "Docmee", "likelihood": "Low", "severity": "Med", "priority": "Low", "status": "De-risked & locked: separate stable HMAC key; DAL lookups; ciphertext never in WHERE"}, {"id": "R5", "risk": "RLS cross-tenant carve-out done wrong → isolation leak", "owner": "Docmee", "likelihood": "Low", "severity": "High", "priority": "Low", "status": "De-risked & locked: named admin role + withAdminContext() + allowlist + audit"}, {"id": "R6", "risk": "Single-clinic-per-user may not fit a clinic-group customer", "owner": "Docmee", "likelihood": "Low", "severity": "Med-High", "priority": "Low", "status": "Accepted — one-to-one locked; bounded future migration"}, {"id": "R7", "risk": "Unofficial WhatsApp gateway (Evolution) for interim/live traffic", "owner": "Docmee tech/ops", "likelihood": "Med", "severity": "High", "priority": "Medium", "status": "Accepted — bounded by interim use + supervision; prompt X10 cutover"}, {"id": "R8", "risk": "Single-VPS = single point of failure", "owner": "Docmee tech/ops", "likelihood": "Med", "severity": "High (Low w/ backups)", "priority": "Medium", "status": "Redundancy deferred (X13); backups REQUIRED before real patients (X12)"}, {"id": "R9", "risk": "Document ingestion expands Phase 1A scope", "owner": "Docmee", "likelihood": "Med-High", "severity": "Med", "priority": "Med-High", "status": "Open — mitigated (text-layer, off-the-shelf libs, OCR→3C); fallback end-1A/early-1B"}, {"id": "R10", "risk": "Bot mis-handles a distress message (booking-only clinics)", "owner": "Docmee + Clinic", "likelihood": "Low", "severity": "Med", "priority": "Medium", "status": "Reduced — minimal deflection guardrail; clinic sign-off (X14)"}, {"id": "R11", "risk": "Cross-channel / duplicate patient records", "owner": "Docmee", "likelihood": "Med", "severity": "Low-Med", "priority": "Low", "status": "Mitigated — manual staff-merge in 2B (audited, confirmation); smarter auto/suggested/reversible merge → FI6"}, {"id": "R12", "risk": "No message-content search in 1B (message bodies encrypted)", "owner": "Docmee", "likelihood": "Low", "severity": "Low", "priority": "Low", "status": "Resolved — 2D adds per-clinic full-text message search (tsvector+GIN, RLS, audited); 1B shipped structured filters + identity (HMAC) search"}, {"id": "R13", "risk": "Bot patient-data mis-capture (extraction accuracy)", "owner": "Docmee", "likelihood": "Med", "severity": "Low", "priority": "Low", "status": "Accepted/mitigated — confidence-gating (verified vs suggested), secretary-edits-win, per-field source, no deletes, full audit; tune on real traffic"}], "risk_priority": {"Low": 8, "Medium": 4, "Med-High": 1}, "gaps_status": {"Locked": 62, "Resolved": 1}, "gaps_total": 63, "decisions_total": 64, "decisions_flagged": 1, "future": [{"id": "FI1", "improvement": "Real-time two-way Google Calendar sync (live push/webhook → update Docmee on external edits/deletes)", "trigger": "Clinics heavily managing appointments directly in Google Calendar; post-1C release"}, {"id": "FI2", "improvement": "Self-hosted LLM (e.g., RunPod) for cost optimization", "trigger": "When LLM spend justifies / data-residency push"}, {"id": "FI3", "improvement": "Commercial license control + self-hosted deployment (Ed25519 license server, Tauri installer, control plane)", "trigger": "When selling self-hosted / white-label installs"}, {"id": "FI4", "improvement": "Native mobile app", "trigger": "If PWA proves inadequate for clinics"}, {"id": "FI5", "improvement": "Automated billing / payment gateway (e.g. Stripe) + dunning", "trigger": "When clinic count makes manual invoicing impractical"}, {"id": "FI6", "improvement": "Smarter cross-channel identity merge (verified auto-link on strong signals + duplicate suggestions + reversible merge)", "trigger": "When cross-channel duplicates become common / a reliable signal source exists"}, {"id": "FI7", "improvement": "Bot-driven reschedule / cancel via Calendar (guardrailed: confirmation + ownership checks + cancellation cascade)", "trigger": "Once bot reliability is proven and guardrails validated"}, {"id": "FI8", "improvement": "Broadcast / marketing campaigns (promotional messages to patient lists) with explicit marketing opt-in + marketing templates + frequency caps + number-reputation safeguards", "trigger": "When promotional outreach is needed and opt-in consent infra is in place"}], "req_coverage": {"Covered": 19, "Planned": 12, "Partial": 1, "Gaps": 0}, "gate_rows": [{"phase": "0", "n": "1", "criterion": "Inbound message stored, normalized, scoped to correct clinic_id", "result": "Pending", "notes": ""}, {"phase": "0", "n": "2", "criterion": "Cross-tenant read denied at the DB (RLS proven)", "result": "Pending", "notes": ""}, {"phase": "0", "n": "3", "criterion": "Worker assumes clinic context (SET LOCAL); admin role only cross-tenant path", "result": "Pending", "notes": ""}, {"phase": "0", "n": "4", "criterion": "Redelivered wamid → exactly one row (idempotency)", "result": "Pending", "notes": ""}, {"phase": "0", "n": "5", "criterion": "Outbound delivers; send to opted-out patient blocked at chokepoint", "result": "Pending", "notes": ""}, {"phase": "0", "n": "6", "criterion": "Unknown phone_number_id logged + metric + dropped (no crash/row)", "result": "Pending", "notes": ""}, {"phase": "0", "n": "7", "criterion": "Ciphertext at rest; HMAC lookup resolves; key_version recorded", "result": "Pending", "notes": ""}, {"phase": "0", "n": "8", "criterion": "Clinic JWT scoped; platform users only via logged impersonation", "result": "Pending", "notes": ""}, {"phase": "0", "n": "9", "criterion": "Migrations apply clean forward from empty DB; /health/ready green", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "1", "criterion": "KB entries + text-layer doc → chunks embedded → review→live; retrieval ≥0.70; rules injected", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "2", "criterion": "Intent + routing; taken-over conv never auto-replies; distress → deflection; no reply without decision token", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "3", "criterion": "KB-covered question → grounded answer; no-KB → acknowledge + handoff (no hallucination)", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "4", "criterion": "Free-form inside 24h; out-of-window reply held → resend once → escalate", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "5", "criterion": "Inbox real-time; manual reply chokepoint-checked; takeover/resolve; inactivity revert silent", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "6", "criterion": "Spanish voice note transcribes → text pipeline; fail → retype; repeat → handoff", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "7", "criterion": "First bot reply of a new conversation includes one-time disclosure", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "8", "criterion": "Provider 429/5xx → bounded retry → handoff + holding message (no crash/hang)", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "9", "criterion": "Inbound >30 days → new conversation; resolved + inbound <7 days → reopen in bot mode", "result": "Pending", "notes": ""}, {"phase": "1A", "n": "10", "criterion": "Failed embedding job → retry → mark chunk failed + flag doc incomplete; others unaffected", "result": "Pending", "notes": ""}, {"phase": "1B", "n": "1", "criterion": "Patient auto-created on first contact; clinic-scoped one-per-identity", "result": "Pending", "notes": "Q1 (in progress)"}, {"phase": "1B", "n": "2", "criterion": "Patient progressively enriched; valid with identity only", "result": "Pending", "notes": "Q1"}, {"phase": "1B", "n": "3", "criterion": "patient_id backfilled onto 1A conversations; inbound resolves-or-creates", "result": "Pending", "notes": "Q1"}, {"phase": "1B", "n": "4", "criterion": "Functional patient profile: history, tags, statuses, notes, search/filter", "result": "Pending", "notes": "Q2"}, {"phase": "1B", "n": "5", "criterion": "Shared queue + claim; reply/takeover auto-assigns; reassign allowed", "result": "Pending", "notes": "Q2"}, {"phase": "1B", "n": "6", "criterion": "Free-form multi-tags + patient status; conversation state = mode (no duplicate)", "result": "Pending", "notes": "Q2"}, {"phase": "1B", "n": "7", "criterion": "Patient-level internal notes (authored + timestamped, staff-only)", "result": "Pending", "notes": "Q2"}, {"phase": "1B", "n": "8", "criterion": "Inbox filters (mode/assignment/tags/status/date) + patient-identity search", "result": "Pending", "notes": "Q2"}, {"phase": "1B", "n": "9", "criterion": "Bot captures name/reason via tool-calling → validated DAL writes (field-level, logged, no deletes)", "result": "Pending", "notes": "Q3"}, {"phase": "1B", "n": "10", "criterion": "Ambiguous capture confirmed or written as suggested (not committed); never fabricates", "result": "Pending", "notes": "Q3"}, {"phase": "1B", "n": "11", "criterion": "Per-field source (bot/staff); secretary-set fields locked from bot overwrite", "result": "Pending", "notes": "Q3"}, {"phase": "1B", "n": "12", "criterion": "Handoff/distress → urgent notification (panel + email); new lead → panel; visible until acknowledged", "result": "Pending", "notes": "Q4"}, {"phase": "1B", "n": "13", "criterion": "Clinic-level email config: recipients + per-event toggles; dispatcher honors config", "result": "Pending", "notes": "Q4"}, {"phase": "1B", "n": "14", "criterion": "patient_id backfill links existing conversations; resolve-or-create on inbound", "result": "Pending", "notes": "Sweep"}, {"phase": "1B", "n": "15", "criterion": "Patient profile shows conversation-list + data/tags/notes (no merged message-stream)", "result": "Pending", "notes": "Sweep"}, {"phase": "1B", "n": "16", "criterion": "RBAC enforced at API/DAL across inbox/profile/notes (Assistant: no reply, no notes)", "result": "Pending", "notes": "Sweep"}, {"phase": "1C", "n": "1", "criterion": "Booking creates a linked Google Calendar event (datetime) + appointments row (the rest)", "result": "Pending", "notes": "Q1"}, {"phase": "1C", "n": "2", "criterion": "Availability = clinic schedule ∩ Google free/busy; no slot offered that conflicts with calendar busy", "result": "Pending", "notes": "Q1"}, {"phase": "1C", "n": "3", "criterion": "One calendar per clinic; per-doctor calendars deferred to 3A", "result": "Pending", "notes": "Q1"}, {"phase": "1C", "n": "4", "criterion": "8-step intake persisted in patient_intake; resumes from saved step after interruption/takeover", "result": "Pending", "notes": "Q2"}, {"phase": "1C", "n": "5", "criterion": "Mid-intake digression: bot answers from KB then returns to the intake step", "result": "Pending", "notes": "Q2"}, {"phase": "1C", "n": "6", "criterion": "Availability re-validated at write; if slot taken → re-offer fresh slots", "result": "Pending", "notes": "Q2"}, {"phase": "1C", "n": "7", "criterion": "Bot completes booking; no-slots/stuck/explicit-person → handoff with partial intake; reschedule/cancel → secretary", "result": "Pending", "notes": "Q2"}, {"phase": "1C", "n": "8", "criterion": "Appointment states + logged transitions (appointment_status_log)", "result": "Pending", "notes": "Q3"}, {"phase": "1C", "n": "9", "criterion": "Auto-completion job sets completed (now>end+30m) + fires a 2C-bound hook; no-show set manually", "result": "Pending", "notes": "Q3"}, {"phase": "1C", "n": "10", "criterion": "Appointments surfaced in patient profile + inbox status; manual changes RBAC-gated + logged", "result": "Pending", "notes": "Q3"}, {"phase": "1C", "n": "11", "criterion": "Cancellation cascade: cancel Google event + clear pending; mechanism ready for 2C automation-kill", "result": "Pending", "notes": "Q3"}, {"phase": "1C", "n": "12", "criterion": "Calendar outage/disconnect → booking fails safe to handoff + clinic 'Calendar disconnected' alert", "result": "Pending", "notes": "Sweep"}, {"phase": "1C", "n": "13", "criterion": "Double-write: event first then row; row-fail compensates (deletes event); reconciliation backstop", "result": "Pending", "notes": "Sweep"}, {"phase": "1C", "n": "14", "criterion": "Confirmation reads back absolute clinic-local datetime; UTC stored; DST-correct; horizon + no-past guard", "result": "Pending", "notes": "Sweep"}, {"phase": "2A", "n": "1", "criterion": "Clinic selects routing strategy; shared-queue default unchanged from 1B", "result": "Pending", "notes": "Q1"}, {"phase": "2A", "n": "2", "criterion": "Round-robin / load-based assign only to available staff; none available → shared queue + notify", "result": "Pending", "notes": "Q1"}, {"phase": "2A", "n": "3", "criterion": "Routing never overrides explicit assignment; reassign allowed; RBAC-gated targets", "result": "Pending", "notes": "Q1"}, {"phase": "2A", "n": "4", "criterion": "P1–P4 priorities drive differentiated channels (panel/email/push) + escalation behavior", "result": "Pending", "notes": "Q2"}, {"phase": "2A", "n": "5", "criterion": "Unacknowledged P1/P2 escalates assignee→all staff→admin→IA Studio; ack stops the ladder", "result": "Pending", "notes": "Q2"}, {"phase": "2A", "n": "6", "criterion": "Dedup: repeated events on one conversation collapse into a single active notification", "result": "Pending", "notes": "Q2"}, {"phase": "2A", "n": "7", "criterion": "Per-user prefs + quiet hours; P1/safety breaks through quiet hours", "result": "Pending", "notes": "Q2"}, {"phase": "2A", "n": "8", "criterion": "Basic web push delivered (service worker + VAPID); native push deferred to 3D", "result": "Pending", "notes": "Q2"}, {"phase": "2A", "n": "9", "criterion": "Quick replies insert with context-resolved variables; sent via chokepoint; never auto-sent", "result": "Pending", "notes": "Q3"}, {"phase": "2A", "n": "10", "criterion": "IA Studio: clinic/plan/provider config; impersonation stamped + audited; panel RBAC enforced at API/DAL", "result": "Pending", "notes": "Q4"}, {"phase": "2A", "n": "11", "criterion": "Manual invoice created/tracked; conversation-limit soft-cap warns + flags overage without cutting off care", "result": "Pending", "notes": "Q5"}, {"phase": "2B", "n": "1", "criterion": "Messenger + Instagram inbound normalized to common message shape; outbound via chokepoint", "result": "Pending", "notes": "Q1"}, {"phase": "2B", "n": "2", "criterion": "Per-clinic channel connect (FB Page / IG); channel identity encrypted + HMAC", "result": "Pending", "notes": "Q1"}, {"phase": "2B", "n": "3", "criterion": "Pipeline (gates/bot) runs channel-agnostic across all channels", "result": "Pending", "notes": "Q1"}, {"phase": "2B", "n": "4", "criterion": "Unified inbox shows all channels with channel badge; CRM channel-agnostic", "result": "Pending", "notes": "Q3"}, {"phase": "2B", "n": "5", "criterion": "Per-channel messaging-window rules enforced at outbound (WhatsApp/Messenger/IG)", "result": "Pending", "notes": "Q3"}, {"phase": "2B", "n": "6", "criterion": "Manual cross-channel patient merge by secretary (audited, confirmation); no auto-merge", "result": "Pending", "notes": "Q2"}, {"phase": "2B", "n": "7", "criterion": "Per-channel media/attachment types normalized; unsupported → notice/handoff", "result": "Pending", "notes": "Sweep"}, {"phase": "2B", "n": "8", "criterion": "Channel token/connection failure → channel disconnected + clinic alert; that channel's inbound paused", "result": "Pending", "notes": "Sweep"}, {"phase": "2C", "n": "1", "criterion": "Templates tracked draft→submitted→approved/rejected (Meta-synced); only approved templates send out-of-window", "result": "Pending", "notes": "Q1"}, {"phase": "2C", "n": "2", "criterion": "Every proactive message passes all six gates at the chokepoint; fail any → not sent + logged", "result": "Pending", "notes": "Q2"}, {"phase": "2C", "n": "3", "criterion": "Reminder/confirmation jobs scheduled on booking; confirm-reply → confirmed; cancel/reschedule moves/kills jobs", "result": "Pending", "notes": "Q3"}, {"phase": "2C", "n": "4", "criterion": "Auto-completion hook fires post-visit follow-up; no-show recovery; all template-gated + per-clinic configurable", "result": "Pending", "notes": "Q4"}, {"phase": "2D", "n": "1", "criterion": "Metrics + QoS rollup jobs populate per-clinic aggregate tables; dashboards in IA Studio + clinic panel", "result": "Pending", "notes": "Q1"}, {"phase": "2D", "n": "2", "criterion": "Error review queue surfaces categorized bot/agent/API failures; unanswered → KB suggestion", "result": "Pending", "notes": "Q2"}, {"phase": "2D", "n": "3", "criterion": "Per-clinic full-text message search (tsvector+GIN, RLS, audited); resolves R12", "result": "Pending", "notes": "Q3"}, {"phase": "3A", "n": "1", "criterion": "Doctor entity active: per-doctor calendar/services/hours/FAQs; doctor=bookable profile ± user account; N=1 backward compatible", "result": "Pending", "notes": "Q1"}, {"phase": "3A", "n": "2", "criterion": "Booking intake adds doctor selection when >1 doctor (explicit/specialty/any-available); single-doctor auto-skips", "result": "Pending", "notes": "Q2"}, {"phase": "3A", "n": "3", "criterion": "Doctor-aware KB retrieval (clinic-shared + selected-doctor chunks); no cross-doctor leakage", "result": "Pending", "notes": "Q3"}, {"phase": "3A", "n": "4", "criterion": "Conversations/appointments associate to a doctor; inbox filter + per-doctor routing/visibility (reuses 2A)", "result": "Pending", "notes": "Q4"}, {"phase": "3B", "n": "1", "criterion": "Declarative custom flows run by a deterministic engine; tool steps allowlisted; guardrails enforced; versioned + starter library", "result": "Pending", "notes": "Q1"}, {"phase": "3B", "n": "2", "criterion": "Structured conditional rules; safety-critical rules enforced deterministically at gates; tone = rule setting (PR26/PR27)", "result": "Pending", "notes": "Q2"}, {"phase": "3B", "n": "3", "criterion": "Secretary copilot (draft/summarize/suggest) human-in-the-loop; never auto-sends; KB-grounded; no cross-clinic PHI", "result": "Pending", "notes": "Q3"}, {"phase": "3C", "n": "1", "criterion": "Ingestion handles scanned docs via OCR + docx/structured parsers; low-confidence flagged for review; same KB path", "result": "Pending", "notes": "Q1"}, {"phase": "3C", "n": "2", "criterion": "Per-clinic Sheets/CRM export (append + webhook); encrypted creds; clinic-authorized fields only; egress audited", "result": "Pending", "notes": "Q2"}, {"phase": "3C", "n": "3", "criterion": "Automated periodic reports (PDF/email/Sheet) from 2D analytics; per-clinic cadence; clinic-scoped", "result": "Pending", "notes": "Q3"}, {"phase": "3D", "n": "1", "criterion": "Panel installable as a PWA (manifest + service worker); responsive; native app stays FI4", "result": "Pending", "notes": "Q1"}, {"phase": "3D", "n": "2", "criterion": "Web Push (VAPID) delivers P1–P4 alerts to staff devices; per-user subs; preference + quiet-hours respected; email fallback", "result": "Pending", "notes": "Q2"}, {"phase": "3D", "n": "3", "criterion": "PWA reaches parity on secretary daily-driver ops (inbox, bot control, appointments, alerts, notes)", "result": "Pending", "notes": "Q3"}]}, "git": {"branch": "feat/sprint0-fe-scaffold", "commits": [{"hash": "66d43bf", "date": "2026-06-14", "subject": "Planning & Scoping"}, {"hash": "db52e74", "date": "2026-06-13", "subject": "Clean-slate baseline: README + .gitignore"}, {"hash": "05828e3", "date": "2026-06-13", "subject": "Initial commit"}]}};
+
+/* ---------- status state (manager-editable, persisted) ---------- */
+const SKEY = "docmee-dashboard-state-v1";
+const WEIGHT = {todo:0, doing:0.5, done:1};
+function loadState(){
+  let s = {};
+  try{ s = JSON.parse(localStorage.getItem(SKEY)) || {}; }catch(e){}
+  s.tickets = s.tickets || {};
+  s.tracks  = s.tracks  || {};
+  DATA.sprint0.forEach(t=>{ if(!(t.id in s.tickets)) s.tickets[t.id]=t.status; });
+  const seed = DATA.track_seed || {};
+  DATA.phases.forEach(p=>{
+    ["prime","alpha"].forEach(a=>{ const k=a+":"+p.id; if(!(k in s.tracks)) s.tracks[k]=seed[k]||"todo"; });
+  });
+  return s;
+}
+let STATE = loadState();
+function saveState(){ localStorage.setItem(SKEY, JSON.stringify(STATE)); }
+const cycle = s => s==="todo" ? "doing" : s==="doing" ? "done" : "todo";
+
+/* ---------- agent progress ---------- */
+function agentProgress(agent){
+  let done=0, tot=0;
+  DATA.sprint0.filter(t=>t.agent.toLowerCase()===agent).forEach(t=>{ tot++; done+=WEIGHT[STATE.tickets[t.id]]; });
+  DATA.phases.forEach(p=>{ tot++; done+=WEIGHT[STATE.tracks[agent+":"+p.id]]; });
+  return tot? Math.round(done/tot*100):0;
+}
+
+/* ---------- tiny SVG chart helpers ---------- */
+const NS="http://www.w3.org/2000/svg";
+function el(tag,attrs,txt){const e=document.createElementNS(NS,tag);
+  for(const k in attrs)e.setAttribute(k,attrs[k]); if(txt!=null)e.textContent=txt; return e;}
+function polar(cx,cy,r,a){const rad=(a-90)*Math.PI/180;return[cx+r*Math.cos(rad),cy+r*Math.sin(rad)];}
+function arc(cx,cy,r,a0,a1){const[x0,y0]=polar(cx,cy,r,a0),[x1,y1]=polar(cx,cy,r,a1);
+  const big=(a1-a0)%360>180?1:0;return`M${x0} ${y0}A${r} ${r} 0 ${big} 1 ${x1} ${y1}`;}
+
+function gauge(pct,color){
+  const s=el("svg",{viewBox:"0 0 140 140",width:128,height:128});
+  s.appendChild(el("circle",{cx:70,cy:70,r:58,fill:"none",stroke:"#1b2740","stroke-width":12}));
+  if(pct>0){
+    const p=el("path",{d:arc(70,70,58,0,Math.max(2,pct/100*359.9)),fill:"none",
+      stroke:color,"stroke-width":12,"stroke-linecap":"round"});
+    s.appendChild(p);
+  }
+  s.appendChild(el("text",{x:70,y:66,"text-anchor":"middle","font-size":30,"font-weight":800,fill:"#e8eef8"},pct+"%"));
+  s.appendChild(el("text",{x:70,y:88,"text-anchor":"middle","font-size":11,fill:"#8a9bb8"},"build"));
+  return s;
+}
+
+function donut(segments,size){ // segments:[{label,value,color}]
+  size=size||150; const cx=size/2,cy=size/2,r=size/2-8;
+  const tot=segments.reduce((a,b)=>a+b.value,0)||1;
+  const s=el("svg",{viewBox:`0 0 ${size} ${size}`,width:size,height:size});
+  let a=0;
+  segments.forEach(seg=>{
+    const sweep=seg.value/tot*359.999; if(seg.value<=0)return;
+    s.appendChild(el("path",{d:arc(cx,cy,r,a,a+sweep),fill:"none",stroke:seg.color,"stroke-width":18}));
+    a+=sweep;
+  });
+  s.appendChild(el("circle",{cx,cy,r:r-18,fill:"none"}));
+  s.appendChild(el("text",{x:cx,y:cy-2,"text-anchor":"middle","font-size":26,"font-weight":800,fill:"#e8eef8"},tot));
+  s.appendChild(el("text",{x:cx,y:cy+16,"text-anchor":"middle","font-size":10,fill:"#8a9bb8"},"total"));
+  return s;
+}
+
+function hbars(rows,opts){ // rows:[{label,value,color,sub}]
+  opts=opts||{}; const max=Math.max(...rows.map(r=>r.value),1);
+  const w=opts.w||520, rh=26, h=rows.length*rh+6;
+  const s=el("svg",{viewBox:`0 0 ${w} ${h}`,width:"100%",height:h});
+  rows.forEach((r,i)=>{
+    const y=i*rh+4, bw=(w-150)*r.value/max;
+    s.appendChild(el("text",{x:0,y:y+15,"font-size":12,fill:"#8a9bb8"},r.label));
+    s.appendChild(el("rect",{x:120,y:y+3,width:w-150,height:14,rx:7,fill:"#1b2740"}));
+    s.appendChild(el("rect",{x:120,y:y+3,width:Math.max(2,bw),height:14,rx:7,fill:r.color}));
+    s.appendChild(el("text",{x:w-22,y:y+15,"font-size":12,"font-weight":700,fill:"#e8eef8","text-anchor":"end"},r.value));
+  });
+  return s;
+}
+
+/* stacked gates-per-phase bar */
+function gatesBars(){
+  const ph=DATA.phases.filter(p=>p.gates_total>0);
+  const w=720, bw=Math.min(48,(w-20)/ph.length-8), gap=8, h=220, base=h-30, maxG=Math.max(...ph.map(p=>p.gates_total));
+  const s=el("svg",{viewBox:`0 0 ${w} ${h}`,width:"100%",height:h});
+  ph.forEach((p,i)=>{
+    const x=10+i*((w-20)/ph.length);
+    const bh=(p.gates_total/maxG)*(base-20);
+    const ph_h=p.gates_passed/p.gates_total*bh;
+    s.appendChild(el("rect",{x,y:base-bh,width:bw,height:bh,rx:5,fill:"#1b2740"}));
+    if(ph_h>0)s.appendChild(el("rect",{x,y:base-ph_h,width:bw,height:ph_h,rx:5,fill:"var(--done)"}));
+    s.appendChild(el("text",{x:x+bw/2,y:base-bh-7,"text-anchor":"middle","font-size":12,"font-weight":700,fill:"#e8eef8"},p.gates_total));
+    s.appendChild(el("text",{x:x+bw/2,y:base+15,"text-anchor":"middle","font-size":11,fill:"#8a9bb8"},p.short.length>9?p.id:p.short));
+    s.appendChild(el("text",{x:x+bw/2,y:base+28,"text-anchor":"middle","font-size":9,fill:"#5d6f8e"},p.id));
+  });
+  return s;
+}
+
+/* ---------- group colors ---------- */
+const GROUP={Setup:"#64748b",Foundation:"#f472b6",MVP:"#38bdf8",Gate:"#f59e0b","Pro ops":"#a78bfa",Scale:"#34d399"};
+const STCOLOR={todo:"#3a4a63",doing:"#fbbf24",done:"#34d399"};
+function chipClass(txt){
+  const t=(txt||"").toLowerCase();
+  if(t.includes("crit"))return"c-crit";
+  if(t.includes("med-high")||t.includes("medium-high"))return"c-high";
+  if(t.startsWith("high"))return"c-high";
+  if(t.includes("med"))return"c-med";
+  if(t.includes("low"))return"c-low";
+  if(t.includes("mitigat")||t.includes("lock")||t.includes("closed")||t.includes("resolved")||t.includes("pass"))return"c-ok";
+  if(t.includes("progress"))return"c-prog";
+  if(t.includes("block"))return"c-block";
+  if(t.includes("open")||t.includes("partial")||t.includes("not started")||t.includes("pending")||t.includes("parked"))return"c-pend";
+  return"c-pend";
+}
+function h(html){const t=document.createElement("template");t.innerHTML=html.trim();return t.content.firstElementChild;}
+
+/* =========================================================================
+   VIEWS
+   ========================================================================= */
+function renderHeader(){
+  document.getElementById("tagline").textContent=DATA.project.tagline;
+  document.getElementById("meta").innerHTML=
+    `<div><span class="pill live">● ${DATA.project.status}</span></div>`+
+    `<div style="margin-top:6px"><span class="pill">branch: ${DATA.git.branch}</span>`+
+    `<span class="pill">${DATA.project.plan_weeks}-wk plan</span></div>`+
+    `<div style="margin-top:6px">Generated ${DATA.generated}</div>`;
+  document.getElementById("foot").innerHTML=
+    `Source of truth: <b>docmee-trackers.xlsx</b> (16 tabs) + monorepo git · `+
+    `regenerate with <code>python build_dashboard.py</code> · statuses you set are saved in this browser.`;
+}
+
+const TABS=[["overview","Overview"],["agents","Alpha & Prime"],["roadmap","Roadmap"],
+            ["tracker","Tracker"],["risk","Risk & Security"]];
+let CURRENT="overview";
+function renderTabs(){
+  const nav=document.getElementById("tabs"); nav.innerHTML="";
+  TABS.forEach(([id,label])=>{
+    const b=document.createElement("button");
+    b.textContent=label; b.className=id===CURRENT?"active":"";
+    b.onclick=()=>{CURRENT=id;show();};
+    nav.appendChild(b);
+  });
+}
+function show(){
+  TABS.forEach(([id])=>document.getElementById("view-"+id).classList.add("hidden"));
+  document.getElementById("view-"+CURRENT).classList.remove("hidden");
+  renderTabs();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+/* ---- OVERVIEW ---- */
+function viewOverview(){
+  const H=DATA.headline;
+  const kpis=[
+    [H.phases_sealed+"/"+H.phases_total,"Phases sealed","all decisions locked"],
+    [H.decisions,"Decisions locked",H.decisions_flagged+" flagged"],
+    [H.gates_passed+"/"+H.gates_total,"Phase gates passed","build acceptance criteria"],
+    [H.gaps_locked+"/"+H.gaps_total,"Gaps resolved","edge-case impl rules"],
+    [H.risks,"Risks tracked",DATA.tracker.risk_priority["Med-High"]?"1 Med-High":"managed"],
+    [H.security,"Security items",(DATA.tracker.sec_priority["Critical"]||0)+" critical"],
+  ];
+  const root=document.getElementById("view-overview");
+  root.innerHTML="";
+  const k=h(`<div class="kpis"></div>`);
+  kpis.forEach(([v,l,s])=>k.appendChild(h(`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div><div class="s">${s}</div></div>`)));
+  root.appendChild(k);
+
+  // agent gauges summary + git
+  const g=h(`<div class="grid" style="grid-template-columns:1.4fr 1fr;gap:16px"></div>`);
+  const left=h(`<div class="panel"><h2>Agent build progress <span class="tag">Prime · Alpha</span></h2>
+     <p class="desc">Live build completion across Sprint-0 tickets and the 14 phase tracks. Update statuses on the “Alpha &amp; Prime” and “Roadmap” tabs.</p>
+     <div class="gauges" id="ov-gauges"></div></div>`);
+  g.appendChild(left);
+  const right=h(`<div class="panel"><h2>Repository</h2>
+     <p class="desc">monorepo · branch <b>${DATA.git.branch}</b></p>
+     <div class="scroll" style="max-height:230px"><table><thead><tr><th>Commit</th><th>Date</th><th>Subject</th></tr></thead><tbody id="ov-commits"></tbody></table></div></div>`);
+  g.appendChild(right);
+  root.appendChild(g);
+
+  const og=left.querySelector("#ov-gauges");
+  [["prime",DATA.agents.prime],["alpha",DATA.agents.alpha]].forEach(([key,a])=>{
+    const color=key==="prime"?"var(--prime)":"var(--alpha)";
+    const card=h(`<div class="panel gaugecard" style="box-shadow:none;background:var(--panel2)"></div>`);
+    card.appendChild(gauge(agentProgress(key),color));
+    card.appendChild(h(`<div><div class="who" style="color:${color}">${a.name}</div>
+      <div class="role">${a.role} agent</div>
+      <div class="lanes">${a.packages.map(p=>`<span class="dot" style="background:${color}"></span>${p.path}`).join("<br>")}</div></div>`));
+    og.appendChild(card);
+  });
+  const cb=right.querySelector("#ov-commits");
+  DATA.git.commits.forEach(c=>cb.appendChild(h(`<tr><td><code>${c.hash}</code></td><td class="muted">${c.date}</td><td>${esc(c.subject)}</td></tr>`)));
+
+  // gates per phase + requirement coverage
+  const row=h(`<div class="grid" style="grid-template-columns:1.6fr 1fr;gap:16px;margin-top:16px"></div>`);
+  const gp=h(`<div class="panel"><h2>Phase gates by phase</h2>
+     <p class="desc">Bar height = total acceptance gates; green = passed. ${H.gates_total} gates across the build, ${H.gates_passed} passed so far.</p></div>`);
+  gp.appendChild(gatesBars()); row.appendChild(gp);
+  const rc=DATA.tracker.req_coverage;
+  const cov=h(`<div class="panel donutcard"><h2 style="text-align:left">Spec coverage</h2>
+     <p class="desc" style="text-align:left">32 requirement sections cross-checked.</p></div>`);
+  cov.appendChild(donut([
+    {label:"Covered",value:rc.Covered,color:"var(--done)"},
+    {label:"Planned",value:rc.Planned,color:"var(--prime)"},
+    {label:"Partial",value:rc.Partial,color:"var(--doing)"},
+    {label:"Gaps",value:rc.Gaps,color:"var(--crit)"},
+  ],160));
+  cov.appendChild(h(`<div class="dlegend">
+    <span class="dot" style="background:var(--done)"></span><b>${rc.Covered}</b> Covered &nbsp;
+    <span class="dot" style="background:var(--prime)"></span><b>${rc.Planned}</b> Planned<br>
+    <span class="dot" style="background:var(--doing)"></span><b>${rc.Partial}</b> Partial-by-design &nbsp;
+    <span class="dot" style="background:var(--crit)"></span><b>${rc.Gaps}</b> Gaps</div>`));
+  row.appendChild(cov);
+  root.appendChild(row);
+}
+
+/* ---- ALPHA & PRIME ---- */
+function viewAgents(){
+  const root=document.getElementById("view-agents"); root.innerHTML="";
+  const p=h(`<div class="panel"><h2>Alpha &amp; Prime — build progress</h2>
+    <p class="desc">Two AI agents build the monorepo against a sealed plan: <b style="color:var(--prime)">Prime</b> owns the backend &amp; contract; <b style="color:var(--alpha)">Alpha</b> owns the frontend &amp; design system. The gauges aggregate Sprint-0 tickets + all 14 phase tracks.</p>
+    <div class="gauges" id="ag-gauges"></div></div>`);
+  root.appendChild(p);
+  const og=p.querySelector("#ag-gauges");
+  [["prime",DATA.agents.prime],["alpha",DATA.agents.alpha]].forEach(([key,a])=>{
+    const color=key==="prime"?"var(--prime)":"var(--alpha)";
+    const card=h(`<div class="gaugecard" style="background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:16px"></div>`);
+    card.appendChild(gauge(agentProgress(key),color));
+    card.appendChild(h(`<div><div class="who" style="color:${color}">${a.name}</div>
+      <div class="role">${a.role} agent · owns ${a.packages.length} workspaces</div>
+      <div class="lanes">${a.packages.map(pk=>`<span class="dot" style="background:${color}"></span><b style="color:var(--text)">${pk.path}</b> — ${pk.desc}`).join("<br>")}</div></div>`));
+    og.appendChild(card);
+  });
+
+  // sprint-0 kanban
+  const board=h(`<div class="panel" style="margin-top:16px"><h2>Sprint 0 — the first tick <span class="tag">prove the seam: /auth/session end-to-end</span></h2>
+    <p class="desc">Click a ticket to advance its status (To do → In progress → Done). Gauges update live.</p>
+    <div class="kanban" id="s0board"></div>
+    <div class="hint">Goal: Alpha’s login flips from the contract mock → Prime’s real <code>GET /auth/session</code> and round-trips. If green → Phase 0.</div></div>`);
+  root.appendChild(board);
+  renderKanban(board.querySelector("#s0board"));
+
+  // non-agent blockers
+  const blockers=DATA.tracker.actions.filter(a=>["X1","X5","X6","X7","X20","X2","X9"].includes(a.id));
+  const bl=h(`<div class="panel" style="margin-top:16px"><h2>Sprint-0 external blockers <span class="tag">off the dev path — start day one (lead time)</span></h2>
+    <div class="scroll" style="max-height:none"><table><thead><tr><th>ID</th><th>Item</th><th>Owner</th><th>Lead</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>`);
+  const tb=bl.querySelector("tbody");
+  blockers.forEach(a=>tb.appendChild(h(`<tr><td><b>${a.id}</b></td><td>${esc(a.item)}</td><td class="muted">${esc(a.owner)}</td><td class="muted">${esc(a.lead)}</td><td><span class="chip ${chipClass(a.status)}">${esc(a.status)}</span></td></tr>`)));
+  root.appendChild(bl);
+}
+function renderKanban(node){
+  node.innerHTML="";
+  const cols=[["todo","To do"],["doing","In progress"],["done","Done"]];
+  cols.forEach(([st,label])=>{
+    const items=DATA.sprint0.filter(t=>STATE.tickets[t.id]===st);
+    const col=h(`<div class="kcol"><h3><span>${label}</span><span>${items.length}</span></h3></div>`);
+    items.forEach(t=>{
+      const badge=t.agent.toLowerCase()==="prime"?"badge-prime":"badge-alpha";
+      const card=h(`<div class="ticket"><div class="th"><span class="tid">${t.id}</span>
+        <span class="agent-badge ${badge}">${t.agent}</span></div>
+        <div class="tt">${esc(t.title)}</div><div class="td">${esc(t.detail)}</div></div>`);
+      card.onclick=()=>{STATE.tickets[t.id]=cycle(STATE.tickets[t.id]);saveState();renderKanban(node);refreshGauges();};
+      col.appendChild(card);
+    });
+    node.appendChild(col);
+  });
+}
+function refreshGauges(){
+  document.querySelectorAll("#ag-gauges,#ov-gauges").forEach(n=>{});
+  if(CURRENT==="agents")viewAgents();
+  if(CURRENT==="overview")viewOverview();
+  if(CURRENT==="roadmap")viewRoadmap();
+}
+
+/* ---- ROADMAP ---- */
+function viewRoadmap(){
+  const root=document.getElementById("view-roadmap"); root.innerHTML="";
+  const p=h(`<div class="panel"><h2>Build roadmap — 26-week plan</h2>
+    <p class="desc">Each phase has a <b style="color:var(--prime)">Prime</b> track and an <b style="color:var(--alpha)">Alpha</b> track running in parallel, joined by an integration checkpoint. Click any track to advance its status.</p>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--done)"></span>Done</span>
+      <span><span class="dot" style="background:var(--doing)"></span>In progress</span>
+      <span><span class="dot" style="background:var(--todo)"></span>Not started</span>
+      <span style="margin-left:10px"><span class="dot" style="background:var(--prime)"></span>Prime track</span>
+      <span><span class="dot" style="background:var(--alpha)"></span>Alpha track</span>
+    </div>
+    <div class="roadmap" id="rm"></div></div>`);
+  root.appendChild(p);
+  const rm=p.querySelector("#rm");
+  DATA.phases.forEach(ph=>{
+    const col=h(`<div class="rcol"></div>`);
+    col.appendChild(h(`<div class="ph" style="background:${GROUP[ph.group]||'#64748b'}">${ph.label}</div>`));
+    col.appendChild(h(`<div class="wk">${ph.id==="GATE"?"checkpoint":"wk "+ph.wstart+"–"+ph.wend}</div>`));
+    [["prime",ph.prime],["alpha",ph.alpha]].forEach(([agent,txt])=>{
+      const key=agent+":"+ph.id, st=STATE.tracks[key];
+      const t=h(`<div class="track ${agent}">
+        <div class="tlab" style="color:${agent==='prime'?'var(--prime)':'var(--alpha)'}">${agent}
+          <span class="statusdot" style="background:${STCOLOR[st]}"></span></div>
+        <div class="ttxt">${esc(txt)}</div></div>`);
+      t.onclick=()=>{STATE.tracks[key]=cycle(STATE.tracks[key]);saveState();viewRoadmap();refreshGaugeNumbers();};
+      col.appendChild(t);
+    });
+    const extra=[];
+    if(ph.gates_total)extra.push(ph.gates_passed+"/"+ph.gates_total+" gates");
+    if(ph.gaps)extra.push(ph.gaps+" gaps");
+    if(ph.decisions)extra.push(ph.decisions+" dec.");
+    col.appendChild(h(`<div class="cnt">${extra.join(" · ")||"&nbsp;"}</div>`));
+    rm.appendChild(col);
+  });
+
+  // checkpoints panel
+  const cp=h(`<div class="panel" style="margin-top:16px"><h2>Integration checkpoints (definition of done)</h2>
+    <div class="scroll" style="max-height:none"><table><thead><tr><th>Phase</th><th>Checkpoint — green when…</th><th>Prime</th><th>Alpha</th></tr></thead><tbody></tbody></table></div></div>`);
+  const tb=cp.querySelector("tbody");
+  DATA.phases.forEach(ph=>{
+    tb.appendChild(h(`<tr><td><b>${ph.label}</b></td><td>${esc(ph.checkpoint)}</td>
+      <td><span class="chip ${chipClass(STATE.tracks['prime:'+ph.id])==='c-ok'?'c-ok':STATE.tracks['prime:'+ph.id]}">${stLabel(STATE.tracks['prime:'+ph.id])}</span></td>
+      <td><span class="chip ${stChip(STATE.tracks['alpha:'+ph.id])}">${stLabel(STATE.tracks['alpha:'+ph.id])}</span></td></tr>`));
+  });
+  root.appendChild(cp);
+}
+const stChip=s=>s==="done"?"c-ok":s==="doing"?"c-prog":"c-pend";
+const stLabel=s=>s==="done"?"Done":s==="doing"?"In progress":"Not started";
+function refreshGaugeNumbers(){ if(CURRENT==="roadmap")return; }
+
+/* ---- TRACKER ---- */
+function viewTracker(){
+  const root=document.getElementById("view-tracker"); root.innerHTML="";
+  const T=DATA.tracker;
+  // donut row
+  const charts=h(`<div class="charts"></div>`);
+  charts.appendChild(donutCard("Actions (X1–X20)",statusSegs(T.action_status,{"In progress":"var(--doing)","Not started":"var(--todo)","Blocked/waiting":"var(--crit)","Parked":"var(--muted2)"})));
+  charts.appendChild(donutCard("Gaps",statusSegs(T.gaps_status,{"Locked":"var(--done)","Resolved":"var(--prime)"})));
+  charts.appendChild(donutCard("Decisions",[{label:"Locked",value:T.decisions_total-T.decisions_flagged,color:"var(--done)"},{label:"Flagged",value:T.decisions_flagged,color:"var(--doing)"}]));
+  charts.appendChild(donutCard("Phase gates",[{label:"Passed",value:DATA.headline.gates_passed,color:"var(--done)"},{label:"Pending",value:DATA.headline.gates_total-DATA.headline.gates_passed,color:"var(--todo)"}]));
+  root.appendChild(charts);
+
+  // action tracker table
+  const at=h(`<div class="panel" style="margin-top:16px"><h2>Action Tracker <span class="tag">X1–X20 deployment &amp; per-clinic onboarding</span></h2>
+    <div class="scroll"><table><thead><tr><th>ID</th><th>Item</th><th>Owner</th><th>Blocks / needed by</th><th>Lead</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>`);
+  const atb=at.querySelector("tbody");
+  T.actions.forEach(a=>atb.appendChild(h(`<tr><td><b>${a.id}</b></td><td>${esc(a.item)}</td><td class="muted">${esc(a.owner)}</td><td class="muted">${esc(a.blocks)}</td><td class="muted">${esc(a.lead)}</td><td><span class="chip ${chipClass(a.status)}">${esc(a.status)}</span></td></tr>`)));
+  root.appendChild(at);
+
+  // phase gates table
+  const pg=h(`<div class="panel" style="margin-top:16px"><h2>Phase Gates <span class="tag">acceptance criteria — pass/fail</span></h2>
+    <div class="scroll"><table><thead><tr><th>Phase</th><th>#</th><th>Gate criterion</th><th>Result</th></tr></thead><tbody></tbody></table></div></div>`);
+  const pgb=pg.querySelector("tbody");
+  T.gate_rows.forEach(g=>pgb.appendChild(h(`<tr><td><b>${esc(g.phase)}</b></td><td class="muted">${esc(g.n)}</td><td>${esc(g.criterion)}</td><td><span class="chip ${chipClass(g.result)}">${esc(g.result)}</span></td></tr>`)));
+  root.appendChild(pg);
+
+  // future improvements
+  const fi=h(`<div class="panel" style="margin-top:16px"><h2>Future Improvements <span class="tag">deliberately deferred</span></h2>
+    <div class="scroll" style="max-height:none"><table><thead><tr><th>ID</th><th>Improvement</th><th>Trigger — when to build</th></tr></thead><tbody></tbody></table></div></div>`);
+  const fib=fi.querySelector("tbody");
+  T.future.forEach(f=>fib.appendChild(h(`<tr><td><b>${f.id}</b></td><td>${esc(f.improvement)}</td><td class="muted">${esc(f.trigger)}</td></tr>`)));
+  root.appendChild(fi);
+}
+function donutCard(title,segs){
+  const c=h(`<div class="panel donutcard"><h3>${title}</h3></div>`);
+  c.appendChild(donut(segs,150));
+  const leg=h(`<div class="dlegend"></div>`);
+  segs.forEach(s=>leg.appendChild(h(`<div><span class="dot" style="background:${s.color}"></span><b>${s.value}</b> ${esc(s.label)}</div>`)));
+  c.appendChild(leg); return c;
+}
+function statusSegs(obj,colors){
+  return Object.entries(obj).map(([k,v])=>({label:k.length>22?k.slice(0,20)+"…":k,value:v,color:colors[k]||"var(--muted2)"}));
+}
+
+/* ---- RISK & SECURITY ---- */
+function viewRisk(){
+  const root=document.getElementById("view-risk"); root.innerHTML="";
+  const T=DATA.tracker;
+  const charts=h(`<div class="two"></div>`);
+  const c1=h(`<div class="panel"><h2>Security audit by priority <span class="tag">${DATA.headline.security} items</span></h2></div>`);
+  c1.appendChild(hbars([
+    {label:"Critical",value:T.sec_priority["Critical"]||0,color:"var(--crit)"},
+    {label:"High",value:T.sec_priority["High"]||0,color:"var(--high)"},
+    {label:"Medium-High",value:T.sec_priority["Medium-High"]||0,color:"var(--med)"},
+    {label:"Medium",value:T.sec_priority["Medium"]||0,color:"var(--low)"},
+  ]));
+  c1.appendChild(h(`<p class="desc" style="margin-top:14px">Status: <b style="color:var(--done)">${T.sec_status["Mitigated"]||0} mitigated/locked</b> · <b style="color:var(--doing)">${T.sec_status["Open"]||0} open/partial</b></p>`));
+  charts.appendChild(c1);
+  const c2=h(`<div class="panel"><h2>Risk register by priority <span class="tag">${DATA.headline.risks} risks</span></h2></div>`);
+  c2.appendChild(hbars([
+    {label:"Med-High",value:T.risk_priority["Med-High"]||0,color:"var(--high)"},
+    {label:"Medium",value:T.risk_priority["Medium"]||0,color:"var(--med)"},
+    {label:"Low",value:T.risk_priority["Low"]||0,color:"var(--low)"},
+  ]));
+  charts.appendChild(c2);
+  root.appendChild(charts);
+
+  const st=h(`<div class="panel" style="margin-top:16px"><h2>Security Audit <span class="tag">SEC01–SEC25</span></h2>
+    <div class="scroll"><table><thead><tr><th>ID</th><th>Category</th><th>Concern</th><th>Priority</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>`);
+  const stb=st.querySelector("tbody");
+  T.security.forEach(s=>stb.appendChild(h(`<tr><td><b>${s.id}</b></td><td class="muted">${esc(s.cat)}</td><td>${esc(s.concern)}</td><td><span class="chip ${chipClass(s.priority)}">${esc(s.priority)}</span></td><td><span class="chip ${chipClass(s.status)}">${esc(s.status)}</span></td></tr>`)));
+  root.appendChild(st);
+
+  const rt=h(`<div class="panel" style="margin-top:16px"><h2>Risk Register</h2>
+    <div class="scroll"><table><thead><tr><th>ID</th><th>Risk</th><th>Owner</th><th>Likelihood</th><th>Severity</th><th>Priority</th><th>Disposition</th></tr></thead><tbody></tbody></table></div></div>`);
+  const rtb=rt.querySelector("tbody");
+  T.risks.forEach(r=>rtb.appendChild(h(`<tr><td><b>${r.id}</b></td><td>${esc(r.risk)}</td><td class="muted">${esc(r.owner)}</td><td class="muted">${esc(r.likelihood)}</td><td class="muted">${esc(r.severity)}</td><td><span class="chip ${chipClass(r.priority)}">${esc(r.priority)}</span></td><td class="muted">${esc(r.status)}</td></tr>`)));
+  root.appendChild(rt);
+}
+
+function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+/* ---- boot ---- */
+function renderAll(){ viewOverview(); viewAgents(); viewRoadmap(); viewTracker(); viewRisk(); }
+renderHeader(); renderTabs(); renderAll(); show();
+</script>
+</body>
+</html>

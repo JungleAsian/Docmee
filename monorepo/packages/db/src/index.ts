@@ -40,6 +40,11 @@ export * as errors from "./dal/errors.js";
 export * as auth from "./dal/auth.js";
 export * as kb from "./dal/kb.js";
 export { RETRIEVAL_THRESHOLD } from "./dal/kb.js";
+export * as notes from "./dal/notes.js";
+export * as notifications from "./dal/notifications.js";
+
+// Bot data-capture allowlist (G14–G18)
+export { applyCapture, CAPTURE_TOOLS, type CaptureOp, type CaptureResult } from "./services/capture.js";
 
 // Services
 export { ingestInbound } from "./services/inbound.js";

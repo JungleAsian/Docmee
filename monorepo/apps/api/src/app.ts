@@ -19,6 +19,7 @@ import { ReadinessRegistry } from "./health/readiness.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { loginRoutes } from "./routes/login.js";
+import { panelRoutes } from "./routes/panel.js";
 import { webhookRoutes, type WebhookConfig } from "./routes/webhooks.js";
 
 export interface BuildAppOptions {
@@ -96,11 +97,18 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     readiness.add({ name: "crypto", check: async () => keyring != null });
   }
 
+  const gateway = opts.gateway ?? (db ? buildGateway(env) : undefined);
+  const transport =
+    opts.transport ?? createLogTransport((msg) => app.log.info(msg));
+
   void app.register(healthRoutes, { readiness });
   void app.register(authRoutes);
 
   if (db) {
     void app.register(loginRoutes, { db, jwtSecret });
+  }
+  if (db && keyring) {
+    void app.register(panelRoutes, { db, keyring, transport });
   }
 
   // Inbound webhooks. Default enqueue ingests directly (no Redis in Phase 0);
@@ -109,9 +117,6 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     verifyToken: env.WEBHOOK_VERIFY_TOKEN,
     appSecret: env.META_APP_SECRET,
   };
-  const gateway = opts.gateway ?? (db ? buildGateway(env) : undefined);
-  const transport =
-    opts.transport ?? createLogTransport((msg) => app.log.info(msg));
 
   const onInbound =
     opts.onInbound ??

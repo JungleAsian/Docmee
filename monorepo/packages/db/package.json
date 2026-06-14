@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "@docmee/core": "workspace:*",
-    "pg": "^8.12.0"
+    "pg": "^8.12.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@docmee/config": "workspace:*",

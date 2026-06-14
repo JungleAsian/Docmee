@@ -84,6 +84,56 @@ export async function handBackToBot(tx: ClinicTx, id: string): Promise<void> {
   await tx.query(`UPDATE conversations SET mode = 'bot' WHERE id = $1`, [id]);
 }
 
+export interface ConversationFilter {
+  mode?: string;
+  channel?: string;
+  assigneeId?: string;
+  limit?: number;
+}
+
+/** Unified inbox listing (clinic-scoped via RLS), most-recent first. */
+export async function listConversations(
+  tx: ClinicTx,
+  f: ConversationFilter = {},
+): Promise<ConversationRow[]> {
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (f.mode) {
+    params.push(f.mode);
+    where.push(`mode = $${params.length}`);
+  }
+  if (f.channel) {
+    params.push(f.channel);
+    where.push(`channel = $${params.length}`);
+  }
+  if (f.assigneeId) {
+    params.push(f.assigneeId);
+    where.push(`assignee_id = $${params.length}`);
+  }
+  params.push(Math.min(Math.max(f.limit ?? 25, 1), 100));
+  const { rows } = await tx.query<ConversationRow>(
+    `SELECT * FROM conversations
+     ${where.length ? "WHERE " + where.join(" AND ") : ""}
+     ORDER BY last_interaction_at DESC
+     LIMIT $${params.length}`,
+    params,
+  );
+  return rows;
+}
+
+/** Claim/assign from the shared queue. Pass null to release. */
+export async function assignConversation(
+  tx: ClinicTx,
+  id: string,
+  assigneeId: string | null,
+): Promise<ConversationRow | null> {
+  const { rows } = await tx.query<ConversationRow>(
+    `UPDATE conversations SET assignee_id = $2 WHERE id = $1 RETURNING *`,
+    [id, assigneeId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function setMode(
   tx: ClinicTx,
   id: string,

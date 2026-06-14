@@ -1,6 +1,6 @@
 import type { ClinicTx } from "../types.js";
 import type { Keyring } from "../crypto/keyring.js";
-import { encrypt } from "../crypto/encryption.js";
+import { encrypt, decrypt } from "../crypto/encryption.js";
 
 export interface InsertMessage {
   conversationId: string;
@@ -75,6 +75,50 @@ export async function insertMessage(
     ],
   );
   return { id: rows[0]!.id, duplicate: false };
+}
+
+export interface MessageView {
+  id: string;
+  conversationId: string;
+  direction: "inbound" | "outbound";
+  author: "patient" | "bot" | "staff";
+  body: string;
+  createdAt: string;
+}
+
+/** Message history for the panel — content decrypted for staff display. */
+export async function listMessages(
+  tx: ClinicTx,
+  keyring: Keyring,
+  conversationId: string,
+  limit = 50,
+): Promise<MessageView[]> {
+  const { rows } = await tx.query<{
+    id: string;
+    conversation_id: string;
+    direction: "inbound" | "outbound";
+    author: "patient" | "bot" | "staff";
+    content_ciphertext: string | null;
+    content_key_version: number | null;
+    created_at: string;
+  }>(
+    `SELECT id, conversation_id, direction, author,
+            content_ciphertext, content_key_version, created_at
+     FROM messages WHERE conversation_id = $1
+     ORDER BY created_at ASC LIMIT $2`,
+    [conversationId, Math.min(Math.max(limit, 1), 200)],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversation_id,
+    direction: r.direction,
+    author: r.author,
+    body:
+      r.content_ciphertext && r.content_key_version != null
+        ? decrypt(r.content_ciphertext, r.content_key_version, keyring)
+        : "",
+    createdAt: r.created_at,
+  }));
 }
 
 export async function countMessages(tx: ClinicTx): Promise<number> {

@@ -7,17 +7,22 @@ import {
   messages as messagesDal,
   notes as notesDal,
   notifications as notificationsDal,
+  appointments as appointmentsDal,
+  InvalidTransitionError,
   sendOutbound,
   type Database,
   type Keyring,
   type OutboundTransport,
 } from "@docmee/db";
+import { bookAppointment } from "@docmee/agents";
+import type { CalendarProvider } from "@docmee/integrations";
 import { clinicIdOf, actorIdOf, requireRole, INBOX_WRITERS } from "../plugins/rbac.js";
 
 export interface PanelRouteOptions {
   db: Database;
   keyring: Keyring;
   transport: OutboundTransport;
+  calendar: CalendarProvider;
 }
 
 const patientCreate = z.object({
@@ -29,6 +34,16 @@ const noteCreate = z.object({ body: z.string().min(1) });
 const messageCreate = z.object({ body: z.string().min(1) });
 const modeBody = z.object({ mode: z.enum(["bot", "human", "paused", "resolved"]) });
 const assigneeBody = z.object({ assigneeId: z.string().uuid().nullable() });
+const appointmentCreate = z.object({
+  patientId: z.string().uuid(),
+  doctorId: z.string().uuid().optional(),
+  startAt: z.string().datetime(),
+  endAt: z.string().datetime(),
+  summary: z.string().min(1).optional(),
+});
+const statusBody = z.object({
+  status: z.enum(["booked", "confirmed", "completed", "cancelled", "no_show"]),
+});
 
 /**
  * Panel REST API (Phase 1B). Every handler is clinic-scoped via the session's
@@ -38,7 +53,7 @@ export async function panelRoutes(
   app: FastifyInstance,
   opts: PanelRouteOptions,
 ): Promise<void> {
-  const { db, keyring, transport } = opts;
+  const { db, keyring, transport, calendar } = opts;
   const auth = app.authenticate;
   const writer = requireRole(...INBOX_WRITERS);
 
@@ -180,6 +195,58 @@ export async function panelRoutes(
       return updated;
     },
   );
+
+  // ── Appointments (Phase 1C) ───────────────────────────────────────────────────
+  app.get("/appointments", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { patientId?: string; status?: appointmentsDal.AppointmentStatus };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      appointmentsDal.listAppointments(tx, { patientId: q.patientId, status: q.status }),
+    );
+    return { data, nextCursor: null };
+  });
+
+  // Book against Calendar free/busy (source of truth) — 409 on slot conflict.
+  app.post("/appointments", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = appointmentCreate.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const result = await bookAppointment(
+      { db, calendar },
+      {
+        clinicId,
+        patientId: parsed.data.patientId,
+        doctorId: parsed.data.doctorId ?? null,
+        startAt: parsed.data.startAt,
+        endAt: parsed.data.endAt,
+        summary: parsed.data.summary ?? "Cita",
+      },
+    );
+    if (result.status === "conflict") {
+      reply.code(409);
+      return { error: { code: "conflict", message: "Slot conflict" } };
+    }
+    reply.code(201);
+    return result.appointment;
+  });
+
+  app.put("/appointments/:id/status", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = statusBody.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    try {
+      return await db.withClinicContext(clinicId, (tx) =>
+        appointmentsDal.transitionStatus(tx, id, parsed.data.status, actorIdOf(request)),
+      );
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        reply.code(422);
+        return { error: { code: "invalid_transition", message: err.message } };
+      }
+      throw err;
+    }
+  });
 
   // ── Notifications ─────────────────────────────────────────────────────────────
   app.get("/notifications", { preHandler: auth }, async (request) => {

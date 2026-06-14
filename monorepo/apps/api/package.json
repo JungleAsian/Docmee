@@ -18,6 +18,7 @@
     "@docmee/contracts": "workspace:*",
     "@docmee/core": "workspace:*",
     "@docmee/db": "workspace:*",
+    "@docmee/integrations": "workspace:*",
     "@docmee/llm": "workspace:*",
     "fastify": "^4.28.0",
     "jsonwebtoken": "^9.0.2",

@@ -159,6 +159,50 @@ describe("Phase 1B — panel API", () => {
     expect(assign.json().assignee_id).toBe(adminId);
   });
 
+  it("books an appointment and rejects an overlapping slot (409)", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/patients",
+      headers: bearer(adminToken),
+      payload: JSON.stringify({ name: "Booker", phone: "+50255550555" }),
+    });
+    const patientId = created.json().id as string;
+
+    const book = await app.inject({
+      method: "POST",
+      url: "/appointments",
+      headers: bearer(adminToken),
+      payload: JSON.stringify({
+        patientId,
+        startAt: "2026-10-01T15:00:00.000Z",
+        endAt: "2026-10-01T15:30:00.000Z",
+      }),
+    });
+    expect(book.statusCode).toBe(201);
+    const apptId = book.json().id as string;
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: "/appointments",
+      headers: bearer(adminToken),
+      payload: JSON.stringify({
+        patientId,
+        startAt: "2026-10-01T15:15:00.000Z",
+        endAt: "2026-10-01T15:45:00.000Z",
+      }),
+    });
+    expect(conflict.statusCode).toBe(409);
+
+    const confirm = await app.inject({
+      method: "PUT",
+      url: `/appointments/${apptId}/status`,
+      headers: bearer(adminToken),
+      payload: JSON.stringify({ status: "confirmed" }),
+    });
+    expect(confirm.statusCode).toBe(200);
+    expect(confirm.json().status).toBe("confirmed");
+  });
+
   it("requires auth", async () => {
     const res = await app.inject({ method: "GET", url: "/patients" });
     expect(res.statusCode).toBe(401);

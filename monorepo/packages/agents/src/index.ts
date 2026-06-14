@@ -9,3 +9,5 @@ export type {
   TurnInput,
   TurnResult,
 } from "./pipeline.js";
+export { bookAppointment } from "./scheduling.js";
+export type { BookingDeps, BookParams, BookResult } from "./scheduling.js";

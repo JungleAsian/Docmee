@@ -6,6 +6,7 @@ import {
   patients,
   conversations,
   kb,
+  appointments,
   type OutboundTransport,
 } from "@docmee/db";
 import {
@@ -142,5 +143,48 @@ describe("Phase 1A — conversation pipeline", () => {
     });
     expect(res.action).toBe("suppressed");
     expect(sent).toHaveLength(0);
+  });
+
+  it("answers an appointment-status query from the patient's upcoming appointment", async () => {
+    await h.db.withClinicContext(clinicId, (tx) =>
+      appointments.createAppointment(tx, {
+        patientId,
+        startAt: "2026-12-01T15:00:00Z",
+        endAt: "2026-12-01T15:30:00Z",
+      }),
+    );
+    const res = await processTurn(deps, {
+      clinicId,
+      conversationId,
+      patientId,
+      text: "¿Cuándo es mi cita?",
+    });
+    expect(res.action).toBe("replied");
+    expect(sent[0]).toContain("2026-12-01");
+  });
+
+  it("starts and advances the booking intake on a booking request", async () => {
+    // Own conversation so intake state doesn't leak into other cases.
+    const ids = await h.db.withClinicContext(clinicId, async (tx) => {
+      const p = await patients.createPatient(tx, keyring, { phone: "+50255550777" });
+      const c = await conversations.getOrCreateConversation(tx, p.id, "whatsapp");
+      return { patientId: p.id, conversationId: c.id };
+    });
+
+    const start = await processTurn(deps, {
+      clinicId,
+      conversationId: ids.conversationId,
+      patientId: ids.patientId,
+      text: "Quiero agendar una cita",
+    });
+    expect(start.action).toBe("replied"); // first intake prompt sent
+
+    const next = await processTurn(deps, {
+      clinicId,
+      conversationId: ids.conversationId,
+      patientId: ids.patientId,
+      text: "Consulta general",
+    });
+    expect(next.action).toBe("intake"); // treated as the intake's next answer
   });
 });

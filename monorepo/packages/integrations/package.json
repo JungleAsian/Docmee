@@ -1,5 +1,5 @@
 {
-  "name": "@docmee/agents",
+  "name": "@docmee/integrations",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -20,10 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@docmee/core": "workspace:*",
-    "@docmee/db": "workspace:*",
-    "@docmee/integrations": "workspace:*",
-    "@docmee/llm": "workspace:*"
+    "@docmee/core": "workspace:*"
   },
   "devDependencies": {
     "@docmee/config": "workspace:*",

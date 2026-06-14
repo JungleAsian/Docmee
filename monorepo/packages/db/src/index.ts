@@ -42,6 +42,10 @@ export * as kb from "./dal/kb.js";
 export { RETRIEVAL_THRESHOLD } from "./dal/kb.js";
 export * as notes from "./dal/notes.js";
 export * as notifications from "./dal/notifications.js";
+export * as appointments from "./dal/appointments.js";
+export { InvalidTransitionError, type AppointmentStatus } from "./dal/appointments.js";
+export * as intake from "./dal/intake.js";
+export { INTAKE_STEPS, INTAKE_STEP_COUNT, type IntakeState } from "./dal/intake.js";
 
 // Bot data-capture allowlist (G14–G18)
 export { applyCapture, CAPTURE_TOOLS, type CaptureOp, type CaptureResult } from "./services/capture.js";

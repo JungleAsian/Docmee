@@ -23,6 +23,8 @@ export const envSchema = z
 
     // Connection secrets (provisioned by X6 — may be absent until infra is up).
     DATABASE_URL: z.string().url().optional(),
+    /** Admin-role (BYPASSRLS) connection for the cross-tenant carve-out. */
+    DATABASE_ADMIN_URL: z.string().url().optional(),
     SUPABASE_URL: z.string().url().optional(),
     SUPABASE_SERVICE_KEY: z.string().min(1).optional(),
     REDIS_URL: z.string().url().optional(),

@@ -19,7 +19,8 @@ export const base = tseslint.config(
       // SEC16: never log message bodies / PHI. console.* is banned platform-wide;
       // use the redacting logger from @docmee/core instead.
       "no-console": "error",
-      eqeqeq: ["error", "always"],
+      // Allow `== null` / `!= null` (idiomatic null+undefined check); strict elsewhere.
+      eqeqeq: ["error", "smart"],
     },
   },
   {

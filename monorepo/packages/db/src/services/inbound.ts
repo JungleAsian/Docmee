@@ -1,0 +1,57 @@
+import type { NormalizedInbound } from "@docmee/core";
+import type { Database } from "../database.js";
+import type { Keyring } from "../crypto/keyring.js";
+import { findClinicByPhoneNumberId } from "../dal/auth.js";
+import { logUnrouted } from "../dal/errors.js";
+import { upsertPatientByPhone } from "../dal/patients.js";
+import { getOrCreateConversation, touchConversation } from "../dal/conversations.js";
+import { insertMessage } from "../dal/messages.js";
+
+export type { NormalizedInbound } from "@docmee/core";
+
+export type IngestResult =
+  | { status: "unrouted" }
+  | { status: "stored" | "duplicate"; clinicId: string; messageId: string };
+
+/**
+ * Inbound pipeline (decision #6): route → upsert patient → ensure conversation →
+ * store exactly once. Unknown routingId is logged + dropped (decision #8); never
+ * auto-provisioned. No automatic reply in Phase 0 (that begins in 1A).
+ */
+export async function ingestInbound(
+  db: Database,
+  keyring: Keyring,
+  msg: NormalizedInbound,
+): Promise<IngestResult> {
+  const clinic = await db.withPlatformContext((tx) =>
+    findClinicByPhoneNumberId(tx, msg.routingId),
+  );
+
+  if (!clinic) {
+    await db.withPlatformContext((tx) =>
+      logUnrouted(tx, { routingId: msg.routingId, channel: msg.channel }),
+    );
+    return { status: "unrouted" };
+  }
+
+  return db.withClinicContext(clinic.id, async (tx) => {
+    const patient = await upsertPatientByPhone(tx, keyring, {
+      phone: msg.patientIdentifier,
+      channelId: msg.patientIdentifier,
+    });
+    const conversation = await getOrCreateConversation(tx, patient.id, msg.channel);
+    const result = await insertMessage(tx, keyring, {
+      conversationId: conversation.id,
+      direction: "inbound",
+      author: "patient",
+      content: msg.content,
+      providerMessageId: msg.providerMessageId,
+    });
+    await touchConversation(tx, conversation.id);
+    return {
+      status: result.duplicate ? "duplicate" : "stored",
+      clinicId: clinic.id,
+      messageId: result.id,
+    };
+  });
+}

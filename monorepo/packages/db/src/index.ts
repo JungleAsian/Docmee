@@ -1,30 +1,70 @@
 /**
  * @docmee/db — Supabase/Postgres data-access layer. OWNER: Prime. Migrations append-only.
  *
- * Phase-0 contract (declared now, implemented when infra X6 lands):
- *  - G2 RLS chokepoint: `withClinicContext(clinicId, fn)` opens a tx, runs
- *    `SET LOCAL app.clinic_id = <clinicId>`, and yields a tx handle. The raw pool
- *    stays PRIVATE to this package and is never exported.
- *  - Decision #1: a single audited `withAdminContext()` is the only cross-tenant door.
- *
- * This file currently exposes only the TYPES so the rest of the backend can be
- * written against the seam; the runtime lands in Phase 0.
+ * Public surface only. The raw connection pool (pool.ts) and the PGlite test
+ * harness (testing/) are intentionally NOT exported — the only doors to clinic
+ * data are the methods on `Database`.
  */
+import { Database } from "./database.js";
+import { createPgProvider } from "./pool.js";
 
-/** A transaction handle scoped to one clinic via RLS (`app.clinic_id`). */
-export interface ClinicTx {
-  readonly clinicId: string;
-  /** Parameterized query within the clinic-scoped transaction. */
-  query<T = unknown>(sql: string, params?: readonly unknown[]): Promise<T[]>;
-}
+export { Database } from "./database.js";
+export type { DatabaseOptions } from "./database.js";
+export type {
+  ClinicTx,
+  AdminTx,
+  AdminOperation,
+  PlatformTx,
+  Queryable,
+  QueryResult,
+} from "./types.js";
 
-/** The RLS chokepoint (G2). Implemented in Phase 0. */
-export type WithClinicContext = <T>(
-  clinicId: string,
-  fn: (tx: ClinicTx) => Promise<T>,
-) => Promise<T>;
+// Crypto
+export { Keyring, CURRENT_KEY_VERSION } from "./crypto/keyring.js";
+export type { KeyringOptions } from "./crypto/keyring.js";
+export { encrypt, decrypt } from "./crypto/encryption.js";
+export type { Encrypted } from "./crypto/encryption.js";
+export { hmacIdentifier, hmacEquals } from "./crypto/hmac.js";
+
+// Migrations
+export { runMigrations } from "./migrate/runner.js";
+export type { Migration, MigrateResult } from "./migrate/runner.js";
+export { migrations } from "./migrate/migrations/index.js";
+
+// DAL
+export * as patients from "./dal/patients.js";
+export * as conversations from "./dal/conversations.js";
+export * as messages from "./dal/messages.js";
+export * as audit from "./dal/audit.js";
+export * as errors from "./dal/errors.js";
+export * as auth from "./dal/auth.js";
+
+// Services
+export { ingestInbound } from "./services/inbound.js";
+export type { NormalizedInbound, IngestResult } from "./services/inbound.js";
+export { sendOutbound } from "./services/outbound.js";
+export type {
+  OutboundTransport,
+  OutboundParams,
+  OutboundResult,
+} from "./services/outbound.js";
 
 /** True when a live Postgres is configured (gates integration tests until X6). */
 export function isLiveDbConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
+}
+
+export interface CreateDatabaseOptions {
+  /** App-role connection string (RLS-bound). */
+  databaseUrl: string;
+  /** Admin-role connection string (BYPASSRLS) for the cross-tenant carve-out. */
+  adminDatabaseUrl?: string;
+}
+
+/** Build a production Database backed by node-postgres pools. */
+export function createDatabase(opts: CreateDatabaseOptions): Database {
+  return new Database({
+    app: createPgProvider(opts.databaseUrl),
+    admin: opts.adminDatabaseUrl ? createPgProvider(opts.adminDatabaseUrl) : undefined,
+  });
 }

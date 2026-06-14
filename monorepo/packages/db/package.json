@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/pglite.d.ts",
+      "import": "./dist/testing/pglite.js"
     }
   },
   "files": ["dist", "migrations"],
@@ -20,11 +24,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@docmee/core": "workspace:*"
+    "@docmee/core": "workspace:*",
+    "pg": "^8.12.0"
   },
   "devDependencies": {
     "@docmee/config": "workspace:*",
+    "@electric-sql/pglite": "^0.2.12",
     "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.6",
     "eslint": "^9.9.0",
     "tsup": "^8.2.0",
     "typescript": "^5.5.0",

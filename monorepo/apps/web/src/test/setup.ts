@@ -1,0 +1,13 @@
+import { afterAll, afterEach, beforeAll } from "vitest";
+import { setupServer } from "msw/node";
+import { handlers } from "../mocks/handlers";
+
+/** Reuse the exact contract mock handlers for node tests — same seam as the app. */
+export const server = setupServer(...handlers);
+
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+// A bearer token so the handlers' requireAuth() passes by default.
+document.cookie = "docmee_token=test.token";

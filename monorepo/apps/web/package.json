@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "test": "echo '@docmee/web test — ok (vitest/playwright added in 1B)'",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "msw:init": "msw init public --save"
   },
@@ -25,6 +26,8 @@
   },
   "devDependencies": {
     "@docmee/config": "workspace:*",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
@@ -34,7 +37,9 @@
     "msw": "^2.4.0",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "jsdom": "^25.0.0",
+    "vitest": "^2.1.0"
   },
   "msw": {
     "workerDirectory": [

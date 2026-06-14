@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docmee - Security Command Center</title>
+<style>
+:root{
+  --bg:#0a0e16; --bg2:#0e1320; --panel:#121a28; --panel2:#0f1622;
+  --border:#22304a; --border2:#2c3d5c;
+  --text:#e8eef8; --muted:#8a9bb8; --muted2:#5d6f8e;
+  --sec:#f87171; --sec-dim:#3a1414; --accent:#38bdf8;
+  --done:#34d399; --doing:#fbbf24; --todo:#3a4a63;
+  --crit:#f87171; --high:#fb923c; --med:#fbbf24; --low:#34d399; --info:#60a5fa;
+  --shadow:0 8px 30px rgba(0,0,0,.45);
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:
+   radial-gradient(1200px 600px at 80% -10%, #2a1420 0%, transparent 55%),
+   radial-gradient(900px 500px at -10% 10%, #13203a 0%, transparent 50%),
+   var(--bg);color:var(--text);
+   font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+   -webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+.wrap{max-width:1320px;margin:0 auto;padding:26px 26px 70px}
+header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--sec),#b91c1c);
+  display:grid;place-items:center;font-weight:800;font-size:22px;color:#0b0606;box-shadow:var(--shadow)}
+.brand h1{font-size:22px;margin:0;letter-spacing:.3px}
+.brand .sub{color:var(--muted);font-size:13px;margin-top:3px;max-width:620px;line-height:1.4}
+.meta{text-align:right;font-size:12px;color:var(--muted)}
+.meta .pill{display:inline-block;margin:2px 0 2px 6px;padding:4px 10px;border:1px solid var(--border2);
+  border-radius:20px;background:var(--panel);color:var(--text)}
+.meta .live{color:var(--sec)}
+.arbar{margin-top:8px;display:inline-flex;gap:6px;align-items:center}
+.arbtn{font:inherit;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border2);
+  background:var(--panel);color:var(--text);border-radius:20px;padding:4px 11px}
+.arbtn:hover{border-color:var(--accent)}
+.arbtn.on{color:var(--done);border-color:var(--done)} .arbtn.off{color:var(--muted)}
+.arcd{font-size:11px;color:var(--muted2);min-width:90px;text-align:left}
+
+/* banners */
+.banner{border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;border:1px solid;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.banner.warn{background:#2a2410;border-color:#5a4a16;color:#f6d36b}
+.banner.ok{background:#0f2a1e;border-color:#1f5a3e;color:#7fe0b0}
+.banner b{color:var(--text)}
+
+/* nav */
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 22px;border-bottom:1px solid var(--border);padding-bottom:0}
+nav.tabs button{background:none;border:none;color:var(--muted);font:inherit;font-size:14px;font-weight:600;
+  padding:11px 16px;cursor:pointer;border-bottom:2px solid transparent;border-radius:8px 8px 0 0}
+nav.tabs button:hover{color:var(--text);background:var(--panel2)}
+nav.tabs button.active{color:var(--text);border-bottom-color:var(--sec)}
+nav.tabs .cnt{font-size:11px;color:var(--muted2);margin-left:6px}
+
+/* kpi strip */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:22px}
+.kpi{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);
+  border-radius:var(--r);padding:15px 16px}
+.kpi .v{font-size:26px;font-weight:800;line-height:1}
+.kpi .l{color:var(--muted);font-size:12px;margin-top:7px;letter-spacing:.2px}
+.kpi .s{color:var(--muted2);font-size:11px;margin-top:3px}
+
+/* panels */
+.grid{display:grid;gap:16px}
+.panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);
+  border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow)}
+.panel h2{font-size:15px;margin:0 0 4px;letter-spacing:.3px}
+.panel h2 .tag{font-size:11px;font-weight:600;color:var(--muted);margin-left:8px}
+.panel .desc{color:var(--muted);font-size:12.5px;margin:0 0 16px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.hidden{display:none}.muted{color:var(--muted)}
+.foot{color:var(--muted2);font-size:11px;text-align:center;margin-top:40px;line-height:1.7}
+
+/* chips */
+.chip{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
+.c-crit{background:#3a1414;color:var(--crit)} .c-high{background:#3a2410;color:var(--high)}
+.c-med{background:#3a3410;color:var(--med)} .c-low{background:#0f3024;color:var(--low)}
+.c-info{background:#15233f;color:var(--info)}
+.c-ok{background:#0f3024;color:var(--done)} .c-pend{background:#1b2740;color:var(--muted)}
+.c-action{background:#3a1414;color:var(--sec)} .c-watch{background:#3a3410;color:var(--doing)} .c-holds{background:#0f3024;color:var(--done)}
+
+/* confidence badge */
+.conf{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:12px;padding:3px 10px;border-radius:20px;border:1px solid}
+.conf .n{font-size:13px}
+.conf-hi{background:#0f3024;color:var(--done);border-color:#1f5a3e}
+.conf-mid{background:#3a3410;color:var(--doing);border-color:#5a4a16}
+.conf-lo{background:#3a1414;color:var(--crit);border-color:#5a2020}
+
+/* finding card */
+.finding{background:var(--panel2);border:1px solid var(--border);border-left:4px solid var(--muted2);
+  border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.finding.sev-Critical{border-left-color:var(--crit)} .finding.sev-High{border-left-color:var(--high)}
+.finding.sev-Medium-High{border-left-color:var(--med)} .finding.sev-Medium{border-left-color:var(--med)}
+.finding.sev-Low{border-left-color:var(--low)} .finding.sev-Info{border-left-color:var(--info)}
+.fhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fid{font-size:12px;font-weight:800;letter-spacing:.5px;color:var(--accent);background:#0e1830;border:1px solid var(--border2);padding:2px 8px;border-radius:7px}
+.ftitle{font-size:15px;font-weight:700}
+.spacer{flex:1}
+.fmeta{font-size:11.5px;color:var(--muted2);margin:8px 0 14px;display:flex;gap:12px;flex-wrap:wrap}
+.fmeta b{color:var(--muted)}
+.quad{display:grid;grid-template-columns:1fr 1fr;gap:12px 22px}
+.quad .q h5{margin:0 0 4px;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.quad .q.threat h5{color:var(--high)} .quad .q.blast h5{color:var(--crit)}
+.quad .q.cause h5{color:var(--doing)} .quad .q.sol h5{color:var(--done)}
+.quad .q p{margin:0;font-size:12.8px;line-height:1.5;color:var(--text)}
+.faction{margin-top:14px;font-size:12.5px;background:#0e1830;border:1px solid var(--border2);border-radius:8px;padding:9px 12px;color:var(--text)}
+.faction b{color:var(--accent)}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.6px;
+  padding:9px 10px;border-bottom:1px solid var(--border2);position:sticky;top:0;background:var(--panel)}
+td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr.clk{cursor:pointer} tr.clk:hover td{background:var(--panel2)}
+.scroll{max-height:520px;overflow:auto;border:1px solid var(--border);border-radius:12px}
+.detail td{background:var(--panel2)}
+
+/* charts */
+.charts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.donutcard{text-align:center}.donutcard h3{font-size:13px;margin:0 0 10px}
+.dlegend{font-size:11px;color:var(--muted);text-align:left;margin-top:10px;line-height:1.8}
+.dlegend b{color:var(--text)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.filelist{font-size:11px;color:var(--muted);font-family:"Cascadia Code",Consolas,monospace;line-height:1.6;margin-top:4px}
+
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.charts,.three{grid-template-columns:1fr}.two{grid-template-columns:1fr}.quad{grid-template-columns:1fr}}
+@media(max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">S</div>
+      <div>
+        <h1>Docmee - Security Command Center</h1>
+        <div class="sub" id="tagline"></div>
+      </div>
+    </div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <div id="banners"></div>
+  <nav class="tabs" id="tabs"></nav>
+
+  <div id="view-overview"></div>
+  <div id="view-plan" class="hidden"></div>
+  <div id="view-findings" class="hidden"></div>
+  <div id="view-code" class="hidden"></div>
+  <div id="view-watch" class="hidden"></div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const DATA = /*__SECDATA__*/null;
+const NS="http://www.w3.org/2000/svg";
+function elns(tag,attrs,txt){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(txt!=null)e.textContent=txt;return e;}
+function h(html){const t=document.createElement("template");t.innerHTML=html.trim();return t.content.firstElementChild;}
+function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function polar(cx,cy,r,a){const rad=(a-90)*Math.PI/180;return[cx+r*Math.cos(rad),cy+r*Math.sin(rad)];}
+function arc(cx,cy,r,a0,a1){const[x0,y0]=polar(cx,cy,r,a0),[x1,y1]=polar(cx,cy,r,a1);const big=(a1-a0)%360>180?1:0;return`M${x0} ${y0}A${r} ${r} 0 ${big} 1 ${x1} ${y1}`;}
+function sevClass(s){s=(s||"").toLowerCase();if(s.includes("crit"))return"c-crit";if(s.includes("med-high")||s.includes("medium-high"))return"c-high";if(s.startsWith("high"))return"c-high";if(s.includes("info"))return"c-info";if(s.includes("med"))return"c-med";if(s.includes("low"))return"c-low";return"c-pend";}
+function assessClass(a){a=(a||"").toLowerCase();return a==="action"?"c-action":a==="watch"?"c-watch":a==="holds"?"c-holds":"c-pend";}
+function assessLabel(a){return a==="action"?"Action needed":a==="watch"?"Watchlist":a==="holds"?"Verified / holds":a;}
+function confClass(n){return n>=8?"conf-hi":n>=5?"conf-mid":"conf-lo";}
+
+function donut(segments,size){size=size||150;const cx=size/2,cy=size/2,r=size/2-8;const tot=segments.reduce((a,b)=>a+b.value,0)||1;
+  const s=elns("svg",{viewBox:`0 0 ${size} ${size}`,width:size,height:size});let a=0;
+  segments.forEach(seg=>{const sweep=seg.value/tot*359.999;if(seg.value<=0)return;s.appendChild(elns("path",{d:arc(cx,cy,r,a,a+sweep),fill:"none",stroke:seg.color,"stroke-width":18}));a+=sweep;});
+  s.appendChild(elns("text",{x:cx,y:cy-2,"text-anchor":"middle","font-size":26,"font-weight":800,fill:"#e8eef8"},tot));
+  s.appendChild(elns("text",{x:cx,y:cy+16,"text-anchor":"middle","font-size":10,fill:"#8a9bb8"},"findings"));return s;}
+function hbars(rows){const max=Math.max(...rows.map(r=>r.value),1);const w=520,rh=26,hh=rows.length*rh+6;
+  const s=elns("svg",{viewBox:`0 0 ${w} ${hh}`,width:"100%",height:hh});
+  rows.forEach((r,i)=>{const y=i*rh+4,bw=(w-160)*r.value/max;
+    s.appendChild(elns("text",{x:0,y:y+15,"font-size":12,fill:"#8a9bb8"},r.label));
+    s.appendChild(elns("rect",{x:130,y:y+3,width:w-160,height:14,rx:7,fill:"#1b2740"}));
+    s.appendChild(elns("rect",{x:130,y:y+3,width:Math.max(2,bw),height:14,rx:7,fill:r.color}));
+    s.appendChild(elns("text",{x:w-18,y:y+15,"font-size":12,"font-weight":700,fill:"#e8eef8","text-anchor":"end"},r.value));});
+  return s;}
+function confBars(hist){const keys=[...Array(11).keys()];const max=Math.max(...keys.map(k=>hist[k]||0),1);
+  const w=520,h=160,base=h-26,bw=(w-20)/11-8;const s=elns("svg",{viewBox:`0 0 ${w} ${h}`,width:"100%",height:h});
+  keys.forEach(k=>{const v=hist[k]||0;const x=10+k*((w-20)/11);const bh=v/max*(base-14);
+    const col=k>=8?"var(--done)":k>=5?"var(--doing)":"var(--crit)";
+    s.appendChild(elns("rect",{x,y:base-bh,width:bw,height:Math.max(v?3:0,bh),rx:4,fill:col}));
+    if(v)s.appendChild(elns("text",{x:x+bw/2,y:base-bh-5,"text-anchor":"middle","font-size":11,"font-weight":700,fill:"#e8eef8"},v));
+    s.appendChild(elns("text",{x:x+bw/2,y:base+14,"text-anchor":"middle","font-size":10,fill:"#8a9bb8"},k));});
+  s.appendChild(elns("line",{x1:10,y1:base,x2:w-10,y2:base,stroke:"#22304a"}));
+  return s;}
+
+/* ---- finding card (four-part framework) ---- */
+function findingCard(f){
+  const c=h(`<div class="finding sev-${(f.severity||'Medium').replace(/ /g,'-')}"></div>`);
+  const conf=parseInt(f.confidence||0);
+  c.appendChild(h(`<div class="fhead">
+    <span class="fid">${esc(f.id)}</span>
+    <span class="ftitle">${esc(f.title)}</span>
+    <span class="spacer"></span>
+    <span class="conf ${confClass(conf)}">conf <span class="n">${conf}</span>/10</span>
+    <span class="chip ${sevClass(f.severity)}">${esc(f.severity||'')}</span>
+    <span class="chip ${assessClass(f.assessment)}">${assessLabel(f.assessment)}</span>
+  </div>`));
+  const meta=[];
+  if(f.category)meta.push(`<span><b>${esc(f.category)}</b></span>`);
+  if(f.owner)meta.push(`<span>owner: ${esc(f.owner)}</span>`);
+  if(f.phase)meta.push(`<span>phase: ${esc(f.phase)}</span>`);
+  if(f.file)meta.push(`<span>file: <code>${esc(f.file)}</code></span>`);
+  if(f.tracker_status)meta.push(`<span>tracker: ${esc(f.tracker_status)}</span>`);
+  c.appendChild(h(`<div class="fmeta">${meta.join("")}</div>`));
+  if(!f.lightweight){
+    c.appendChild(h(`<div class="quad">
+      <div class="q threat"><h5>1 - Potential Threat</h5><p>${esc(f.threat)}</p></div>
+      <div class="q blast"><h5>2 - Blast Radius</h5><p>${esc(f.blast)}</p></div>
+      <div class="q cause"><h5>3 - Cause</h5><p>${esc(f.cause)}</p></div>
+      <div class="q sol"><h5>4 - Potential Solution</h5><p>${esc(f.solution)}</p></div>
+    </div>`));
+  } else {
+    c.appendChild(h(`<div class="quad"><div class="q"><p>${esc(f.threat)}</p></div></div>`));
+  }
+  if(f.action)c.appendChild(h(`<div class="faction"><b>&#9656; Recommended next step:</b> ${esc(f.action)}</div>`));
+  return c;
+}
+
+/* ---- header + banners ---- */
+function renderHeader(){
+  document.getElementById("tagline").textContent=DATA.project.tagline;
+  const fr=DATA.freshness;
+  document.getElementById("meta").innerHTML=
+    `<div><span class="pill live">&#9679; ${DATA.headline.action} action item(s) &#8805; conf 8</span></div>`+
+    `<div style="margin-top:6px"><span class="pill">branch: ${esc(DATA.project.branch)}</span><span class="pill">HEAD ${esc(DATA.project.head)}</span></div>`+
+    `<div style="margin-top:6px">Audited ${esc(fr.audit_date)} @ ${esc(fr.audit_head)} &middot; data refreshed ${esc(DATA.generated)}</div>`+
+    `<div class="arbar"><button class="arbtn" id="ar-toggle"></button><button class="arbtn" id="ar-int"></button>`+
+    `<button class="arbtn" id="ar-now" title="Reload now">&#8635;</button><span class="arcd" id="ar-cd"></span></div>`;
+  setupAutoRefresh();
+
+  const b=document.getElementById("banners");b.innerHTML="";
+  if(fr.code_changed_since_audit || fr.be_fe_files>0){
+    let msg=`<b>&#9888; Code changed since the last deep AI audit.</b> `;
+    if(fr.code_changed_since_audit)msg+=`monorepo HEAD is <b>${esc(fr.monorepo_head)}</b> vs audit <b>${esc(fr.audit_head)}</b>. `;
+    if(fr.be_fe_files>0)msg+=`Backend/Frontend now holds <b>${fr.be_fe_files}</b> code file(s). `;
+    msg+=`The data + heuristic scan below are current, but the AI findings reflect the audited commit &mdash; <b>request a deep re-audit</b> (see footer) to refresh confidence ratings.`;
+    b.appendChild(h(`<div class="banner warn">${msg}</div>`));
+  }
+  if(DATA.headline.drift>0){
+    b.appendChild(h(`<div class="banner warn"><b>&#9888; ${DATA.headline.drift} tracker status change(s)</b> since audit &mdash; see the Code &amp; Scan tab. A finding's recommended action may no longer match the tracker.</div>`));
+  }
+  if(DATA.headline.unanalyzed>0){
+    b.appendChild(h(`<div class="banner warn"><b>&#9888; ${DATA.headline.unanalyzed} new tracker item(s)</b> not yet analyzed &mdash; see the Code &amp; Scan tab. Re-audit to cover them.</div>`));
+  }
+  if(!fr.code_changed_since_audit && DATA.headline.drift===0 && DATA.headline.unanalyzed===0){
+    b.appendChild(h(`<div class="banner ok"><b>&#10003; In sync.</b> AI findings match the audited commit; no tracker drift and no unanalyzed items detected this run.</div>`));
+  }
+  document.getElementById("foot").innerHTML=
+    `Source: <b>findings.json</b> (authored AI analysis) cross-checked against <b>docmee-trackers.xlsx</b> + live code scan + monorepo git.<br>`+
+    `Mechanical refresh (data + scan): <code>python build_security_dashboard.py</code> &mdash; runs hourly via the scheduled task. `+
+    `Deep AI re-audit (refresh confidence/ratings on new BE/FE code): re-run the security advisor, which rewrites findings.json.`;
+}
+
+const TABS=[["overview","Overview",()=>""],["plan","Action Plan",()=>DATA.headline.action],
+            ["findings","All Findings",()=>DATA.headline.total],["code","Code & Scan",()=>DATA.headline.code_hits],
+            ["watch","Watchlist",()=>DATA.headline.watchlist]];
+let CURRENT="overview";
+function renderTabs(){const nav=document.getElementById("tabs");nav.innerHTML="";
+  TABS.forEach(([id,label,cnt])=>{const b=document.createElement("button");
+    b.innerHTML=label+(cnt()!==""?`<span class="cnt">${cnt()}</span>`:"");b.className=id===CURRENT?"active":"";
+    b.onclick=()=>{CURRENT=id;show();};nav.appendChild(b);});}
+function show(){TABS.forEach(([id])=>document.getElementById("view-"+id).classList.add("hidden"));
+  document.getElementById("view-"+CURRENT).classList.remove("hidden");renderTabs();window.scrollTo({top:0,behavior:"smooth"});}
+
+/* ---- OVERVIEW ---- */
+function viewOverview(){
+  const H=DATA.headline,root=document.getElementById("view-overview");root.innerHTML="";
+  const kpis=[
+    [H.total,"Findings tracked","SEC + risks + code"],
+    [H.action,"Action plan","confidence &#8805; 8"],
+    [H.critical_high_open,"Critical/High open","need attention"],
+    [H.code_hits,"Code-scan flags","heuristic, this run"],
+    [H.holds,"Verified / holds","controls confirmed"],
+    [H.watchlist,"Watchlist","conf &lt; 8"],
+  ];
+  const k=h(`<div class="kpis"></div>`);
+  kpis.forEach(([v,l,s])=>k.appendChild(h(`<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div><div class="s">${s}</div></div>`)));
+  root.appendChild(k);
+
+  const charts=h(`<div class="charts"></div>`);
+  // priority
+  const c1=h(`<div class="panel"><h2>By severity</h2><p class="desc">All tracked findings.</p></div>`);
+  c1.appendChild(hbars([
+    {label:"Critical",value:DATA.prio_counts["Critical"]||0,color:"var(--crit)"},
+    {label:"High",value:DATA.prio_counts["High"]||0,color:"var(--high)"},
+    {label:"Medium-High",value:DATA.prio_counts["Medium-High"]||0,color:"var(--med)"},
+    {label:"Medium",value:DATA.prio_counts["Medium"]||0,color:"var(--med)"},
+    {label:"Low",value:DATA.prio_counts["Low"]||0,color:"var(--low)"},
+    {label:"Info",value:DATA.prio_counts["Info"]||0,color:"var(--info)"},
+  ]));charts.appendChild(c1);
+  // confidence histogram
+  const c2=h(`<div class="panel"><h2>Confidence distribution</h2><p class="desc">Green &#8805; 8 enters the action plan; amber 5-7 is watchlisted.</p></div>`);
+  c2.appendChild(confBars(DATA.conf_hist));charts.appendChild(c2);
+  // assessment donut
+  const c3=h(`<div class="panel donutcard"><h2 style="text-align:left">By disposition</h2></div>`);
+  const segs=[
+    {label:"Action needed",value:DATA.assess_counts["action"]||0,color:"var(--sec)"},
+    {label:"Verified / holds",value:DATA.assess_counts["holds"]||0,color:"var(--done)"},
+    {label:"Watchlist",value:DATA.assess_counts["watch"]||0,color:"var(--doing)"},
+  ];
+  c3.appendChild(donut(segs,150));
+  const leg=h(`<div class="dlegend"></div>`);
+  segs.forEach(s=>leg.appendChild(h(`<div><span class="dot" style="background:${s.color}"></span><b>${s.value}</b> ${esc(s.label)}</div>`)));
+  c3.appendChild(leg);charts.appendChild(c3);
+  root.appendChild(charts);
+
+  // top action items preview + git
+  const row=h(`<div class="grid" style="grid-template-columns:1.5fr 1fr;gap:16px;margin-top:16px"></div>`);
+  const left=h(`<div class="panel"><h2>Top action items <span class="tag">highest severity, confidence &#8805; 8</span></h2><p class="desc">Full four-part detail on the Action Plan tab.</p></div>`);
+  DATA.action_plan.slice(0,5).forEach(f=>{
+    left.appendChild(h(`<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span class="fid">${esc(f.id)}</span><span style="flex:1;font-size:13px">${esc(f.title)}</span>
+      <span class="chip ${sevClass(f.severity)}">${esc(f.severity)}</span>
+      <span class="conf ${confClass(parseInt(f.confidence))}">${f.confidence}</span></div>`));
+  });
+  row.appendChild(left);
+  const right=h(`<div class="panel"><h2>Repository</h2><p class="desc">monorepo &middot; branch <b>${esc(DATA.git.branch)}</b></p>
+     <div class="scroll" style="max-height:230px"><table><thead><tr><th>Commit</th><th>Date</th><th>Subject</th></tr></thead><tbody id="ov-c"></tbody></table></div></div>`);
+  row.appendChild(right);root.appendChild(row);
+  const cb=right.querySelector("#ov-c");
+  DATA.git.commits.forEach(c=>cb.appendChild(h(`<tr><td><code>${esc(c.hash)}</code></td><td class="muted">${esc(c.date)}</td><td>${esc(c.subject)}</td></tr>`)));
+}
+
+/* ---- ACTION PLAN ---- */
+function viewPlan(){
+  const root=document.getElementById("view-plan");root.innerHTML="";
+  const p=h(`<div class="panel"><h2>Action Plan <span class="tag">${DATA.action_plan.length} items &middot; confidence &#8805; 8 &middot; sorted by severity</span></h2>
+    <p class="desc">Every item below is something I am at least 80% confident is real and that the stated fix is correct. Each uses the four-part framework: <b style="color:var(--high)">Threat</b> &middot; <b style="color:var(--crit)">Blast Radius</b> &middot; <b style="color:var(--doing)">Cause</b> &middot; <b style="color:var(--done)">Solution</b>.</p>
+    <div id="plan-cards"></div></div>`);
+  root.appendChild(p);
+  const box=p.querySelector("#plan-cards");
+  if(!DATA.action_plan.length){box.appendChild(h(`<p class="muted">No action items at confidence &#8805; 8 this run.</p>`));}
+  DATA.action_plan.forEach(f=>box.appendChild(findingCard(f)));
+}
+
+/* ---- ALL FINDINGS ---- */
+function viewFindings(){
+  const root=document.getElementById("view-findings");root.innerHTML="";
+  const p=h(`<div class="panel"><h2>All findings <span class="tag">${DATA.findings.length} &middot; click a row for the full four-part detail</span></h2>
+    <div class="scroll"><table><thead><tr><th>ID</th><th>Severity</th><th>Category</th><th>Finding</th><th>Conf</th><th>Disposition</th><th>Tracker status</th></tr></thead><tbody id="fb"></tbody></table></div></div>`);
+  root.appendChild(p);
+  const tb=p.querySelector("#fb");
+  DATA.findings.forEach((f,i)=>{
+    const tr=h(`<tr class="clk"><td><b>${esc(f.id)}</b></td><td><span class="chip ${sevClass(f.severity)}">${esc(f.severity||'')}</span></td>
+      <td class="muted">${esc(f.category||'')}</td><td>${esc(f.title)}</td>
+      <td><span class="conf ${confClass(parseInt(f.confidence))}">${f.confidence}</span></td>
+      <td><span class="chip ${assessClass(f.assessment)}">${assessLabel(f.assessment)}</span></td>
+      <td class="muted">${esc(f.tracker_status||'')}</td></tr>`);
+    const det=h(`<tr class="detail hidden"><td colspan="7"></td></tr>`);
+    det.firstElementChild.appendChild(findingCard(f));
+    tr.onclick=()=>det.classList.toggle("hidden");
+    tb.appendChild(tr);tb.appendChild(det);
+  });
+}
+
+/* ---- CODE & SCAN ---- */
+function viewCode(){
+  const root=document.getElementById("view-code");root.innerHTML="";
+  const fr=DATA.freshness;
+  const top=h(`<div class="panel"><h2>Live code scan <span class="tag">heuristic patterns &middot; re-run every refresh</span></h2>
+    <p class="desc">Scanned <b>${fr.files_scanned}</b> source files across monorepo apps/packages, Backend, and Frontend.
+    Counts are <b>signals to review</b>, not confirmed vulnerabilities. Dir file counts:
+    apps=${DATA.dir_counts.apps||0}, packages=${DATA.dir_counts.packages||0},
+    Backend=${DATA.dir_counts.Backend||0}, Frontend=${DATA.dir_counts.Frontend||0}.</p>
+    <div class="scroll" style="max-height:none"><table><thead><tr><th>Pattern</th><th>Hits</th><th>Files (sample)</th></tr></thead><tbody id="sc"></tbody></table></div></div>`);
+  root.appendChild(top);
+  const sb=top.querySelector("#sc");
+  DATA.scan.forEach(s=>{
+    const cls=s.count>0?(s.label.includes("Console")?"c-watch":"c-action"):"c-holds";
+    sb.appendChild(h(`<tr><td>${esc(s.label)}</td><td><span class="chip ${cls}">${s.count}</span></td>
+      <td><div class="filelist">${s.files.map(esc).join("<br>")||'&mdash;'}</div></td></tr>`));
+  });
+
+  // code findings (AI-authored)
+  const cf=DATA.findings.filter(f=>f.source==="code");
+  const cp=h(`<div class="panel" style="margin-top:16px"><h2>Code findings <span class="tag">AI-authored, from reading the scaffold</span></h2><div id="cfb"></div></div>`);
+  root.appendChild(cp);
+  const cfb=cp.querySelector("#cfb");
+  if(!cf.length)cfb.appendChild(h(`<p class="muted">No code findings yet.</p>`));
+  cf.forEach(f=>cfb.appendChild(findingCard(f)));
+
+  // drift + unanalyzed
+  const dr=h(`<div class="two" style="margin-top:16px"></div>`);
+  const d1=h(`<div class="panel"><h2>Tracker drift <span class="tag">status changed since audit</span></h2></div>`);
+  if(DATA.drift.length){const t=h(`<div class="scroll" style="max-height:none"><table><thead><tr><th>ID</th><th>Was (audited)</th><th>Now (tracker)</th></tr></thead><tbody></tbody></table></div>`);
+    const tb=t.querySelector("tbody");DATA.drift.forEach(d=>tb.appendChild(h(`<tr><td><b>${esc(d.id)}</b> ${esc(d.title)}</td><td class="muted">${esc(d.was)}</td><td><span class="chip c-watch">${esc(d.now)}</span></td></tr>`)));d1.appendChild(t);}
+  else d1.appendChild(h(`<p class="muted">No drift &mdash; audited statuses match the live tracker.</p>`));
+  dr.appendChild(d1);
+  const d2=h(`<div class="panel"><h2>Unanalyzed tracker items <span class="tag">no finding yet</span></h2></div>`);
+  if(DATA.unanalyzed.length){const t=h(`<div class="scroll" style="max-height:none"><table><thead><tr><th>ID</th><th>Kind</th><th>Title</th></tr></thead><tbody></tbody></table></div>`);
+    const tb=t.querySelector("tbody");DATA.unanalyzed.forEach(u=>tb.appendChild(h(`<tr><td><b>${esc(u.id)}</b></td><td class="muted">${esc(u.kind)}</td><td>${esc(u.title)}</td></tr>`)));d2.appendChild(t);}
+  else d2.appendChild(h(`<p class="muted">All tracker security + risk items have a finding.</p>`));
+  dr.appendChild(d2);root.appendChild(dr);
+}
+
+/* ---- WATCHLIST ---- */
+function viewWatch(){
+  const root=document.getElementById("view-watch");root.innerHTML="";
+  const p=h(`<div class="panel"><h2>Watchlist <span class="tag">confidence &lt; 8 &mdash; real, but not yet action-plan grade</span></h2>
+    <p class="desc">These are genuine items I am deliberately <b>not</b> putting in the action plan: either residual uncertainty, dependence on code not yet built, or a legal/external input still open. Shown for transparency so nothing is silently dropped.</p>
+    <div id="wb"></div></div>`);
+  root.appendChild(p);
+  const box=p.querySelector("#wb");
+  if(!DATA.watchlist.length)box.appendChild(h(`<p class="muted">Nothing on the watchlist.</p>`));
+  DATA.watchlist.forEach(f=>box.appendChild(findingCard(f)));
+}
+
+/* ---- auto-refresh (reloads the regenerated file) ---- */
+const ARKEY="sec-dashboard-ar";const AR_OPTS=[300,900,1800,3600];
+let AR;try{AR=JSON.parse(localStorage.getItem(ARKEY));}catch(e){}
+if(!AR||typeof AR.on!=="boolean")AR={on:false,sec:3600};
+let arLeft=AR.sec,arTimer=null;
+function fmtSec(s){return s<3600?(s/60)+"m":(s/3600)+"h";}
+function setupAutoRefresh(){
+  const tg=document.getElementById("ar-toggle"),it=document.getElementById("ar-int"),nw=document.getElementById("ar-now"),cd=document.getElementById("ar-cd");
+  function paint(){tg.textContent=(AR.on?"● ":"○ ")+"Auto-reload "+(AR.on?"On":"Off");tg.className="arbtn "+(AR.on?"on":"off");
+    it.textContent="every "+fmtSec(AR.sec);it.style.display=AR.on?"":"none";cd.textContent=AR.on?("reloads in "+Math.ceil(arLeft/60)+"m"):"";}
+  function save(){localStorage.setItem(ARKEY,JSON.stringify(AR));}
+  tg.onclick=()=>{AR.on=!AR.on;arLeft=AR.sec;save();paint();};
+  it.onclick=()=>{AR.sec=AR_OPTS[(AR_OPTS.indexOf(AR.sec)+1)%AR_OPTS.length];arLeft=AR.sec;save();paint();};
+  nw.onclick=()=>location.reload();
+  if(arTimer)clearInterval(arTimer);
+  arTimer=setInterval(()=>{if(!AR.on)return;arLeft--;if(arLeft<=0){location.reload();return;}paint();},1000);
+  paint();
+}
+
+/* ---- boot ---- */
+renderHeader();renderTabs();
+viewOverview();viewPlan();viewFindings();viewCode();viewWatch();show();
+</script>
+</body>
+</html>

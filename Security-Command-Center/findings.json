@@ -1,0 +1,353 @@
+{
+  "meta": {
+    "auditor": "Senior Cyber-Security Advisor (Claude)",
+    "audit_date": "2026-06-14",
+    "audit_head": "62bae10",
+    "audit_branch": "feat/sprint0-fe-scaffold",
+    "last_reaudit": "2026-06-14 — re-audited Prime's Sprint-0 backend scaffold (62bae10): packages/core/{logger,env,errors}.ts, packages/db/{index,rls.test}.ts. Updated SEC01/SEC03/SEC11/SEC16; added CODE-04/CODE-05.",
+    "framework": "Threat / Blast Radius / Cause / Solution + Confidence",
+    "confidence_scale": "0-10. >=8 = high-confidence, actionable now (enters the Action Plan). 5-7 = real but residual uncertainty or depends on not-yet-built code (Watchlist). <5 = speculative.",
+    "action_threshold": 8,
+    "note": "findings.json is the authored AI analysis and the source of truth for advice. The generator cross-checks it against the live tracker (drift/new items) and scans the live code each run. Re-audit (refresh) regenerates this file."
+  },
+  "findings": [
+    {
+      "id": "SEC06", "source": "tracker", "category": "Third-Party / Data Egress", "owner": "Prime + Legal",
+      "title": "PHI sent to third-party LLM / ASR providers", "severity": "High",
+      "tracker_status": "Open - review needed", "assessment": "action", "confidence": 9, "phase": "1A",
+      "threat": "Protected health information (patient names, symptoms, voice notes) is forwarded to external LLM and speech-to-text processors. Without a signed data-processing agreement and a no-training guarantee, that PHI can be retained, used to train models, or sub-processed beyond Docmee's control - a data-protection and confidentiality breach.",
+      "blast": "Systemic per provider: every clinic's prompted PHI flowing through the shared provider account. Not a single session - the exposure is the whole inbound stream that reaches the model/ASR.",
+      "cause": "LLM/ASR are inherently external processors and PHI minimization is a build-time discipline that is not yet enforced. No DPA / no-train terms are confirmed (SEC06 is the one open SEC06 decision called out in SPRINT-0).",
+      "solution": "Close the SEC06 decision before any real patient traffic: (1) sign provider DPAs with explicit no-training + retention-limit terms; (2) minimize PHI in prompts - strip/tokenize identifiers, send only what the KB-grounded answer needs; (3) for sensitive clinics, offer the self-hosted LLM path (FI2). Gate Phase 1A go-live on this.",
+      "action": "Resolve the SEC06 provider decision (DPA + no-train) and add a PHI-minimization checklist to the prompt-builder before 1A ships."
+    },
+    {
+      "id": "SEC14", "source": "tracker", "category": "Infrastructure / Backups", "owner": "Prime / Ops",
+      "title": "Backup security - PHI in backups", "severity": "High",
+      "tracker_status": "Open - X12 before real patients", "assessment": "action", "confidence": 9, "phase": "0 / Pilot Gate",
+      "threat": "Database/file backups contain decrypted-recoverable PHI. Unencrypted or loosely-permissioned backups are a classic exfiltration target - stealing a backup yields the entire patient corpus with none of the app-layer access controls.",
+      "blast": "Catastrophic: a single backup artifact = all clinics' PHI at rest, outside RLS and outside the app's audit trail.",
+      "cause": "Single-VPS deployment with backups not yet hardened. No confirmed encryption-at-rest for backups, access control, or tested recovery (tracked as X12, explicitly required before real patients).",
+      "solution": "Implement X12 before the Pilot Gate: encrypt backups at rest (separate key from the live envelope key), store off-host with least-privilege access, log every access, and run a tested restore drill. Treat 'tested recovery' as a hard gate item, not a checkbox.",
+      "action": "Land X12 (encrypted, access-controlled, restore-tested backups) and make it a blocking Pilot-Launch-Gate criterion."
+    },
+    {
+      "id": "SEC16", "source": "tracker", "category": "Compliance / Logging", "owner": "Prime + Alpha",
+      "title": "PHI in logs / URLs", "severity": "Medium-High",
+      "tracker_status": "Open - build-time discipline", "assessment": "action", "confidence": 9, "phase": "all",
+      "threat": "PHI leaking into application logs, error traces, or URL query strings. Logs are widely readable (ops, aggregators, third-party log SaaS) and URLs end up in browser history, proxies, and referer headers - turning a low-privilege surface into a PHI disclosure.",
+      "blast": "Medium and cross-cutting: anyone with log access, plus any intermediary that sees URLs. Grows with every new endpoint and log line that is not disciplined.",
+      "cause": "A sanctioned redacting logger now exists (packages/core/src/logger.ts - pino with redact paths for password/token/authorization/secret/phone/content/body/email/special_notes/raw_payload, plus a no-console lint), which closes the biggest gap. Residual: redaction covers only top-level and one-level-nested keys (paths = key and *.key), so deeply-nested PHI, PHI inside arrays, PHI passed as a free-text log message, and PHI in URLs/query strings are still not covered structurally.",
+      "solution": "Build on the new logger rather than start over: (1) extend redaction to arbitrary depth/arrays (pino wildcard paths or a serializer that walks objects) - see CODE-04; (2) keep all identifiers out of URLs/query strings and add a CI/lint check for PHI-in-URL; (3) enforce by review that raw patient content is never the log message, since key-based redaction cannot catch free-text. The logger + no-console lint is a strong base and meaningfully reduces this from where it was.",
+      "action": "Deepen logger redaction (CODE-04) + add a PHI-in-URL CI check; the core redaction control already landed in logger.ts (62bae10)."
+    },
+    {
+      "id": "SEC22", "source": "tracker", "category": "Supply Chain", "owner": "Prime + Alpha",
+      "title": "Dependency / supply-chain vulnerability", "severity": "Medium",
+      "tracker_status": "Open - recommended", "assessment": "action", "confidence": 9, "phase": "Sprint 0+",
+      "threat": "A vulnerable or malicious npm/pip dependency (or a compromised Evolution gateway build) executes code in the API/worker - the supply-chain route to RCE and credential/PHI theft that bypasses every app-layer control.",
+      "blast": "Medium-to-high: a transitive dep running in the API process inherits its secrets and DB access. With a single VPS, that is effectively host-level.",
+      "cause": "No automated vulnerability scanning or update cadence wired into CI yet. Lockfiles exist (pnpm-lock.yaml present - good) but are not yet paired with audit gating or Dependabot, and the Evolution version is not pinned/vetted.",
+      "solution": "Cheap, high-value, and actionable today: add `pnpm audit` / `pip audit` to CI as a failing gate on high/critical, enable Dependabot (or Renovate) with a review cadence, pin and periodically re-vet the Evolution gateway version, and consider provenance checks. This is the lowest-effort item with real RCE-class payoff.",
+      "action": "Wire dependency vuln-scanning into .github/workflows/ci.yml and enable automated update PRs this sprint."
+    },
+    {
+      "id": "SEC18", "source": "tracker", "category": "Network / Availability", "owner": "Prime",
+      "title": "API rate limiting / DoS", "severity": "Medium",
+      "tracker_status": "Open - recommended", "assessment": "action", "confidence": 8, "phase": "Pilot Gate",
+      "threat": "No per-source rate limiting means a flood of requests or junk webhooks can exhaust the single VPS, and unauthenticated webhook endpoints can be abused to drive queue/work amplification - an availability (and cost) attack.",
+      "blast": "Medium: availability of the whole single-node deployment; degraded service for every clinic at once.",
+      "cause": "Rate limiting and webhook early-drop are not yet implemented; the architecture is single-VPS so there is no upstream shield.",
+      "solution": "Add per-source rate limiting at the edge/app, drop invalid webhooks before signature-heavy work (cheap checks first), and apply queue backpressure so a spike cannot unbounded-grow the worker backlog. Scope for the Pilot Launch Gate (SEC18 is already slated there).",
+      "action": "Implement per-source rate limiting + webhook early-drop as a Pilot-Gate item."
+    },
+    {
+      "id": "SEC04", "source": "tracker", "category": "Third-Party / Transport", "owner": "Prime",
+      "title": "PHI through unofficial WhatsApp gateway (Evolution)", "severity": "High",
+      "tracker_status": "Mitigated (interim); cutover planned", "assessment": "action", "confidence": 9, "phase": "1A / 2B",
+      "threat": "Routing patient messages through the unofficial Evolution gateway places PHI in transit through software outside Meta's official, supported path - higher risk of interception, instability, or account action, and weaker security assurances than the Cloud API.",
+      "blast": "High: WhatsApp PHI in transit for every clinic still on the interim gateway.",
+      "cause": "Evolution is a deliberate, bounded interim to unblock WhatsApp before official Meta Cloud API onboarding completes per clinic.",
+      "solution": "Keep the interim strictly bounded and supervised, and execute the per-clinic cutover to the official Meta Cloud API (R7, X9/X10) on a defined timeline. Track each clinic's cutover state; do not let 'interim' become permanent.",
+      "action": "Hold the cutover schedule (X9/X10) and surface per-clinic gateway status so no clinic runs on Evolution past its bound."
+    },
+    {
+      "id": "SEC13", "source": "tracker", "category": "Infrastructure", "owner": "Ops",
+      "title": "Single-VPS host compromise", "severity": "Medium-High",
+      "tracker_status": "Partial - hardening needed", "assessment": "action", "confidence": 8, "phase": "0 / Pilot Gate",
+      "threat": "Everything runs on one VPS: API, worker, DB, keys. Host compromise (unpatched service, weak SSH, over-broad privileges) yields the entire deployment - app controls and RLS are irrelevant once you own the box.",
+      "blast": "Catastrophic for the deployment: all clinics, all PHI, all keys on a single host.",
+      "cause": "Single-node topology (redundancy deferred to X13) with host hardening only partially done.",
+      "solution": "Harden now even though redundancy is later: least-privilege OS users, locked-down SSH (keys only, no root login), automated patch management, a host firewall exposing only 443, and encrypted backups (X12). Plan the second node / redundancy (X13, R8) post-pilot, but the hardening is a pilot prerequisite.",
+      "action": "Complete host hardening + patch automation before pilot; keep X13 redundancy on the post-pilot roadmap."
+    },
+    {
+      "id": "SEC17", "source": "tracker", "category": "Auth / Session", "owner": "Prime + Alpha",
+      "title": "JWT / session security", "severity": "Medium-High",
+      "tracker_status": "Locked (scope) + build discipline", "assessment": "action", "confidence": 8, "phase": "0",
+      "threat": "Weak session handling - long-lived or broadly-scoped JWTs, tokens readable by client JS, no rotation/revocation on role change - lets a stolen token be replayed for its full lifetime, escalating a single XSS or leak into sustained account access.",
+      "blast": "Medium: a single user/clinic session per stolen token; broader if many tokens share a weakness.",
+      "cause": "Real credential exchange is not built yet (Sprint-0 is mock-first). The scaffold already does the right things (HS256, 8h expiry, clinicId only from the token, generic 401), but token storage and revocation are still to land - see CODE-01.",
+      "solution": "When real /auth/login lands in Phase 0: set the session cookie server-side as HttpOnly + Secure + SameSite (so JS cannot read it - closes CODE-01), keep JWTs short-lived and scoped, rotate on privilege change, and add a revocation path (deny-list or short TTL + refresh). The verify/claims discipline already in token.ts is a good base.",
+      "action": "At Phase-0 real auth: move the token to a server-set HttpOnly cookie and add rotate/revoke-on-role-change."
+    },
+    {
+      "id": "SEC01", "source": "tracker", "category": "Tenant Isolation", "owner": "Prime",
+      "title": "Cross-tenant RLS carve-out leak", "severity": "Critical",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 9, "phase": "0",
+      "threat": "A flaw in row-level-security scoping (or an admin carve-out used wrongly) leaks one clinic's PHI to another - the worst-case multi-tenant failure.",
+      "blast": "Catastrophic: all clinics' PHI exposed/crossed.",
+      "cause": "Multi-tenant single-DB with RLS; risk lives in any code path that bypasses clinic context.",
+      "solution": "Design is strong and locked, and now declared in code: packages/db/src/index.ts defines withClinicContext() as the RLS chokepoint (SET LOCAL app.clinic_id) with the raw pool kept PRIVATE to the package and a single audited withAdminContext() as the only cross-tenant door; rls.test.ts scaffolds the isolation tests. Sustain it by keeping those RLS/tenant-isolation tests mandatory and green in CI (Phase 0) - the control is only as good as the test that proves no path skips it.",
+      "action": "Keep RLS isolation tests as a blocking CI gate; alert if the lint rule or tests are disabled."
+    },
+    {
+      "id": "SEC02", "source": "tracker", "category": "Encryption / Keys", "owner": "Prime",
+      "title": "Master encryption key compromise", "severity": "Critical",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 8, "phase": "0",
+      "threat": "Compromise of the master encryption key exposes all PHI at rest.",
+      "blast": "Catastrophic: all PHI at rest.",
+      "cause": "Single master key protects field-level encryption; its custody is the crux.",
+      "solution": "Locked and sound: Supabase Vault + envelope encryption + key_version rotation + host-store fallback, with restricted key access and rotate-on-suspicion (X8). Verify the access restriction is actually enforced and document/drill the rotation runbook so it works under pressure.",
+      "action": "Confirm key-access least-privilege in prod and rehearse the X8 rotation runbook."
+    },
+    {
+      "id": "SEC03", "source": "tracker", "category": "Encryption / Keys", "owner": "Prime",
+      "title": "HMAC lookup-key leak (identity correlation)", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 8, "phase": "0",
+      "threat": "Leak of the HMAC key used for blind-index lookups lets an attacker correlate/confirm patient identities even without decrypting fields.",
+      "blast": "High: patient identity correlation across the dataset.",
+      "cause": "Deterministic lookup keys require a stable HMAC secret; sharing it with the encryption key would couple two blast radii.",
+      "solution": "Correctly mitigated (R4): a separate, long, restricted-access HMAC key independent of the encryption key. Keep the two keys in separate custody and access scopes.",
+      "action": "No action; verify the HMAC key remains separate from the encryption key in prod config."
+    },
+    {
+      "id": "SEC05", "source": "tracker", "category": "Application / Bot", "owner": "Prime",
+      "title": "Prompt injection / data exfiltration via patient input", "severity": "High",
+      "tracker_status": "Mitigated (by design)", "assessment": "holds", "confidence": 8, "phase": "1A",
+      "threat": "A patient crafts input that hijacks the bot to leak data or take unintended actions (prompt injection).",
+      "blast": "Medium-high but bounded to the current clinic/patient by RLS - injection cannot cross tenants.",
+      "cause": "LLMs follow instructions in their context; untrusted patient text shares that context.",
+      "solution": "Strong by-design posture: KB-grounded answers only (no general fallback), RLS-scoped context, DAL allowlist constrains writes, structured system prompt, deterministic gates. Add adversarial prompt-injection test cases to the pipeline tests so regressions are caught.",
+      "action": "Add a small adversarial prompt-injection test suite to the bot pipeline."
+    },
+    {
+      "id": "SEC07", "source": "tracker", "category": "Auth / Access", "owner": "Prime",
+      "title": "RBAC enforced only in UI (privilege escalation)", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 9, "phase": "2A",
+      "threat": "If roles are enforced only in the UI, a user can call the API directly and act beyond their role (within-clinic over-access).",
+      "blast": "Medium: within-clinic privilege escalation.",
+      "cause": "UI-only checks are cosmetic; the API is the real trust boundary.",
+      "solution": "Locked correctly (G18): enforce the 5-role matrix at the API/DAL, not the UI. Back it with per-role API tests that assert forbidden calls are rejected server-side.",
+      "action": "Ensure G18 ships with negative (forbidden-call) RBAC tests when 2A lands."
+    },
+    {
+      "id": "SEC08", "source": "tracker", "category": "Auth / Access", "owner": "Prime",
+      "title": "Platform impersonation abuse", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 8, "phase": "2A",
+      "threat": "A platform operator impersonates clinic users without traceability, enabling silent access to any clinic.",
+      "blast": "High: any clinic via impersonation.",
+      "cause": "Support/impersonation features are powerful by nature and need hard accountability.",
+      "solution": "Locked (G28): acted_by_platform_user_id stamp + audit + time-boxed session + platform-only gating. Keep impersonation events in the tamper-resistant audit log (SEC19) and alert on use.",
+      "action": "Verify impersonation events are audited and alertable when 2A lands."
+    },
+    {
+      "id": "SEC09", "source": "tracker", "category": "Network / Transport", "owner": "Prime",
+      "title": "Webhook spoofing (unverified inbound)", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 9, "phase": "0 / 1A",
+      "threat": "Forged inbound webhooks inject fake messages/events if signatures are not verified.",
+      "blast": "Medium: injected messages per clinic.",
+      "cause": "Public webhook endpoints accept unauthenticated POSTs unless cryptographically verified.",
+      "solution": "Locked (G06): Meta HMAC signature verification with constant-time compare + verify-challenge. Ensure missing/invalid signatures are rejected before any processing (ties to SEC18 early-drop) and that the compare is genuinely constant-time.",
+      "action": "Add a test asserting unsigned/badly-signed webhooks are rejected pre-processing."
+    },
+    {
+      "id": "SEC10", "source": "tracker", "category": "Application / Bot", "owner": "Prime",
+      "title": "Bot unauthorized data writes", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 8, "phase": "1A",
+      "threat": "The bot writes/edits/deletes records it should not, corrupting patient data.",
+      "blast": "Medium: a single patient record per incident.",
+      "cause": "Autonomous write capability is dangerous without hard constraints.",
+      "solution": "Locked (D24): field-level DAL allowlist (validated, logged, NO deletes), confidence-gated, secretary-wins. Keep deletes impossible for the bot and log every write for review.",
+      "action": "No action; confirm the no-delete + allowlist invariants are covered by tests when 1A lands."
+    },
+    {
+      "id": "SEC11", "source": "tracker", "category": "Encryption / Keys / Secrets", "owner": "Prime",
+      "title": "Secrets exposure (env / boot)", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 8, "phase": "0",
+      "threat": "Secrets leaking via env dumps, logs, or committed config give attackers infra credentials.",
+      "blast": "High: infrastructure credentials.",
+      "cause": "Apps need secrets at boot; sloppy handling (logging env, committing .env) leaks them.",
+      "solution": "Locked (G05) and now confirmed in code: packages/core/src/env.ts validates the process env with zod, keeps only connection secrets in env, pulls the master key from Vault with a host fallback, and fail-fasts in production (JWT_SECRET + DATABASE_URL required). Reinforce with CI secret-scanning (pairs with SEC22), a pre-commit secret scan, and raising the JWT_SECRET minimum (see CODE-05).",
+      "action": "Add CI secret-scanning (e.g. gitleaks); env.ts already enforces fail-fast + secrets-only env at boot."
+    },
+    {
+      "id": "SEC12", "source": "tracker", "category": "Third-Party / OAuth", "owner": "Prime",
+      "title": "OAuth token theft (Google Calendar / Meta)", "severity": "High",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 8, "phase": "1C / 2B",
+      "threat": "Stolen OAuth tokens give an attacker a clinic's calendar/page access.",
+      "blast": "Medium: a single clinic's calendar/page per stolen token.",
+      "cause": "Long-lived integration tokens are high-value if stored in the clear.",
+      "solution": "Locked: encrypted token storage (envelope), refresh/revocation handling, and disconnect alerts (1C/2B). Ensure revocation actually invalidates stored tokens and that disconnect alerts fire.",
+      "action": "Verify token revocation + disconnect-alert paths when 1C/2B land."
+    },
+    {
+      "id": "SEC15", "source": "tracker", "category": "Compliance", "owner": "Prime",
+      "title": "Messaging opted-out patients", "severity": "Medium",
+      "tracker_status": "Mitigated (locked)", "assessment": "holds", "confidence": 9, "phase": "1A / 2C",
+      "threat": "Sending messages to opted-out patients is a compliance violation and erodes trust/number reputation.",
+      "blast": "Low-medium: compliance exposure.",
+      "cause": "Opt-out must be enforced at the single outbound point, not per-feature.",
+      "solution": "Locked (D05): outbound chokepoint suppression that is bot-irreversible. Keep all outbound paths funneled through the chokepoint - no feature may send around it.",
+      "action": "No action; ensure new outbound features route through the chokepoint (architecture lint)."
+    },
+    {
+      "id": "SEC19", "source": "tracker", "category": "Audit / Logging", "owner": "Prime",
+      "title": "Audit completeness & tamper-resistance", "severity": "Medium",
+      "tracker_status": "Mitigated (locked pattern)", "assessment": "holds", "confidence": 8, "phase": "all",
+      "threat": "Incomplete or mutable audit logs undermine forensics and accountability after an incident.",
+      "blast": "Low directly, but it caps your ability to investigate every other incident.",
+      "cause": "Audit logs are only useful if append-only, complete, and access-controlled.",
+      "solution": "Locked pattern: append-only, time-stamped, actor-stamped, immutable storage, access-controlled. Ensure the security-relevant events (impersonation, key rotation, egress, merges) all write to it.",
+      "action": "Confirm high-risk actions (SEC08/SEC20/SEC24) emit audit events."
+    },
+    {
+      "id": "SEC20", "source": "tracker", "category": "Compliance", "owner": "Prime + staff",
+      "title": "Cross-channel merge PHI mixing", "severity": "Medium-High",
+      "tracker_status": "Mitigated (manual)", "assessment": "holds", "confidence": 8, "phase": "2B",
+      "threat": "Auto-merging conversations across channels could fuse two different patients' PHI into one record.",
+      "blast": "Medium: two patients' data mixed per bad merge.",
+      "cause": "Identity matching across channels is error-prone if automated.",
+      "solution": "Mitigated (D37): manual-only merge, audited, with a confirmation step. Reversible merge is the right follow-up (FI6). Keep merges human-confirmed and logged.",
+      "action": "No action; track FI6 (reversible merge) for when volume grows."
+    },
+    {
+      "id": "SEC23", "source": "tracker", "category": "Compliance", "owner": "Prime",
+      "title": "Proactive-messaging compliance / WhatsApp number reputation", "severity": "Medium-High",
+      "tracker_status": "Mitigated (six-gate) for transactional", "assessment": "holds", "confidence": 8, "phase": "2C",
+      "threat": "Unconstrained proactive messages risk policy violations and can get a clinic's WhatsApp number throttled or banned - losing the whole channel.",
+      "blast": "Medium-high: a clinic's entire messaging channel.",
+      "cause": "Proactive outbound at scale is exactly what messaging platforms police.",
+      "solution": "Mitigated by the six-gate model at the chokepoint (opt-out, approved-template, timing, state-valid, frequency-cap, clinic-enabled), transactional-only in 2C, marketing deferred behind explicit opt-in (D39). Keep marketing gated and the six-gate non-bypassable.",
+      "action": "No action; six-gate/idempotency tests are mandatory in 2C - keep them blocking."
+    },
+    {
+      "id": "SEC24", "source": "tracker", "category": "Compliance / Egress", "owner": "Prime",
+      "title": "External data egress (Sheets / CRM export)", "severity": "Medium-High",
+      "tracker_status": "Mitigated (clinic-authorized + audited)", "assessment": "holds", "confidence": 8, "phase": "3C",
+      "threat": "Exporting patient data to external Sheets/CRM moves PHI outside the platform's controls.",
+      "blast": "Medium-high: patient data outside the platform per export.",
+      "cause": "Egress is a deliberate feature; the risk is scope and authorization.",
+      "solution": "Mitigated: clinic-authorized fields only, per-clinic encrypted OAuth creds (G49), egress audited + revocable (G48), aggregates/scoped where possible. Keep egress opt-in per field and fully audited.",
+      "action": "No action; verify G48/G49 audit + revoke paths when 3C lands."
+    },
+    {
+      "id": "SEC21", "source": "tracker", "category": "Application / Safety", "owner": "Prime",
+      "title": "Distress / safety mishandling", "severity": "Medium",
+      "tracker_status": "Mitigated (locked)", "assessment": "watch", "confidence": 7, "phase": "1A",
+      "threat": "A patient in distress messages a booking-only bot that mishandles it - reputational and real-world safety risk.",
+      "blast": "Low-medium: reputation/safety, per incident.",
+      "cause": "A booking bot is not a crisis service; any LLM-generated response to distress is unpredictable.",
+      "solution": "Mitigated (D16, R10, X14): deterministic deflection guardrail + local emergency number. Residual uncertainty remains because edge phrasings are hard to fully cover - hence watchlist rather than closed. Periodically review deflection coverage against real transcripts.",
+      "action": "Monitor: review distress-deflection coverage against real messages after launch."
+    },
+    {
+      "id": "SEC25", "source": "tracker", "category": "Compliance / Retention", "owner": "Prime + Legal",
+      "title": "Data retention & right-to-erasure", "severity": "Medium",
+      "tracker_status": "Mitigated (D62 retention + G62 cascade)", "assessment": "watch", "confidence": 7, "phase": "2C+",
+      "threat": "Holding PHI longer than needed, or being unable to honor an erasure request, is a long-term compliance liability.",
+      "blast": "Medium: a growing long-term PHI exposure surface.",
+      "cause": "Retention/erasure depend on scheduled jobs and a cascade that are not built yet, plus a legal review (X20) still open.",
+      "solution": "Designed (D62 retention + G62 cascade purge, right-to-erasure via opt-out chokepoint, consent capture G63). Confidence is held at 7 until the purge cascade is implemented and local-counsel review (X20) confirms the retention policy. Close X20 and ship/test the cascade to raise this.",
+      "action": "Monitor: close X20 (counsel review) and verify the G62 purge cascade once built."
+    },
+    {
+      "id": "R3", "source": "risk", "category": "Compliance / Legal", "owner": "Clinic + Docmee",
+      "title": "Legal docs (privacy policy, terms, Spanish)", "severity": "Medium",
+      "tracker_status": "Open - clinic-owned; Docmee supplies templates", "assessment": "action", "confidence": 8, "phase": "Pilot Gate",
+      "threat": "Operating a PHI-handling platform without a published privacy policy / terms (in Spanish for Guatemala) is a direct legal/compliance exposure and undermines consent capture (G63).",
+      "blast": "Medium: regulatory/legal exposure across all clinics on the platform; blocks lawful processing.",
+      "cause": "Legal docs are clinic-owned but not yet produced; consent flows reference them.",
+      "solution": "Docmee should supply Spanish-language privacy-policy and terms templates and make publishing them a Pilot-Gate prerequisite for each clinic. Tie consent capture (G63) to the published policy.",
+      "action": "Ship the Spanish legal templates and gate pilot onboarding on a published policy."
+    },
+    {
+      "id": "R8", "source": "risk", "category": "Infrastructure / Availability", "owner": "Ops",
+      "title": "Single-VPS = single point of failure", "severity": "Medium",
+      "tracker_status": "Redundancy deferred (X13); backups REQUIRED", "assessment": "action", "confidence": 8, "phase": "Pilot Gate / post-pilot",
+      "threat": "One VPS means any host failure (hardware, disk, bad deploy) takes down all clinics, and without solid backups a disk loss is unrecoverable PHI loss.",
+      "blast": "High: full-deployment outage; with weak backups, permanent data loss.",
+      "cause": "Single-node topology chosen for pilot economics; redundancy deferred to X13.",
+      "solution": "Accept the deferral but make backups non-negotiable before pilot (overlaps SEC14): encrypted, off-host, restore-tested. Put X13 (redundancy/second node) on the immediate post-pilot roadmap and define an RTO/RPO.",
+      "action": "Make tested backups a Pilot-Gate blocker; schedule X13 redundancy for post-pilot with a stated RTO/RPO."
+    },
+    {
+      "id": "CODE-01", "source": "code", "category": "Auth / Session (XSS)", "owner": "Alpha + Prime",
+      "title": "Session token in a non-HttpOnly cookie (JS-readable)", "severity": "Medium",
+      "tracker_status": "Scaffold - Sprint-0 mock", "assessment": "action", "confidence": 8, "phase": "0",
+      "file": "monorepo/apps/web/src/lib/auth.ts",
+      "threat": "The session bearer token is written via document.cookie (apps/web/src/lib/auth.ts setToken), so the cookie is NOT HttpOnly and is readable by any JavaScript. A single XSS anywhere in the panel can exfiltrate the token and replay the session for its 8h lifetime. Cross-references SEC17.",
+      "blast": "Medium: one user/clinic session per stolen token; systemic if an XSS affects many users.",
+      "cause": "Sprint-0 is mock-first with no server credential exchange, so the token is set client-side - and a client-set cookie cannot be HttpOnly by definition. The code does do SameSite=Lax + Secure-in-prod, which is good but does not stop same-origin JS from reading it.",
+      "solution": "When the real /auth/login lands (Phase 0), issue the cookie from the server with HttpOnly + Secure + SameSite=Lax/Strict and a Set-Cookie response, so JS can never read it. Until then, treat the JS-readable token as an accepted scaffold limitation and keep the panel XSS-clean (React escaping by default; avoid dangerouslySetInnerHTML). This is the concrete server-side fix behind SEC17.",
+      "action": "At Phase-0 real auth, switch setToken to a server-set HttpOnly Set-Cookie; remove client-side token writes."
+    },
+    {
+      "id": "CODE-02", "source": "code", "category": "Auth / Session (verified-good)", "owner": "Prime",
+      "title": "API auth scaffold follows secure patterns", "severity": "Info",
+      "tracker_status": "Scaffold - verified", "assessment": "holds", "confidence": 9, "phase": "0",
+      "file": "monorepo/apps/api/src/auth/token.ts",
+      "threat": "(Positive finding.) No issue: the API auth scaffold already implements the right controls and is worth protecting from regression.",
+      "blast": "n/a - confirms the tenant-identity chokepoint is sound.",
+      "cause": "Deliberate secure scaffolding by Prime.",
+      "solution": "Confirmed good: HS256 JWT with 8h expiry; clinicId carried in the token and never read from the request (apps/api/src/plugins/auth.ts is the single authenticate chokepoint); verifySessionToken throws a generic UnauthorizedError that never leaks the failure reason; claims are zod-validated. Keep these invariants under test so a future change cannot silently weaken them.",
+      "action": "No fix needed; add/keep tests asserting clinicId is never sourced from the request and that 401s stay generic."
+    },
+    {
+      "id": "CODE-03", "source": "code", "category": "Config / Build hygiene", "owner": "Alpha",
+      "title": "Mock layer (MSW) and mock token must never ship to production", "severity": "Low",
+      "tracker_status": "Scaffold - monitor", "assessment": "holds", "confidence": 8, "phase": "0",
+      "file": "monorepo/apps/web/src/config/env.ts",
+      "threat": "If the MSW mock service worker or the dev-only mock bearer token were bundled/active in production, the panel could serve fabricated auth/session data or expose a bypass.",
+      "blast": "Low: dev/staging confusion or a fake-session bypass if mocks leaked to prod.",
+      "cause": "Mock-first development bakes a mock layer into the web app; correctness depends on the prod flag.",
+      "solution": "Already handled correctly: MOCKING_ENABLED is false when NODE_ENV === 'production' unless explicitly enabled (apps/web/src/config/env.ts). Keep it that way - add a build-time assertion/test that the mock SW and mock data are tree-shaken/absent from the production bundle, and never set NEXT_PUBLIC_API_MOCKING=enabled in a prod env.",
+      "action": "Monitor: add a CI check that the production web bundle contains no MSW worker / mock handlers."
+    },
+    {
+      "id": "CODE-04", "source": "code", "category": "Logging / PHI (SEC16)", "owner": "Prime",
+      "title": "Log redaction covers only shallow keys (one level deep)", "severity": "Medium",
+      "tracker_status": "Scaffold - new at 62bae10", "assessment": "action", "confidence": 8, "phase": "0",
+      "file": "monorepo/packages/core/src/logger.ts",
+      "threat": "The sanctioned pino logger redacts sensitive keys only at the top level and one level of nesting (REDACT_PATHS = `key` and `*.key`). PHI nested deeper (a patient object inside a payload inside an event), inside arrays, or passed as the free-text log message is NOT redacted and will be written in clear. This is the residual half of SEC16 after the good redaction work in this commit.",
+      "blast": "Medium: PHI in logs for any path that logs deep/nested structures or raw message strings; readable by anyone with log/aggregator access.",
+      "cause": "pino redact paths are explicit and shallow here, and key-name redaction by design cannot catch PHI embedded inside a message string.",
+      "solution": "Extend redaction to arbitrary depth and arrays (additional pino wildcard paths or a custom serializer that walks objects before logging), and enforce by convention/review that raw patient content is never passed as the log message. Add a unit test that logs a deeply-nested PHI object and asserts every sensitive field is `[redacted]`. The existing logger is the right foundation - this just hardens its depth.",
+      "action": "Deepen logger redaction beyond one level + add a redaction unit test for nested/array PHI."
+    },
+    {
+      "id": "CODE-05", "source": "code", "category": "Auth / Secrets", "owner": "Prime",
+      "title": "JWT_SECRET minimum length is only 16 chars", "severity": "Low",
+      "tracker_status": "Scaffold - new at 62bae10", "assessment": "action", "confidence": 8, "phase": "0",
+      "file": "monorepo/packages/core/src/env.ts",
+      "threat": "envSchema requires JWT_SECRET min 16 chars. For an HS256 signing key, 16 characters is the floor (~128 bits only if fully random; far less for a human passphrase). A short/low-entropy secret invites offline brute-force and session-token forgery.",
+      "blast": "Medium if a weak secret is chosen: an attacker who recovers it can forge a valid session JWT for any user/clinic (clinicId is a JWT claim).",
+      "cause": "Validation enforces presence and a 16-char floor but not high entropy or a 32+ length, while MASTER_KEY/HMAC_KEY already require min 32 - an inconsistency.",
+      "solution": "Raise the JWT_SECRET minimum to 32 chars to match MASTER_KEY/HMAC_KEY, and document that it must be a high-entropy random value (e.g. `openssl rand -base64 32`), not a passphrase. Trivial, high-confidence hardening with token-forgery payoff.",
+      "action": "Bump JWT_SECRET min length to 32 in env.ts and require a random value."
+    }
+  ],
+  "risk_overlay": {
+    "R1": {"confidence": 8, "assessment": "holds", "note": "Largely retired - routine clinic-owned Meta setup."},
+    "R2": {"confidence": 7, "assessment": "watch", "note": "Template approval is clinic responsibility; Docmee may supply."},
+    "R4": {"confidence": 9, "assessment": "holds", "note": "De-risked & locked: separate stable HMAC (see SEC03)."},
+    "R5": {"confidence": 9, "assessment": "holds", "note": "De-risked & locked: named admin role + withClinicContext (see SEC01)."},
+    "R6": {"confidence": 8, "assessment": "holds", "note": "Accepted - one-to-one clinic/user locked; bounded future work."},
+    "R7": {"confidence": 8, "assessment": "action", "note": "Bounded by interim use + supervision; cutover to Meta Cloud API (see SEC04)."},
+    "R9": {"confidence": 7, "assessment": "watch", "note": "Doc-ingestion scope risk; mitigated to text-layer, off-the-shelf - monitor scope creep."},
+    "R10": {"confidence": 7, "assessment": "watch", "note": "Distress handling - minimal deflection guardrail (see SEC21)."},
+    "R11": {"confidence": 8, "assessment": "holds", "note": "Mitigated - manual staff-merge in 2B, audited (see SEC20)."},
+    "R12": {"confidence": 8, "assessment": "holds", "note": "Resolved - 2D adds per-clinic full-text search."},
+    "R13": {"confidence": 7, "assessment": "watch", "note": "Accepted/mitigated - confidence-gating on extraction accuracy."}
+  }
+}

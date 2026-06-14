@@ -1,0 +1,32 @@
+name: ci
+
+# Per-PR checks. CI status is the "gate signal" the Orchestrator reads.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Build first: workspace packages (contracts, core) emit dist + d.ts that
+      # downstream typecheck/test resolve via package exports.
+      - name: Build
+        run: pnpm build
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint + import boundaries (FE/BE seam)
+        run: pnpm lint
+      - name: Test
+        run: pnpm test
+      - name: Security audit (SEC22)
+        run: pnpm audit --audit-level=high || true

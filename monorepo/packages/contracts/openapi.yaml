@@ -1,0 +1,256 @@
+openapi: 3.1.0
+info:
+  title: Docmee API — Starter Contract (the FE/BE seam)
+  version: 0.1.0
+  description: >
+    Source of truth for data shapes between Agent BE (implements) and Agent FE (consumes).
+    This is a PHASE-0/1 STARTER — extend per phase (templates 2C, doctors 3A, flows 3B, etc.).
+    Rules: every list endpoint is clinic-scoped server-side (RLS); never trust a clinic_id from the client.
+    All errors use the common Error envelope. All times are RFC 3339 UTC.
+servers:
+  - url: https://api.docmee.example/v1
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: clinics
+  - name: users
+  - name: patients
+  - name: conversations
+  - name: messages
+  - name: appointments
+  - name: kb
+
+paths:
+  /auth/session:
+    get:
+      tags: [auth]
+      summary: Current user + clinic context
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /patients:
+    get:
+      tags: [patients]
+      summary: List patients (clinic-scoped, RLS)
+      parameters:
+        - { in: query, name: q, schema: { type: string }, description: identity (HMAC) search }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { $ref: '#/components/schemas/PatientPage' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [patients]
+      summary: Create patient
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PatientCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Patient' } } } }
+        '422': { $ref: '#/components/responses/Validation' }
+
+  /patients/{patientId}:
+    parameters: [{ in: path, name: patientId, required: true, schema: { type: string } }]
+    get:
+      tags: [patients]
+      summary: "Get patient (+ history view: conversations, appointments, notes, tags)"
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Patient' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /conversations:
+    get:
+      tags: [conversations]
+      summary: List conversations (unified inbox; filter by mode/channel/assignee)
+      parameters:
+        - { in: query, name: mode, schema: { type: string, enum: [bot, human, paused, resolved] } }
+        - { in: query, name: channel, schema: { type: string, enum: [whatsapp, messenger, instagram] } }
+        - { in: query, name: assigneeId, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ConversationPage' } } } }
+
+  /conversations/{conversationId}/messages:
+    parameters: [{ in: path, name: conversationId, required: true, schema: { type: string } }]
+    get:
+      tags: [messages]
+      summary: Message history
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MessagePage' } } } }
+    post:
+      tags: [messages]
+      summary: Send a message as staff (routes through the outbound chokepoint)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MessageCreate' } } } }
+      responses:
+        '202': { description: Accepted (queued via chokepoint), content: { application/json: { schema: { $ref: '#/components/schemas/Message' } } } }
+        '409': { description: Blocked by a gate (opt-out / window / etc.), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /conversations/{conversationId}/mode:
+    parameters: [{ in: path, name: conversationId, required: true, schema: { type: string } }]
+    put:
+      tags: [conversations]
+      summary: Set bot/human/paused/resolved (take control / hand back)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [mode], properties: { mode: { type: string, enum: [bot, human, paused, resolved] } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Conversation' } } } }
+
+  /appointments:
+    get:
+      tags: [appointments]
+      summary: List appointments (clinic-scoped)
+      parameters:
+        - { in: query, name: patientId, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string, enum: [booked, confirmed, completed, cancelled, no_show] } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AppointmentPage' } } } }
+    post:
+      tags: [appointments]
+      summary: Create appointment (validates against Calendar free/busy)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AppointmentCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Appointment' } } } }
+        '409': { description: Slot conflict, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /kb/entries:
+    get:
+      tags: [kb]
+      summary: List KB entries (manual + document chunks)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/KbEntryPage' } } } }
+    post:
+      tags: [kb]
+      summary: Create/update a KB entry
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/KbEntryCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/KbEntry' } } } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  parameters:
+    Cursor: { in: query, name: cursor, schema: { type: string }, description: opaque pagination cursor }
+    Limit:  { in: query, name: limit, schema: { type: integer, default: 25, maximum: 100 } }
+
+  responses:
+    Unauthorized: { description: Missing/invalid token, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    NotFound:     { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    Validation:   { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: gate_blocked }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+    Session:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        clinicId: { type: string }
+        role: { type: string, enum: [doctor, secretary, admin, assistant, platform] }
+        locale: { type: string, enum: [es, en] }
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [doctor, secretary, admin, assistant, platform] }
+    Patient:
+      type: object
+      properties:
+        id: { type: string }
+        clinicId: { type: string }
+        name: { type: string }
+        phone: { type: string, description: stored encrypted; HMAC-indexed for search }
+        status: { type: string }
+        tags: { type: array, items: { type: string } }
+        channelIdentities: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+    PatientCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        tags: { type: array, items: { type: string } }
+    Conversation:
+      type: object
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        channel: { type: string, enum: [whatsapp, messenger, instagram] }
+        mode: { type: string, enum: [bot, human, paused, resolved] }
+        assigneeId: { type: string, nullable: true }
+        lastInteractionAt: { type: string, format: date-time }
+        windowExpiresAt: { type: string, format: date-time, nullable: true, description: 24h messaging window }
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        direction: { type: string, enum: [inbound, outbound] }
+        author: { type: string, enum: [patient, bot, staff] }
+        body: { type: string }
+        providerMessageId: { type: string, description: unique — idempotency key }
+        createdAt: { type: string, format: date-time }
+    MessageCreate:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string }
+    Appointment:
+      type: object
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        doctorId: { type: string, nullable: true, description: null for single-doctor clinics }
+        status: { type: string, enum: [booked, confirmed, completed, cancelled, no_show] }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+    AppointmentCreate:
+      type: object
+      required: [patientId, startAt, endAt]
+      properties:
+        patientId: { type: string }
+        doctorId: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+    KbEntry:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [manual, document_chunk, rule] }
+        title: { type: string }
+        content: { type: string }
+        updatedAt: { type: string, format: date-time }
+    KbEntryCreate:
+      type: object
+      required: [type, content]
+      properties:
+        type: { type: string, enum: [manual, rule] }
+        title: { type: string }
+        content: { type: string }
+
+    # --- pagination envelopes ---
+    PatientPage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Patient' } }, nextCursor: { type: string, nullable: true } } }
+    ConversationPage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Conversation' } }, nextCursor: { type: string, nullable: true } } }
+    MessagePage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Message' } }, nextCursor: { type: string, nullable: true } } }
+    AppointmentPage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Appointment' } }, nextCursor: { type: string, nullable: true } } }
+    KbEntryPage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/KbEntry' } }, nextCursor: { type: string, nullable: true } } }
+
+# Realtime (not REST): the inbox uses a server push channel (SSE/WebSocket) for new messages +
+# conversation-mode changes. Define the event shapes in packages/contracts alongside this file:
+#   event: message.created   -> Message
+#   event: conversation.updated -> Conversation
+# FE subscribes per active clinic; BE authorizes the subscription against the session's clinic (RLS).

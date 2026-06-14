@@ -37,6 +37,13 @@ header.top{display:flex;align-items:flex-start;justify-content:space-between;gap
 .meta .pill{display:inline-block;margin:2px 0 2px 6px;padding:4px 10px;border:1px solid var(--border2);
   border-radius:20px;background:var(--panel);color:var(--text)}
 .meta .live{color:var(--done)}
+.arbar{margin-top:8px;display:inline-flex;gap:6px;align-items:center}
+.arbtn{font:inherit;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border2);
+  background:var(--panel);color:var(--text);border-radius:20px;padding:4px 11px}
+.arbtn:hover{border-color:var(--prime)}
+.arbtn.on{color:var(--done);border-color:var(--done)}
+.arbtn.off{color:var(--muted)}
+.arcd{font-size:11px;color:var(--muted2);min-width:78px;text-align:left}
 
 /* nav */
 nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 22px;border-bottom:1px solid var(--border);padding-bottom:0}
@@ -281,7 +288,12 @@ function renderHeader(){
     `<div><span class="pill live">● ${DATA.project.status}</span></div>`+
     `<div style="margin-top:6px"><span class="pill">branch: ${DATA.git.branch}</span>`+
     `<span class="pill">${DATA.project.plan_weeks}-wk plan</span></div>`+
-    `<div style="margin-top:6px">Generated ${DATA.generated}</div>`;
+    `<div style="margin-top:6px">Generated ${DATA.generated}</div>`+
+    `<div class="arbar"><button class="arbtn" id="ar-toggle"></button>`+
+    `<button class="arbtn" id="ar-int"></button>`+
+    `<button class="arbtn" id="ar-now" title="Reload now">↻</button>`+
+    `<span class="arcd" id="ar-cd"></span></div>`;
+  setupAutoRefresh();
   document.getElementById("foot").innerHTML=
     `Source of truth: <b>docmee-trackers.xlsx</b> (16 tabs) + monorepo git · `+
     `regenerate with <code>python build_dashboard.py</code> · statuses you set are saved in this browser.`;
@@ -561,6 +573,31 @@ function viewRisk(){
 }
 
 function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+/* ---- auto-refresh ---- */
+const ARKEY="docmee-dashboard-ar";
+const AR_OPTS=[30,60,120,300];
+let AR; try{AR=JSON.parse(localStorage.getItem(ARKEY));}catch(e){}
+if(!AR||typeof AR.on!=="boolean")AR={on:true,sec:60};
+let arLeft=AR.sec, arTimer=null;
+function fmtSec(s){return s<60?s+"s":(s/60)+"m";}
+function setupAutoRefresh(){
+  const tg=document.getElementById("ar-toggle"),it=document.getElementById("ar-int"),
+        nw=document.getElementById("ar-now"),cd=document.getElementById("ar-cd");
+  function paint(){
+    tg.textContent=(AR.on?"● ":"○ ")+"Auto-refresh "+(AR.on?"On":"Off");
+    tg.className="arbtn "+(AR.on?"on":"off");
+    it.textContent="every "+fmtSec(AR.sec); it.style.display=AR.on?"":"none";
+    cd.textContent=AR.on?("reloads in "+arLeft+"s"):"";
+  }
+  function save(){localStorage.setItem(ARKEY,JSON.stringify(AR));}
+  tg.onclick=()=>{AR.on=!AR.on;arLeft=AR.sec;save();paint();};
+  it.onclick=()=>{AR.sec=AR_OPTS[(AR_OPTS.indexOf(AR.sec)+1)%AR_OPTS.length];arLeft=AR.sec;save();paint();};
+  nw.onclick=()=>location.reload();
+  if(arTimer)clearInterval(arTimer);
+  arTimer=setInterval(()=>{ if(!AR.on)return; arLeft--; if(arLeft<=0){location.reload();return;} paint(); },1000);
+  paint();
+}
 
 /* ---- boot ---- */
 function renderAll(){ viewOverview(); viewAgents(); viewRoadmap(); viewTracker(); viewRisk(); }

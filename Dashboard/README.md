@@ -24,7 +24,28 @@ its status: *Not started → In progress → Done*. The build gauges recompute l
 statuses are saved in the browser (localStorage) — they persist across reloads on the
 same machine/browser.
 
-## Refresh from source
+## Auto-refresh
+The dashboard keeps itself current in two halves:
+
+1. **In-page auto-reload** — top-right of the dashboard: **● Auto-refresh On**, an
+   interval button (30s / 1m / 2m / 5m), a manual **↻**, and a live countdown. The tab
+   reloads on the interval and re-reads the file from disk. Your clicked statuses survive
+   (they live in localStorage, not the file). Toggle/interval are remembered per browser.
+   Default: On, every 60s.
+2. **The watcher** — regenerates the HTML when the tracker or git state changes, so a
+   reload actually has fresh data to show:
+   ```
+   cd Dashboard
+   python watch_dashboard.py        # polls every 15s
+   python watch_dashboard.py 30     # poll every 30s; Ctrl+C to stop
+   ```
+   It only rewrites the file when `docmee-trackers.xlsx` (mtime) or the monorepo's latest
+   commit changes — otherwise it's idle.
+
+Leave the watcher running and the dashboard tab open: edits to the tracker (or new commits)
+flow to the open tab within a poll + reload cycle, hands-free.
+
+## Refresh from source (manual)
 The dashboard is generated from the tracker spreadsheet + the monorepo's git state.
 After the tracker or repo changes, regenerate:
 
@@ -45,4 +66,5 @@ Output: `Docmee-Dashboard.html` (regenerated in place).
 ## Files
 - `Docmee-Dashboard.html` — the deliverable (open this)
 - `build_dashboard.py` — generator (extracts data → HTML)
+- `watch_dashboard.py` — auto-refresh watcher (regenerates on change)
 - `template.html` — HTML/CSS/JS template the generator fills in

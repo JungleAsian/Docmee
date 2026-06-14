@@ -1,0 +1,276 @@
+{
+  "app": {
+    "name": "Docmee",
+    "tagline": "Panel de la clínica"
+  },
+  "nav": {
+    "overview": "Resumen",
+    "inbox": "Bandeja",
+    "patients": "Pacientes",
+    "appointments": "Citas",
+    "knowledge": "Base de conocimiento",
+    "analytics": "Analítica",
+    "settings": "Configuración"
+  },
+  "login": {
+    "title": "Iniciar sesión",
+    "subtitle": "Accede al panel de tu clínica",
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "submit": "Entrar",
+    "submitting": "Entrando…",
+    "error": "No se pudo iniciar sesión. Verifica tus datos."
+  },
+  "shell": {
+    "switchClinic": "Cambiar clínica",
+    "singleClinic": "Clínica única",
+    "multiClinicPending": "El cambio entre clínicas se habilitará con el panel multiusuario.",
+    "account": "Cuenta",
+    "openMenu": "Abrir menú"
+  },
+  "dashboard": {
+    "title": "Resumen",
+    "welcome": "Bienvenido, {name}",
+    "role": "Rol",
+    "clinic": "Clínica",
+    "locale": "Idioma",
+    "sessionLive": "Sesión activa contra {source}",
+    "mock": "datos simulados (MSW)",
+    "real": "API real"
+  },
+  "settings": {
+    "title": "Configuración",
+    "language": "Idioma del panel",
+    "languageDesc": "Elige el idioma de la interfaz.",
+    "clinic": "Clínica",
+    "clinicDesc": "Contexto de clínica de tu sesión actual.",
+    "account": "Cuenta",
+    "accountDesc": "Tu usuario y rol.",
+    "spanish": "Español",
+    "english": "Inglés"
+  },
+  "placeholder": {
+    "comingSoon": "Próximamente",
+    "comingSoonDesc": "Esta sección se construirá en una fase posterior."
+  },
+  "kb": {
+    "title": "Base de conocimiento",
+    "subtitle": "Respuestas y reglas con las que responde el bot.",
+    "new": "Nueva entrada",
+    "type": "Tipo",
+    "typeManual": "Manual",
+    "typeRule": "Regla",
+    "titleLabel": "Título",
+    "titlePlaceholder": "Ej. Horario de atención",
+    "contentLabel": "Contenido",
+    "contentPlaceholder": "Escribe la respuesta o la regla…",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "empty": "Aún no hay entradas. Crea la primera.",
+    "updated": "Actualizado {date}",
+    "editPending": "La edición y eliminación llegarán cuando el contrato las exponga."
+  },
+  "inbox": {
+    "title": "Bandeja",
+    "empty": "No hay conversaciones.",
+    "selectConversation": "Selecciona una conversación.",
+    "filterAll": "Todas",
+    "send": "Enviar",
+    "sending": "Enviando…",
+    "composerPlaceholder": "Escribe un mensaje…",
+    "takeControl": "Tomar control",
+    "handBack": "Devolver al bot",
+    "pause": "Pausar",
+    "resolve": "Resolver",
+    "windowOpen": "Ventana 24h abierta",
+    "windowClosed": "Ventana 24h cerrada",
+    "blocked": "El mensaje fue bloqueado por una compuerta.",
+    "mode": {
+      "bot": "Bot",
+      "human": "Humano",
+      "paused": "Pausada",
+      "resolved": "Resuelta"
+    }
+  },
+  "patients": {
+    "title": "Pacientes",
+    "search": "Buscar por nombre o teléfono…",
+    "new": "Nuevo paciente",
+    "name": "Nombre",
+    "phone": "Teléfono",
+    "tags": "Etiquetas",
+    "tagsPlaceholder": "separadas por coma",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "cancel": "Cancelar",
+    "empty": "No se encontraron pacientes.",
+    "created": "Registrado {date}",
+    "profile": "Perfil",
+    "appointments": "Citas",
+    "conversations": "Conversaciones",
+    "noAppointments": "Sin citas.",
+    "noConversations": "Sin conversaciones.",
+    "back": "Volver a pacientes",
+    "notesPending": "Las notas del paciente llegarán cuando el contrato exponga el endpoint."
+  },
+  "appointments": {
+    "title": "Citas",
+    "new": "Agendar cita",
+    "patient": "Paciente",
+    "selectPatient": "Selecciona un paciente",
+    "start": "Inicio",
+    "end": "Fin",
+    "book": "Agendar",
+    "booking": "Agendando…",
+    "cancel": "Cancelar",
+    "empty": "No hay citas.",
+    "conflict": "Ese horario ya está ocupado. Elige otro.",
+    "filterAll": "Todas",
+    "reschedulePending": "Reprogramar y cancelar se gestionan con un humano (sin endpoint en el contrato v0).",
+    "status": {
+      "booked": "Agendada",
+      "confirmed": "Confirmada",
+      "completed": "Completada",
+      "cancelled": "Cancelada",
+      "no_show": "No asistió"
+    }
+  },
+  "settingsHub": {
+    "sections": "Administración",
+    "team": "Equipo y roles",
+    "quickReplies": "Respuestas rápidas",
+    "channels": "Canales",
+    "templates": "Plantillas",
+    "automation": "Automatización",
+    "doctors": "Doctores",
+    "flows": "Flujos de admisión",
+    "integrations": "Integraciones",
+    "notifications": "Notificaciones"
+  },
+  "team": {
+    "title": "Equipo y roles",
+    "invite": "Invitar usuario",
+    "name": "Nombre",
+    "email": "Correo",
+    "role": "Rol",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "roles": { "doctor": "Doctor", "secretary": "Secretaria", "admin": "Administrador", "assistant": "Asistente", "platform": "Plataforma" }
+  },
+  "quickReplies": {
+    "title": "Respuestas rápidas",
+    "new": "Nueva respuesta",
+    "shortcut": "Atajo",
+    "body": "Mensaje",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "empty": "Sin respuestas rápidas."
+  },
+  "channels": {
+    "title": "Canales",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "status": { "connected": "Conectado", "disconnected": "Desconectado", "pending": "Pendiente" }
+  },
+  "templates": {
+    "title": "Plantillas",
+    "new": "Nueva plantilla",
+    "name": "Nombre",
+    "category": "Categoría",
+    "language": "Idioma",
+    "body": "Cuerpo",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "submit": "Enviar a aprobación",
+    "empty": "Sin plantillas.",
+    "categories": { "utility": "Utilidad", "marketing": "Marketing", "authentication": "Autenticación" },
+    "status": { "draft": "Borrador", "pending": "Pendiente", "approved": "Aprobada", "rejected": "Rechazada" }
+  },
+  "automation": {
+    "title": "Automatización",
+    "reminders": "Recordatorios de cita",
+    "reminderHours": "Horas antes",
+    "followUps": "Seguimientos post-visita",
+    "quietStart": "Inicio horario silencioso",
+    "quietEnd": "Fin horario silencioso",
+    "save": "Guardar",
+    "saved": "Guardado",
+    "sixGate": "Los mensajes proactivos pasan por las seis compuertas."
+  },
+  "analytics": {
+    "title": "Analítica",
+    "conversations7d": "Conversaciones (7d)",
+    "bookings7d": "Citas (7d)",
+    "deflection": "Tasa de resolución por bot",
+    "avgResponse": "Respuesta promedio",
+    "seconds": "{n}s",
+    "search": "Búsqueda de mensajes",
+    "searchPlaceholder": "Buscar en mensajes…",
+    "noResults": "Sin resultados."
+  },
+  "doctors": {
+    "title": "Doctores",
+    "new": "Nuevo doctor",
+    "name": "Nombre",
+    "specialty": "Especialidad",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "empty": "Sin doctores.",
+    "any": "Cualquier doctor"
+  },
+  "flows": {
+    "title": "Flujos de admisión",
+    "new": "Nuevo flujo",
+    "name": "Nombre",
+    "enabled": "Activo",
+    "steps": "{n} pasos",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "empty": "Sin flujos."
+  },
+  "copilot": {
+    "suggest": "Sugerir respuesta",
+    "suggesting": "Pensando…",
+    "apply": "Usar sugerencia",
+    "title": "Copiloto"
+  },
+  "integrations": {
+    "title": "Integraciones",
+    "documents": "Documentos (OCR)",
+    "upload": "Subir documento",
+    "filename": "Archivo",
+    "exports": "Exportaciones",
+    "newExport": "Nueva exportación",
+    "target": "Destino",
+    "consent": "Cuento con consentimiento por escrito (Ley de Guatemala)",
+    "create": "Crear",
+    "cancel": "Cancelar",
+    "noDocuments": "Sin documentos.",
+    "noExports": "Sin exportaciones.",
+    "docStatus": { "uploaded": "Subido", "processing": "Procesando", "ingested": "Ingresado", "failed": "Falló" },
+    "exportStatus": { "pending": "Pendiente", "running": "En curso", "done": "Listo", "failed": "Falló" },
+    "targets": { "sheets": "Google Sheets", "crm": "CRM", "csv": "CSV" }
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "pushDesc": "Recibe avisos cuando un paciente escribe o se agenda una cita.",
+    "enable": "Activar notificaciones",
+    "enabled": "Notificaciones activas",
+    "blocked": "El navegador bloqueó las notificaciones.",
+    "unsupported": "Este navegador no admite notificaciones push."
+  },
+  "common": {
+    "loading": "Cargando…",
+    "error": "Algo salió mal",
+    "retry": "Reintentar",
+    "signOut": "Cerrar sesión",
+    "goHome": "Ir al inicio",
+    "notFound": "Página no encontrada",
+    "menu": "Menú",
+    "back": "Volver",
+    "new": "Nuevo",
+    "save": "Guardar",
+    "saving": "Guardando…"
+  }
+}

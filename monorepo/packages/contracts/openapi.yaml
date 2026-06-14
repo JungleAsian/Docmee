@@ -128,6 +128,184 @@ paths:
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/KbEntry' } } } }
 
+  # ===================================================================
+  # Phase 2A–3D endpoints — FE-PROPOSED (Alpha), pending BE ratification.
+  # Additive only; shapes mirror the Build Backlog. BE refines as each phase lands.
+  # ===================================================================
+
+  # ----- Phase 2A: Multi-User / RBAC / IA Studio -----
+  /clinics:
+    get:
+      tags: [clinics]
+      summary: List clinics the user can access (clinic switcher + IA Studio)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ClinicPage' } } } }
+  /users:
+    get:
+      tags: [users]
+      summary: List clinic users (RBAC)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UserPage' } } } }
+    post:
+      tags: [users]
+      summary: Invite/create a user
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UserCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+  /users/{userId}/role:
+    parameters: [{ in: path, name: userId, required: true, schema: { type: string } }]
+    put:
+      tags: [users]
+      summary: Change a user's role
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [role], properties: { role: { type: string, enum: [doctor, secretary, admin, assistant, platform] } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+  /quick-replies:
+    get:
+      tags: [quickReplies]
+      summary: List quick replies
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/QuickReplyPage' } } } }
+    post:
+      tags: [quickReplies]
+      summary: Create a quick reply
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/QuickReplyCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/QuickReply' } } } }
+
+  # ----- Phase 2B: Channels -----
+  /channels:
+    get:
+      tags: [channels]
+      summary: Connection status per channel
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ChannelConnectionPage' } } } }
+  /channels/{channel}/connect:
+    parameters: [{ in: path, name: channel, required: true, schema: { type: string, enum: [whatsapp, messenger, instagram] } }]
+    post:
+      tags: [channels]
+      summary: Begin/confirm channel connection (per-clinic Meta connect)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ChannelConnection' } } } }
+
+  # ----- Phase 2C: Templates & Automation -----
+  /templates:
+    get:
+      tags: [templates]
+      summary: List message templates
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TemplatePage' } } } }
+    post:
+      tags: [templates]
+      summary: Create a template (draft)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TemplateCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Template' } } } }
+  /templates/{templateId}/submit:
+    parameters: [{ in: path, name: templateId, required: true, schema: { type: string } }]
+    post:
+      tags: [templates]
+      summary: Submit a template for Meta approval
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Template' } } } }
+  /automation/settings:
+    get:
+      tags: [automation]
+      summary: Automation settings (reminders/follow-ups + six-gate toggles)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AutomationSettings' } } } }
+    put:
+      tags: [automation]
+      summary: Update automation settings
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutomationSettings' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AutomationSettings' } } } }
+
+  # ----- Phase 2D: Analytics & Search -----
+  /analytics/overview:
+    get:
+      tags: [analytics]
+      summary: KPI rollups for the dashboard
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsOverview' } } } }
+  /messages/search:
+    get:
+      tags: [messages]
+      summary: Per-clinic full-text message search
+      parameters: [{ in: query, name: q, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MessagePage' } } } }
+
+  # ----- Phase 3A: Multi-Doctor -----
+  /doctors:
+    get:
+      tags: [doctors]
+      summary: List doctors
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DoctorPage' } } } }
+    post:
+      tags: [doctors]
+      summary: Create a doctor
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DoctorCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Doctor' } } } }
+
+  # ----- Phase 3B: Advanced Intake (flows + copilot) -----
+  /flows:
+    get:
+      tags: [flows]
+      summary: List intake flows
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/FlowPage' } } } }
+    post:
+      tags: [flows]
+      summary: Create an intake flow
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FlowCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Flow' } } } }
+  /copilot/suggest:
+    post:
+      tags: [copilot]
+      summary: Secretary copilot reply suggestion (human-approved)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [conversationId], properties: { conversationId: { type: string } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CopilotSuggestion' } } } }
+
+  # ----- Phase 3C: Integrations & OCR -----
+  /documents:
+    get:
+      tags: [documents]
+      summary: List ingested documents
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentPage' } } } }
+    post:
+      tags: [documents]
+      summary: Register an uploaded document for OCR/ingestion
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Document' } } } }
+  /exports:
+    get:
+      tags: [exports]
+      summary: List export jobs
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ExportJobPage' } } } }
+    post:
+      tags: [exports]
+      summary: Create an export job (requires written consent — SEC24)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExportJobCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/ExportJob' } } } }
+
+  # ----- Phase 3D: Push -----
+  /push/subscribe:
+    post:
+      tags: [push]
+      summary: Register a Web Push subscription (VAPID)
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PushSubscriptionCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/PushSubscriptionAck' } } } }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -248,6 +426,168 @@ components:
     MessagePage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Message' } }, nextCursor: { type: string, nullable: true } } }
     AppointmentPage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Appointment' } }, nextCursor: { type: string, nullable: true } } }
     KbEntryPage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/KbEntry' } }, nextCursor: { type: string, nullable: true } } }
+
+    # ===== Phase 2A–3D schemas (FE-proposed; BE to ratify per phase) =====
+    Clinic:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [active, suspended] }
+    UserCreate:
+      type: object
+      required: [name, role]
+      properties:
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [doctor, secretary, admin, assistant, platform] }
+    QuickReply:
+      type: object
+      properties:
+        id: { type: string }
+        shortcut: { type: string }
+        body: { type: string }
+    QuickReplyCreate:
+      type: object
+      required: [shortcut, body]
+      properties:
+        shortcut: { type: string }
+        body: { type: string }
+    ChannelConnection:
+      type: object
+      properties:
+        channel: { type: string, enum: [whatsapp, messenger, instagram] }
+        status: { type: string, enum: [connected, disconnected, pending] }
+        displayName: { type: string, nullable: true }
+    Template:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string, enum: [utility, marketing, authentication] }
+        language: { type: string }
+        body: { type: string }
+        status: { type: string, enum: [draft, pending, approved, rejected] }
+    TemplateCreate:
+      type: object
+      required: [name, category, body]
+      properties:
+        name: { type: string }
+        category: { type: string, enum: [utility, marketing, authentication] }
+        language: { type: string }
+        body: { type: string }
+    AutomationSettings:
+      type: object
+      properties:
+        remindersEnabled: { type: boolean }
+        reminderHoursBefore: { type: integer }
+        followUpsEnabled: { type: boolean }
+        quietHoursStart: { type: string }
+        quietHoursEnd: { type: string }
+    AnalyticsOverview:
+      type: object
+      properties:
+        conversations7d: { type: integer }
+        bookings7d: { type: integer }
+        deflectionRate: { type: number }
+        avgResponseSeconds: { type: integer }
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string }
+              conversations: { type: integer }
+              bookings: { type: integer }
+    Doctor:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        specialty: { type: string }
+    DoctorCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        specialty: { type: string }
+    Flow:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              prompt: { type: string }
+              field: { type: string }
+    FlowCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        enabled: { type: boolean }
+    CopilotSuggestion:
+      type: object
+      properties:
+        suggestion: { type: string }
+        confidence: { type: number }
+    Document:
+      type: object
+      properties:
+        id: { type: string }
+        filename: { type: string }
+        status: { type: string, enum: [uploaded, processing, ingested, failed] }
+        createdAt: { type: string, format: date-time }
+    DocumentCreate:
+      type: object
+      required: [filename]
+      properties:
+        filename: { type: string }
+    ExportJob:
+      type: object
+      properties:
+        id: { type: string }
+        target: { type: string, enum: [sheets, crm, csv] }
+        status: { type: string, enum: [pending, running, done, failed] }
+        consent: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    ExportJobCreate:
+      type: object
+      required: [target, consent]
+      properties:
+        target: { type: string, enum: [sheets, crm, csv] }
+        consent: { type: boolean }
+    PushSubscriptionCreate:
+      type: object
+      required: [endpoint]
+      properties:
+        endpoint: { type: string }
+        keys:
+          type: object
+          properties:
+            p256dh: { type: string }
+            auth: { type: string }
+    PushSubscriptionAck:
+      type: object
+      properties:
+        id: { type: string }
+        active: { type: boolean }
+
+    # --- Phase 2A–3D pagination envelopes ---
+    ClinicPage:            { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Clinic' } }, nextCursor: { type: string, nullable: true } } }
+    UserPage:              { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/User' } }, nextCursor: { type: string, nullable: true } } }
+    QuickReplyPage:        { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/QuickReply' } }, nextCursor: { type: string, nullable: true } } }
+    ChannelConnectionPage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/ChannelConnection' } }, nextCursor: { type: string, nullable: true } } }
+    TemplatePage:          { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Template' } }, nextCursor: { type: string, nullable: true } } }
+    DoctorPage:            { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Doctor' } }, nextCursor: { type: string, nullable: true } } }
+    FlowPage:              { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Flow' } }, nextCursor: { type: string, nullable: true } } }
+    DocumentPage:          { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Document' } }, nextCursor: { type: string, nullable: true } } }
+    ExportJobPage:         { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/ExportJob' } }, nextCursor: { type: string, nullable: true } } }
 
 # Realtime (not REST): the inbox uses a server push channel (SSE/WebSocket) for new messages +
 # conversation-mode changes. Define the event shapes in packages/contracts alongside this file:

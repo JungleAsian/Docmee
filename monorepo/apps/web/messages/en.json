@@ -1,0 +1,276 @@
+{
+  "app": {
+    "name": "Docmee",
+    "tagline": "Clinic panel"
+  },
+  "nav": {
+    "overview": "Overview",
+    "inbox": "Inbox",
+    "patients": "Patients",
+    "appointments": "Appointments",
+    "knowledge": "Knowledge base",
+    "analytics": "Analytics",
+    "settings": "Settings"
+  },
+  "login": {
+    "title": "Sign in",
+    "subtitle": "Access your clinic panel",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "error": "Could not sign in. Check your details."
+  },
+  "shell": {
+    "switchClinic": "Switch clinic",
+    "singleClinic": "Single clinic",
+    "multiClinicPending": "Switching between clinics will be enabled with the multi-user panel.",
+    "account": "Account",
+    "openMenu": "Open menu"
+  },
+  "dashboard": {
+    "title": "Overview",
+    "welcome": "Welcome, {name}",
+    "role": "Role",
+    "clinic": "Clinic",
+    "locale": "Language",
+    "sessionLive": "Session live against {source}",
+    "mock": "mocked data (MSW)",
+    "real": "real API"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Panel language",
+    "languageDesc": "Choose the interface language.",
+    "clinic": "Clinic",
+    "clinicDesc": "Your current session's clinic context.",
+    "account": "Account",
+    "accountDesc": "Your user and role.",
+    "spanish": "Spanish",
+    "english": "English"
+  },
+  "placeholder": {
+    "comingSoon": "Coming soon",
+    "comingSoonDesc": "This section will be built in a later phase."
+  },
+  "kb": {
+    "title": "Knowledge base",
+    "subtitle": "Answers and rules the bot responds from.",
+    "new": "New entry",
+    "type": "Type",
+    "typeManual": "Manual",
+    "typeRule": "Rule",
+    "titleLabel": "Title",
+    "titlePlaceholder": "e.g. Opening hours",
+    "contentLabel": "Content",
+    "contentPlaceholder": "Write the answer or rule…",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "empty": "No entries yet. Create the first one.",
+    "updated": "Updated {date}",
+    "editPending": "Editing and deletion arrive once the contract exposes them."
+  },
+  "inbox": {
+    "title": "Inbox",
+    "empty": "No conversations.",
+    "selectConversation": "Select a conversation.",
+    "filterAll": "All",
+    "send": "Send",
+    "sending": "Sending…",
+    "composerPlaceholder": "Type a message…",
+    "takeControl": "Take control",
+    "handBack": "Hand back to bot",
+    "pause": "Pause",
+    "resolve": "Resolve",
+    "windowOpen": "24h window open",
+    "windowClosed": "24h window closed",
+    "blocked": "The message was blocked by a gate.",
+    "mode": {
+      "bot": "Bot",
+      "human": "Human",
+      "paused": "Paused",
+      "resolved": "Resolved"
+    }
+  },
+  "patients": {
+    "title": "Patients",
+    "search": "Search by name or phone…",
+    "new": "New patient",
+    "name": "Name",
+    "phone": "Phone",
+    "tags": "Tags",
+    "tagsPlaceholder": "comma-separated",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "empty": "No patients found.",
+    "created": "Registered {date}",
+    "profile": "Profile",
+    "appointments": "Appointments",
+    "conversations": "Conversations",
+    "noAppointments": "No appointments.",
+    "noConversations": "No conversations.",
+    "back": "Back to patients",
+    "notesPending": "Patient notes arrive once the contract exposes the endpoint."
+  },
+  "appointments": {
+    "title": "Appointments",
+    "new": "Book appointment",
+    "patient": "Patient",
+    "selectPatient": "Select a patient",
+    "start": "Start",
+    "end": "End",
+    "book": "Book",
+    "booking": "Booking…",
+    "cancel": "Cancel",
+    "empty": "No appointments.",
+    "conflict": "That slot is already taken. Pick another.",
+    "filterAll": "All",
+    "reschedulePending": "Reschedule and cancel are handled by a human (no endpoint in contract v0).",
+    "status": {
+      "booked": "Booked",
+      "confirmed": "Confirmed",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "no_show": "No-show"
+    }
+  },
+  "settingsHub": {
+    "sections": "Administration",
+    "team": "Team & roles",
+    "quickReplies": "Quick replies",
+    "channels": "Channels",
+    "templates": "Templates",
+    "automation": "Automation",
+    "doctors": "Doctors",
+    "flows": "Intake flows",
+    "integrations": "Integrations",
+    "notifications": "Notifications"
+  },
+  "team": {
+    "title": "Team & roles",
+    "invite": "Invite user",
+    "name": "Name",
+    "email": "Email",
+    "role": "Role",
+    "save": "Save",
+    "cancel": "Cancel",
+    "roles": { "doctor": "Doctor", "secretary": "Secretary", "admin": "Admin", "assistant": "Assistant", "platform": "Platform" }
+  },
+  "quickReplies": {
+    "title": "Quick replies",
+    "new": "New reply",
+    "shortcut": "Shortcut",
+    "body": "Message",
+    "save": "Save",
+    "cancel": "Cancel",
+    "empty": "No quick replies."
+  },
+  "channels": {
+    "title": "Channels",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "status": { "connected": "Connected", "disconnected": "Disconnected", "pending": "Pending" }
+  },
+  "templates": {
+    "title": "Templates",
+    "new": "New template",
+    "name": "Name",
+    "category": "Category",
+    "language": "Language",
+    "body": "Body",
+    "save": "Save",
+    "cancel": "Cancel",
+    "submit": "Submit for approval",
+    "empty": "No templates.",
+    "categories": { "utility": "Utility", "marketing": "Marketing", "authentication": "Authentication" },
+    "status": { "draft": "Draft", "pending": "Pending", "approved": "Approved", "rejected": "Rejected" }
+  },
+  "automation": {
+    "title": "Automation",
+    "reminders": "Appointment reminders",
+    "reminderHours": "Hours before",
+    "followUps": "Post-visit follow-ups",
+    "quietStart": "Quiet hours start",
+    "quietEnd": "Quiet hours end",
+    "save": "Save",
+    "saved": "Saved",
+    "sixGate": "Proactive messages pass the six gates."
+  },
+  "analytics": {
+    "title": "Analytics",
+    "conversations7d": "Conversations (7d)",
+    "bookings7d": "Bookings (7d)",
+    "deflection": "Bot deflection rate",
+    "avgResponse": "Avg. response",
+    "seconds": "{n}s",
+    "search": "Message search",
+    "searchPlaceholder": "Search messages…",
+    "noResults": "No results."
+  },
+  "doctors": {
+    "title": "Doctors",
+    "new": "New doctor",
+    "name": "Name",
+    "specialty": "Specialty",
+    "save": "Save",
+    "cancel": "Cancel",
+    "empty": "No doctors.",
+    "any": "Any doctor"
+  },
+  "flows": {
+    "title": "Intake flows",
+    "new": "New flow",
+    "name": "Name",
+    "enabled": "Enabled",
+    "steps": "{n} steps",
+    "save": "Save",
+    "cancel": "Cancel",
+    "empty": "No flows."
+  },
+  "copilot": {
+    "suggest": "Suggest reply",
+    "suggesting": "Thinking…",
+    "apply": "Use suggestion",
+    "title": "Copilot"
+  },
+  "integrations": {
+    "title": "Integrations",
+    "documents": "Documents (OCR)",
+    "upload": "Upload document",
+    "filename": "File",
+    "exports": "Exports",
+    "newExport": "New export",
+    "target": "Target",
+    "consent": "I have written consent (Guatemala law)",
+    "create": "Create",
+    "cancel": "Cancel",
+    "noDocuments": "No documents.",
+    "noExports": "No exports.",
+    "docStatus": { "uploaded": "Uploaded", "processing": "Processing", "ingested": "Ingested", "failed": "Failed" },
+    "exportStatus": { "pending": "Pending", "running": "Running", "done": "Done", "failed": "Failed" },
+    "targets": { "sheets": "Google Sheets", "crm": "CRM", "csv": "CSV" }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "pushDesc": "Get alerts when a patient writes or an appointment is booked.",
+    "enable": "Enable notifications",
+    "enabled": "Notifications enabled",
+    "blocked": "The browser blocked notifications.",
+    "unsupported": "This browser does not support push notifications."
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "signOut": "Sign out",
+    "goHome": "Go home",
+    "notFound": "Page not found",
+    "menu": "Menu",
+    "back": "Back",
+    "new": "New",
+    "save": "Save",
+    "saving": "Saving…"
+  }
+}

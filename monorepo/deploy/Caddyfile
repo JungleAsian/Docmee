@@ -1,0 +1,12 @@
+# Caddy reverse proxy with automatic HTTPS (architecture §2/§14).
+# Replace api.docmee.example with the clinic platform's real domain.
+api.docmee.example {
+	encode gzip
+	# Health checks bypass app logging noise.
+	@health path /health /health/ready
+	reverse_proxy @health api:3000
+
+	reverse_proxy api:3000 {
+		header_up X-Real-IP {remote_host}
+	}
+}

@@ -24,8 +24,8 @@ export const base = tseslint.config(
     },
   },
   {
-    // Tests and tooling may use console.
-    files: ["**/*.test.ts", "**/*.spec.ts", "**/scripts/**", "**/*.config.*"],
+    // Tests, operator CLIs, and tooling may use console.
+    files: ["**/*.test.ts", "**/*.spec.ts", "**/scripts/**", "**/cli/**", "**/*.config.*"],
     rules: { "no-console": "off" },
   },
 );

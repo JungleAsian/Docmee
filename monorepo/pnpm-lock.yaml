@@ -155,7 +155,42 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)(msw@2.14.6(@types/node@20.19.43)(typescript@5.9.3))
 
-  apps/worker: {}
+  apps/worker:
+    dependencies:
+      '@docmee/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
+      '@docmee/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@docmee/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@docmee/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
+    devDependencies:
+      '@docmee/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      eslint:
+        specifier: ^9.9.0
+        version: 9.39.4(jiti@1.21.7)
+      tsup:
+        specifier: ^8.2.0
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.16.0
+        version: 4.22.4
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)(msw@2.14.6(@types/node@20.19.43)(typescript@5.9.3))
 
   packages/agents:
     dependencies:

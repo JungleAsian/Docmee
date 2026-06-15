@@ -7,6 +7,8 @@
  */
 import { Database } from "./database.js";
 import { createPgProvider } from "./pool.js";
+import { runMigrations, type MigrateResult } from "./migrate/runner.js";
+import { migrations } from "./migrate/migrations/index.js";
 
 export { Database } from "./database.js";
 export type { DatabaseOptions } from "./database.js";
@@ -89,4 +91,17 @@ export function createDatabase(opts: CreateDatabaseOptions): Database {
     app: createPgProvider(opts.databaseUrl),
     admin: opts.adminDatabaseUrl ? createPgProvider(opts.adminDatabaseUrl) : undefined,
   });
+}
+
+/**
+ * Apply all pending migrations to a live database (operator CLI). Uses a
+ * privileged connection (the migration role owns the schema). Forward-only.
+ */
+export async function migrateToLatest(databaseUrl: string): Promise<MigrateResult> {
+  const provider = createPgProvider(databaseUrl);
+  try {
+    return await runMigrations(provider, migrations);
+  } finally {
+    await provider.end();
+  }
 }

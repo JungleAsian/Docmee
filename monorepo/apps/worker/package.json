@@ -1,5 +1,5 @@
 {
-  "name": "@docmee/api",
+  "name": "@docmee/worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,6 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "migrate": "node dist/cli/migrate.js",
-    "bootstrap": "node dist/cli/bootstrap.js",
     "build": "tsup",
     "lint": "eslint .",
     "test": "vitest run",
@@ -16,23 +14,14 @@
   },
   "dependencies": {
     "@docmee/agents": "workspace:*",
-    "@docmee/channels": "workspace:*",
-    "@docmee/contracts": "workspace:*",
     "@docmee/core": "workspace:*",
     "@docmee/db": "workspace:*",
-    "@docmee/integrations": "workspace:*",
-    "@docmee/llm": "workspace:*",
-    "@fastify/rate-limit": "^9.1.0",
-    "fastify": "^4.28.0",
-    "jsonwebtoken": "^9.0.2",
-    "zod": "^3.23.0"
+    "@docmee/integrations": "workspace:*"
   },
   "devDependencies": {
     "@docmee/config": "workspace:*",
-    "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.0",
     "eslint": "^9.9.0",
-    "pino-pretty": "^11.2.0",
     "tsup": "^8.2.0",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",

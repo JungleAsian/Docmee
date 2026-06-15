@@ -15,6 +15,7 @@ export {
   runAutomationJob,
   processDueAutomations,
   cancelAppointmentAutomations,
+  autoCompleteAppointments,
 } from "./automation.js";
 export type { AutomationDeps, AutomationOutcome } from "./automation.js";
 export { suggestReply } from "./copilot.js";

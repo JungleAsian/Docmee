@@ -114,6 +114,31 @@ export async function processDueAutomations(
   return out;
 }
 
+/**
+ * Auto-completion job (architecture §9): mark appointments complete 30+ min after
+ * end time and enqueue the post-consultation automation (idempotently). Returns
+ * how many were completed.
+ */
+export async function autoCompleteAppointments(
+  deps: { db: Database },
+  clinicId: string,
+): Promise<{ completed: number }> {
+  return deps.db.withClinicContext(clinicId, async (tx) => {
+    const due = await appointments.findDueForCompletion(tx);
+    let completed = 0;
+    for (const appt of due) {
+      await appointments.transitionStatus(tx, appt.id, "completed");
+      await automation.enqueueAutomation(tx, {
+        patientId: appt.patient_id,
+        appointmentId: appt.id,
+        type: "post_consultation",
+      });
+      completed++;
+    }
+    return { completed };
+  });
+}
+
 /** Cancellation cascade: when an appointment is cancelled, drop its automations. */
 export async function cancelAppointmentAutomations(
   deps: AutomationDeps,

@@ -1,0 +1,51 @@
+# Docmee single-VPS deployment (architecture §14): API + worker + Redis + Caddy
+# on one box. Supabase (Postgres + pgvector) is managed/remote via DATABASE_URL.
+# Copy deploy/.env.example → deploy/.env and fill secrets before `docker compose up`.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+    command: ["node", "apps/api/dist/index.js"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+    command: ["node", "apps/worker/dist/index.js"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:

@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import rateLimit from "@fastify/rate-limit";
+import cors from "@fastify/cors";
 import {
   buildLoggerOptions,
   toErrorEnvelope,
@@ -102,6 +103,24 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   app.setNotFoundHandler((_request, reply) => {
     reply.code(404).send({ error: { code: "not_found", message: "Not found" } });
+  });
+
+  // CORS: the panel (apps/web) is a separate origin from this API. Auth is via
+  // bearer token (no cookies), so credentials aren't reflected. In production,
+  // allow only CORS_ALLOWED_ORIGINS (comma-separated); in dev, allow localhost.
+  const corsAllowed = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  void app.register(cors, {
+    origin:
+      env.NODE_ENV === "production"
+        ? corsAllowed.length > 0
+          ? corsAllowed
+          : false
+        : [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/, ...corsAllowed],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   });
 
   // SEC18: rate limiting / DoS protection. Global by default; webhooks + health

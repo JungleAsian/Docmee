@@ -33,6 +33,7 @@ import {
   type CrmWebhookConfig,
 } from "@docmee/integrations";
 import { clinicIdOf, actorIdOf, requireRole, INBOX_WRITERS } from "../plugins/rbac.js";
+import { toConversation, toAppointment } from "../serializers.js";
 
 export interface PanelRouteOptions {
   db: Database;
@@ -200,10 +201,10 @@ export async function panelRoutes(
       channel?: string;
       assigneeId?: string;
     };
-    const data = await db.withClinicContext(clinicId, (tx) =>
+    const rows = await db.withClinicContext(clinicId, (tx) =>
       conversations.listConversations(tx, q),
     );
-    return { data, nextCursor: null };
+    return { data: rows.map(toConversation), nextCursor: null };
   });
 
   app.get("/conversations/:id/messages", { preHandler: auth }, async (request) => {
@@ -253,7 +254,7 @@ export async function panelRoutes(
       conversations.setMode(tx, id, parsed.data.mode),
     );
     if (!updated) throw new NotFoundError();
-    return updated;
+    return toConversation(updated);
   });
 
   app.put(
@@ -268,7 +269,7 @@ export async function panelRoutes(
         conversations.assignConversation(tx, id, parsed.data.assigneeId),
       );
       if (!updated) throw new NotFoundError();
-      return updated;
+      return toConversation(updated);
     },
   );
 
@@ -276,10 +277,10 @@ export async function panelRoutes(
   app.get("/appointments", { preHandler: auth }, async (request) => {
     const clinicId = clinicIdOf(request);
     const q = request.query as { patientId?: string; status?: appointmentsDal.AppointmentStatus };
-    const data = await db.withClinicContext(clinicId, (tx) =>
+    const rows = await db.withClinicContext(clinicId, (tx) =>
       appointmentsDal.listAppointments(tx, { patientId: q.patientId, status: q.status }),
     );
-    return { data, nextCursor: null };
+    return { data: rows.map(toAppointment), nextCursor: null };
   });
 
   // Book against Calendar free/busy (source of truth) — 409 on slot conflict.
@@ -303,7 +304,7 @@ export async function panelRoutes(
       return { error: { code: "conflict", message: "Slot conflict" } };
     }
     reply.code(201);
-    return result.appointment;
+    return toAppointment(result.appointment);
   });
 
   app.put("/appointments/:id/status", { preHandler: [auth, writer] }, async (request, reply) => {
@@ -312,9 +313,10 @@ export async function panelRoutes(
     const parsed = statusBody.safeParse(request.body);
     if (!parsed.success) throw new ValidationError();
     try {
-      return await db.withClinicContext(clinicId, (tx) =>
+      const updated = await db.withClinicContext(clinicId, (tx) =>
         appointmentsDal.transitionStatus(tx, id, parsed.data.status, actorIdOf(request)),
       );
+      return toAppointment(updated);
     } catch (err) {
       if (err instanceof InvalidTransitionError) {
         reply.code(422);

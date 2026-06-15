@@ -156,7 +156,7 @@ describe("Phase 1B — panel API", () => {
       payload: JSON.stringify({ assigneeId: adminId }),
     });
     expect(assign.statusCode).toBe(200);
-    expect(assign.json().assignee_id).toBe(adminId);
+    expect(assign.json().assigneeId).toBe(adminId); // contract camelCase
   });
 
   it("books an appointment and rejects an overlapping slot (409)", async () => {

@@ -22,6 +22,7 @@ import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { loginRoutes } from "./routes/login.js";
 import { panelRoutes } from "./routes/panel.js";
+import { iaStudioRoutes } from "./routes/iastudio.js";
 import { webhookRoutes, type WebhookConfig } from "./routes/webhooks.js";
 
 export interface BuildAppOptions {
@@ -130,6 +131,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   if (db) {
     void app.register(loginRoutes, { db, jwtSecret });
+    void app.register(iaStudioRoutes, { db, jwtSecret });
   }
   if (db && keyring) {
     void app.register(panelRoutes, { db, keyring, transport, calendar });

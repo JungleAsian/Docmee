@@ -8,6 +8,8 @@ import {
   notes as notesDal,
   notifications as notificationsDal,
   appointments as appointmentsDal,
+  ops as opsDal,
+  features as featuresDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
@@ -246,6 +248,89 @@ export async function panelRoutes(
       }
       throw err;
     }
+  });
+
+  // ── Quick replies (Phase 2A) ──────────────────────────────────────────────────
+  app.get("/quick-replies", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) => opsDal.listQuickReplies(tx));
+    return { data };
+  });
+
+  app.post("/quick-replies", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ shortcut: z.string().min(1), body: z.string().min(1) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      opsDal.createQuickReply(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.delete("/quick-replies/:id", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    await db.withClinicContext(clinicId, (tx) => opsDal.deleteQuickReply(tx, id));
+    return { ok: true };
+  });
+
+  // ── Feature gating (3-gate) ─────────────────────────────────────────────────
+  app.get("/features/:key", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { key } = request.params as { key: string };
+    return db.withClinicContext(clinicId, (tx) => featuresDal.evaluateFeature(tx, key));
+  });
+
+  app.put("/features/:key/toggle", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { key } = request.params as { key: string };
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      featuresDal.setClinicToggle(tx, key, parsed.data.enabled),
+    );
+    return { ok: true };
+  });
+
+  // ── Manual invoicing (Phase 2A) ───────────────────────────────────────────────
+  app.get("/invoices", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) => opsDal.listInvoices(tx));
+    return { data };
+  });
+
+  app.post("/invoices", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        amountCents: z.number().int().nonnegative(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      opsDal.createInvoice(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.put("/invoices/:id/status", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ status: z.enum(["draft", "sent", "paid", "void"]) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const updated = await db.withClinicContext(clinicId, (tx) =>
+      opsDal.setInvoiceStatus(tx, id, parsed.data.status),
+    );
+    if (!updated) throw new NotFoundError();
+    return updated;
   });
 
   // ── Notifications ─────────────────────────────────────────────────────────────

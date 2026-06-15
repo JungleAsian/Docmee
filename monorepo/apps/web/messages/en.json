@@ -47,7 +47,11 @@
     "account": "Account",
     "accountDesc": "Your user and role.",
     "spanish": "Spanish",
-    "english": "English"
+    "english": "English",
+    "theme": "Theme",
+    "themeDesc": "Light or dark panel appearance.",
+    "themeLight": "Light theme",
+    "themeDark": "Dark theme"
   },
   "placeholder": {
     "comingSoon": "Coming soon",

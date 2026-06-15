@@ -12,12 +12,14 @@ import {
   DropdownMenuTrigger,
   Skeleton,
 } from "@docmee/ui";
-import { LogOut } from "lucide-react";
+import { LogOut, Moon, Sun } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useSession } from "../../lib/api/session";
 import { clearToken } from "../../lib/auth";
 import { setLocaleCookie } from "../../lib/locale";
+import { getActiveTheme, setTheme, type Theme } from "../../lib/theme";
 
 function initials(name: string): string {
   return name
@@ -34,11 +36,22 @@ export function UserMenu() {
   const activeLocale = useLocale() as Locale;
   const router = useRouter();
   const { data: session, isLoading } = useSession();
+  const [theme, setThemeState] = useState<Theme>("light");
+
+  useEffect(() => {
+    setThemeState(getActiveTheme());
+  }, []);
 
   function changeLocale(locale: Locale) {
     if (locale === activeLocale) return;
     setLocaleCookie(locale);
     router.refresh();
+  }
+
+  function toggleTheme() {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    setThemeState(next);
   }
 
   function signOut() {
@@ -83,6 +96,20 @@ export function UserMenu() {
         >
           {t("settings.english")}
         </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            toggleTheme();
+          }}
+        >
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4" aria-hidden />
+          ) : (
+            <Moon className="h-4 w-4" aria-hidden />
+          )}
+          {theme === "dark" ? t("settings.themeLight") : t("settings.themeDark")}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={signOut}>
           <LogOut className="h-4 w-4" aria-hidden />

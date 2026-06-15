@@ -47,7 +47,11 @@
     "account": "Cuenta",
     "accountDesc": "Tu usuario y rol.",
     "spanish": "Español",
-    "english": "Inglés"
+    "english": "Inglés",
+    "theme": "Tema",
+    "themeDesc": "Apariencia clara u oscura del panel.",
+    "themeLight": "Tema claro",
+    "themeDark": "Tema oscuro"
   },
   "placeholder": {
     "comingSoon": "Próximamente",

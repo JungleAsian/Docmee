@@ -7,8 +7,10 @@ import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useSession } from "../../../lib/api/session";
 import { setLocaleCookie } from "../../../lib/locale";
+import { getActiveTheme, setTheme, type Theme } from "../../../lib/theme";
 
 const HUB_LINKS: { key: string; href: Route }[] = [
   { key: "team", href: "/settings/team" },
@@ -63,6 +65,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <ThemeCard />
+
       <Card>
         <CardHeader>
           <CardTitle>{t("clinic")}</CardTitle>
@@ -94,6 +98,45 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function ThemeCard() {
+  const t = useTranslations("settings");
+  const [theme, setThemeState] = useState<Theme>("light");
+
+  useEffect(() => {
+    setThemeState(getActiveTheme());
+  }, []);
+
+  function choose(next: Theme) {
+    setTheme(next);
+    setThemeState(next);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("theme")}</CardTitle>
+        <CardDescription>{t("themeDesc")}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex gap-2">
+        <Button
+          variant={theme === "light" ? "default" : "outline"}
+          size="sm"
+          onClick={() => choose("light")}
+        >
+          {t("themeLight")}
+        </Button>
+        <Button
+          variant={theme === "dark" ? "default" : "outline"}
+          size="sm"
+          onClick={() => choose("dark")}
+        >
+          {t("themeDark")}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

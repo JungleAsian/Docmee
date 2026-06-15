@@ -4,6 +4,7 @@ import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Inpu
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState, type FormEvent } from "react";
+import { login } from "../../lib/api/session";
 import { setToken } from "../../lib/auth";
 
 export default function LoginPage() {
@@ -15,20 +16,24 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(false);
-    setSubmitting(true);
-    // Sprint-0: no credential exchange in contract v0 — issue a local bearer token.
-    // Replaced by a real /auth/login call at the integration checkpoint.
     if (!email || !password) {
       setError(true);
-      setSubmitting(false);
       return;
     }
-    setToken(`dev.${btoa(email)}`);
-    router.replace("/");
-    router.refresh();
+    setSubmitting(true);
+    try {
+      // Real credential exchange (POST /auth/login). In mock mode MSW answers it.
+      const token = await login(email, password);
+      setToken(token);
+      router.replace("/");
+      router.refresh();
+    } catch {
+      setError(true);
+      setSubmitting(false);
+    }
   }
 
   return (

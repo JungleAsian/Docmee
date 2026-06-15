@@ -51,3 +51,24 @@ IA Studio `POST /platform/login`, `GET /platform/clinics`, `GET/POST /platform/f
 
 > The ❎ items are FE-only mock surface today — keep them on MSW until BE ships (or
 > remove the screens) so the app never calls a non-existent endpoint in production.
+
+## Run the real thing locally (one machine, no cloud)
+Verified 2026-06-14: real panel ↔ real backend, no Postgres/Redis/keys needed
+(backend runs on in-process **PGlite**). Login now calls the real `/auth/login`
+(MSW answers it in mock mode), and the API has CORS for localhost.
+
+1. **Backend** — a tiny launcher (run via `pnpm --filter @docmee/api exec tsx <file>`)
+   that: `createTestDb()` (PGlite) → seed a clinic + admin (`hashPassword`) + a
+   couple patients → `buildApp({env, db, keyring})` → `app.listen({port:4555})`.
+2. **Frontend** — `apps/web/.env.local`:
+   ```
+   NEXT_PUBLIC_API_MOCKING=disabled
+   NEXT_PUBLIC_API_URL=http://127.0.0.1:4555
+   ```
+   then `pnpm dev:web` and log in with the seeded admin.
+3. Confirmed working: login → real JWT → dashboard reads the real session
+   ("Sesión activa contra API real") → patients list shows the seeded,
+   encrypted-at-rest records decrypted by the backend.
+
+> Production swaps PGlite for real Postgres/Redis and the fakes for real
+> AI/WhatsApp (X5/X6) — the seam (this contract) stays identical.

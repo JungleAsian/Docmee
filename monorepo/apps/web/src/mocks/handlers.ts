@@ -59,6 +59,14 @@ function nowIso(): string {
 
 /** MSW handlers mirroring packages/contracts/openapi.yaml (Phase 0/1A surface). */
 export const handlers = [
+  http.post(`${BASE}/auth/login`, async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { email?: string; password?: string };
+    if (!body.email || !body.password) {
+      return HttpResponse.json(unauthorized, { status: 401 });
+    }
+    return HttpResponse.json({ token: `dev.${nextId("tok")}`, mustRotate: false });
+  }),
+
   http.get(`${BASE}/auth/session`, ({ request }) => {
     if (!requireAuth(request)) return HttpResponse.json(unauthorized, { status: 401 });
     return HttpResponse.json(mockSession);

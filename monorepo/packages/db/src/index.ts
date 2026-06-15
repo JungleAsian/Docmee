@@ -46,6 +46,7 @@ export * as appointments from "./dal/appointments.js";
 export { InvalidTransitionError, type AppointmentStatus } from "./dal/appointments.js";
 export * as intake from "./dal/intake.js";
 export { INTAKE_STEPS, INTAKE_STEP_COUNT, type IntakeState } from "./dal/intake.js";
+export * as patientChannels from "./dal/patient-channels.js";
 export * as features from "./dal/features.js";
 export { evaluateFeature, type FeatureDecision } from "./dal/features.js";
 export * as ops from "./dal/ops.js";

@@ -10,6 +10,7 @@ export {
   type VerifyChallengeParams,
 } from "./webhook/meta.js";
 export { normalizeEvolution } from "./webhook/evolution.js";
+export { normalizeMessenger, normalizeInstagram } from "./webhook/messaging.js";
 export {
   type TranscriptionProvider,
   FakeTranscriptionProvider,

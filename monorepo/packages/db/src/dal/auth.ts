@@ -114,3 +114,23 @@ export async function findClinicByPhoneNumberId(
   );
   return rows[0] ?? null;
 }
+
+const ROUTE_COLUMN = {
+  whatsapp: "whatsapp_phone_number_id",
+  messenger: "messenger_page_id",
+  instagram: "instagram_account_id",
+} as const;
+
+/** Resolve a clinic by the routing key for a given channel (Phase 2B). */
+export async function findClinicByChannelRoute(
+  tx: PlatformTx,
+  channel: "whatsapp" | "messenger" | "instagram",
+  routingId: string,
+): Promise<{ id: string } | null> {
+  const column = ROUTE_COLUMN[channel];
+  const { rows } = await tx.query<{ id: string }>(
+    `SELECT id FROM clinics WHERE ${column} = $1 LIMIT 1`,
+    [routingId],
+  );
+  return rows[0] ?? null;
+}

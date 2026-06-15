@@ -1,9 +1,9 @@
 import type { NormalizedInbound } from "@docmee/core";
 import type { Database } from "../database.js";
 import type { Keyring } from "../crypto/keyring.js";
-import { findClinicByPhoneNumberId } from "../dal/auth.js";
+import { findClinicByChannelRoute } from "../dal/auth.js";
 import { logUnrouted } from "../dal/errors.js";
-import { upsertPatientByPhone } from "../dal/patients.js";
+import { upsertPatientByChannelIdentity } from "../dal/patient-channels.js";
 import { getOrCreateConversation, markPatientInbound } from "../dal/conversations.js";
 import { insertMessage } from "../dal/messages.js";
 
@@ -30,7 +30,7 @@ export async function ingestInbound(
   msg: NormalizedInbound,
 ): Promise<IngestResult> {
   const clinic = await db.withPlatformContext((tx) =>
-    findClinicByPhoneNumberId(tx, msg.routingId),
+    findClinicByChannelRoute(tx, msg.channel, msg.routingId),
   );
 
   if (!clinic) {
@@ -41,9 +41,9 @@ export async function ingestInbound(
   }
 
   return db.withClinicContext(clinic.id, async (tx) => {
-    const patient = await upsertPatientByPhone(tx, keyring, {
-      phone: msg.patientIdentifier,
-      channelId: msg.patientIdentifier,
+    const patient = await upsertPatientByChannelIdentity(tx, keyring, {
+      channel: msg.channel,
+      identity: msg.patientIdentifier,
     });
     const conversation = await getOrCreateConversation(tx, patient.id, msg.channel);
     const result = await insertMessage(tx, keyring, {

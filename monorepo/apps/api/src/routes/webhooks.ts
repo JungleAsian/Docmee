@@ -3,6 +3,8 @@ import type { NormalizedInbound } from "@docmee/core";
 import {
   normalizeEvolution,
   normalizeMeta,
+  normalizeMessenger,
+  normalizeInstagram,
   verifyChallenge,
   verifySignature,
 } from "@docmee/channels";
@@ -55,6 +57,35 @@ export async function webhookRoutes(
     if (msgs.length) queueMicrotask(() => void onInbound(msgs));
     return reply;
   });
+
+  // Messenger + Instagram (Phase 2B) — share Meta verify-challenge + signature.
+  for (const [path, normalize] of [
+    ["/webhooks/messenger", normalizeMessenger],
+    ["/webhooks/instagram", normalizeInstagram],
+  ] as const) {
+    app.get(path, { config: { rateLimit: false } }, async (request, reply) => {
+      const q = request.query as Record<string, string | undefined>;
+      if (!config.verifyToken) return reply.code(503).send();
+      const challenge = verifyChallenge(
+        { mode: q["hub.mode"], token: q["hub.verify_token"], challenge: q["hub.challenge"] },
+        config.verifyToken,
+      );
+      if (challenge == null) return reply.code(403).send();
+      return reply.code(200).type("text/plain").send(challenge);
+    });
+
+    app.post(path, { config: { rateLimit: false } }, async (request, reply) => {
+      const raw = (request as FastifyRequest & { rawBody?: Buffer }).rawBody;
+      const signature = request.headers["x-hub-signature-256"] as string | undefined;
+      if (!config.appSecret || !raw || !verifySignature(raw, signature, config.appSecret)) {
+        return reply.code(403).send();
+      }
+      const msgs = normalize(request.body);
+      reply.code(200).send({ received: true });
+      if (msgs.length) queueMicrotask(() => void onInbound(msgs));
+      return reply;
+    });
+  }
 
   // Evolution POST receive (interim connectivity).
   app.post("/webhooks/evolution", { config: { rateLimit: false } }, async (request, reply) => {

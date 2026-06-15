@@ -10,6 +10,7 @@ import {
   appointments as appointmentsDal,
   ops as opsDal,
   features as featuresDal,
+  patientChannels as patientChannelsDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
@@ -116,6 +117,18 @@ export async function panelRoutes(
     );
     reply.code(201);
     return note;
+  });
+
+  // Manual cross-channel merge (Phase 2B).
+  app.post("/patients/:id/merge", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z.object({ secondaryId: z.string().uuid() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      patientChannelsDal.mergePatients(tx, id, parsed.data.secondaryId),
+    );
+    return { ok: true };
   });
 
   // ── Conversations / inbox ─────────────────────────────────────────────────────

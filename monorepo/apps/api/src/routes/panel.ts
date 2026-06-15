@@ -15,13 +15,15 @@ import {
   automation as automationDal,
   analytics as analyticsDal,
   doctors as doctorsDal,
+  flows as flowsDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
   type Keyring,
   type OutboundTransport,
 } from "@docmee/db";
-import { bookAppointment } from "@docmee/agents";
+import { bookAppointment, suggestReply } from "@docmee/agents";
+import type { LlmGateway } from "@docmee/llm";
 import type { CalendarProvider } from "@docmee/integrations";
 import { clinicIdOf, actorIdOf, requireRole, INBOX_WRITERS } from "../plugins/rbac.js";
 
@@ -30,6 +32,7 @@ export interface PanelRouteOptions {
   keyring: Keyring;
   transport: OutboundTransport;
   calendar: CalendarProvider;
+  gateway: LlmGateway;
 }
 
 const patientCreate = z.object({
@@ -60,7 +63,7 @@ export async function panelRoutes(
   app: FastifyInstance,
   opts: PanelRouteOptions,
 ): Promise<void> {
-  const { db, keyring, transport, calendar } = opts;
+  const { db, keyring, transport, calendar, gateway } = opts;
   const auth = app.authenticate;
   const writer = requireRole(...INBOX_WRITERS);
 
@@ -404,6 +407,58 @@ export async function panelRoutes(
       automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
     );
     return { ok: true };
+  });
+
+  // ── Flows + rules + copilot (Phase 3B) ────────────────────────────────────────
+  app.get("/flows", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => flowsDal.listFlows(tx)) };
+  });
+
+  app.post("/flows", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ name: z.string().min(1), definition: z.record(z.unknown()) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      flowsDal.createFlow(tx, parsed.data as { name: string; definition: never }),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.post("/rules", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        definition: z.object({ when: z.array(z.unknown()), then: z.array(z.unknown()) }),
+        priority: z.number().int().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      flowsDal.createRule(tx, parsed.data as never),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  // Secretary copilot — returns a DRAFT only; the human reviews and sends.
+  app.post("/conversations/:id/copilot", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { text?: string };
+    let text = body.text;
+    if (!text) {
+      const history = await db.withClinicContext(clinicId, (tx) =>
+        messagesDal.listMessages(tx, keyring, id),
+      );
+      text = [...history].reverse().find((m) => m.author === "patient")?.body;
+    }
+    if (!text) throw new ValidationError("no patient message to draft from");
+    return suggestReply({ db, gateway }, { clinicId, patientText: text });
   });
 
   // ── Doctors (Phase 3A) ────────────────────────────────────────────────────────

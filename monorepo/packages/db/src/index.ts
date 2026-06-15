@@ -54,6 +54,7 @@ export * as iastudio from "./dal/iastudio.js";
 export * as automation from "./dal/automation.js";
 export * as analytics from "./dal/analytics.js";
 export * as doctors from "./dal/doctors.js";
+export * as flows from "./dal/flows.js";
 
 // Bot data-capture allowlist (G14–G18)
 export { applyCapture, CAPTURE_TOOLS, type CaptureOp, type CaptureResult } from "./services/capture.js";

@@ -17,3 +17,5 @@ export {
   cancelAppointmentAutomations,
 } from "./automation.js";
 export type { AutomationDeps, AutomationOutcome } from "./automation.js";
+export { suggestReply } from "./copilot.js";
+export type { CopilotDeps, CopilotSuggestion } from "./copilot.js";

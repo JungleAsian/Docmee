@@ -133,8 +133,8 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     void app.register(loginRoutes, { db, jwtSecret });
     void app.register(iaStudioRoutes, { db, jwtSecret });
   }
-  if (db && keyring) {
-    void app.register(panelRoutes, { db, keyring, transport, calendar });
+  if (db && keyring && gateway) {
+    void app.register(panelRoutes, { db, keyring, transport, calendar, gateway });
   }
 
   // Inbound webhooks. Default enqueue ingests directly (no Redis in Phase 0);

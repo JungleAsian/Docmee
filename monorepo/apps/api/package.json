@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "migrate": "node dist/cli/migrate.js",
     "bootstrap": "node dist/cli/bootstrap.js",
+    "seed-clinic": "node dist/cli/seed-clinic.js",
     "build": "tsup",
     "lint": "eslint .",
     "test": "vitest run",

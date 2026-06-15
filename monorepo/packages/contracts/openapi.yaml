@@ -129,8 +129,54 @@ paths:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/KbEntry' } } } }
 
   # ===================================================================
-  # Phase 2A–3D endpoints — FE-PROPOSED (Alpha), pending BE ratification.
-  # Additive only; shapes mirror the Build Backlog. BE refines as each phase lands.
+  # MVP real endpoints (Phase 1B/1C) — SYNCED FROM apps/api (BE) by FE/Alpha.
+  # Verified against route code (login.ts, panel.ts). Safe for FE to consume.
+  # See apps/web/docs/contract-sync.md for the full reconciliation map.
+  # ===================================================================
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Clinic user sign-in → clinic-scoped JWT
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /conversations/{conversationId}/assignee:
+    parameters: [{ in: path, name: conversationId, required: true, schema: { type: string } }]
+    put:
+      tags: [conversations]
+      summary: Claim / reassign a conversation (assigneeId null = unassign)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [assigneeId], properties: { assigneeId: { type: string, nullable: true } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Conversation' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /patients/{patientId}/notes:
+    parameters: [{ in: path, name: patientId, required: true, schema: { type: string } }]
+    get:
+      tags: [patients]
+      summary: List patient notes
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/NotePage' } } } }
+    post:
+      tags: [patients]
+      summary: Add a patient note
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string } } } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Note' } } } }
+  /appointments/{appointmentId}/status:
+    parameters: [{ in: path, name: appointmentId, required: true, schema: { type: string } }]
+    put:
+      tags: [appointments]
+      summary: Transition appointment lifecycle (reschedule/cancel route here, human-driven)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status], properties: { status: { type: string, enum: [booked, confirmed, completed, cancelled, no_show] } } } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Appointment' } } } }
+        '422': { $ref: '#/components/responses/Validation' }
+
+  # ===================================================================
+  # Phase 2A–3D endpoints — FE-PROPOSED (Alpha). NOTE: several diverge from
+  # BE's shipped routes (e.g. /search/messages, /metrics, /templates/{id}/status,
+  # /conversations/{id}/copilot). See apps/web/docs/contract-sync.md before the flip.
   # ===================================================================
 
   # ----- Phase 2A: Multi-User / RBAC / IA Studio -----
@@ -426,6 +472,29 @@ components:
     MessagePage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Message' } }, nextCursor: { type: string, nullable: true } } }
     AppointmentPage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Appointment' } }, nextCursor: { type: string, nullable: true } } }
     KbEntryPage:     { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/KbEntry' } }, nextCursor: { type: string, nullable: true } } }
+
+    # ===== MVP real schemas (synced from apps/api) =====
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    LoginResponse:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+        mustRotate: { type: boolean }
+    Note:
+      type: object
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        authorId: { type: string, nullable: true }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    NotePage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Note' } }, nextCursor: { type: string, nullable: true } } }
 
     # ===== Phase 2A–3D schemas (FE-proposed; BE to ratify per phase) =====
     Clinic:

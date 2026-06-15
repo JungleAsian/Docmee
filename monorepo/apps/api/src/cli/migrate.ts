@@ -4,11 +4,14 @@ import { migrateToLatest } from "@docmee/db";
 /** Operator CLI: apply all pending migrations to DATABASE_URL (forward-only). */
 async function main(): Promise<void> {
   const env = loadEnv();
-  if (!env.DATABASE_URL) {
-    console.error("DATABASE_URL is required to run migrations.");
+  // DDL (CREATE TABLE/ROLE, SECURITY DEFINER fns) must run as the owner/superuser,
+  // not the RLS-bound app role — prefer the admin URL.
+  const migrationUrl = env.DATABASE_ADMIN_URL ?? env.DATABASE_URL;
+  if (!migrationUrl) {
+    console.error("DATABASE_ADMIN_URL (or DATABASE_URL) is required to run migrations.");
     process.exit(1);
   }
-  const result = await migrateToLatest(env.DATABASE_URL);
+  const result = await migrateToLatest(migrationUrl);
   if (result.applied.length) {
     console.log(`Applied migrations: ${result.applied.join(", ")}`);
   } else {

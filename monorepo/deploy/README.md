@@ -23,11 +23,14 @@ host in `deploy/Caddyfile`.
 - `GET /health` — liveness (always 200 while up).
 - `GET /health/ready` — readiness (Postgres + crypto). Gate deploys on this.
 
-## Roles (production)
-Create two Postgres roles in Supabase: the RLS-bound app role (`DATABASE_URL`) and a
-`BYPASSRLS` admin role (`DATABASE_ADMIN_URL`) used only by the audited cross-tenant
-carve-out and the worker's scheduled jobs. The app role must be the non-superuser
-`docmee_app` (migrations grant it the needed table privileges).
+## Roles (self-hosted Postgres)
+The `postgres` container's `init-db/01-roles.sh` creates the RLS-bound `docmee_app`
+LOGIN role on first boot (`APP_DB_PASSWORD`). The superuser `postgres`
+(`POSTGRES_SUPERPASS`) owns the schema and is used by `migrate` + the admin/platform
+path (`DATABASE_ADMIN_URL`); the app connects as `docmee_app` (`DATABASE_URL`), so
+RLS is enforced on every API/worker query. Migrations run as the superuser
+(`DATABASE_ADMIN_URL`) because they create tables, roles, and SECURITY DEFINER
+functions.
 
 ## Pre-patient checklist (pilot gate)
 X3 privacy policy · X7 WhatsApp number · X12 VPS backup/recovery · X20 counsel ·

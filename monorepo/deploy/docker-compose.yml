@@ -1,7 +1,28 @@
-# Docmee single-VPS deployment (architecture §14): API + worker + Redis + Caddy
-# on one box. Supabase (Postgres + pgvector) is managed/remote via DATABASE_URL.
-# Copy deploy/.env.example → deploy/.env and fill secrets before `docker compose up`.
+# Docmee single-VPS deployment (architecture §14): Postgres + Redis + API + worker
+# + Caddy on one box. Copy deploy/.env.example → deploy/.env and fill secrets
+# before `docker compose up`.
+#
+# Role model (real multi-role Postgres, R5):
+#   - superuser `postgres`  → runs migrations + the admin/platform path (BYPASSRLS)
+#   - `docmee_app` (LOGIN, NOSUPERUSER) → the app; RLS is enforced on it
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERPASS}
+      POSTGRES_DB: docmee
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d docmee"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -17,7 +38,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
     depends_on:
-      - redis
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
     command: ["node", "apps/api/dist/index.js"]
 
   worker:
@@ -29,7 +51,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
     depends_on:
-      - redis
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
     command: ["node", "apps/worker/dist/index.js"]
 
   caddy:
@@ -46,6 +69,7 @@ services:
       - api
 
 volumes:
+  pg-data:
   redis-data:
   caddy-data:
   caddy-config:

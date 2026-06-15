@@ -61,6 +61,25 @@ Verified 2026-06-15 (`apps/api/src/serializers.ts`): **only `Conversation` and `
 **Consequence:** FE cannot flip these screens to real without either (a) BE adding serializers (`toTemplate`, `toMetricSeries`, …) so responses match the contract — the correct fix, BE lane — or (b) the FE hand-mapping snake_case, which violates the "contract is the camelCase seam" rule and would be thrown away once (a) lands.
 **Path to flip 2A–3D:** BE serializes those endpoints to the (reconciled) contract shapes → then FE renames paths + flips. Until then, keep 2A–3D on MSW.
 
+## Production MVP flip (against the LIVE backend)
+The backend is deployed (VPS, public via ngrok). Verified 2026-06-15: `GET /health`
+→ 200; `GET /auth/session` (no token) → the contract `{error:{code,message}}`
+envelope; `/patients` → 401. So the live API serves the MVP contract.
+
+The FE needs **no code change** — it's env-driven and flip-ready. To point the
+deployed panel at the live API:
+1. **FE (deploy env):** `NEXT_PUBLIC_API_MOCKING=disabled`, `NEXT_PUBLIC_API_URL=<live API origin>`.
+   (Dev stays mock-first; do NOT commit a disabled default.)
+2. **Backend (ops, on the VPS):** add the panel's deployed origin to
+   `CORS_ALLOWED_ORIGINS` (prod CORS is default-deny). Localhost is already allowed for dev.
+3. **Backend (ops):** seed a clinic + clinic_user so staff can log in (`migrate` + a
+   bootstrap/seed; `bootstrap` currently seeds the *platform* admin, not a clinic user).
+
+MVP slice that flips with this (all contract-conformant): auth/login, session,
+patients (+notes), conversations, messages, mode, assignee, appointments (+status),
+quick-replies, KB, doctors. 2A–3D analytics/search/templates/automation/flows stay
+on mock until BE serializes them (see blocker above).
+
 ## Run the real thing locally (one machine, no cloud)
 Verified 2026-06-14: real panel ↔ real backend, no Postgres/Redis/keys needed
 (backend runs on in-process **PGlite**). Login now calls the real `/auth/login`

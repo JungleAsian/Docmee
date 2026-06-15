@@ -19,7 +19,7 @@ export function MessageComposer({ conversationId }: { conversationId: string }) 
   function suggest() {
     copilot.mutate(conversationId, {
       onSuccess: (res) => {
-        if (res.suggestion) setBody(res.suggestion);
+        if (res.draft) setBody(res.draft);
       },
     });
   }

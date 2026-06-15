@@ -401,6 +401,12 @@ export const handlers = [
   }),
 
   // ===== Phase 3D — push =====
+  http.get(`${BASE}/push/vapid-key`, ({ request }) => {
+    if (!requireAuth(request)) return HttpResponse.json(unauthorized, { status: 401 });
+    // No VAPID in mock mode → FE skips the real subscribe path.
+    return HttpResponse.json({ publicKey: null });
+  }),
+
   http.post(`${BASE}/push/subscribe`, ({ request }) => {
     if (!requireAuth(request)) return HttpResponse.json(unauthorized, { status: 401 });
     return HttpResponse.json({ id: nextId("push"), active: true }, { status: 201 });

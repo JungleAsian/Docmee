@@ -12,6 +12,7 @@ import {
   features as featuresDal,
   patientChannels as patientChannelsDal,
   automation as automationDal,
+  analytics as analyticsDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
@@ -401,6 +402,62 @@ export async function panelRoutes(
       automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
     );
     return { ok: true };
+  });
+
+  // ── Analytics & error review (Phase 2D) ───────────────────────────────────────
+  app.get("/metrics", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { from?: string; to?: string };
+    const parsed = z
+      .object({ from: z.string(), to: z.string() })
+      .safeParse({ from: q.from, to: q.to });
+    if (!parsed.success) throw new ValidationError();
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.getMetrics(tx, parsed.data),
+    );
+    return { data };
+  });
+
+  // Ops trigger for a day's rollup (the worker runs this on a schedule).
+  app.post("/metrics/rollup", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z.object({ day: z.string() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.computeDailyRollup(tx, parsed.data.day),
+    );
+    return { ok: true };
+  });
+
+  app.get("/errors", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { status?: string };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.listErrors(tx, { status: q.status }),
+    );
+    return { data };
+  });
+
+  app.put("/errors/:id", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({
+        category: z.string().optional(),
+        status: z.enum(["open", "resolved", "kb_suggested"]).optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) => analyticsDal.reviewError(tx, id, parsed.data));
+    return { ok: true };
+  });
+
+  app.get("/kb-suggestions", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.listKbSuggestions(tx),
+    );
+    return { data };
   });
 
   // ── Notifications ─────────────────────────────────────────────────────────────

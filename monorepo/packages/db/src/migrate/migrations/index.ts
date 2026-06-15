@@ -7,8 +7,9 @@ import m005 from "./005_scheduling.js";
 import m006 from "./006_ops.js";
 import m007 from "./007_channels.js";
 import m008 from "./008_automation.js";
+import m009 from "./009_analytics.js";
 
 /** All migrations, in apply order. Append-only — never edit a shipped migration. */
 export const migrations: readonly Migration[] = [
-  m001, m002, m003, m004, m005, m006, m007, m008,
+  m001, m002, m003, m004, m005, m006, m007, m008, m009,
 ];

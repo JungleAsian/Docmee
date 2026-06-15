@@ -17,6 +17,7 @@ import {
   doctors as doctorsDal,
   flows as flowsDal,
   integrations as integrationsDal,
+  push as pushDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
@@ -40,6 +41,7 @@ export interface PanelRouteOptions {
   calendar: CalendarProvider;
   gateway: LlmGateway;
   ocr: OcrProvider;
+  vapidPublicKey?: string;
 }
 
 const patientCreate = z.object({
@@ -73,6 +75,51 @@ export async function panelRoutes(
   const { db, keyring, transport, calendar, gateway, ocr } = opts;
   const auth = app.authenticate;
   const writer = requireRole(...INBOX_WRITERS);
+
+  // ── Web Push (Phase 3D) ───────────────────────────────────────────────────────
+  app.get("/push/vapid-key", { preHandler: auth }, async () => ({
+    publicKey: opts.vapidPublicKey ?? null,
+  }));
+
+  app.post("/push/subscribe", { preHandler: auth }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const userId = actorIdOf(request);
+    const parsed = z
+      .object({ endpoint: z.string().url(), p256dh: z.string().min(1), auth: z.string().min(1) })
+      .safeParse(request.body);
+    if (!parsed.success || !userId) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      pushDal.savePushSubscription(tx, { clinicUserId: userId, ...parsed.data }),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.delete("/push/subscribe", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z.object({ endpoint: z.string().url() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      pushDal.deletePushSubscription(tx, parsed.data.endpoint),
+    );
+    return { ok: true };
+  });
+
+  app.put("/notification-preferences", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const userId = actorIdOf(request);
+    const parsed = z
+      .object({
+        priority: z.enum(["P1", "P2", "P3", "P4"]),
+        channels: z.array(z.string()),
+      })
+      .safeParse(request.body);
+    if (!parsed.success || !userId) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      pushDal.setNotificationPreference(tx, { clinicUserId: userId, ...parsed.data }),
+    );
+    return { ok: true };
+  });
 
   // ── Patients ────────────────────────────────────────────────────────────────
   app.get("/patients", { preHandler: auth }, async (request) => {

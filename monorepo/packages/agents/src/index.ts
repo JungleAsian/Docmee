@@ -23,3 +23,5 @@ export { ingestDocument } from "./documents.js";
 export type { DocumentIngestDeps } from "./documents.js";
 export { exportPatient } from "./export.js";
 export type { ExportSink, ExportResult } from "./export.js";
+export { notifyUserPush } from "./push.js";
+export type { PushDeps } from "./push.js";

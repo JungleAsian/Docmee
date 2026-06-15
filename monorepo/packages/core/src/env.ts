@@ -47,6 +47,11 @@ export const envSchema = z
     DEEPSEEK_API_KEY: z.string().min(1).optional(),
     OPENAI_API_KEY: z.string().min(1).optional(),
     DEEPGRAM_API_KEY: z.string().min(1).optional(),
+
+    // Web Push (VAPID, Phase 3D). Absent → push is disabled (fake/no-op).
+    VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+    VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+    VAPID_SUBJECT: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production") {

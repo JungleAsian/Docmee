@@ -7,6 +7,21 @@ export interface WhatsappCreds {
   token: string;
 }
 
+export interface ClinicView {
+  id: string;
+  name: string;
+  status: string;
+}
+
+/** The current clinic (RLS scopes to the session's clinic) — for the switcher. */
+export async function getCurrentClinic(tx: ClinicTx): Promise<ClinicView | null> {
+  const { rows } = await tx.query<ClinicView>(
+    `SELECT id, name, status FROM clinics WHERE id = $1`,
+    [tx.clinicId],
+  );
+  return rows[0] ?? null;
+}
+
 /** Set the clinic's WhatsApp Cloud credentials (token encrypted at rest). */
 export async function setWhatsappCreds(
   tx: ClinicTx,

@@ -174,9 +174,21 @@ paths:
         '422': { $ref: '#/components/responses/Validation' }
 
   # ===================================================================
-  # Phase 2A–3D endpoints — FE-PROPOSED (Alpha). NOTE: several diverge from
-  # BE's shipped routes (e.g. /search/messages, /metrics, /templates/{id}/status,
-  # /conversations/{id}/copilot). See apps/web/docs/contract-sync.md before the flip.
+  # Phase 2A–3D endpoints — RECONCILED to BE's shipped routes by Prime (2026-06-15).
+  # Paths/shapes below match apps/api exactly (search→/search/messages,
+  # analytics→/metrics, copilot→/conversations/{id}/copilot, templates status,
+  # automation/{type}, per-patient export, flat push shape).
+  # Additionally IMPLEMENTED but not yet individually typed here (reuse obvious
+  # shapes; see apps/api/src/routes/panel.ts + iastudio.ts):
+  #   GET /features/{key}, PUT /features/{key}/toggle · GET/POST /invoices,
+  #   PUT /invoices/{id}/status · GET /errors, PUT /errors/{id} · GET /kb-suggestions ·
+  #   GET /notifications, PUT /notifications/{id}/read · POST /rules ·
+  #   POST /integrations · GET/POST /report-schedules · POST /doctors/{id}/staff ·
+  #   POST /metrics/rollup · GET /push/vapid-key, DELETE /push/subscribe,
+  #   PUT /notification-preferences · POST /patients/{id}/consent ·
+  #   IA Studio: /platform/login, GET/POST /platform/clinics,
+  #   POST /platform/clinics/{id}/users, GET/POST /platform/flags,
+  #   POST /platform/impersonate · Meta-facing: /webhooks/{whatsapp,messenger,instagram,evolution}.
   # ===================================================================
 
   # ----- Phase 2A: Multi-User / RBAC / IA Studio -----
@@ -186,26 +198,16 @@ paths:
       summary: List clinics the user can access (clinic switcher + IA Studio)
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ClinicPage' } } } }
-  /users:
-    get:
-      tags: [users]
-      summary: List clinic users (RBAC)
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UserPage' } } } }
-    post:
-      tags: [users]
-      summary: Invite/create a user
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UserCreate' } } } }
-      responses:
-        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
-  /users/{userId}/role:
-    parameters: [{ in: path, name: userId, required: true, schema: { type: string } }]
+  # NOT IMPLEMENTED (clinic-scoped user mgmt deferred): there are no /users or
+  # /users/{id}/role routes. Clinic users are created by platform staff via
+  # POST /platform/clinics/{id}/users (IA Studio). FE: don't consume /users yet.
+  /clinic/whatsapp:
     put:
-      tags: [users]
-      summary: Change a user's role
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [role], properties: { role: { type: string, enum: [doctor, secretary, admin, assistant, platform] } } } } } }
+      tags: [clinics]
+      summary: Set the clinic's WhatsApp Cloud credentials (token stored encrypted; write-only)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [phoneNumberId, token], properties: { phoneNumberId: { type: string }, token: { type: string } } } } } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/User' } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
   /quick-replies:
     get:
       tags: [quickReplies]
@@ -220,19 +222,16 @@ paths:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/QuickReply' } } } }
 
   # ----- Phase 2B: Channels -----
-  /channels:
-    get:
-      tags: [channels]
-      summary: Connection status per channel
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ChannelConnectionPage' } } } }
-  /channels/{channel}/connect:
-    parameters: [{ in: path, name: channel, required: true, schema: { type: string, enum: [whatsapp, messenger, instagram] } }]
+  # No /channels/connect UI flow; WhatsApp credentials are set via PUT /clinic/whatsapp.
+  # Inbound for all channels arrives on the /webhooks/* routes (Meta-facing, below).
+  /patients/{patientId}/merge:
+    parameters: [{ in: path, name: patientId, required: true, schema: { type: string } }]
     post:
-      tags: [channels]
-      summary: Begin/confirm channel connection (per-clinic Meta connect)
+      tags: [patients]
+      summary: Manual cross-channel merge — fold secondaryId into this patient
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [secondaryId], properties: { secondaryId: { type: string } } } } } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ChannelConnection' } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
 
   # ----- Phase 2C: Templates & Automation -----
   /templates:
@@ -247,40 +246,40 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TemplateCreate' } } } }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Template' } } } }
-  /templates/{templateId}/submit:
+  /templates/{templateId}/status:
     parameters: [{ in: path, name: templateId, required: true, schema: { type: string } }]
-    post:
+    put:
       tags: [templates]
-      summary: Submit a template for Meta approval
+      summary: Set template status (pending→approved/rejected; reflects Meta approval)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status], properties: { status: { type: string, enum: [pending, approved, rejected] } } } } } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Template' } } } }
-  /automation/settings:
-    get:
-      tags: [automation]
-      summary: Automation settings (reminders/follow-ups + six-gate toggles)
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AutomationSettings' } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
+  /automation/{type}:
+    parameters: [{ in: path, name: type, required: true, schema: { type: string }, description: catalog key (e.g. reminder_1day) }]
     put:
       tags: [automation]
-      summary: Update automation settings
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AutomationSettings' } } } }
+      summary: Enable/disable an automation type for the clinic (six-gate still applies at send)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [enabled], properties: { enabled: { type: boolean } } } } } }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AutomationSettings' } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } } }
 
   # ----- Phase 2D: Analytics & Search -----
-  /analytics/overview:
+  /metrics:
     get:
       tags: [analytics]
-      summary: KPI rollups for the dashboard
+      summary: Per-clinic daily metric rollups (counts only; no PHI) for the dashboard
+      parameters:
+        - { in: query, name: from, required: true, schema: { type: string }, description: YYYY-MM-DD }
+        - { in: query, name: to, required: true, schema: { type: string }, description: YYYY-MM-DD }
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsOverview' } } } }
-  /messages/search:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MetricsResponse' } } } }
+  /search/messages:
     get:
       tags: [messages]
-      summary: Per-clinic full-text message search
+      summary: Per-clinic full-text message search (audited; tsvector over ciphertext bodies)
       parameters: [{ in: query, name: q, required: true, schema: { type: string } }]
       responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MessagePage' } } } }
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MessageSearchPage' } } } }
 
   # ----- Phase 3A: Multi-Doctor -----
   /doctors:
@@ -309,11 +308,12 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FlowCreate' } } } }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Flow' } } } }
-  /copilot/suggest:
+  /conversations/{conversationId}/copilot:
+    parameters: [{ in: path, name: conversationId, required: true, schema: { type: string } }]
     post:
       tags: [copilot]
-      summary: Secretary copilot reply suggestion (human-approved)
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [conversationId], properties: { conversationId: { type: string } } } } } }
+      summary: Secretary copilot DRAFT (human reviews + sends; never auto-sent). Uses last patient msg if no text.
+      requestBody: { required: false, content: { application/json: { schema: { type: object, properties: { text: { type: string } } } } } }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CopilotSuggestion' } } } }
 
@@ -330,18 +330,15 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentCreate' } } } }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Document' } } } }
-  /exports:
-    get:
-      tags: [exports]
-      summary: List export jobs
-      responses:
-        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ExportJobPage' } } } }
+  /patients/{patientId}/export:
+    parameters: [{ in: path, name: patientId, required: true, schema: { type: string } }]
     post:
       tags: [exports]
-      summary: Create an export job (requires written consent — SEC24)
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExportJobCreate' } } } }
+      summary: Export a patient to the configured CRM. BLOCKED unless written consent exists (SEC24).
       responses:
-        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/ExportJob' } } } }
+        '200': { description: Exported, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [exported] } } } } } }
+        '403': { description: No export consent on record (SEC24), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '502': { description: Export sink failed, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   # ----- Phase 3D: Push -----
   /push/subscribe:
@@ -603,8 +600,9 @@ components:
     CopilotSuggestion:
       type: object
       properties:
-        suggestion: { type: string }
-        confidence: { type: number }
+        draft: { type: string }
+        grounded: { type: boolean }
+        sources: { type: array, items: { type: string } }
     Document:
       type: object
       properties:
@@ -633,19 +631,31 @@ components:
         consent: { type: boolean }
     PushSubscriptionCreate:
       type: object
-      required: [endpoint]
+      required: [endpoint, p256dh, auth]
       properties:
-        endpoint: { type: string }
-        keys:
-          type: object
-          properties:
-            p256dh: { type: string }
-            auth: { type: string }
+        endpoint: { type: string, format: uri }
+        p256dh: { type: string }
+        auth: { type: string }
     PushSubscriptionAck:
       type: object
       properties:
         id: { type: string }
-        active: { type: boolean }
+
+    MessageSearchHit:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    MessageSearchPage: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/MessageSearchHit' } }, nextCursor: { type: string, nullable: true } } }
+    MetricRow:
+      type: object
+      properties:
+        day: { type: string }
+        metric_key: { type: string }
+        value: { type: integer }
+    MetricsResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/MetricRow' } } } }
 
     # --- Phase 2A–3D pagination envelopes ---
     ClinicPage:            { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Clinic' } }, nextCursor: { type: string, nullable: true } } }

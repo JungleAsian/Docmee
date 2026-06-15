@@ -14,6 +14,7 @@ import {
   patientChannels as patientChannelsDal,
   automation as automationDal,
   clinics as clinicsDal,
+  kb as kbDal,
   analytics as analyticsDal,
   doctors as doctorsDal,
   flows as flowsDal,
@@ -121,6 +122,43 @@ export async function panelRoutes(
       pushDal.setNotificationPreference(tx, { clinicUserId: userId, ...parsed.data }),
     );
     return { ok: true };
+  });
+
+  // ── Clinic context (switcher) ─────────────────────────────────────────────────
+  app.get("/clinics", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const clinic = await db.withClinicContext(clinicId, (tx) =>
+      clinicsDal.getCurrentClinic(tx),
+    );
+    // One-clinic-per-user today; array shape keeps the switcher future-proof.
+    return { data: clinic ? [clinic] : [], nextCursor: null };
+  });
+
+  // ── Knowledge base (Phase 1A) ─────────────────────────────────────────────────
+  app.get("/kb/entries", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) => kbDal.listEntries(tx));
+    return { data, nextCursor: null };
+  });
+
+  app.post("/kb/entries", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        type: z.enum(["manual", "rule"]),
+        title: z.string().optional(),
+        content: z.string().min(1),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    // Manual entries are embedded for retrieval; rules are always-injected (no embed).
+    const embedding =
+      parsed.data.type === "manual" ? await gateway.embedOne(parsed.data.content) : undefined;
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      kbDal.createKbEntry(tx, { ...parsed.data, embedding }),
+    );
+    reply.code(201);
+    return created;
   });
 
   // ── Patients ────────────────────────────────────────────────────────────────
@@ -411,6 +449,11 @@ export async function panelRoutes(
   });
 
   // ── Templates & automation (Phase 2C) ─────────────────────────────────────────
+  app.get("/templates", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => automationDal.listTemplates(tx)) };
+  });
+
   app.post("/templates", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
     const clinicId = clinicIdOf(request);
     const parsed = z
@@ -481,6 +524,11 @@ export async function panelRoutes(
 
   // ── Documents, export, integrations, reports (Phase 3C) ───────────────────────
   // Document → KB ingestion (text supplied or OCR'd from bytes elsewhere).
+  app.get("/documents", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => integrationsDal.listDocuments(tx)) };
+  });
+
   app.post("/documents", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
     const clinicId = clinicIdOf(request);
     const parsed = z

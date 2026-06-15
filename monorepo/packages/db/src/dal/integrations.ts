@@ -12,6 +12,22 @@ export async function createDocument(
   return rows[0]!;
 }
 
+export interface DocumentView {
+  id: string;
+  filename: string;
+  status: string;
+  chunk_count: number;
+  created_at: string;
+}
+
+export async function listDocuments(tx: ClinicTx): Promise<DocumentView[]> {
+  const { rows } = await tx.query<DocumentView>(
+    `SELECT id, filename, status, chunk_count, created_at FROM document_uploads
+     ORDER BY created_at DESC`,
+  );
+  return rows;
+}
+
 export async function markDocumentProcessed(
   tx: ClinicTx,
   id: string,

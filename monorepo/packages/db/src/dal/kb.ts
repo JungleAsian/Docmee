@@ -43,6 +43,46 @@ export async function createKbEntry(
   return rows[0]!;
 }
 
+export interface KbEntryView {
+  id: string;
+  type: KbType;
+  title: string | null;
+  content: string;
+  updatedAt: string;
+}
+
+/** List KB entries for the panel editor (newest first); optional type filter. */
+export async function listEntries(
+  tx: ClinicTx,
+  opts: { type?: KbType; limit?: number } = {},
+): Promise<KbEntryView[]> {
+  const params: unknown[] = [];
+  let where = "";
+  if (opts.type) {
+    params.push(opts.type);
+    where = "WHERE type = $1";
+  }
+  params.push(Math.min(Math.max(opts.limit ?? 100, 1), 200));
+  const { rows } = await tx.query<{
+    id: string;
+    type: KbType;
+    title: string | null;
+    content: string;
+    updated_at: string;
+  }>(
+    `SELECT id, type, title, content, updated_at FROM kb_entries
+     ${where} ORDER BY updated_at DESC LIMIT $${params.length}`,
+    params,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    title: r.title,
+    content: r.content,
+    updatedAt: r.updated_at,
+  }));
+}
+
 /** The "rules" KB category — injected into every prompt in full. */
 export async function getRules(tx: ClinicTx): Promise<string[]> {
   const { rows } = await tx.query<{ content: string }>(

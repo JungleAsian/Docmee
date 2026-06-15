@@ -203,6 +203,32 @@ describe("Phase 1B — panel API", () => {
     expect(confirm.json().status).toBe("confirmed");
   });
 
+  it("GET /clinics returns the session clinic (switcher)", async () => {
+    const res = await app.inject({ method: "GET", url: "/clinics", headers: bearer(adminToken) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data[0].id).toBe(clinicId);
+  });
+
+  it("KB entries: create (manual, embedded) + list", async () => {
+    const create = await app.inject({
+      method: "POST",
+      url: "/kb/entries",
+      headers: bearer(adminToken),
+      payload: JSON.stringify({ type: "manual", title: "Horario", content: "Atendemos 8-17h." }),
+    });
+    expect(create.statusCode).toBe(201);
+    const list = await app.inject({ method: "GET", url: "/kb/entries", headers: bearer(adminToken) });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().data.some((e: { title: string }) => e.title === "Horario")).toBe(true);
+  });
+
+  it("GET /templates and /documents return arrays", async () => {
+    const t = await app.inject({ method: "GET", url: "/templates", headers: bearer(adminToken) });
+    const d = await app.inject({ method: "GET", url: "/documents", headers: bearer(adminToken) });
+    expect(Array.isArray(t.json().data)).toBe(true);
+    expect(Array.isArray(d.json().data)).toBe(true);
+  });
+
   it("requires auth", async () => {
     const res = await app.inject({ method: "GET", url: "/patients" });
     expect(res.statusCode).toBe(401);

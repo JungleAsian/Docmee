@@ -21,6 +21,23 @@ export async function setTemplateStatus(
   await tx.query(`UPDATE meta_templates SET status = $2 WHERE id = $1`, [id, status]);
 }
 
+export interface TemplateView {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+  body: string;
+}
+
+export async function listTemplates(tx: ClinicTx): Promise<TemplateView[]> {
+  const { rows } = await tx.query<TemplateView>(
+    `SELECT id, name, language, category, status, body FROM meta_templates
+     ORDER BY created_at DESC`,
+  );
+  return rows;
+}
+
 export async function hasApprovedTemplate(tx: ClinicTx, name: string): Promise<boolean> {
   const { rows } = await tx.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM meta_templates

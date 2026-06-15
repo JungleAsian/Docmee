@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { verifyPassword, UnauthorizedError } from "@docmee/core";
-import { type Database, auth, iastudio } from "@docmee/db";
+import { verifyPassword, hashPassword, UnauthorizedError, ValidationError } from "@docmee/core";
+import { type Database, auth, iastudio, features } from "@docmee/db";
 import {
   extractBearer,
   signPlatformToken,
@@ -66,6 +66,60 @@ export async function iaStudioRoutes(
       iastudio.listClinics(tx),
     );
     return { data };
+  });
+
+  // Create a clinic (onboarding, G3) + a default subscription so features gate ON.
+  app.post("/platform/clinics", async (request, reply) => {
+    await requirePlatform(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        whatsappPhoneNumberId: z.string().optional(),
+        locale: z.enum(["es", "en"]).optional(),
+        plan: z.string().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const clinic = await db.withPlatformContext((tx) =>
+      auth.createClinic(tx, {
+        name: parsed.data.name,
+        whatsappPhoneNumberId: parsed.data.whatsappPhoneNumberId,
+        locale: parsed.data.locale,
+      }),
+    );
+    await db.withClinicContext(clinic.id, (tx) =>
+      features.setSubscription(tx, parsed.data.plan ?? "professional"),
+    );
+    reply.code(201);
+    return clinic;
+  });
+
+  // Invite a clinic user (admin/secretary/doctor/assistant) with a chosen password.
+  app.post("/platform/clinics/:id/users", async (request, reply) => {
+    await requirePlatform(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({
+        email: z.string().email(),
+        name: z.string().min(1),
+        role: z.enum(["doctor", "secretary", "admin", "assistant"]),
+        password: z.string().min(8),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const passwordHash = await hashPassword(parsed.data.password);
+    const created = await db.withPlatformContext((tx) =>
+      auth.createClinicUser(tx, {
+        clinicId: id,
+        email: parsed.data.email,
+        name: parsed.data.name,
+        role: parsed.data.role,
+        passwordHash,
+        mustRotate: false,
+      }),
+    );
+    reply.code(201);
+    return created;
   });
 
   app.get("/platform/flags", async (request) => {

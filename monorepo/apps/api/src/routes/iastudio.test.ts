@@ -162,4 +162,37 @@ describe("Phase 2A — IA Studio + ops", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().enabled).toBe(true); // professional plan includes analytics
   });
+
+  it("onboards a new clinic + admin (G3) who can then log in", async () => {
+    const clinic = await app.inject({
+      method: "POST",
+      url: "/platform/clinics",
+      headers: json(platformToken),
+      payload: JSON.stringify({ name: "Clinic B", whatsappPhoneNumberId: "pn_B" }),
+    });
+    expect(clinic.statusCode).toBe(201);
+    const newClinicId = clinic.json().id as string;
+
+    const user = await app.inject({
+      method: "POST",
+      url: `/platform/clinics/${newClinicId}/users`,
+      headers: json(platformToken),
+      payload: JSON.stringify({
+        email: "admin@b.gt",
+        name: "B Admin",
+        role: "admin",
+        password: "clinic-b-pass",
+      }),
+    });
+    expect(user.statusCode).toBe(201);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ email: "admin@b.gt", password: "clinic-b-pass" }),
+    });
+    expect(login.statusCode).toBe(200);
+    expect(typeof login.json().token).toBe("string");
+  });
 });

@@ -37,6 +37,10 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379
+    # Loopback-only publish so an on-box tunnel (ngrok) or Caddy can reach the API;
+    # NOT world-exposed. Caddy still proxies it for production HTTPS.
+    ports:
+      - "127.0.0.1:3000:3000"
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }

@@ -52,6 +52,15 @@ IA Studio `POST /platform/login`, `GET /platform/clinics`, `GET/POST /platform/f
 > The ❎ items are FE-only mock surface today — keep them on MSW until BE ships (or
 > remove the screens) so the app never calls a non-existent endpoint in production.
 
+## ⚠️ BLOCKER for the 2A–3D flip: backend responses aren't contract-shaped yet
+Verified 2026-06-15 (`apps/api/src/serializers.ts`): **only `Conversation` and `Appointment` are mapped to camelCase contract shapes.** The MVP slice (auth/patients/notes/conversations/messages/appointments) is contract-conformant and flips clean (proven). But the **2A–3D endpoints return raw snake_case DAL rows**, which do NOT match the contract the FE consumes:
+- `/metrics` → `{ day, metric_key, value }[]` (not the FE `AnalyticsOverview`)
+- `/search/messages` → hits with `conversation_id`, decrypted body
+- templates / automation-rules / flows / doctors / documents → snake_case rows
+
+**Consequence:** FE cannot flip these screens to real without either (a) BE adding serializers (`toTemplate`, `toMetricSeries`, …) so responses match the contract — the correct fix, BE lane — or (b) the FE hand-mapping snake_case, which violates the "contract is the camelCase seam" rule and would be thrown away once (a) lands.
+**Path to flip 2A–3D:** BE serializes those endpoints to the (reconciled) contract shapes → then FE renames paths + flips. Until then, keep 2A–3D on MSW.
+
 ## Run the real thing locally (one machine, no cloud)
 Verified 2026-06-14: real panel ↔ real backend, no Postgres/Redis/keys needed
 (backend runs on in-process **PGlite**). Login now calls the real `/auth/login`

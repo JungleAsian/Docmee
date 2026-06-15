@@ -14,6 +14,7 @@ import {
   patientChannels as patientChannelsDal,
   automation as automationDal,
   analytics as analyticsDal,
+  doctors as doctorsDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
@@ -401,6 +402,44 @@ export async function panelRoutes(
     if (!parsed.success) throw new ValidationError();
     await db.withClinicContext(clinicId, (tx) =>
       automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
+    );
+    return { ok: true };
+  });
+
+  // ── Doctors (Phase 3A) ────────────────────────────────────────────────────────
+  app.get("/doctors", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { active?: string };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      doctorsDal.listDoctors(tx, { activeOnly: q.active === "true" }),
+    );
+    return { data };
+  });
+
+  app.post("/doctors", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        specialty: z.string().optional(),
+        calendarId: z.string().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      doctorsDal.createDoctor(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.post("/doctors/:id/staff", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z.object({ clinicUserId: z.string().uuid() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      doctorsDal.assignStaffToDoctor(tx, parsed.data.clinicUserId, id),
     );
     return { ok: true };
   });

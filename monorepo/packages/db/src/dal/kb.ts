@@ -8,6 +8,8 @@ export interface NewKbEntry {
   content: string;
   embedding?: number[];
   source?: string;
+  /** Doctor-scoped entry; null/undefined = clinic-wide (Phase 3A). */
+  doctorId?: string;
 }
 
 export interface KbRetrieval {
@@ -27,15 +29,16 @@ export async function createKbEntry(
   tx: ClinicTx,
   e: NewKbEntry,
 ): Promise<{ id: string }> {
+  const embeddingSql = e.embedding ? "$5::vector" : "NULL";
+  const tailParams = e.embedding
+    ? [toVectorLiteral(e.embedding), e.source ?? null, e.doctorId ?? null]
+    : [e.source ?? null, e.doctorId ?? null];
+  const sourceIdx = e.embedding ? 6 : 5;
   const { rows } = await tx.query<{ id: string }>(
-    `INSERT INTO kb_entries (clinic_id, type, title, content, embedding, source)
-     VALUES ($1, $2, $3, $4, ${e.embedding ? "$5::vector" : "NULL"}, ${
-       e.embedding ? "$6" : "$5"
-     })
+    `INSERT INTO kb_entries (clinic_id, type, title, content, embedding, source, doctor_id)
+     VALUES ($1, $2, $3, $4, ${embeddingSql}, $${sourceIdx}, $${sourceIdx + 1})
      RETURNING id`,
-    e.embedding
-      ? [tx.clinicId, e.type, e.title ?? null, e.content, toVectorLiteral(e.embedding), e.source ?? null]
-      : [tx.clinicId, e.type, e.title ?? null, e.content, e.source ?? null],
+    [tx.clinicId, e.type, e.title ?? null, e.content, ...tailParams],
   );
   return rows[0]!;
 }
@@ -56,17 +59,21 @@ export async function getRules(tx: ClinicTx): Promise<string[]> {
 export async function retrieve(
   tx: ClinicTx,
   queryEmbedding: number[],
-  opts: { k?: number; threshold?: number } = {},
+  opts: { k?: number; threshold?: number; doctorId?: string } = {},
 ): Promise<KbRetrieval[]> {
   const k = opts.k ?? 5;
   const threshold = opts.threshold ?? RETRIEVAL_THRESHOLD;
+  // Doctor-scoped retrieval: that doctor's entries + clinic-wide (doctor_id NULL).
+  const doctorClause = opts.doctorId ? "AND (doctor_id = $3 OR doctor_id IS NULL)" : "";
+  const params: unknown[] = [toVectorLiteral(queryEmbedding), k];
+  if (opts.doctorId) params.push(opts.doctorId);
   const { rows } = await tx.query<{ id: string; content: string; similarity: number }>(
     `SELECT id, content, 1 - (embedding <=> $1::vector) AS similarity
      FROM kb_entries
-     WHERE type <> 'rule' AND embedding IS NOT NULL
+     WHERE type <> 'rule' AND embedding IS NOT NULL ${doctorClause}
      ORDER BY embedding <=> $1::vector
      LIMIT $2`,
-    [toVectorLiteral(queryEmbedding), k],
+    params,
   );
   return rows
     .map((r) => ({ id: r.id, content: r.content, similarity: Number(r.similarity) }))

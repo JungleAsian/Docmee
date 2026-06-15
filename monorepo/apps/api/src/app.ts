@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import rateLimit from "@fastify/rate-limit";
 import {
   buildLoggerOptions,
   toErrorEnvelope,
@@ -75,6 +76,17 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
       });
       return;
     }
+    // Framework/plugin errors (e.g. @fastify/rate-limit 429) carry a 4xx statusCode.
+    const fwStatus = (error as { statusCode?: number }).statusCode;
+    if (fwStatus && fwStatus >= 400 && fwStatus < 500) {
+      reply.code(fwStatus).send({
+        error: {
+          code: (error as { code?: string }).code ?? "error",
+          message: error.message,
+        },
+      });
+      return;
+    }
     const { status, body } = toErrorEnvelope(error);
     if (status >= 500) request.log.error({ err: error }, "unhandled error");
     reply.code(status).send(body);
@@ -82,6 +94,14 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   app.setNotFoundHandler((_request, reply) => {
     reply.code(404).send({ error: { code: "not_found", message: "Not found" } });
+  });
+
+  // SEC18: rate limiting / DoS protection. Global by default; webhooks + health
+  // opt out per-route (soft enforcement — never drop patient traffic or probes).
+  void app.register(rateLimit, {
+    global: true,
+    max: env.RATE_LIMIT_MAX,
+    timeWindow: env.RATE_LIMIT_WINDOW,
   });
 
   const jwtSecret = env.JWT_SECRET ?? "dev-insecure-secret-change-me-please";

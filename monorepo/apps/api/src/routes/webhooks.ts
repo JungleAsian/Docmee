@@ -32,7 +32,7 @@ export async function webhookRoutes(
   const { config, onInbound } = opts;
 
   // Meta GET verify-challenge.
-  app.get("/webhooks/whatsapp", async (request, reply) => {
+  app.get("/webhooks/whatsapp", { config: { rateLimit: false } }, async (request, reply) => {
     const q = request.query as Record<string, string | undefined>;
     if (!config.verifyToken) return reply.code(503).send();
     const challenge = verifyChallenge(
@@ -44,7 +44,7 @@ export async function webhookRoutes(
   });
 
   // Meta POST receive.
-  app.post("/webhooks/whatsapp", async (request, reply) => {
+  app.post("/webhooks/whatsapp", { config: { rateLimit: false } }, async (request, reply) => {
     const raw = (request as FastifyRequest & { rawBody?: Buffer }).rawBody;
     const signature = request.headers["x-hub-signature-256"] as string | undefined;
     if (!config.appSecret || !raw || !verifySignature(raw, signature, config.appSecret)) {
@@ -57,7 +57,7 @@ export async function webhookRoutes(
   });
 
   // Evolution POST receive (interim connectivity).
-  app.post("/webhooks/evolution", async (request, reply) => {
+  app.post("/webhooks/evolution", { config: { rateLimit: false } }, async (request, reply) => {
     if (config.evolutionToken) {
       const token = request.headers["x-evolution-token"] as string | undefined;
       if (token !== config.evolutionToken) return reply.code(403).send();

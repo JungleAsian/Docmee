@@ -37,6 +37,11 @@ export const envSchema = z
     WEBHOOK_VERIFY_TOKEN: z.string().min(1).optional(),
     META_APP_SECRET: z.string().min(1).optional(),
 
+    // Rate limiting (SEC18). Applied to panel/auth; webhooks + health are exempt
+    // (soft enforcement: never drop patient traffic or liveness probes).
+    RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+    RATE_LIMIT_WINDOW: z.string().default("1 minute"),
+
     // AI providers (X5). Absent → the bot uses deterministic fakes (no live calls).
     ANTHROPIC_API_KEY: z.string().min(1).optional(),
     DEEPSEEK_API_KEY: z.string().min(1).optional(),

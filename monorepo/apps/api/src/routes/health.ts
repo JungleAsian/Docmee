@@ -14,9 +14,9 @@ export async function healthRoutes(
   app: FastifyInstance,
   opts: HealthRouteOptions,
 ): Promise<void> {
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health", { config: { rateLimit: false } }, async () => ({ status: "ok" }));
 
-  app.get("/health/ready", async (_request, reply) => {
+  app.get("/health/ready", { config: { rateLimit: false } }, async (_request, reply) => {
     const result = await opts.readiness.evaluate();
     reply.code(result.ready ? 200 : 503);
     return result;

@@ -20,6 +20,7 @@
     "@docmee/db": "workspace:*",
     "@docmee/integrations": "workspace:*",
     "@docmee/llm": "workspace:*",
+    "@fastify/rate-limit": "^9.1.0",
     "fastify": "^4.28.0",
     "jsonwebtoken": "^9.0.2",
     "zod": "^3.23.0"

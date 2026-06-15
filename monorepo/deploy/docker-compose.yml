@@ -59,6 +59,22 @@ services:
       redis: { condition: service_started }
     command: ["node", "apps/worker/dist/index.js"]
 
+  # Frontend panel (Next.js standalone). Same-origin with the API behind Caddy:
+  # the panel calls /api/* (Caddy strips the prefix → api), so NO CORS is needed.
+  # NEXT_PUBLIC_* are build-time inlined → set as build args here.
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_API_MOCKING: disabled
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - api
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -71,6 +87,7 @@ services:
       - caddy-config:/config
     depends_on:
       - api
+      - web
 
 volumes:
   pg-data:

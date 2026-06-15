@@ -28,3 +28,5 @@ export { notifyUserPush } from "./push.js";
 export type { PushDeps } from "./push.js";
 export { createWhatsAppTransport } from "./transport.js";
 export type { WhatsAppTransportDeps } from "./transport.js";
+export { handleInboundMessage } from "./inbound.js";
+export type { InboundDeps } from "./inbound.js";

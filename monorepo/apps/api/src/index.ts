@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
-import { loadEnv } from "@docmee/core";
+import { loadEnv, type NormalizedInbound } from "@docmee/core";
 import { Keyring, createDatabase, type Database } from "@docmee/db";
+import { BullMqQueueProvider, type QueueProvider } from "@docmee/queue";
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -13,11 +14,24 @@ async function main(): Promise<void> {
       })
     : undefined;
 
-  const app = buildApp({ env, db, keyring });
+  // With Redis, the API only ENQUEUES inbound (200-OK-first → enqueue, decision #6);
+  // the worker consumes. Without Redis, buildApp's default processes inline.
+  let queue: QueueProvider | undefined;
+  let onInbound: ((msgs: NormalizedInbound[]) => Promise<void>) | undefined;
+  if (env.REDIS_URL) {
+    queue = new BullMqQueueProvider(env.REDIS_URL);
+    const inbound = queue.queue<NormalizedInbound>("inbound");
+    onInbound = async (msgs) => {
+      await Promise.all(msgs.map((m) => inbound.add(m)));
+    };
+  }
+
+  const app = buildApp({ env, db, keyring, onInbound });
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
     await app.close();
+    if (queue) await queue.close();
     if (db) await db.close();
     process.exit(0);
   };

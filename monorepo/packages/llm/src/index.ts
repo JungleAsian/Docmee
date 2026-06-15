@@ -31,3 +31,4 @@ export {
   OpenAiEmbeddingProvider,
   type RealProviderConfig,
 } from "./providers/real.js";
+export { gatewayFromKeys, type ProviderKeys } from "./factory.js";

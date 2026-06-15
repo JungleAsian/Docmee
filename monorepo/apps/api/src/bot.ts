@@ -1,33 +1,13 @@
 import type { Env } from "@docmee/core";
-import {
-  LlmGateway,
-  FakeChatProvider,
-  FakeIntentProvider,
-  FakeEmbeddingProvider,
-  ClaudeChatProvider,
-  DeepSeekIntentProvider,
-  OpenAiEmbeddingProvider,
-} from "@docmee/llm";
+import { gatewayFromKeys, type LlmGateway } from "@docmee/llm";
 import type { OutboundTransport } from "@docmee/db";
 
-/**
- * Build the LLM gateway from env. With all X5 keys present it wires the real
- * Claude/DeepSeek/OpenAI providers; otherwise it falls back to deterministic
- * fakes so the pipeline runs end-to-end locally without keys.
- */
+/** Build the LLM gateway from env (real providers if X5 keys present, else fakes). */
 export function buildGateway(env: Env): LlmGateway {
-  const haveKeys = env.ANTHROPIC_API_KEY && env.DEEPSEEK_API_KEY && env.OPENAI_API_KEY;
-  if (haveKeys) {
-    return new LlmGateway({
-      chat: new ClaudeChatProvider({ apiKey: env.ANTHROPIC_API_KEY! }),
-      intent: new DeepSeekIntentProvider({ apiKey: env.DEEPSEEK_API_KEY! }),
-      embeddings: new OpenAiEmbeddingProvider({ apiKey: env.OPENAI_API_KEY! }),
-    });
-  }
-  return new LlmGateway({
-    chat: new FakeChatProvider(),
-    intent: new FakeIntentProvider(),
-    embeddings: new FakeEmbeddingProvider(),
+  return gatewayFromKeys({
+    anthropic: env.ANTHROPIC_API_KEY,
+    deepseek: env.DEEPSEEK_API_KEY,
+    openai: env.OPENAI_API_KEY,
   });
 }
 

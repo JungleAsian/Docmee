@@ -1,6 +1,8 @@
-import { loadEnv, createLogger } from "@docmee/core";
+import { loadEnv, createLogger, type NormalizedInbound } from "@docmee/core";
 import { Keyring, createDatabase, type Database } from "@docmee/db";
-import { createWhatsAppTransport } from "@docmee/agents";
+import { createWhatsAppTransport, handleInboundMessage } from "@docmee/agents";
+import { gatewayFromKeys } from "@docmee/llm";
+import { BullMqQueueProvider, type QueueProvider, type Closable } from "@docmee/queue";
 import { runScheduledTick } from "./scheduler.js";
 
 const TICK_MS = 30 * 60 * 1000; // every 30 minutes (architecture §12)
@@ -27,6 +29,22 @@ async function main(): Promise<void> {
     keyring,
     log: (m) => log.info(m),
   });
+  const gateway = gatewayFromKeys({
+    anthropic: env.ANTHROPIC_API_KEY,
+    deepseek: env.DEEPSEEK_API_KEY,
+    openai: env.OPENAI_API_KEY,
+  });
+
+  // Consume the inbound queue (conversation processor) when Redis is configured.
+  let queue: QueueProvider | undefined;
+  let inboundWorker: Closable | undefined;
+  if (env.REDIS_URL) {
+    queue = new BullMqQueueProvider(env.REDIS_URL);
+    inboundWorker = queue.worker<NormalizedInbound>("inbound", (msg) =>
+      handleInboundMessage({ db, gateway, keyring, transport }, msg),
+    );
+    log.info("inbound queue consumer started");
+  }
 
   let running = false;
   const tick = async (): Promise<void> => {
@@ -47,6 +65,8 @@ async function main(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     clearInterval(timer);
+    if (inboundWorker) await inboundWorker.close();
+    if (queue) await queue.close();
     await db.close();
     process.exit(0);
   };

@@ -1,31 +1,33 @@
 {
-  "name": "@docmee/worker",
+  "name": "@docmee/queue",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
     "build": "tsup",
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@docmee/agents": "workspace:*",
-    "@docmee/core": "workspace:*",
-    "@docmee/db": "workspace:*",
-    "@docmee/integrations": "workspace:*",
-    "@docmee/llm": "workspace:*",
-    "@docmee/queue": "workspace:*"
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.4.0"
   },
   "devDependencies": {
     "@docmee/config": "workspace:*",
     "@types/node": "^20.14.0",
     "eslint": "^9.9.0",
     "tsup": "^8.2.0",
-    "tsx": "^4.16.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }

@@ -7,14 +7,9 @@ import {
   type Env,
   type NormalizedInbound,
 } from "@docmee/core";
-import {
-  ingestInbound,
-  type Database,
-  type Keyring,
-  type OutboundTransport,
-} from "@docmee/db";
+import { type Database, type Keyring, type OutboundTransport } from "@docmee/db";
 import type { LlmGateway } from "@docmee/llm";
-import { processTurn, createWhatsAppTransport } from "@docmee/agents";
+import { handleInboundMessage, createWhatsAppTransport } from "@docmee/agents";
 import {
   FakeCalendarProvider,
   FakeOcrProvider,
@@ -183,25 +178,16 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     appSecret: env.META_APP_SECRET,
   };
 
+  // Default inbound path = inline processing (no Redis). When Redis is configured,
+  // src/index.ts injects an `onInbound` that enqueues to the BullMQ `inbound` queue
+  // for the worker to consume instead.
   const onInbound =
     opts.onInbound ??
     (async (msgs: NormalizedInbound[]) => {
       if (!db || !keyring || !gateway) return;
       for (const msg of msgs) {
         try {
-          const res = await ingestInbound(db, keyring, msg);
-          // Auto-reply only for freshly stored inbound (not redeliveries).
-          if (res.status === "stored") {
-            await processTurn(
-              { db, gateway, keyring, transport },
-              {
-                clinicId: res.clinicId,
-                conversationId: res.conversationId,
-                patientId: res.patientId,
-                text: msg.content,
-              },
-            );
-          }
+          await handleInboundMessage({ db, gateway, keyring, transport }, msg);
         } catch (err) {
           app.log.error({ err, routingId: msg.routingId }, "inbound pipeline failed");
         }

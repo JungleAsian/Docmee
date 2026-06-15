@@ -19,3 +19,7 @@ export {
 export type { AutomationDeps, AutomationOutcome } from "./automation.js";
 export { suggestReply } from "./copilot.js";
 export type { CopilotDeps, CopilotSuggestion } from "./copilot.js";
+export { ingestDocument } from "./documents.js";
+export type { DocumentIngestDeps } from "./documents.js";
+export { exportPatient } from "./export.js";
+export type { ExportSink, ExportResult } from "./export.js";

@@ -14,7 +14,12 @@ import {
 } from "@docmee/db";
 import type { LlmGateway } from "@docmee/llm";
 import { processTurn } from "@docmee/agents";
-import { FakeCalendarProvider, type CalendarProvider } from "@docmee/integrations";
+import {
+  FakeCalendarProvider,
+  FakeOcrProvider,
+  type CalendarProvider,
+  type OcrProvider,
+} from "@docmee/integrations";
 import { buildGateway, createLogTransport } from "./bot.js";
 import { registerAuth } from "./plugins/auth.js";
 import { ReadinessRegistry } from "./health/readiness.js";
@@ -38,6 +43,8 @@ export interface BuildAppOptions {
   transport?: OutboundTransport;
   /** Override the calendar provider (defaults to an in-memory fake until X15). */
   calendar?: CalendarProvider;
+  /** Override the OCR provider (defaults to a fake until X18). */
+  ocr?: OcrProvider;
   /** Override the inbound enqueue step (tests inject a spy). */
   onInbound?: (msgs: NormalizedInbound[]) => void | Promise<void>;
 }
@@ -125,6 +132,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
   const transport =
     opts.transport ?? createLogTransport((msg) => app.log.info(msg));
   const calendar = opts.calendar ?? new FakeCalendarProvider();
+  const ocr = opts.ocr ?? new FakeOcrProvider();
 
   void app.register(healthRoutes, { readiness });
   void app.register(authRoutes);
@@ -134,7 +142,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     void app.register(iaStudioRoutes, { db, jwtSecret });
   }
   if (db && keyring && gateway) {
-    void app.register(panelRoutes, { db, keyring, transport, calendar, gateway });
+    void app.register(panelRoutes, { db, keyring, transport, calendar, gateway, ocr });
   }
 
   // Inbound webhooks. Default enqueue ingests directly (no Redis in Phase 0);

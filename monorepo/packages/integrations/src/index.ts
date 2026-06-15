@@ -11,3 +11,16 @@ export {
   GoogleCalendarProvider,
   type GoogleCalendarConfig,
 } from "./calendar.js";
+export {
+  type OcrProvider,
+  FakeOcrProvider,
+  GoogleVisionOcrProvider,
+  type GoogleVisionConfig,
+} from "./ocr.js";
+export {
+  signPayload,
+  postToCrm,
+  appendToSheet,
+  type CrmWebhookConfig,
+  type SheetsConfig,
+} from "./crm.js";

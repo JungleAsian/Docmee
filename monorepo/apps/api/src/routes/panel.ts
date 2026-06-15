@@ -16,15 +16,21 @@ import {
   analytics as analyticsDal,
   doctors as doctorsDal,
   flows as flowsDal,
+  integrations as integrationsDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
   type Keyring,
   type OutboundTransport,
 } from "@docmee/db";
-import { bookAppointment, suggestReply } from "@docmee/agents";
+import { bookAppointment, suggestReply, ingestDocument, exportPatient } from "@docmee/agents";
 import type { LlmGateway } from "@docmee/llm";
-import type { CalendarProvider } from "@docmee/integrations";
+import {
+  postToCrm,
+  type CalendarProvider,
+  type OcrProvider,
+  type CrmWebhookConfig,
+} from "@docmee/integrations";
 import { clinicIdOf, actorIdOf, requireRole, INBOX_WRITERS } from "../plugins/rbac.js";
 
 export interface PanelRouteOptions {
@@ -33,6 +39,7 @@ export interface PanelRouteOptions {
   transport: OutboundTransport;
   calendar: CalendarProvider;
   gateway: LlmGateway;
+  ocr: OcrProvider;
 }
 
 const patientCreate = z.object({
@@ -63,7 +70,7 @@ export async function panelRoutes(
   app: FastifyInstance,
   opts: PanelRouteOptions,
 ): Promise<void> {
-  const { db, keyring, transport, calendar, gateway } = opts;
+  const { db, keyring, transport, calendar, gateway, ocr } = opts;
   const auth = app.authenticate;
   const writer = requireRole(...INBOX_WRITERS);
 
@@ -407,6 +414,70 @@ export async function panelRoutes(
       automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
     );
     return { ok: true };
+  });
+
+  // ── Documents, export, integrations, reports (Phase 3C) ───────────────────────
+  // Document → KB ingestion (text supplied or OCR'd from bytes elsewhere).
+  app.post("/documents", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ filename: z.string().min(1), text: z.string().min(1), doctorId: z.string().uuid().optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const doc = await db.withClinicContext(clinicId, (tx) =>
+      integrationsDal.createDocument(tx, { filename: parsed.data.filename }),
+    );
+    const result = await ingestDocument(
+      { db, gateway, ocr },
+      { clinicId, documentId: doc.id, text: parsed.data.text, doctorId: parsed.data.doctorId },
+    );
+    reply.code(201);
+    return { id: doc.id, chunks: result.chunks };
+  });
+
+  app.post("/integrations", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ type: z.enum(["sheets", "crm"]), config: z.record(z.unknown()), enabled: z.boolean().optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      integrationsDal.saveIntegration(tx, parsed.data),
+    );
+    reply.code(201);
+    return created; // config never returned (write-only)
+  });
+
+  // Export a patient to the CRM — BLOCKED unless written consent exists (SEC24).
+  app.post("/patients/:id/export", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const crm = await db.withClinicContext(clinicId, (tx) => integrationsDal.getIntegration(tx, "crm"));
+    const result = await exportPatient({ db }, { clinicId, patientId: id }, async (payload) => {
+      if (!crm?.url || !crm?.secret) return { ok: false };
+      return postToCrm(crm as unknown as CrmWebhookConfig, payload);
+    });
+    if (result.status === "blocked") reply.code(403);
+    else if (result.status === "failed") reply.code(502);
+    return result;
+  });
+
+  app.get("/report-schedules", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => integrationsDal.listReportSchedules(tx)) };
+  });
+
+  app.post("/report-schedules", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ type: z.string().min(1), cadence: z.enum(["daily", "weekly", "monthly"]), config: z.record(z.unknown()).optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      integrationsDal.createReportSchedule(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
   });
 
   // ── Flows + rules + copilot (Phase 3B) ────────────────────────────────────────

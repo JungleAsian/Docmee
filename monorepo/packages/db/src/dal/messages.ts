@@ -32,8 +32,8 @@ export async function insertMessage(
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO messages
          (clinic_id, conversation_id, direction, author,
-          content_ciphertext, content_key_version, provider_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+          content_ciphertext, content_key_version, provider_message_id, content_search)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, to_tsvector('spanish', $8))
        ON CONFLICT (clinic_id, provider_message_id)
          WHERE provider_message_id IS NOT NULL
          DO NOTHING
@@ -46,6 +46,8 @@ export async function insertMessage(
         content.ciphertext,
         content.keyVersion,
         m.providerMessageId,
+        // plaintext used ONLY to derive the tsvector; never stored as text.
+        m.content,
       ],
     );
     if (rows[0]) return { id: rows[0].id, duplicate: false };
@@ -62,8 +64,8 @@ export async function insertMessage(
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO messages
        (clinic_id, conversation_id, direction, author,
-        content_ciphertext, content_key_version)
-     VALUES ($1,$2,$3,$4,$5,$6)
+        content_ciphertext, content_key_version, content_search)
+     VALUES ($1,$2,$3,$4,$5,$6, to_tsvector('spanish', $7))
      RETURNING id`,
     [
       tx.clinicId,
@@ -72,6 +74,7 @@ export async function insertMessage(
       m.author,
       content.ciphertext,
       content.keyVersion,
+      m.content,
     ],
   );
   return { id: rows[0]!.id, duplicate: false };
@@ -113,6 +116,48 @@ export async function listMessages(
     conversationId: r.conversation_id,
     direction: r.direction,
     author: r.author,
+    body:
+      r.content_ciphertext && r.content_key_version != null
+        ? decrypt(r.content_ciphertext, r.content_key_version, keyring)
+        : "",
+    createdAt: r.created_at,
+  }));
+}
+
+export interface MessageSearchHit {
+  id: string;
+  conversationId: string;
+  body: string;
+  createdAt: string;
+}
+
+/**
+ * Per-clinic full-text message search (Q3). Matches against the derived tsvector
+ * (RLS-scoped) and decrypts only the matching rows for display. Callers MUST audit
+ * the query (G34). Returns most-recent matches first.
+ */
+export async function searchMessages(
+  tx: ClinicTx,
+  keyring: Keyring,
+  query: string,
+  limit = 50,
+): Promise<MessageSearchHit[]> {
+  const { rows } = await tx.query<{
+    id: string;
+    conversation_id: string;
+    content_ciphertext: string | null;
+    content_key_version: number | null;
+    created_at: string;
+  }>(
+    `SELECT id, conversation_id, content_ciphertext, content_key_version, created_at
+     FROM messages
+     WHERE content_search @@ plainto_tsquery('spanish', $1)
+     ORDER BY created_at DESC LIMIT $2`,
+    [query, Math.min(Math.max(limit, 1), 100)],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversation_id,
     body:
       r.content_ciphertext && r.content_key_version != null
         ? decrypt(r.content_ciphertext, r.content_key_version, keyring)

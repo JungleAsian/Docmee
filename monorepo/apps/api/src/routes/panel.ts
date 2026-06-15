@@ -7,6 +7,7 @@ import {
   messages as messagesDal,
   notes as notesDal,
   notifications as notificationsDal,
+  audit as auditDal,
   appointments as appointmentsDal,
   ops as opsDal,
   features as featuresDal,
@@ -402,6 +403,23 @@ export async function panelRoutes(
       automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
     );
     return { ok: true };
+  });
+
+  // ── Message search (Phase 2D, Q3) — per-clinic, audited ───────────────────────
+  app.get("/search/messages", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = (request.query as { q?: string }).q;
+    const parsed = z.string().min(1).safeParse(q);
+    if (!parsed.success) throw new ValidationError();
+    return db.withClinicContext(clinicId, async (tx) => {
+      const data = await messagesDal.searchMessages(tx, keyring, parsed.data);
+      await auditDal.writeAudit(tx, {
+        action: "message.search",
+        actorClinicUserId: actorIdOf(request),
+        detail: { resultCount: data.length },
+      });
+      return { data, nextCursor: null };
+    });
   });
 
   // ── Analytics & error review (Phase 2D) ───────────────────────────────────────

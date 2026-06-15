@@ -14,7 +14,7 @@ import {
   type OutboundTransport,
 } from "@docmee/db";
 import type { LlmGateway } from "@docmee/llm";
-import { processTurn } from "@docmee/agents";
+import { processTurn, createWhatsAppTransport } from "@docmee/agents";
 import {
   FakeCalendarProvider,
   FakeOcrProvider,
@@ -148,8 +148,12 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
   }
 
   const gateway = opts.gateway ?? (db ? buildGateway(env) : undefined);
+  // Real WhatsApp delivery when infra is present; log-only fallback otherwise.
   const transport =
-    opts.transport ?? createLogTransport((msg) => app.log.info(msg));
+    opts.transport ??
+    (db && keyring
+      ? createWhatsAppTransport({ db, keyring, log: (m) => app.log.info(m) })
+      : createLogTransport((msg) => app.log.info(msg)));
   const calendar = opts.calendar ?? new FakeCalendarProvider();
   const ocr = opts.ocr ?? new FakeOcrProvider();
 

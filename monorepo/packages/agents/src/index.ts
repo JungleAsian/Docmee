@@ -26,3 +26,5 @@ export { exportPatient } from "./export.js";
 export type { ExportSink, ExportResult } from "./export.js";
 export { notifyUserPush } from "./push.js";
 export type { PushDeps } from "./push.js";
+export { createWhatsAppTransport } from "./transport.js";
+export type { WhatsAppTransportDeps } from "./transport.js";

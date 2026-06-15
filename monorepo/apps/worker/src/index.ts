@@ -1,19 +1,10 @@
 import { loadEnv, createLogger } from "@docmee/core";
-import {
-  Keyring,
-  createDatabase,
-  type Database,
-  type OutboundTransport,
-} from "@docmee/db";
+import { Keyring, createDatabase, type Database } from "@docmee/db";
+import { createWhatsAppTransport } from "@docmee/agents";
 import { runScheduledTick } from "./scheduler.js";
 
 const TICK_MS = 30 * 60 * 1000; // every 30 minutes (architecture §12)
 const log = createLogger({ name: "worker" });
-
-/** Placeholder transport until per-clinic Meta/Evolution senders land (X10). */
-const transport: OutboundTransport = {
-  send: async () => Promise.resolve({}),
-};
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -30,6 +21,11 @@ async function main(): Promise<void> {
   const db: Database = createDatabase({
     databaseUrl: env.DATABASE_URL,
     adminDatabaseUrl: env.DATABASE_ADMIN_URL ?? env.DATABASE_URL,
+  });
+  const transport = createWhatsAppTransport({
+    db,
+    keyring,
+    log: (m) => log.info(m),
   });
 
   let running = false;

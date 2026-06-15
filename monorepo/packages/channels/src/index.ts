@@ -12,6 +12,11 @@ export {
 export { normalizeEvolution } from "./webhook/evolution.js";
 export { normalizeMessenger, normalizeInstagram } from "./webhook/messaging.js";
 export {
+  sendWhatsAppText,
+  type WhatsAppSendConfig,
+  type FetchLike,
+} from "./whatsapp-send.js";
+export {
   type TranscriptionProvider,
   FakeTranscriptionProvider,
   DeepgramTranscriptionProvider,

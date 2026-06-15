@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@docmee/channels": "workspace:*",
     "@docmee/core": "workspace:*",
     "@docmee/db": "workspace:*",
     "@docmee/integrations": "workspace:*",

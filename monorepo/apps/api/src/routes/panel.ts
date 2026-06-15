@@ -13,6 +13,7 @@ import {
   features as featuresDal,
   patientChannels as patientChannelsDal,
   automation as automationDal,
+  clinics as clinicsDal,
   analytics as analyticsDal,
   doctors as doctorsDal,
   flows as flowsDal,
@@ -463,6 +464,19 @@ export async function panelRoutes(
       automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
     );
     return { ok: true };
+  });
+
+  // ── Clinic WhatsApp credentials (X7/X10) — token stored encrypted ─────────────
+  app.put("/clinic/whatsapp", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ phoneNumberId: z.string().min(1), token: z.string().min(1) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      clinicsDal.setWhatsappCreds(tx, keyring, parsed.data),
+    );
+    return { ok: true }; // token never returned (write-only)
   });
 
   // ── Documents, export, integrations, reports (Phase 3C) ───────────────────────

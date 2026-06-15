@@ -13,8 +13,10 @@ import m011 from "./011_multidoctor.js";
 import m012 from "./012_flows.js";
 import m013 from "./013_integrations.js";
 import m014 from "./014_push.js";
+import m015 from "./015_clinic_whatsapp.js";
 
 /** All migrations, in apply order. Append-only — never edit a shipped migration. */
 export const migrations: readonly Migration[] = [
   m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014,
+  m015,
 ];

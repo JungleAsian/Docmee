@@ -197,6 +197,9 @@ importers:
 
   packages/agents:
     dependencies:
+      '@docmee/channels':
+        specifier: workspace:*
+        version: link:../channels
       '@docmee/core':
         specifier: workspace:*
         version: link:../core

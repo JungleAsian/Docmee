@@ -1,0 +1,26 @@
+# Caddy reverse proxy with automatic HTTPS (architecture §2/§14).
+# Single domain hosts BOTH the panel (root) and the API (under /api), so the
+# browser panel is same-origin with the API → no CORS needed.
+# Replace docmee.example with the clinic platform's real domain.
+docmee.example {
+	encode gzip
+
+	# Meta webhooks + health probes stay at ROOT (Meta's callback URL is fixed;
+	# probes must not be behind /api). First match wins.
+	handle /webhooks/* {
+		reverse_proxy api:3000 { header_up X-Real-IP {remote_host} }
+	}
+	handle /health* {
+		reverse_proxy api:3000
+	}
+
+	# Panel's API calls: /api/* → api with the /api prefix stripped.
+	handle_path /api/* {
+		reverse_proxy api:3000 { header_up X-Real-IP {remote_host} }
+	}
+
+	# Everything else → the Next.js panel.
+	handle {
+		reverse_proxy web:3000
+	}
+}

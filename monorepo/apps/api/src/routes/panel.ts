@@ -1,0 +1,773 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { NotFoundError, ValidationError } from "@docmee/core";
+import {
+  patients,
+  conversations,
+  messages as messagesDal,
+  notes as notesDal,
+  notifications as notificationsDal,
+  audit as auditDal,
+  appointments as appointmentsDal,
+  ops as opsDal,
+  features as featuresDal,
+  patientChannels as patientChannelsDal,
+  automation as automationDal,
+  clinics as clinicsDal,
+  kb as kbDal,
+  analytics as analyticsDal,
+  doctors as doctorsDal,
+  flows as flowsDal,
+  integrations as integrationsDal,
+  push as pushDal,
+  InvalidTransitionError,
+  sendOutbound,
+  type Database,
+  type Keyring,
+  type OutboundTransport,
+} from "@docmee/db";
+import { bookAppointment, suggestReply, ingestDocument, exportPatient } from "@docmee/agents";
+import type { LlmGateway } from "@docmee/llm";
+import {
+  postToCrm,
+  type CalendarProvider,
+  type OcrProvider,
+  type CrmWebhookConfig,
+} from "@docmee/integrations";
+import { clinicIdOf, actorIdOf, requireRole, INBOX_WRITERS } from "../plugins/rbac.js";
+import { toConversation, toAppointment } from "../serializers.js";
+
+export interface PanelRouteOptions {
+  db: Database;
+  keyring: Keyring;
+  transport: OutboundTransport;
+  calendar: CalendarProvider;
+  gateway: LlmGateway;
+  ocr: OcrProvider;
+  vapidPublicKey?: string;
+}
+
+const patientCreate = z.object({
+  name: z.string().min(1).optional(),
+  phone: z.string().min(3).optional(),
+  tags: z.array(z.string()).optional(),
+});
+const noteCreate = z.object({ body: z.string().min(1) });
+const messageCreate = z.object({ body: z.string().min(1) });
+const modeBody = z.object({ mode: z.enum(["bot", "human", "paused", "resolved"]) });
+const assigneeBody = z.object({ assigneeId: z.string().uuid().nullable() });
+const appointmentCreate = z.object({
+  patientId: z.string().uuid(),
+  doctorId: z.string().uuid().optional(),
+  startAt: z.string().datetime(),
+  endAt: z.string().datetime(),
+  summary: z.string().min(1).optional(),
+});
+const statusBody = z.object({
+  status: z.enum(["booked", "confirmed", "completed", "cancelled", "no_show"]),
+});
+
+/**
+ * Panel REST API (Phase 1B). Every handler is clinic-scoped via the session's
+ * clinicId through withClinicContext (RLS) — clinic_id is never read from the client.
+ */
+export async function panelRoutes(
+  app: FastifyInstance,
+  opts: PanelRouteOptions,
+): Promise<void> {
+  const { db, keyring, transport, calendar, gateway, ocr } = opts;
+  const auth = app.authenticate;
+  const writer = requireRole(...INBOX_WRITERS);
+
+  // ── Web Push (Phase 3D) ───────────────────────────────────────────────────────
+  app.get("/push/vapid-key", { preHandler: auth }, async () => ({
+    publicKey: opts.vapidPublicKey ?? null,
+  }));
+
+  app.post("/push/subscribe", { preHandler: auth }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const userId = actorIdOf(request);
+    const parsed = z
+      .object({ endpoint: z.string().url(), p256dh: z.string().min(1), auth: z.string().min(1) })
+      .safeParse(request.body);
+    if (!parsed.success || !userId) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      pushDal.savePushSubscription(tx, { clinicUserId: userId, ...parsed.data }),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.delete("/push/subscribe", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z.object({ endpoint: z.string().url() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      pushDal.deletePushSubscription(tx, parsed.data.endpoint),
+    );
+    return { ok: true };
+  });
+
+  app.put("/notification-preferences", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const userId = actorIdOf(request);
+    const parsed = z
+      .object({
+        priority: z.enum(["P1", "P2", "P3", "P4"]),
+        channels: z.array(z.string()),
+      })
+      .safeParse(request.body);
+    if (!parsed.success || !userId) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      pushDal.setNotificationPreference(tx, { clinicUserId: userId, ...parsed.data }),
+    );
+    return { ok: true };
+  });
+
+  // ── Clinic context (switcher) ─────────────────────────────────────────────────
+  app.get("/clinics", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const clinic = await db.withClinicContext(clinicId, (tx) =>
+      clinicsDal.getCurrentClinic(tx),
+    );
+    // One-clinic-per-user today; array shape keeps the switcher future-proof.
+    return { data: clinic ? [clinic] : [], nextCursor: null };
+  });
+
+  // ── Knowledge base (Phase 1A) ─────────────────────────────────────────────────
+  app.get("/kb/entries", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) => kbDal.listEntries(tx));
+    return { data, nextCursor: null };
+  });
+
+  app.post("/kb/entries", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        type: z.enum(["manual", "rule"]),
+        title: z.string().optional(),
+        content: z.string().min(1),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    // Manual entries are embedded for retrieval; rules are always-injected (no embed).
+    const embedding =
+      parsed.data.type === "manual" ? await gateway.embedOne(parsed.data.content) : undefined;
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      kbDal.createKbEntry(tx, { ...parsed.data, embedding }),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  // ── Patients ────────────────────────────────────────────────────────────────
+  app.get("/patients", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { q?: string; cursor?: string; limit?: string };
+    return db.withClinicContext(clinicId, (tx) =>
+      patients.listPatients(tx, keyring, {
+        q: q.q,
+        cursor: q.cursor,
+        limit: q.limit ? Number(q.limit) : undefined,
+      }),
+    );
+  });
+
+  app.post("/patients", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = patientCreate.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      patients.createPatient(tx, keyring, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.get("/patients/:id", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const result = await db.withClinicContext(clinicId, async (tx) => {
+      const patient = await patients.getPatientById(tx, keyring, id);
+      if (!patient) return null;
+      const patientNotes = await notesDal.listPatientNotes(tx, id);
+      return { ...patient, notes: patientNotes };
+    });
+    if (!result) throw new NotFoundError();
+    return result;
+  });
+
+  app.get("/patients/:id/notes", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    return db.withClinicContext(clinicId, (tx) => notesDal.listPatientNotes(tx, id));
+  });
+
+  app.post("/patients/:id/notes", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = noteCreate.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const note = await db.withClinicContext(clinicId, (tx) =>
+      notesDal.addPatientNote(tx, {
+        patientId: id,
+        authorId: actorIdOf(request),
+        body: parsed.data.body,
+      }),
+    );
+    reply.code(201);
+    return note;
+  });
+
+  // Manual cross-channel merge (Phase 2B).
+  app.post("/patients/:id/merge", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z.object({ secondaryId: z.string().uuid() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      patientChannelsDal.mergePatients(tx, id, parsed.data.secondaryId),
+    );
+    return { ok: true };
+  });
+
+  // ── Conversations / inbox ─────────────────────────────────────────────────────
+  app.get("/conversations", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as {
+      mode?: string;
+      channel?: string;
+      assigneeId?: string;
+    };
+    const rows = await db.withClinicContext(clinicId, (tx) =>
+      conversations.listConversations(tx, q),
+    );
+    return { data: rows.map(toConversation), nextCursor: null };
+  });
+
+  app.get("/conversations/:id/messages", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      messagesDal.listMessages(tx, keyring, id),
+    );
+    return { data, nextCursor: null };
+  });
+
+  // Staff send: a human reply PAUSES the bot, then goes through the chokepoint.
+  app.post(
+    "/conversations/:id/messages",
+    { preHandler: [auth, writer] },
+    async (request, reply) => {
+      const clinicId = clinicIdOf(request);
+      const { id } = request.params as { id: string };
+      const parsed = messageCreate.safeParse(request.body);
+      if (!parsed.success) throw new ValidationError();
+
+      const conv = await db.withClinicContext(clinicId, async (tx) => {
+        const c = await conversations.getConversation(tx, id);
+        if (c) await conversations.pauseForHuman(tx, id); // bot stops auto-replying
+        return c;
+      });
+      if (!conv) throw new NotFoundError();
+
+      const sent = await sendOutbound(db, keyring, transport, {
+        clinicId,
+        conversationId: id,
+        patientId: conv.patient_id,
+        author: "staff",
+        content: parsed.data.body,
+      });
+      reply.code(sent.status === "sent" ? 202 : 409);
+      return sent;
+    },
+  );
+
+  app.put("/conversations/:id/mode", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = modeBody.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const updated = await db.withClinicContext(clinicId, (tx) =>
+      conversations.setMode(tx, id, parsed.data.mode),
+    );
+    if (!updated) throw new NotFoundError();
+    return toConversation(updated);
+  });
+
+  app.put(
+    "/conversations/:id/assignee",
+    { preHandler: [auth, writer] },
+    async (request) => {
+      const clinicId = clinicIdOf(request);
+      const { id } = request.params as { id: string };
+      const parsed = assigneeBody.safeParse(request.body);
+      if (!parsed.success) throw new ValidationError();
+      const updated = await db.withClinicContext(clinicId, (tx) =>
+        conversations.assignConversation(tx, id, parsed.data.assigneeId),
+      );
+      if (!updated) throw new NotFoundError();
+      return toConversation(updated);
+    },
+  );
+
+  // ── Appointments (Phase 1C) ───────────────────────────────────────────────────
+  app.get("/appointments", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { patientId?: string; status?: appointmentsDal.AppointmentStatus };
+    const rows = await db.withClinicContext(clinicId, (tx) =>
+      appointmentsDal.listAppointments(tx, { patientId: q.patientId, status: q.status }),
+    );
+    return { data: rows.map(toAppointment), nextCursor: null };
+  });
+
+  // Book against Calendar free/busy (source of truth) — 409 on slot conflict.
+  app.post("/appointments", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = appointmentCreate.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const result = await bookAppointment(
+      { db, calendar },
+      {
+        clinicId,
+        patientId: parsed.data.patientId,
+        doctorId: parsed.data.doctorId ?? null,
+        startAt: parsed.data.startAt,
+        endAt: parsed.data.endAt,
+        summary: parsed.data.summary ?? "Cita",
+      },
+    );
+    if (result.status === "conflict") {
+      reply.code(409);
+      return { error: { code: "conflict", message: "Slot conflict" } };
+    }
+    reply.code(201);
+    return toAppointment(result.appointment);
+  });
+
+  app.put("/appointments/:id/status", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = statusBody.safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    try {
+      const updated = await db.withClinicContext(clinicId, (tx) =>
+        appointmentsDal.transitionStatus(tx, id, parsed.data.status, actorIdOf(request)),
+      );
+      return toAppointment(updated);
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        reply.code(422);
+        return { error: { code: "invalid_transition", message: err.message } };
+      }
+      throw err;
+    }
+  });
+
+  // ── Quick replies (Phase 2A) ──────────────────────────────────────────────────
+  app.get("/quick-replies", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) => opsDal.listQuickReplies(tx));
+    return { data };
+  });
+
+  app.post("/quick-replies", { preHandler: [auth, writer] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ shortcut: z.string().min(1), body: z.string().min(1) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      opsDal.createQuickReply(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.delete("/quick-replies/:id", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    await db.withClinicContext(clinicId, (tx) => opsDal.deleteQuickReply(tx, id));
+    return { ok: true };
+  });
+
+  // ── Feature gating (3-gate) ─────────────────────────────────────────────────
+  app.get("/features/:key", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { key } = request.params as { key: string };
+    return db.withClinicContext(clinicId, (tx) => featuresDal.evaluateFeature(tx, key));
+  });
+
+  app.put("/features/:key/toggle", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { key } = request.params as { key: string };
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      featuresDal.setClinicToggle(tx, key, parsed.data.enabled),
+    );
+    return { ok: true };
+  });
+
+  // ── Manual invoicing (Phase 2A) ───────────────────────────────────────────────
+  app.get("/invoices", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) => opsDal.listInvoices(tx));
+    return { data };
+  });
+
+  app.post("/invoices", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        amountCents: z.number().int().nonnegative(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      opsDal.createInvoice(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.put("/invoices/:id/status", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ status: z.enum(["draft", "sent", "paid", "void"]) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const updated = await db.withClinicContext(clinicId, (tx) =>
+      opsDal.setInvoiceStatus(tx, id, parsed.data.status),
+    );
+    if (!updated) throw new NotFoundError();
+    return updated;
+  });
+
+  // ── Templates & automation (Phase 2C) ─────────────────────────────────────────
+  app.get("/templates", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => automationDal.listTemplates(tx)) };
+  });
+
+  app.post("/templates", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        body: z.string().min(1),
+        language: z.string().optional(),
+        category: z.string().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      automationDal.createTemplate(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.put("/templates/:id/status", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ status: z.enum(["pending", "approved", "rejected"]) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      automationDal.setTemplateStatus(tx, id, parsed.data.status),
+    );
+    return { ok: true };
+  });
+
+  app.put("/automation/:type", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { type } = request.params as { type: string };
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      automationDal.setAutomationRule(tx, type, parsed.data.enabled),
+    );
+    return { ok: true };
+  });
+
+  app.post("/patients/:id/consent", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ granted: z.boolean(), scope: z.string().optional(), source: z.string().optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
+    );
+    return { ok: true };
+  });
+
+  // ── Clinic WhatsApp credentials (X7/X10) — token stored encrypted ─────────────
+  app.put("/clinic/whatsapp", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ phoneNumberId: z.string().min(1), token: z.string().min(1) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      clinicsDal.setWhatsappCreds(tx, keyring, parsed.data),
+    );
+    return { ok: true }; // token never returned (write-only)
+  });
+
+  // ── Documents, export, integrations, reports (Phase 3C) ───────────────────────
+  // Document → KB ingestion (text supplied or OCR'd from bytes elsewhere).
+  app.get("/documents", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => integrationsDal.listDocuments(tx)) };
+  });
+
+  app.post("/documents", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ filename: z.string().min(1), text: z.string().min(1), doctorId: z.string().uuid().optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const doc = await db.withClinicContext(clinicId, (tx) =>
+      integrationsDal.createDocument(tx, { filename: parsed.data.filename }),
+    );
+    const result = await ingestDocument(
+      { db, gateway, ocr },
+      { clinicId, documentId: doc.id, text: parsed.data.text, doctorId: parsed.data.doctorId },
+    );
+    reply.code(201);
+    return { id: doc.id, chunks: result.chunks };
+  });
+
+  app.post("/integrations", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ type: z.enum(["sheets", "crm"]), config: z.record(z.unknown()), enabled: z.boolean().optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      integrationsDal.saveIntegration(tx, parsed.data),
+    );
+    reply.code(201);
+    return created; // config never returned (write-only)
+  });
+
+  // Export a patient to the CRM — BLOCKED unless written consent exists (SEC24).
+  app.post("/patients/:id/export", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const crm = await db.withClinicContext(clinicId, (tx) => integrationsDal.getIntegration(tx, "crm"));
+    const result = await exportPatient({ db }, { clinicId, patientId: id }, async (payload) => {
+      if (!crm?.url || !crm?.secret) return { ok: false };
+      return postToCrm(crm as unknown as CrmWebhookConfig, payload);
+    });
+    if (result.status === "blocked") reply.code(403);
+    else if (result.status === "failed") reply.code(502);
+    return result;
+  });
+
+  app.get("/report-schedules", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => integrationsDal.listReportSchedules(tx)) };
+  });
+
+  app.post("/report-schedules", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ type: z.string().min(1), cadence: z.enum(["daily", "weekly", "monthly"]), config: z.record(z.unknown()).optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      integrationsDal.createReportSchedule(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  // ── Flows + rules + copilot (Phase 3B) ────────────────────────────────────────
+  app.get("/flows", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    return { data: await db.withClinicContext(clinicId, (tx) => flowsDal.listFlows(tx)) };
+  });
+
+  app.post("/flows", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({ name: z.string().min(1), definition: z.record(z.unknown()) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      flowsDal.createFlow(tx, parsed.data as { name: string; definition: never }),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.post("/rules", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        definition: z.object({ when: z.array(z.unknown()), then: z.array(z.unknown()) }),
+        priority: z.number().int().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      flowsDal.createRule(tx, parsed.data as never),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  // Secretary copilot — returns a DRAFT only; the human reviews and sends.
+  app.post("/conversations/:id/copilot", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { text?: string };
+    let text = body.text;
+    if (!text) {
+      const history = await db.withClinicContext(clinicId, (tx) =>
+        messagesDal.listMessages(tx, keyring, id),
+      );
+      text = [...history].reverse().find((m) => m.author === "patient")?.body;
+    }
+    if (!text) throw new ValidationError("no patient message to draft from");
+    return suggestReply({ db, gateway }, { clinicId, patientText: text });
+  });
+
+  // ── Doctors (Phase 3A) ────────────────────────────────────────────────────────
+  app.get("/doctors", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { active?: string };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      doctorsDal.listDoctors(tx, { activeOnly: q.active === "true" }),
+    );
+    return { data };
+  });
+
+  app.post("/doctors", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        specialty: z.string().optional(),
+        calendarId: z.string().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      doctorsDal.createDoctor(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.post("/doctors/:id/staff", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z.object({ clinicUserId: z.string().uuid() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      doctorsDal.assignStaffToDoctor(tx, parsed.data.clinicUserId, id),
+    );
+    return { ok: true };
+  });
+
+  // ── Message search (Phase 2D, Q3) — per-clinic, audited ───────────────────────
+  app.get("/search/messages", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = (request.query as { q?: string }).q;
+    const parsed = z.string().min(1).safeParse(q);
+    if (!parsed.success) throw new ValidationError();
+    return db.withClinicContext(clinicId, async (tx) => {
+      const data = await messagesDal.searchMessages(tx, keyring, parsed.data);
+      await auditDal.writeAudit(tx, {
+        action: "message.search",
+        actorClinicUserId: actorIdOf(request),
+        detail: { resultCount: data.length },
+      });
+      return { data, nextCursor: null };
+    });
+  });
+
+  // ── Analytics & error review (Phase 2D) ───────────────────────────────────────
+  app.get("/metrics", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { from?: string; to?: string };
+    const parsed = z
+      .object({ from: z.string(), to: z.string() })
+      .safeParse({ from: q.from, to: q.to });
+    if (!parsed.success) throw new ValidationError();
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.getMetrics(tx, parsed.data),
+    );
+    return { data };
+  });
+
+  // Ops trigger for a day's rollup (the worker runs this on a schedule).
+  app.post("/metrics/rollup", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z.object({ day: z.string() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.computeDailyRollup(tx, parsed.data.day),
+    );
+    return { ok: true };
+  });
+
+  app.get("/errors", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { status?: string };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.listErrors(tx, { status: q.status }),
+    );
+    return { data };
+  });
+
+  app.put("/errors/:id", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({
+        category: z.string().optional(),
+        status: z.enum(["open", "resolved", "kb_suggested"]).optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) => analyticsDal.reviewError(tx, id, parsed.data));
+    return { ok: true };
+  });
+
+  app.get("/kb-suggestions", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      analyticsDal.listKbSuggestions(tx),
+    );
+    return { data };
+  });
+
+  // ── Notifications ─────────────────────────────────────────────────────────────
+  app.get("/notifications", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const q = request.query as { unread?: string };
+    const data = await db.withClinicContext(clinicId, (tx) =>
+      notificationsDal.listNotifications(tx, { unreadOnly: q.unread === "true" }),
+    );
+    return { data };
+  });
+
+  app.put("/notifications/:id/read", { preHandler: auth }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    await db.withClinicContext(clinicId, (tx) => notificationsDal.markRead(tx, id));
+    return { ok: true };
+  });
+}

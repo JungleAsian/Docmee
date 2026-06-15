@@ -1,0 +1,27 @@
+{
+  "name": "docmee",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint && pnpm lint:boundaries",
+    "lint:boundaries": "dependency-cruiser --config .dependency-cruiser.cjs apps packages",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "contract:types": "pnpm --filter @docmee/contracts generate",
+    "contract:mock": "echo 'Mocks are in-process (MSW) — run `pnpm dev:web` with NEXT_PUBLIC_API_MOCKING=enabled (default in apps/web dev).'",
+    "dev:web": "pnpm --filter @docmee/web dev",
+    "dev:api": "pnpm --filter @docmee/api dev"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^16.0.0",
+    "typescript": "^5.5.0"
+  },
+  "pnpm": {
+    "comment": "esbuild ships its platform binary as an optional dep; pnpm resolves it at runtime, so the postinstall validator (which collides across co-installed esbuild versions on Windows) is unnecessary and skipped.",
+    "neverBuiltDependencies": ["esbuild"]
+  }
+}

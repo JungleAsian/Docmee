@@ -1,0 +1,34 @@
+/**
+ * @docmee/integrations — outward integrations. OWNER: Prime.
+ * Philosophy: Docmee is the source of communication data; external tools are the
+ * destination. Phase 1C: Google Calendar (datetime source of truth).
+ */
+export {
+  type CalendarProvider,
+  type BusyInterval,
+  type CreateEventInput,
+  FakeCalendarProvider,
+  GoogleCalendarProvider,
+  type GoogleCalendarConfig,
+} from "./calendar.js";
+export {
+  type OcrProvider,
+  FakeOcrProvider,
+  GoogleVisionOcrProvider,
+  type GoogleVisionConfig,
+} from "./ocr.js";
+export {
+  signPayload,
+  postToCrm,
+  appendToSheet,
+  type CrmWebhookConfig,
+  type SheetsConfig,
+} from "./crm.js";
+export {
+  type PushSender,
+  type PushTarget,
+  type PushMessage,
+  FakePushSender,
+  VapidPushSender,
+  type VapidConfig,
+} from "./push.js";

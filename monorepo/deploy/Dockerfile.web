@@ -1,0 +1,29 @@
+# Multi-stage build for the Docmee PANEL (apps/web, Next.js 14 standalone).
+# Build context = monorepo root:  docker build -f deploy/Dockerfile.web -t docmee-web .
+# NEXT_PUBLIC_* are inlined at BUILD time → pass them as build args (see compose).
+FROM node:20-alpine AS build
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+WORKDIR /app
+COPY . .
+RUN pnpm install --frozen-lockfile
+
+# Same-origin deploy: panel calls the API under /api (Caddy strips the prefix),
+# and mocking is off in production.
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_API_MOCKING=disabled
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_MOCKING=$NEXT_PUBLIC_API_MOCKING
+RUN pnpm --filter "@docmee/web..." build
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+# Next standalone output (monorepo layout): server + traced node_modules, plus
+# the static assets and public/ copied to the paths the server expects.
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

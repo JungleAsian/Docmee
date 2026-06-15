@@ -1,0 +1,96 @@
+# Docmee single-VPS deployment (architecture §14): Postgres + Redis + API + worker
+# + Caddy on one box. Copy deploy/.env.example → deploy/.env and fill secrets
+# before `docker compose up`.
+#
+# Role model (real multi-role Postgres, R5):
+#   - superuser `postgres`  → runs migrations + the admin/platform path (BYPASSRLS)
+#   - `docmee_app` (LOGIN, NOSUPERUSER) → the app; RLS is enforced on it
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERPASS}
+      POSTGRES_DB: docmee
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d docmee"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    # Loopback-only publish so an on-box tunnel (ngrok) or Caddy can reach the API;
+    # NOT world-exposed. Caddy still proxies it for production HTTPS.
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    command: ["node", "apps/api/dist/index.js"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    command: ["node", "apps/worker/dist/index.js"]
+
+  # Frontend panel (Next.js standalone). Same-origin with the API behind Caddy:
+  # the panel calls /api/* (Caddy strips the prefix → api), so NO CORS is needed.
+  # NEXT_PUBLIC_* are build-time inlined → set as build args here.
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_API_MOCKING: disabled
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  pg-data:
+  redis-data:
+  caddy-data:
+  caddy-config:

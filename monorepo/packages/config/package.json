@@ -1,0 +1,21 @@
+{
+  "name": "@docmee/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./eslint": "./eslint.base.mjs"
+  },
+  "files": ["tsconfig.base.json", "eslint.base.mjs"],
+  "scripts": {
+    "build": "echo '@docmee/config: nothing to build (shared config files)'",
+    "lint": "echo '@docmee/config: config-only package'",
+    "test": "echo '@docmee/config: no tests'",
+    "typecheck": "echo '@docmee/config: no sources'"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "typescript-eslint": "^8.2.0"
+  }
+}

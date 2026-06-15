@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.next/
+.env
+.env.*
+*.local
+coverage/
+.DS_Store
+.turbo/
+
+# Generated from packages/contracts/openapi.yaml (run `pnpm contract:types`)
+packages/contracts/src/generated/

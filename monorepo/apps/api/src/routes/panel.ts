@@ -11,6 +11,7 @@ import {
   ops as opsDal,
   features as featuresDal,
   patientChannels as patientChannelsDal,
+  automation as automationDal,
   InvalidTransitionError,
   sendOutbound,
   type Database,
@@ -344,6 +345,62 @@ export async function panelRoutes(
     );
     if (!updated) throw new NotFoundError();
     return updated;
+  });
+
+  // ── Templates & automation (Phase 2C) ─────────────────────────────────────────
+  app.post("/templates", { preHandler: [auth, requireRole("admin")] }, async (request, reply) => {
+    const clinicId = clinicIdOf(request);
+    const parsed = z
+      .object({
+        name: z.string().min(1),
+        body: z.string().min(1),
+        language: z.string().optional(),
+        category: z.string().optional(),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    const created = await db.withClinicContext(clinicId, (tx) =>
+      automationDal.createTemplate(tx, parsed.data),
+    );
+    reply.code(201);
+    return created;
+  });
+
+  app.put("/templates/:id/status", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ status: z.enum(["pending", "approved", "rejected"]) })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      automationDal.setTemplateStatus(tx, id, parsed.data.status),
+    );
+    return { ok: true };
+  });
+
+  app.put("/automation/:type", { preHandler: [auth, requireRole("admin")] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { type } = request.params as { type: string };
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      automationDal.setAutomationRule(tx, type, parsed.data.enabled),
+    );
+    return { ok: true };
+  });
+
+  app.post("/patients/:id/consent", { preHandler: [auth, writer] }, async (request) => {
+    const clinicId = clinicIdOf(request);
+    const { id } = request.params as { id: string };
+    const parsed = z
+      .object({ granted: z.boolean(), scope: z.string().optional(), source: z.string().optional() })
+      .safeParse(request.body);
+    if (!parsed.success) throw new ValidationError();
+    await db.withClinicContext(clinicId, (tx) =>
+      automationDal.recordConsent(tx, { patientId: id, ...parsed.data }),
+    );
+    return { ok: true };
   });
 
   // ── Notifications ─────────────────────────────────────────────────────────────

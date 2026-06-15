@@ -11,3 +11,9 @@ export type {
 } from "./pipeline.js";
 export { bookAppointment } from "./scheduling.js";
 export type { BookingDeps, BookParams, BookResult } from "./scheduling.js";
+export {
+  runAutomationJob,
+  processDueAutomations,
+  cancelAppointmentAutomations,
+} from "./automation.js";
+export type { AutomationDeps, AutomationOutcome } from "./automation.js";

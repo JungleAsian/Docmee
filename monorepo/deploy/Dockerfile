@@ -1,24 +1,18 @@
-# Multi-stage build for the Docmee backend (api + worker share one image).
+# Multi-stage build for the Docmee BACKEND (api + worker share one image).
 # Build context = monorepo root:  docker build -f deploy/Dockerfile -t docmee-be .
-FROM node:20-alpine AS base
+FROM node:20-alpine AS build
 RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
 WORKDIR /app
-
-# --- deps: install with the lockfile for cacheable layers ---
-FROM base AS deps
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc* ./
-COPY packages ./packages
-COPY apps ./apps
+COPY . .
+# Install the full workspace (lockfile-accurate), then build only the backend
+# graph (api + worker + their deps) — the FE app/ui aren't needed on this image.
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter "@docmee/api..." --filter "@docmee/worker..." build
 
-# --- build: compile all workspace packages + apps ---
-FROM deps AS build
-RUN pnpm build
-
-# --- runtime: prune to production deps, ship dist ---
-FROM base AS runtime
+FROM node:20-alpine AS runtime
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app ./
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts || true
 # Default to the API; the worker service overrides CMD in docker-compose.
 CMD ["node", "apps/api/dist/index.js"]

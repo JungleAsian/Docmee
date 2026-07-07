@@ -1,0 +1,48 @@
+import type { FastifyPluginAsync } from 'fastify'
+import { requireAuth, requireRole } from '../middleware/auth.js'
+
+type ProviderState = 'ready' | 'missing' | 'fallback'
+
+interface ProviderCheck {
+  key: 'meta' | 'google' | 'email' | 'openai' | 'anthropic'
+  state: ProviderState
+  configured: boolean
+  missing: string[]
+}
+
+function hasEnv(name: string): boolean {
+  return Boolean(process.env[name]?.trim())
+}
+
+function check(key: ProviderCheck['key'], names: string[], fallback = false): ProviderCheck {
+  const missing = names.filter((name) => !hasEnv(name))
+  return {
+    key,
+    state: fallback ? 'fallback' : missing.length === 0 ? 'ready' : 'missing',
+    configured: missing.length === 0,
+    missing,
+  }
+}
+
+const providerStatusRoute: FastifyPluginAsync = async (app) => {
+  app.addHook('preHandler', requireAuth)
+
+  app.get(
+    '/provider-status',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async () => {
+      const llmStub = /^(1|true|yes|on)$/i.test((process.env['LLM_STUB'] ?? '').trim())
+      return {
+        providers: [
+          check('meta', ['META_APP_SECRET']),
+          check('google', ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI']),
+          check('email', ['RESEND_API_KEY']),
+          check('openai', ['OPENAI_API_KEY'], llmStub),
+          check('anthropic', ['ANTHROPIC_API_KEY'], llmStub),
+        ],
+      }
+    },
+  )
+}
+
+export default providerStatusRoute

@@ -1,0 +1,38 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build:web",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist-web"
+  },
+  "package": {
+    "productName": "Docmee Installer",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "bundle": {
+      "active": true,
+      "identifier": "com.docmee.deploykit",
+      "targets": ["msi", "dmg", "nsis"]
+    },
+    "windows": [
+      {
+        "title": "Docmee Installer",
+        "width": 720,
+        "height": 640,
+        "resizable": false,
+        "center": true,
+        "minWidth": 640,
+        "minHeight": 560
+      }
+    ],
+    "allowlist": {
+      "shell": {
+        "open": true
+      },
+      "dialog": {
+        "all": true
+      }
+    }
+  }
+}

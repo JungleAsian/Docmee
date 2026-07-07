@@ -1,0 +1,1375 @@
+'use client'
+
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, API_BASE } from '@/shared/api/client'
+import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
+import { PillToggle } from '@/shared/components/PillToggle'
+import type { Clinic } from '@/shared/types'
+
+type IntegrationStatus = 'connected' | 'pending' | 'disconnected'
+type GoogleSheetsSettings = { enabled?: boolean; spreadsheetId?: string; sheetName?: string }
+type GoogleDriveSettings = {
+  enabled?: boolean
+  folderId?: string
+  folderName?: string
+  syncMode?: 'knowledge_base' | 'patient_exports' | 'clinic_documents'
+  allowedFileTypes?: string[]
+  notes?: string
+}
+type EmailProvider = 'google' | 'outlook' | 'other'
+type EmailDeliverySettings = {
+  enabled?: boolean
+  provider?: EmailProvider
+  fromName?: string
+  fromEmail?: string
+  replyTo?: string
+  smtpHost?: string
+  smtpPort?: number
+  smtpSecure?: boolean
+  smtpUser?: string
+  smtpPasswordSet?: boolean
+  notes?: string
+  lastTestAt?: string
+  lastTestTo?: string
+}
+type ExternalIntegration = {
+  enabled?: boolean
+  webhookUrl?: string
+  webhooks?: N8nWebhook[]
+  model?: string
+  notes?: string
+}
+type N8nWebhook = {
+  id: string
+  name: string
+  url: string
+  eventType: string
+  enabled: boolean
+  notes?: string
+}
+type IntegrationSettings = {
+  googleCalendar?: unknown
+  googleSheets?: GoogleSheetsSettings
+  googleDrive?: GoogleDriveSettings
+  emailDelivery?: EmailDeliverySettings
+  aiAssistant?: {
+    chatProvider?: AiProvider
+    embedProvider?: 'openai' | 'gemini' | 'custom'
+    model?: string
+    baseURL?: string
+  }
+  integrations?: {
+    n8n?: ExternalIntegration
+    chatgpt?: ExternalIntegration
+    claude?: ExternalIntegration
+  }
+}
+
+const field =
+  'w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950'
+
+function Toggle({
+  on,
+  disabled,
+  onChange,
+  label,
+}: {
+  on: boolean
+  disabled?: boolean
+  onChange: (next: boolean) => void
+  label: string
+}) {
+  return <PillToggle checked={on} disabled={disabled} label={label} onChange={onChange} />
+}
+
+function StatusPill({ status }: { status: IntegrationStatus }) {
+  const classes: Record<IntegrationStatus, string> = {
+    connected: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
+    pending: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300',
+    disconnected: 'border-gray-300 bg-gray-50 text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400',
+  }
+  const label: Record<IntegrationStatus, string> = {
+    connected: 'Connected',
+    pending: 'Needs setup',
+    disconnected: 'Not connected',
+  }
+  return <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${classes[status]}`}>{label[status]}</span>
+}
+
+function IntegrationCard({
+  title,
+  subtitle,
+  status,
+  icon,
+  children,
+}: {
+  title: string
+  subtitle: string
+  status: IntegrationStatus
+  icon?: BrandIconName
+  children: React.ReactNode
+}) {
+  return (
+    <section className="clinic-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          {icon ? <BrandIcon name={icon} /> : null}
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-50">{title}</h2>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>
+          </div>
+        </div>
+        <StatusPill status={status} />
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  )
+}
+
+type AiProvider = 'claude' | 'openai' | 'gemini' | 'custom'
+type AiProviderStatus = {
+  provider: AiProvider
+  connected: boolean
+  source: 'clinic' | 'none'
+  last4: string | null
+  validatedAt: string | null
+}
+
+const DEFAULT_MODEL: Record<AiProvider, string> = {
+  claude: 'claude-sonnet-4-6',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.0-flash',
+  custom: '',
+}
+
+const PROVIDER_META: Record<AiProvider, { subtitle: string; keyLabel: string; placeholder: string; action: string }> = {
+  claude: {
+    subtitle: 'Connect the clinic Claude account for J.zel.',
+    keyLabel: 'Anthropic API key',
+    placeholder: 'sk-ant-...',
+    action: 'Connect Claude',
+  },
+  openai: {
+    subtitle: 'Connect the clinic ChatGPT/OpenAI account for J.zel.',
+    keyLabel: 'OpenAI API key',
+    placeholder: 'sk-...',
+    action: 'Connect ChatGPT',
+  },
+  gemini: {
+    subtitle: 'Connect the clinic Gemini account for J.zel.',
+    keyLabel: 'Gemini API key',
+    placeholder: 'AIza...',
+    action: 'Connect Gemini',
+  },
+  custom: {
+    subtitle: 'Connect any OpenAI-compatible AI endpoint for J.zel.',
+    keyLabel: 'API key',
+    placeholder: 'your endpoint key',
+    action: 'Connect custom AI',
+  },
+}
+
+const PROVIDER_ICON: Record<AiProvider, BrandIconName> = {
+  claude: 'claude',
+  openai: 'chatgpt',
+  gemini: 'gemini',
+  custom: 'customAi',
+}
+
+const PROVIDER_CONSOLE_URL: Partial<Record<AiProvider, string>> = {
+  claude: 'https://console.anthropic.com/settings/keys',
+  openai: 'https://platform.openai.com/api-keys',
+  gemini: 'https://aistudio.google.com/app/apikey',
+}
+
+const EMBEDDING_PROVIDERS: AiProvider[] = ['openai', 'gemini', 'custom']
+
+function embeddingProviderFor(provider: AiProvider): AiProvider | null {
+  return EMBEDDING_PROVIDERS.includes(provider) ? provider : null
+}
+
+function connectedEmbeddingProvider(statuses: AiProviderStatus[], current?: string): AiProvider | null {
+  const currentProvider = EMBEDDING_PROVIDERS.find((provider) => provider === current)
+  if (currentProvider && statuses.some((status) => status.provider === currentProvider && status.connected)) {
+    return currentProvider
+  }
+  return EMBEDDING_PROVIDERS.find((provider) =>
+    statuses.some((status) => status.provider === provider && status.connected),
+  ) ?? null
+}
+
+export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
+  const settings = (clinic.settings ?? {}) as IntegrationSettings
+  const calendarConnected = Boolean(settings.googleCalendar)
+  const sheets = settings.googleSheets ?? {}
+  const drive = settings.googleDrive ?? {}
+  const emailDelivery = settings.emailDelivery ?? {}
+  const n8n = settings.integrations?.n8n ?? {}
+  const aiStatus = useQuery({
+    queryKey: ['ai-status', clinic.id],
+    queryFn: () => api.get<{ providers: AiProviderStatus[] }>(`/clinic/${clinic.id}/ai/status`),
+  })
+  const statusFor = (provider: AiProvider) =>
+    aiStatus.data?.providers.find((p) => p.provider === provider) ?? null
+  const providerStatuses = aiStatus.data?.providers ?? []
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <CalendarIntegration clinic={clinic} connected={calendarConnected} />
+      <SheetsIntegration clinic={clinic} connected={calendarConnected} sheets={sheets} />
+      <DriveIntegration clinic={clinic} connected={calendarConnected} drive={drive} />
+      <EmailDeliveryIntegration clinic={clinic} config={emailDelivery} />
+      <N8nIntegration clinic={clinic} config={n8n} />
+      <ProviderLoginCard
+        clinic={clinic}
+        provider="claude"
+        title="Claude (Anthropic)"
+        status={statusFor('claude')}
+        statuses={providerStatuses}
+        loading={aiStatus.isLoading}
+      />
+      <ProviderLoginCard
+        clinic={clinic}
+        provider="openai"
+        title="Codex / ChatGPT (OpenAI)"
+        status={statusFor('openai')}
+        statuses={providerStatuses}
+        loading={aiStatus.isLoading}
+      />
+      <ProviderLoginCard
+        clinic={clinic}
+        provider="gemini"
+        title="Google Gemini"
+        status={statusFor('gemini')}
+        statuses={providerStatuses}
+        loading={aiStatus.isLoading}
+      />
+      <ProviderLoginCard
+        clinic={clinic}
+        provider="custom"
+        title="Custom / OpenAI-compatible"
+        status={statusFor('custom')}
+        statuses={providerStatuses}
+        loading={aiStatus.isLoading}
+      />
+    </div>
+  )
+}
+
+function CalendarIntegration({ clinic, connected }: { clinic: Clinic; connected: boolean }) {
+  const qc = useQueryClient()
+  const [message, setMessage] = useState<string | null>(null)
+  const disconnect = useMutation({
+    mutationFn: () => api.del(`/clinic/${clinic.id}/calendar/disconnect`),
+    onSuccess: () => {
+      setMessage('Google Calendar disconnected.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect calendar.'),
+  })
+
+  return (
+    <IntegrationCard
+      title="Google Calendar"
+      subtitle="Authorize scheduling access for booking sync."
+      status={connected ? 'connected' : 'disconnected'}
+      icon="googleCalendar"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <a
+          href={`${API_BASE}/clinic/${clinic.id}/calendar/auth`}
+          className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700"
+        >
+          Connect Google
+        </a>
+        <button
+          type="button"
+          onClick={() => disconnect.mutate()}
+          disabled={disconnect.isPending || !connected}
+          className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300"
+        >
+          {disconnect.isPending ? 'Disconnecting...' : 'Disconnect'}
+        </button>
+      </div>
+      {message && <p className={disconnect.isError ? 'mt-2 text-xs text-red-500' : 'mt-2 text-xs text-emerald-500'}>{message}</p>}
+    </IntegrationCard>
+  )
+}
+
+function SheetsIntegration({
+  clinic,
+  connected,
+  sheets,
+}: {
+  clinic: Clinic
+  connected: boolean
+  sheets: GoogleSheetsSettings
+}) {
+  const qc = useQueryClient()
+  const settings = (clinic.settings ?? {}) as IntegrationSettings
+  const [enabled, setEnabled] = useState(Boolean(sheets.enabled))
+  const [spreadsheetId, setSpreadsheetId] = useState(sheets.spreadsheetId ?? '')
+  const [sheetName, setSheetName] = useState(sheets.sheetName ?? 'Patients')
+  const [message, setMessage] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch(`/clinics/${clinic.id}`, {
+        settings: {
+          ...settings,
+          googleSheets: { enabled, spreadsheetId: spreadsheetId.trim(), sheetName: sheetName.trim() || 'Patients' },
+        },
+      }),
+    onSuccess: () => {
+      setMessage('Google Sheets settings saved.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not save Sheets settings.'),
+  })
+  const disconnect = useMutation({
+    mutationFn: () => {
+      const nextSettings = { ...settings }
+      delete nextSettings.googleSheets
+      return api.patch(`/clinics/${clinic.id}`, { settings: nextSettings })
+    },
+    onSuccess: () => {
+      setEnabled(false)
+      setSpreadsheetId('')
+      setSheetName('Patients')
+      setMessage('Google Sheets disconnected.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect Sheets.'),
+  })
+  const status: IntegrationStatus = enabled ? (connected && spreadsheetId.trim() ? 'connected' : 'pending') : 'disconnected'
+
+  return (
+    <IntegrationCard title="Google Sheets" subtitle="Sync CRM exports into a spreadsheet." status={status} icon="googleSheets">
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-gray-700 dark:text-gray-200">Enable export</span>
+          <Toggle on={enabled} onChange={setEnabled} label="Enable Google Sheets export" />
+        </div>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Spreadsheet ID</span>
+          <input value={spreadsheetId} onChange={(event) => setSpreadsheetId(event.target.value)} className={field} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Sheet name</span>
+          <input value={sheetName} onChange={(event) => setSheetName(event.target.value)} className={field} />
+        </label>
+        {!connected && <p className="text-[11px] text-amber-600">Connect Google Calendar first so Docmee has Google OAuth access.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <p className={save.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending || (!enabled && !spreadsheetId.trim())} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300">
+              {disconnect.isPending ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+              {save.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </IntegrationCard>
+  )
+}
+
+const DRIVE_SYNC_MODES: Array<{ value: NonNullable<GoogleDriveSettings['syncMode']>; label: string; description: string }> = [
+  {
+    value: 'knowledge_base',
+    label: 'Knowledge base source',
+    description: 'Use a Drive folder for clinic FAQs, policies, and approved J.zel training documents.',
+  },
+  {
+    value: 'patient_exports',
+    label: 'Patient exports',
+    description: 'Store exported reports and operational handoff files in a clinic Drive folder.',
+  },
+  {
+    value: 'clinic_documents',
+    label: 'Clinic documents',
+    description: 'Keep general clinic forms, templates, and shared admin documents organized.',
+  },
+]
+
+const DRIVE_FILE_TYPES = ['PDF', 'Docs', 'Sheets', 'Images']
+
+function DriveIntegration({
+  clinic,
+  connected,
+  drive,
+}: {
+  clinic: Clinic
+  connected: boolean
+  drive: GoogleDriveSettings
+}) {
+  const qc = useQueryClient()
+  const settings = (clinic.settings ?? {}) as IntegrationSettings
+  const [enabled, setEnabled] = useState(Boolean(drive.enabled))
+  const [folderId, setFolderId] = useState(drive.folderId ?? '')
+  const [folderName, setFolderName] = useState(drive.folderName ?? '')
+  const [syncMode, setSyncMode] = useState<NonNullable<GoogleDriveSettings['syncMode']>>(drive.syncMode ?? 'knowledge_base')
+  const [allowedFileTypes, setAllowedFileTypes] = useState<string[]>(drive.allowedFileTypes?.length ? drive.allowedFileTypes : ['PDF', 'Docs'])
+  const [notes, setNotes] = useState(drive.notes ?? '')
+  const [message, setMessage] = useState<string | null>(null)
+  const hasFolder = folderId.trim().length > 0
+  const status: IntegrationStatus = enabled ? (connected && hasFolder ? 'connected' : 'pending') : 'disconnected'
+
+  function toggleFileType(type: string) {
+    setAllowedFileTypes((current) =>
+      current.includes(type) ? current.filter((item) => item !== type) : [...current, type],
+    )
+  }
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch(`/clinics/${clinic.id}`, {
+        settings: {
+          ...settings,
+          googleDrive: {
+            enabled,
+            folderId: folderId.trim(),
+            folderName: folderName.trim(),
+            syncMode,
+            allowedFileTypes,
+            notes: notes.trim(),
+          },
+        },
+      }),
+    onSuccess: () => {
+      setMessage('Google Drive settings saved.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not save Drive settings.'),
+  })
+  const disconnect = useMutation({
+    mutationFn: () => {
+      const nextSettings = { ...settings }
+      delete nextSettings.googleDrive
+      return api.patch(`/clinics/${clinic.id}`, { settings: nextSettings })
+    },
+    onSuccess: () => {
+      setEnabled(false)
+      setFolderId('')
+      setFolderName('')
+      setSyncMode('knowledge_base')
+      setAllowedFileTypes(['PDF', 'Docs'])
+      setNotes('')
+      setMessage('Google Drive disconnected.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect Drive.'),
+  })
+
+  return (
+    <IntegrationCard title="Google Drive" subtitle="Connect a clinic Drive folder for documents and KB sources." status={status} icon="googleDrive">
+      <div className="space-y-3 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-gray-700 dark:text-gray-200">Enable Drive folder</span>
+          <Toggle on={enabled} onChange={setEnabled} label="Enable Google Drive folder" />
+        </div>
+
+        {!connected && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            Connect Google first so Docmee has OAuth access for Drive.
+          </div>
+        )}
+
+        <div className="rounded-lg border border-sky-200/70 bg-sky-50/70 p-3 dark:border-sky-500/30 dark:bg-sky-500/10">
+          <p className="text-sm font-semibold text-sky-900 dark:text-sky-100">Drive folder configuration</p>
+          <p className="mt-1 text-[11px] text-sky-700 dark:text-sky-200">
+            Paste the folder ID from Google Drive. This is the long value after /folders/ in the folder URL.
+          </p>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Folder ID</span>
+            <input value={folderId} onChange={(event) => setFolderId(event.target.value)} className={field} placeholder="1AbCDriveFolderId..." />
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Folder name</span>
+            <input value={folderName} onChange={(event) => setFolderName(event.target.value)} className={field} placeholder="Docmee Clinic Documents" />
+          </label>
+        </div>
+
+        <div>
+          <span className="mb-2 block font-medium text-gray-500 dark:text-gray-400">Use this folder for</span>
+          <div className="grid gap-2">
+            {DRIVE_SYNC_MODES.map((mode) => {
+              const active = syncMode === mode.value
+              return (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => setSyncMode(mode.value)}
+                  className={`rounded-lg border px-3 py-2 text-left transition ${
+                    active
+                      ? 'border-sky-400 bg-sky-600 text-white'
+                      : 'border-gray-200 bg-transparent text-gray-600 hover:border-sky-300 hover:bg-sky-500/5 dark:border-gray-800 dark:text-gray-300'
+                  }`}
+                >
+                  <span className="block text-sm font-semibold">{mode.label}</span>
+                  <span className={`mt-1 block text-[11px] ${active ? 'text-sky-100' : 'text-gray-500 dark:text-gray-400'}`}>{mode.description}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div>
+          <span className="mb-2 block font-medium text-gray-500 dark:text-gray-400">Allowed file types</span>
+          <div className="flex flex-wrap gap-2">
+            {DRIVE_FILE_TYPES.map((type) => {
+              const active = allowedFileTypes.includes(type)
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => toggleFileType(type)}
+                  className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                    active
+                      ? 'border-sky-400 bg-sky-600 text-white'
+                      : 'border-gray-300 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {type}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Notes</span>
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} className={field} placeholder="Owner, folder policy, or sync notes" />
+        </label>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <p className={save.isError || disconnect.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending || (!enabled && !folderId.trim())} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300">
+              {disconnect.isPending ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+              {save.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </IntegrationCard>
+  )
+}
+
+const EMAIL_PROVIDER_DEFAULTS: Record<EmailProvider, { label: string; host: string; port: number; secure: boolean; userHelp: string; passwordHelp: string }> = {
+  google: {
+    label: 'Google / Gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    userHelp: 'Use the Gmail or Google Workspace mailbox address.',
+    passwordHelp: 'Use a Google App Password. Normal Google account passwords are rejected by Gmail SMTP.',
+  },
+  outlook: {
+    label: 'Outlook / Microsoft 365',
+    host: 'smtp.office365.com',
+    port: 587,
+    secure: false,
+    userHelp: 'Use the Outlook or Microsoft 365 mailbox address.',
+    passwordHelp: 'Use the mailbox password or an app password if MFA/security defaults require it.',
+  },
+  other: {
+    label: 'Other SMTP',
+    host: '',
+    port: 587,
+    secure: false,
+    userHelp: 'Use the SMTP username supplied by the email provider.',
+    passwordHelp: 'Use the SMTP password, API password, or app password supplied by the provider.',
+  },
+}
+
+function EmailDeliveryIntegration({
+  clinic,
+  config,
+}: {
+  clinic: Clinic
+  config: EmailDeliverySettings
+}) {
+  const qc = useQueryClient()
+  const initialProvider = config.provider ?? 'google'
+  const initialDefaults = EMAIL_PROVIDER_DEFAULTS[initialProvider]
+  const [enabled, setEnabled] = useState(Boolean(config.enabled))
+  const [provider, setProvider] = useState<EmailProvider>(initialProvider)
+  const [fromName, setFromName] = useState(config.fromName ?? clinic.name ?? 'Docmee')
+  const [fromEmail, setFromEmail] = useState(config.fromEmail ?? '')
+  const [replyTo, setReplyTo] = useState(config.replyTo ?? '')
+  const [smtpHost, setSmtpHost] = useState(config.smtpHost ?? initialDefaults.host)
+  const [smtpPort, setSmtpPort] = useState(String(config.smtpPort ?? initialDefaults.port))
+  const [smtpSecure, setSmtpSecure] = useState(Boolean(config.smtpSecure ?? initialDefaults.secure))
+  const [smtpUser, setSmtpUser] = useState(config.smtpUser ?? '')
+  const [smtpPassword, setSmtpPassword] = useState('')
+  const [smtpPasswordSet, setSmtpPasswordSet] = useState(Boolean(config.smtpPasswordSet))
+  const [testTo, setTestTo] = useState(config.lastTestTo ?? replyTo ?? '')
+  const [notes, setNotes] = useState(config.notes ?? '')
+  const [message, setMessage] = useState<string | null>(null)
+  const activeDefaults = EMAIL_PROVIDER_DEFAULTS[provider]
+  const hasSender = fromEmail.trim().includes('@')
+  const hasServer = smtpHost.trim().length > 0 && Number(smtpPort) > 0
+  const hasAuth = smtpUser.trim().length > 0 && (smtpPasswordSet || smtpPassword.trim().length > 0)
+  const missingSetup = [
+    !hasSender ? 'from email' : null,
+    !hasServer ? 'SMTP server' : null,
+    !smtpUser.trim() ? 'SMTP username' : null,
+    !(smtpPasswordSet || smtpPassword.trim()) ? 'SMTP password or app password' : null,
+  ].filter(Boolean) as string[]
+  const status: IntegrationStatus = enabled ? (hasSender && hasServer && hasAuth ? 'connected' : 'pending') : 'disconnected'
+  const providerGuidance: Record<EmailProvider, { eyebrow: string; description: string; bestFor: string }> = {
+    google: {
+      eyebrow: 'Recommended for Google Workspace',
+      description: 'Docmee will use Gmail SMTP with the official Google server settings.',
+      bestFor: 'Clinics using Gmail or Google Workspace',
+    },
+    outlook: {
+      eyebrow: 'Best for Microsoft 365',
+      description: 'Docmee will use Outlook SMTP with the Microsoft 365 server settings.',
+      bestFor: 'Clinics using Outlook, Exchange, or 365',
+    },
+    other: {
+      eyebrow: 'Bring your own provider',
+      description: 'Use this when your provider gives you a custom SMTP host and port.',
+      bestFor: 'Private domains, hosting mailboxes, or SMTP services',
+    },
+  }
+  const setupChecks = [
+    { label: 'Choose the clinic mailbox', done: Boolean(provider), help: providerGuidance[provider].bestFor },
+    { label: 'Add sender email', done: hasSender, help: hasSender ? fromEmail.trim() : 'Use the address patients and staff should see.' },
+    { label: 'Add mailbox login', done: smtpUser.trim().length > 0, help: smtpUser.trim() || activeDefaults.userHelp },
+    { label: 'Add app password', done: smtpPasswordSet || smtpPassword.trim().length > 0, help: smtpPasswordSet && !smtpPassword ? 'Password is saved securely.' : activeDefaults.passwordHelp },
+    { label: 'Confirm delivery with a test', done: Boolean(config.lastTestAt), help: config.lastTestAt ? `Last tested ${new Date(config.lastTestAt).toLocaleDateString()}` : 'Save first, then send a test email.' },
+  ]
+
+  function chooseProvider(next: EmailProvider) {
+    const defaults = EMAIL_PROVIDER_DEFAULTS[next]
+    setProvider(next)
+    if (next !== 'other') {
+      setSmtpHost(defaults.host)
+      setSmtpPort(String(defaults.port))
+      setSmtpSecure(defaults.secure)
+    } else if (!smtpHost.trim()) {
+      setSmtpPort(String(defaults.port))
+      setSmtpSecure(defaults.secure)
+    }
+  }
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch<{ emailDelivery: EmailDeliverySettings; missing: string[] }>(`/clinics/${clinic.id}/email-delivery`, {
+        enabled,
+        provider,
+        fromName: fromName.trim() || 'Docmee',
+        fromEmail: fromEmail.trim(),
+        replyTo: replyTo.trim(),
+        smtpHost: smtpHost.trim(),
+        smtpPort: Number(smtpPort) || activeDefaults.port,
+        smtpSecure,
+        smtpUser: smtpUser.trim(),
+        smtpPassword: smtpPassword.trim() || undefined,
+        notes: notes.trim(),
+      }),
+    onSuccess: (data) => {
+      setMessage(data.missing.length ? `Saved. Missing: ${data.missing.join(', ')}.` : 'Email delivery settings saved and ready.')
+      setSmtpPassword('')
+      setSmtpPasswordSet(Boolean(data.emailDelivery.smtpPasswordSet))
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not save email settings.'),
+  })
+  const disconnect = useMutation({
+    mutationFn: () => api.del<{ emailDelivery: EmailDeliverySettings }>(`/clinics/${clinic.id}/email-delivery`),
+    onSuccess: () => {
+      setEnabled(false)
+      setProvider('google')
+      setFromName('Docmee')
+      setFromEmail('')
+      setReplyTo('')
+      setSmtpHost(EMAIL_PROVIDER_DEFAULTS.google.host)
+      setSmtpPort(String(EMAIL_PROVIDER_DEFAULTS.google.port))
+      setSmtpSecure(false)
+      setSmtpUser('')
+      setSmtpPassword('')
+      setSmtpPasswordSet(false)
+      setTestTo('')
+      setNotes('')
+      setMessage('Email delivery interface disconnected and credentials cleared.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect email delivery.'),
+  })
+  const test = useMutation({
+    mutationFn: () => api.post<{ ok: boolean; sentTo: string; emailDelivery: EmailDeliverySettings }>(`/clinics/${clinic.id}/email-delivery/test`, { to: testTo.trim() || undefined }),
+    onSuccess: (data) => {
+      setMessage(`Test email sent to ${data.sentTo}.`)
+      setTestTo(data.sentTo)
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not send test email.'),
+  })
+
+  return (
+    <IntegrationCard
+      title="Email Delivery"
+      subtitle="Send Docmee notifications with Google, Outlook, or any SMTP mailbox."
+      status={status}
+      icon="email"
+    >
+      <div className="space-y-4 text-xs">
+        <div className="rounded-xl border border-sky-200/70 bg-sky-50/80 p-3 text-sky-950 dark:border-sky-400/25 dark:bg-sky-500/10 dark:text-sky-100">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold">No-code email setup</p>
+              <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-sky-800 dark:text-sky-200">
+                Pick the mailbox provider, paste the clinic mailbox details, save, then send a test. Docmee keeps the SMTP details behind this guided form.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-sky-200 bg-white/70 px-3 py-1.5 dark:border-sky-400/20 dark:bg-slate-950/30">
+              <span className="font-semibold">Outbound email</span>
+              <Toggle on={enabled} onChange={setEnabled} label="Enable email delivery" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          {(Object.keys(EMAIL_PROVIDER_DEFAULTS) as EmailProvider[]).map((key) => {
+            const isSelected = provider === key
+            const guidance = providerGuidance[key]
+
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => chooseProvider(key)}
+                aria-pressed={isSelected}
+                className={`min-h-28 rounded-xl border px-3 py-3 text-left transition ${
+                  isSelected
+                    ? 'border-emerald-300 bg-emerald-50 shadow-[0_0_0_2px_rgba(52,211,153,0.25)] dark:border-emerald-400/50 dark:bg-emerald-500/10'
+                    : 'border-gray-200 bg-white/60 hover:border-sky-300 hover:bg-sky-50/70 dark:border-gray-800 dark:bg-slate-950/30 dark:hover:border-sky-400/40 dark:hover:bg-sky-500/10'
+                }`}
+              >
+                <span className={`block text-[10px] font-bold uppercase tracking-wide ${isSelected ? 'text-emerald-700 dark:text-emerald-300' : 'text-sky-600 dark:text-sky-300'}`}>
+                  {guidance.eyebrow}
+                </span>
+                <span className="mt-2 block text-sm font-bold text-gray-900 dark:text-gray-100">
+                  {EMAIL_PROVIDER_DEFAULTS[key].label}
+                </span>
+                <span className="mt-1 block text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                  {guidance.description}
+                </span>
+                <span className={`mt-3 inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${isSelected ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 dark:bg-gray-900 dark:text-gray-400'}`}>
+                  {isSelected ? 'Selected' : 'Select'}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-xl border border-gray-200 bg-white/70 p-3 dark:border-gray-800 dark:bg-slate-950/30">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-bold text-gray-900 dark:text-gray-100">Setup checklist</p>
+                <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Green means this part is ready.</p>
+              </div>
+              {enabled && missingSetup.length > 0 && (
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                  Needs {missingSetup.length}
+                </span>
+              )}
+            </div>
+            <div className="mt-3 space-y-2">
+              {setupChecks.map((item) => (
+                <div key={item.label} className="flex gap-2 rounded-lg border border-gray-100 bg-gray-50/70 p-2 dark:border-gray-800 dark:bg-gray-900/40">
+                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${item.done ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>
+                    {item.done ? 'OK' : '-'}
+                  </span>
+                  <span>
+                    <span className="block font-semibold text-gray-800 dark:text-gray-100">{item.label}</span>
+                    <span className="mt-0.5 block text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">{item.help}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white/70 p-3 dark:border-gray-800 dark:bg-slate-950/30">
+            <div className="mb-3 rounded-lg border border-sky-200/70 bg-sky-50/70 p-3 dark:border-sky-400/25 dark:bg-sky-500/10">
+              <p className="text-sm font-bold text-sky-950 dark:text-sky-100">Mailbox details</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-sky-800 dark:text-sky-200">
+                For Google or Outlook, Docmee fills the server automatically. Staff only need the visible sender address, mailbox login, and app password.
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Sender name</span>
+                <input value={fromName} onChange={(event) => setFromName(event.target.value)} className={field} placeholder="Docmee" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">From email</span>
+                <input value={fromEmail} onChange={(event) => setFromEmail(event.target.value)} className={field} placeholder="notifications@clinic.com" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Reply-to email</span>
+                <input value={replyTo} onChange={(event) => setReplyTo(event.target.value)} className={field} placeholder="frontdesk@clinic.com" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Mailbox login</span>
+                <input value={smtpUser} onChange={(event) => setSmtpUser(event.target.value)} className={field} placeholder="mailbox@clinic.com" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">App password</span>
+                <input value={smtpPassword} onChange={(event) => setSmtpPassword(event.target.value)} className={field} type="password" placeholder={smtpPasswordSet ? 'Saved - enter only to replace' : 'Required'} />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Test recipient</span>
+                <input value={testTo} onChange={(event) => setTestTo(event.target.value)} className={field} placeholder="admin@clinic.com" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-gray-200 bg-gray-50 p-2 text-[11px] text-gray-600 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-300">
+          <p className="font-semibold text-gray-800 dark:text-gray-100">Provider instructions</p>
+          <p>{activeDefaults.userHelp}</p>
+          <p>{activeDefaults.passwordHelp}</p>
+          {smtpPasswordSet && !smtpPassword && <p className="mt-1 font-medium text-emerald-600 dark:text-emerald-400">App password is saved. Enter a new password only when replacing it.</p>}
+        </div>
+
+        {provider === 'other' && (
+          <div className="rounded-xl border border-gray-200 bg-white/70 p-3 dark:border-gray-800 dark:bg-slate-950/30">
+            <p className="mb-2 text-sm font-bold text-gray-900 dark:text-gray-100">Custom SMTP settings</p>
+            <div className="grid gap-2 sm:grid-cols-[1fr_7rem_auto] sm:items-end">
+            <label className="block">
+              <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">SMTP host</span>
+              <input value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} className={field} placeholder="smtp.example.com" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Port</span>
+              <input value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} className={field} inputMode="numeric" />
+            </label>
+            <label className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 dark:border-gray-800">
+              <input type="checkbox" checked={smtpSecure} onChange={(event) => setSmtpSecure(event.target.checked)} />
+              <span className="font-medium text-gray-600 dark:text-gray-300">TLS on connect</span>
+            </label>
+            </div>
+          </div>
+        )}
+
+        {provider !== 'other' && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-gray-500 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-400">
+            Advanced server details are handled automatically: {activeDefaults.host}:{activeDefaults.port} using STARTTLS.
+          </div>
+        )}
+
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Notes</span>
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} className={field} placeholder="Domain verification, support inbox, or clinic owner notes" />
+        </label>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <p className={save.isError || disconnect.isError || test.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending || (!enabled && !fromEmail.trim() && !smtpUser.trim() && !smtpPasswordSet)} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300">
+              {disconnect.isPending ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+              {save.isPending ? 'Saving...' : 'Save'}
+            </button>
+            <button type="button" onClick={() => test.mutate()} disabled={test.isPending || status !== 'connected'} className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+              {test.isPending ? 'Sending...' : 'Send test email'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </IntegrationCard>
+  )
+}
+
+function newN8nWebhook(index: number, base?: Partial<N8nWebhook>): N8nWebhook {
+  return {
+    id: base?.id ?? `n8n-${Date.now()}-${index}`,
+    name: base?.name ?? `Webhook ${index + 1}`,
+    url: base?.url ?? '',
+    eventType: base?.eventType ?? 'booking_events',
+    enabled: base?.enabled ?? true,
+    notes: base?.notes ?? '',
+  }
+}
+
+function readN8nWebhooks(config: ExternalIntegration): N8nWebhook[] {
+  if (Array.isArray(config.webhooks) && config.webhooks.length) {
+    return config.webhooks.slice(0, 10).map((webhook, index) => newN8nWebhook(index, webhook))
+  }
+  if (config.webhookUrl?.trim()) {
+    return [newN8nWebhook(0, { name: 'Primary workflow', url: config.webhookUrl, enabled: Boolean(config.enabled), notes: config.notes ?? '' })]
+  }
+  return [newN8nWebhook(0, { name: 'Primary workflow' })]
+}
+
+function N8nIntegration({ clinic, config }: { clinic: Clinic; config: ExternalIntegration }) {
+  const qc = useQueryClient()
+  const [enabled, setEnabled] = useState(Boolean(config.enabled))
+  const [webhooks, setWebhooks] = useState<N8nWebhook[]>(() => readN8nWebhooks(config))
+  const [notes, setNotes] = useState(config.notes ?? '')
+  const [message, setMessage] = useState<string | null>(null)
+  const activeWebhooks = webhooks.filter((webhook) => webhook.enabled && webhook.url.trim())
+  const primaryWebhook = activeWebhooks[0]?.url.trim() ?? webhooks.find((webhook) => webhook.url.trim())?.url.trim() ?? ''
+  const save = useIntegrationSave(clinic, 'n8n', {
+    enabled,
+    webhookUrl: primaryWebhook,
+    webhooks: webhooks.map((webhook, index) => ({
+      ...webhook,
+      id: webhook.id || `n8n-${index}`,
+      name: webhook.name.trim() || `Webhook ${index + 1}`,
+      url: webhook.url.trim(),
+      eventType: webhook.eventType.trim() || 'booking_events',
+      notes: webhook.notes?.trim() ?? '',
+    })),
+    notes: notes.trim(),
+  }, () => {
+    setMessage('N8N integration saved.')
+    qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+  }, (error) => setMessage(error))
+  const disconnect = useMutation({
+    mutationFn: () => {
+      const settings = (clinic.settings ?? {}) as IntegrationSettings
+      const integrations = { ...(settings.integrations ?? {}) }
+      delete integrations.n8n
+      return api.patch(`/clinics/${clinic.id}`, { settings: { ...settings, integrations } })
+    },
+    onSuccess: () => {
+      setEnabled(false)
+      setWebhooks([newN8nWebhook(0, { name: 'Primary workflow' })])
+      setNotes('')
+      setMessage('N8N disconnected.')
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect N8N.'),
+  })
+  const status: IntegrationStatus = enabled ? (activeWebhooks.length ? 'connected' : 'pending') : 'disconnected'
+
+  function updateWebhook(id: string, patch: Partial<N8nWebhook>) {
+    setWebhooks((current) => current.map((webhook) => webhook.id === id ? { ...webhook, ...patch } : webhook))
+  }
+
+  function addWebhook() {
+    setWebhooks((current) => current.length >= 10 ? current : [...current, newN8nWebhook(current.length)])
+  }
+
+  function removeWebhook(id: string) {
+    setWebhooks((current) => current.length <= 1 ? [newN8nWebhook(0, { name: 'Primary workflow' })] : current.filter((webhook) => webhook.id !== id))
+  }
+
+  return (
+    <IntegrationCard title="n8n" subtitle="Send workflow events to up to 10 external automation webhooks." status={status} icon="n8n">
+      <div className="space-y-3 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <span className="font-medium text-gray-700 dark:text-gray-200">Enable n8n</span>
+            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{activeWebhooks.length}/10 active webhook{activeWebhooks.length === 1 ? '' : 's'}</p>
+          </div>
+          <Toggle on={enabled} onChange={setEnabled} label="Enable n8n" />
+        </div>
+
+        {enabled && !activeWebhooks.length && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            Add at least one enabled webhook URL to finish setup.
+          </div>
+        )}
+
+        <div className="rounded-lg border border-sky-200/70 bg-sky-50/70 p-3 dark:border-sky-500/30 dark:bg-sky-500/10">
+          <p className="text-sm font-semibold text-sky-900 dark:text-sky-100">n8n webhook destinations</p>
+          <p className="mt-1 text-[11px] text-sky-700 dark:text-sky-200">
+            Add a separate webhook for each workflow, such as bookings, cancellations, revisions, or daily reporting.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {webhooks.map((webhook, index) => (
+            <div key={webhook.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Webhook {index + 1}</span>
+                <div className="flex items-center gap-2">
+                  <PillToggle checked={webhook.enabled} label={`Enable webhook ${index + 1}`} size="sm" onChange={(next) => updateWebhook(webhook.id, { enabled: next })} />
+                  <button type="button" onClick={() => removeWebhook(webhook.id)} className="rounded-md border border-red-300 px-2 py-1 text-[11px] font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300" disabled={webhooks.length <= 1}>
+                    Remove
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Name</span>
+                  <input value={webhook.name} onChange={(event) => updateWebhook(webhook.id, { name: event.target.value })} className={field} placeholder="Booking workflow" />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Event type</span>
+                  <select value={webhook.eventType} onChange={(event) => updateWebhook(webhook.id, { eventType: event.target.value })} className={field}>
+                    <option value="booking_events">Booking events</option>
+                    <option value="new_booking">New booking</option>
+                    <option value="cancellation">Cancellation</option>
+                    <option value="booking_revision">Booking revision</option>
+                    <option value="whatsapp_events">WhatsApp events</option>
+                    <option value="daily_report">Daily report</option>
+                    <option value="custom">Custom workflow</option>
+                  </select>
+                </label>
+              </div>
+              <label className="mt-2 block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Webhook URL</span>
+                <input value={webhook.url} onChange={(event) => updateWebhook(webhook.id, { url: event.target.value })} className={field} placeholder="https://n8n.example.com/webhook/..." />
+              </label>
+              <label className="mt-2 block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Notes</span>
+                <input value={webhook.notes ?? ''} onChange={(event) => updateWebhook(webhook.id, { notes: event.target.value })} className={field} placeholder="Owner, workflow purpose, or handoff notes" />
+              </label>
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={addWebhook}
+          disabled={webhooks.length >= 10}
+          className="w-full rounded-md border border-dashed border-sky-300 px-3 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-800 dark:text-sky-200 dark:hover:bg-sky-950/30"
+        >
+          {webhooks.length >= 10 ? 'Maximum of 10 webhooks reached' : '+ Add webhook'}
+        </button>
+
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">General notes</span>
+          <input value={notes} onChange={(event) => setNotes(event.target.value)} className={field} />
+        </label>
+        <SaveRow
+          pending={save.isPending}
+          error={save.isError || disconnect.isError}
+          message={message}
+          onSave={() => save.mutate()}
+          onDisconnect={() => disconnect.mutate()}
+          disconnectPending={disconnect.isPending}
+          disconnectDisabled={!enabled && !webhooks.some((webhook) => webhook.url.trim())}
+        />
+      </div>
+    </IntegrationCard>
+  )
+}
+
+// Per-clinic AI provider connection. Providers do not offer a safe partner OAuth
+// flow for API access, so the working "login" is a secure clinic-owned API key.
+function ProviderLoginCard({
+  clinic,
+  provider,
+  title,
+  status,
+  statuses,
+  loading,
+}: {
+  clinic: Clinic
+  provider: AiProvider
+  title: string
+  status: AiProviderStatus | null
+  statuses: AiProviderStatus[]
+  loading: boolean
+}) {
+  const qc = useQueryClient()
+  const settings = (clinic.settings ?? {}) as IntegrationSettings
+  const currentAi = settings.aiAssistant ?? {}
+  const [apiKey, setApiKey] = useState('')
+  const [baseURL, setBaseURL] = useState(provider === 'custom' ? currentAi.baseURL ?? '' : '')
+  const [model, setModel] = useState(
+    provider === 'custom'
+      ? currentAi.model ?? ''
+      : currentAi.chatProvider === provider
+        ? currentAi.model ?? DEFAULT_MODEL[provider]
+        : DEFAULT_MODEL[provider],
+  )
+  const [configOpen, setConfigOpen] = useState(false)
+  const [connectionMode, setConnectionMode] = useState<'api' | 'login'>('api')
+  const [message, setMessage] = useState<string | null>(null)
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['ai-status', clinic.id] })
+    qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+  }
+
+  const connect = useMutation({
+    mutationFn: async () => {
+      const nextEmbedProvider =
+        embeddingProviderFor(provider) ?? connectedEmbeddingProvider(statuses, currentAi.embedProvider)
+      await api.post(`/clinic/${clinic.id}/ai/${provider}/connect`, {
+        apiKey: apiKey.trim(),
+        baseURL: provider === 'custom' ? baseURL.trim() : undefined,
+      })
+      await api.patch(`/clinics/${clinic.id}`, {
+        settings: {
+          aiAssistant: {
+            ...(settings.aiAssistant ?? {}),
+            chatProvider: provider,
+            model: model.trim() || DEFAULT_MODEL[provider],
+            baseURL: provider === 'custom' ? baseURL.trim() : '',
+            ...(nextEmbedProvider ? { embedProvider: nextEmbedProvider } : {}),
+          },
+        },
+      })
+      if (nextEmbedProvider) {
+        await api.post(`/clinics/${clinic.id}/kb/reembed`, {})
+      }
+    },
+    onSuccess: () => {
+      setApiKey('')
+      setMessage(`${title} connected and selected for J.zel.`)
+      refresh()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not connect this provider.'),
+  })
+  const disconnect = useMutation({
+    mutationFn: () => api.del(`/clinic/${clinic.id}/ai/${provider}/disconnect`),
+    onSuccess: () => {
+      setMessage(`${title} disconnected.`)
+      refresh()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect this provider.'),
+  })
+
+  const source = status?.source ?? 'none'
+  const cardStatus: IntegrationStatus = source === 'clinic' ? 'connected' : 'disconnected'
+  const meta = PROVIDER_META[provider]
+  const subtitle = meta.subtitle
+  const canConnect = apiKey.trim().length >= 8 && (provider !== 'custom' || (baseURL.trim().startsWith('http') && model.trim().length > 0))
+
+  return (
+    <IntegrationCard title={title} subtitle={subtitle} status={cardStatus} icon={PROVIDER_ICON[provider]}>
+      <div className="space-y-3 text-xs">
+        {loading ? (
+          <p className="text-gray-400">Checking connection...</p>
+        ) : source === 'clinic' ? (
+          <p className="font-medium text-emerald-600 dark:text-emerald-400">
+            Connected with this clinic's key {status?.last4 ? `********${status.last4}` : '********'}.
+          </p>
+        ) : (
+          <div className="rounded-md border border-red-300 bg-red-50 p-2 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+            <p className="font-semibold">API key required. Re-enter this provider key to enable {title}.</p>
+            <p className="mt-1">
+              If you already entered it before, Docmee does not currently have it saved for this clinic.
+            </p>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setConfigOpen((value) => !value)}
+          aria-expanded={configOpen}
+          className="inline-flex min-h-9 items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+        >
+          {configOpen ? 'Hide configuration' : 'Show configuration'}
+        </button>
+
+        {configOpen && (
+        <div className="space-y-3 rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/60">
+        <div className="grid grid-cols-2 gap-1 rounded-md bg-gray-200 p-1 text-xs font-semibold dark:bg-gray-800">
+          <button
+            type="button"
+            onClick={() => setConnectionMode('api')}
+            className={
+              connectionMode === 'api'
+                ? 'rounded bg-white px-3 py-1.5 text-gray-900 shadow-sm dark:bg-gray-950 dark:text-gray-50'
+                : 'rounded px-3 py-1.5 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+            }
+          >
+            API key
+          </button>
+          <button
+            type="button"
+            onClick={() => setConnectionMode('login')}
+            className={
+              connectionMode === 'login'
+                ? 'rounded bg-white px-3 py-1.5 text-gray-900 shadow-sm dark:bg-gray-950 dark:text-gray-50'
+                : 'rounded px-3 py-1.5 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+            }
+          >
+            Login to API service
+          </button>
+        </div>
+
+        {connectionMode === 'login' && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+            {provider === 'custom' ? (
+              <>
+                <p className="font-semibold">Custom providers use their own dashboard.</p>
+                <p className="mt-1">
+                  Open your custom AI provider account, create an OpenAI-compatible API key, then paste the key and endpoint URL below.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold">Open the provider API console, then return here.</p>
+                <p className="mt-1">
+                  Sign in to the provider, create or copy an API key, then paste it in the API key tab so Docmee can validate and save it.
+                </p>
+                <a
+                  href={PROVIDER_CONSOLE_URL[provider]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex min-h-9 items-center justify-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Login to {title}
+                </a>
+              </>
+            )}
+          </div>
+        )}
+
+        {connectionMode === 'api' && (
+        <>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+            {meta.keyLabel}
+          </span>
+          <input
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={meta.placeholder}
+            className={field}
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+            Model J.zel should use
+          </span>
+          <input
+            type="text"
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder={provider === 'custom' ? 'model-name-from-your-provider' : DEFAULT_MODEL[provider]}
+            className={field}
+          />
+        </label>
+
+        {provider === 'custom' && (
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+              Endpoint URL
+            </span>
+            <input
+              type="url"
+              value={baseURL}
+              onChange={(event) => setBaseURL(event.target.value)}
+              placeholder="https://your-ai-provider.example/v1"
+              className={field}
+            />
+            <span className="mt-1 block text-[11px] text-gray-400">
+              Use the OpenAI-compatible /v1 base URL from your provider.
+            </span>
+          </label>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setMessage(null)
+              connect.mutate()
+            }}
+            disabled={connect.isPending || !canConnect}
+            className="rounded-md bg-emerald-600 px-3 py-1.5 font-medium text-white disabled:opacity-60"
+          >
+            {connect.isPending ? 'Connectingâ€¦' : source === 'clinic' ? 'Replace connection' : meta.action}
+          </button>
+          {source === 'clinic' && (
+            <button
+              type="button"
+              onClick={() => {
+                setMessage(null)
+                disconnect.mutate()
+              }}
+              disabled={disconnect.isPending}
+              className="rounded-md border border-red-300 px-3 py-1.5 font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300"
+            >
+              {disconnect.isPending ? 'Disconnectingâ€¦' : 'Disconnect'}
+            </button>
+          )}
+        </div>
+
+        {message && (
+          <p className={connect.isError || disconnect.isError ? 'text-red-500' : 'text-emerald-500'}>{message}</p>
+        )}
+        <p className="text-[11px] text-gray-400">
+          Keys are encrypted on the server and never shown again. Connecting also selects this provider for J.zel.
+        </p>
+        </>
+        )}
+        </div>
+        )}
+      </div>
+    </IntegrationCard>
+  )
+}
+
+function useIntegrationSave(
+  clinic: Clinic,
+  key: 'n8n' | 'chatgpt' | 'claude',
+  value: ExternalIntegration,
+  onSuccess: () => void,
+  onError: (error: string) => void,
+) {
+  const settings = (clinic.settings ?? {}) as IntegrationSettings
+  return useMutation({
+    mutationFn: () =>
+      api.patch(`/clinics/${clinic.id}`, {
+        settings: {
+          ...settings,
+          integrations: {
+            ...(settings.integrations ?? {}),
+            [key]: value,
+          },
+        },
+      }),
+    onSuccess,
+    onError: (error) => onError(error instanceof Error ? error.message : 'Could not save integration.'),
+  })
+}
+
+function SaveRow({
+  pending,
+  error,
+  message,
+  onSave,
+  onDisconnect,
+  disconnectPending,
+  disconnectDisabled,
+}: {
+  pending: boolean
+  error: boolean
+  message: string | null
+  onSave: () => void
+  onDisconnect?: () => void
+  disconnectPending?: boolean
+  disconnectDisabled?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 pt-1">
+      <p className={error ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+      <div className="flex flex-wrap gap-2">
+        {onDisconnect && (
+          <button type="button" onClick={onDisconnect} disabled={disconnectPending || disconnectDisabled} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300">
+            {disconnectPending ? 'Disconnecting...' : 'Disconnect'}
+          </button>
+        )}
+        <button type="button" onClick={onSave} disabled={pending} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+          {pending ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}

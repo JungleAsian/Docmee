@@ -1,0 +1,17 @@
+node_modules
+dist
+.env.tools
+dashboard/.next
+dashboard/out
+app/src-tauri/target
+logs/*.log
+logs/*.json
+logs/*.json.*
+logs/.setup-complete
+logs/.sentinel-task-registered
+logs/*.pid
+logs/sentinel-tasks/
+!logs/.gitkeep
+prompts/*.md
+!prompts/.gitkeep
+*.lnk

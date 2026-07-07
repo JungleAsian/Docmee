@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 280" role="img" aria-labelledby="title desc">
+  <title id="title">Docmee logo</title>
+  <desc id="desc">Docmee wordmark in gray and cyan.</desc>
+  <defs>
+    <filter id="softShadow" x="-5%" y="-20%" width="110%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#12142c" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="1040" height="280" rx="34" fill="none"/>
+  <g filter="url(#softShadow)">
+    <text x="38" y="205"
+      font-family="Arial Rounded MT Bold, Avenir Next Rounded, Nunito, Inter, Arial, sans-serif"
+      font-size="214"
+      font-weight="900"
+      letter-spacing="-13"><tspan fill="#666666">doc</tspan><tspan fill="#13bfd1">mee</tspan></text>
+    <text x="930" y="78"
+      fill="#13bfd1"
+      font-family="Inter, Arial, sans-serif"
+      font-size="52"
+      font-weight="800">®</text>
+  </g>
+</svg>

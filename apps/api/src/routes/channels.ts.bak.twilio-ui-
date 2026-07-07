@@ -1,0 +1,259 @@
+import type { FastifyPluginAsync } from 'fastify'
+import { randomBytes } from 'node:crypto'
+import { z } from 'zod'
+import { createChannelAccountsRepository } from '@docmee/db'
+import { encryptValue } from '@docmee/shared'
+import { withDb } from '../lib/db.js'
+import { validate } from '../lib/validate.js'
+import { resolveClinicScope } from '../lib/scope.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
+
+const whatsappSchema = z.object({
+  accountId: z.string().min(1),
+  displayName: z.string().optional(),
+  accessToken: z.string().min(1).optional(),
+  webhookVerifyToken: z.string().optional(),
+  status: z.enum(['active', 'inactive', 'error']).optional(),
+  tokenExpiresAt: z.string().optional(),
+})
+
+const embeddedSignupSchema = z.object({
+  code: z.string().min(1),
+  phoneNumberId: z.string().min(1),
+  wabaId: z.string().min(1).optional(),
+  displayName: z.string().optional(),
+  webhookVerifyToken: z.string().optional(),
+})
+
+const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
+
+function metaEmbeddedSignupConfig() {
+  const appId = process.env['META_APP_ID'] || process.env['NEXT_PUBLIC_META_APP_ID'] || ''
+  const configId =
+    process.env['META_EMBEDDED_SIGNUP_CONFIG_ID'] ||
+    process.env['META_LOGIN_CONFIG_ID'] ||
+    process.env['NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID'] ||
+    ''
+  return {
+    appId,
+    configId,
+    graphApiVersion: GRAPH_API_VERSION,
+    isConfigured: Boolean(appId && configId && process.env['META_APP_SECRET']),
+    missing: [
+      !appId ? 'META_APP_ID' : null,
+      !configId ? 'META_EMBEDDED_SIGNUP_CONFIG_ID' : null,
+      !process.env['META_APP_SECRET'] ? 'META_APP_SECRET' : null,
+    ].filter(Boolean),
+  }
+}
+
+async function exchangeEmbeddedSignupCode(code: string): Promise<string> {
+  const { appId } = metaEmbeddedSignupConfig()
+  const appSecret = process.env['META_APP_SECRET'] ?? ''
+  if (!appId || !appSecret) throw new Error('Meta app credentials are not configured')
+
+  const url = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/oauth/access_token`)
+  url.searchParams.set('client_id', appId)
+  url.searchParams.set('client_secret', appSecret)
+  url.searchParams.set('code', code)
+
+  const res = await fetch(url)
+  const body = (await res.json().catch(() => null)) as { access_token?: string; error?: { message?: string } } | null
+  if (!res.ok || !body?.access_token) {
+    throw new Error(body?.error?.message ?? `Meta token exchange failed with ${res.status}`)
+  }
+  return body.access_token
+}
+
+async function graphRequest<T>(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  const url = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/${path.replace(/^\//, '')}`)
+  const headers = new Headers(init.headers)
+  headers.set('Authorization', `Bearer ${accessToken}`)
+  const res = await fetch(url, { ...init, headers })
+  const data = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null
+  if (!res.ok) return { ok: false, error: data?.error?.message ?? `Graph API request failed with ${res.status}` }
+  return { ok: true, data: data as T }
+}
+
+async function subscribeWabaToApp(wabaId: string | undefined, accessToken: string): Promise<{ subscribed: boolean; error?: string }> {
+  if (!wabaId) return { subscribed: false, error: 'Embedded Signup did not return a WABA ID.' }
+  const result = await graphRequest<{ success?: boolean }>(`${wabaId}/subscribed_apps`, accessToken, { method: 'POST' })
+  if (!result.ok) return { subscribed: false, error: result.error }
+  return { subscribed: true }
+}
+
+async function fetchPhoneNumberInfo(phoneNumberId: string, accessToken: string) {
+  const result = await graphRequest<{
+    id?: string
+    display_phone_number?: string
+    verified_name?: string
+    quality_rating?: string
+    code_verification_status?: string
+    name_status?: string
+  }>(
+    `${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,name_status`,
+    accessToken,
+  )
+  if (!result.ok) return { phoneInfo: null, phoneInfoError: result.error }
+  return { phoneInfo: result.data, phoneInfoError: undefined }
+}
+
+function redactAccount(account: {
+  id: string
+  clinicId: string
+  channel: string
+  accountId: string
+  displayName: string | null
+  status: string
+  accessTokenEnc: string | null
+  webhookVerifyToken: string | null
+  settings: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}) {
+  return {
+    id: account.id,
+    clinicId: account.clinicId,
+    channel: account.channel,
+    accountId: account.accountId,
+    displayName: account.displayName,
+    status: account.status,
+    hasAccessToken: Boolean(account.accessTokenEnc),
+    hasWebhookVerifyToken: Boolean(account.webhookVerifyToken),
+    tokenExpiresAt:
+      typeof account.settings?.tokenExpiresAt === 'string' ? account.settings.tokenExpiresAt : null,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+  }
+}
+
+const channelsRoute: FastifyPluginAsync = async (app) => {
+  app.addHook('preHandler', requireAuth)
+
+  app.get(
+    '/channels/meta-config',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async () => {
+      const config = metaEmbeddedSignupConfig()
+      return {
+        appId: config.appId || null,
+        configId: config.configId || null,
+        graphApiVersion: config.graphApiVersion,
+        isConfigured: config.isConfigured,
+        missing: config.missing,
+      }
+    },
+  )
+
+  app.get<{ Params: { id: string } }>(
+    '/clinics/:id/channels',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
+      return { accounts: accounts.map(redactAccount) }
+    },
+  )
+
+  app.put<{ Params: { id: string; channel: string } }>(
+    '/clinics/:id/channels/:channel',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      if (request.params.channel !== 'whatsapp') {
+        return reply.code(400).send({ error: 'Only WhatsApp channel linking is supported here' })
+      }
+      const parsed = validate(whatsappSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      const account = await withDb(async (sql) => {
+        const repo = createChannelAccountsRepository(sql)
+        const existing = (await repo.listByClinic(clinicId)).find(
+          (item) => item.channel === 'whatsapp' && item.accountId === parsed.data.accountId,
+        )
+        const settings = {
+          ...(existing?.settings ?? {}),
+          ...(parsed.data.tokenExpiresAt ? { tokenExpiresAt: parsed.data.tokenExpiresAt } : {}),
+        }
+        return repo.create({
+          clinicId,
+          channel: 'whatsapp',
+          accountId: parsed.data.accountId,
+          displayName: parsed.data.displayName ?? existing?.displayName ?? undefined,
+          accessTokenEnc: parsed.data.accessToken
+            ? encryptValue(parsed.data.accessToken)
+            : existing?.accessTokenEnc ?? undefined,
+          webhookVerifyToken: parsed.data.webhookVerifyToken ?? existing?.webhookVerifyToken ?? undefined,
+          status: parsed.data.status ?? existing?.status ?? 'active',
+          settings,
+        })
+      })
+
+      return { account: redactAccount(account) }
+    },
+  )
+
+  app.post<{ Params: { id: string } }>(
+    '/clinics/:id/channels/whatsapp/embedded-signup',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(embeddedSignupSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      try {
+        const accessToken = await exchangeEmbeddedSignupCode(parsed.data.code)
+        const subscription = await subscribeWabaToApp(parsed.data.wabaId, accessToken)
+        const phoneLookup = await fetchPhoneNumberInfo(parsed.data.phoneNumberId, accessToken)
+        const account = await withDb(async (sql) => {
+          const repo = createChannelAccountsRepository(sql)
+          const existing = (await repo.listByClinic(clinicId)).find(
+            (item) => item.channel === 'whatsapp' && item.accountId === parsed.data.phoneNumberId,
+          )
+          const webhookVerifyToken =
+            parsed.data.webhookVerifyToken?.trim() ||
+            existing?.webhookVerifyToken ||
+            `docmee_${randomBytes(18).toString('hex')}`
+          return repo.create({
+            clinicId,
+            channel: 'whatsapp',
+            accountId: parsed.data.phoneNumberId,
+            displayName:
+              parsed.data.displayName ??
+              phoneLookup.phoneInfo?.verified_name ??
+              phoneLookup.phoneInfo?.display_phone_number ??
+              existing?.displayName ??
+              'WhatsApp Business',
+            accessTokenEnc: encryptValue(accessToken),
+            webhookVerifyToken,
+            status: 'active',
+            settings: {
+              ...(existing?.settings ?? {}),
+              source: 'embedded_signup',
+              wabaId: parsed.data.wabaId,
+              embeddedSignupVersion: 'standard',
+              appSubscribedToWaba: subscription.subscribed,
+              appSubscriptionError: subscription.error,
+              phoneInfo: phoneLookup.phoneInfo,
+              phoneInfoError: phoneLookup.phoneInfoError,
+              linkedAt: new Date().toISOString(),
+            },
+          })
+        })
+        return { account: redactAccount(account) }
+      } catch (error) {
+        request.log.error({ err: error }, 'Meta Embedded Signup completion failed')
+        return reply.code(400).send({ error: (error as Error).message })
+      }
+    },
+  )
+}
+
+export default channelsRoute

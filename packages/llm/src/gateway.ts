@@ -1,0 +1,8 @@
+export { claudeComplete } from './providers/claude.js'
+export { classifyIntent } from './providers/deepseek.js'
+export type { Intent, IntentProvider } from './providers/deepseek.js'
+export { embedText } from './providers/openai.js'
+export { chatComplete, defaultChatModel } from './chat.js'
+export type { ChatProvider, ChatOpts, ChatTurn } from './chat.js'
+export { embed, defaultEmbedModel } from './embed.js'
+export type { EmbedProvider, EmbedOpts } from './embed.js'

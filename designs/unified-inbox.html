@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Docmee · Unified Inbox / Bandeja Unificada — High-Fidelity Design</title>
+<style>
+  /* ───────────────────────────────────────────────────────────────────
+     Docmee Unified Inbox — high-fidelity static design mockup.
+     Single file, no build. Open in any browser. Toggle ES/EN top-right.
+     Visual language mirrors apps/inboxos (Tailwind grays, soft shadows,
+     rounded cards) and locks the mode-rail safety colors.
+     ─────────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#f1f5f9; --panel:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --line:#e2e8f0; --line-soft:#eef2f7; --chip:#f1f5f9;
+    /* Mode-rail safety palette — single source of truth */
+    --bot:#6366f1;     --bot-soft:#eef2ff;     --bot-ink:#4338ca;
+    --human:#10b981;   --human-soft:#ecfdf5;   --human-ink:#047857;
+    --waiting:#f59e0b; --waiting-soft:#fffbeb; --waiting-ink:#b45309;
+    --urgent:#ef4444;  --urgent-soft:#fef2f2;  --urgent-ink:#b91c1c;
+    --brand:#0ea5e9;   --brand-ink:#0369a1;
+    --shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.18);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #e0f2fe 0%, transparent 55%),
+      radial-gradient(1000px 500px at -10% 110%, #ede9fe 0%, transparent 50%),
+      var(--bg);
+    color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.45;
+  }
+  .wrap{max-width:1320px;margin:0 auto;padding:28px 22px 80px}
+  h1{font-size:24px;margin:0;letter-spacing:-.02em}
+  h2.section{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:46px 0 14px;font-weight:700}
+  .sub{color:var(--muted);font-size:13.5px;margin:6px 0 0}
+  .lang-only-en{display:none}
+  html[lang="en"] .lang-only-es{display:none}
+  html[lang="en"] .lang-only-en{display:inline}
+
+  /* Header bar */
+  .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
+  .logo{display:flex;align-items:center;gap:11px}
+  .logo .mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--brand),var(--bot));
+    display:grid;place-items:center;color:#fff;font-weight:800;font-size:18px;box-shadow:var(--shadow)}
+  .toggle{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px;box-shadow:var(--shadow)}
+  .toggle button{border:0;background:transparent;padding:7px 16px;border-radius:999px;font-weight:700;font-size:13px;color:var(--muted);cursor:pointer}
+  .toggle button.on{background:var(--ink);color:#fff}
+
+  /* Legend */
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .legend .item{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);
+    border-radius:12px;padding:9px 13px;box-shadow:var(--shadow);font-size:12.5px}
+  .legend .dot{width:12px;height:12px;border-radius:4px}
+  .legend .item b{font-weight:700}
+  .legend .item span{color:var(--muted)}
+
+  /* Frames */
+  .device-label{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 9px}
+  .desktop{background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:var(--shadow)}
+  .chrome{display:flex;align-items:center;gap:8px;padding:11px 15px;border-bottom:1px solid var(--line);background:#fafbfd}
+  .chrome .dots{display:flex;gap:6px}
+  .chrome .dots i{width:11px;height:11px;border-radius:50%;display:block}
+  .chrome .url{margin-left:10px;font-size:12px;color:var(--muted);background:#fff;border:1px solid var(--line);
+    border-radius:8px;padding:4px 12px}
+
+  /* Desktop 4-zone layout: rail • list • thread • context */
+  .grid{display:grid;grid-template-columns:54px 300px 1fr 312px;min-height:660px}
+  @media(max-width:1100px){.grid{grid-template-columns:54px 260px 1fr;}.context-col{display:none}}
+
+  /* Mode rail */
+  .rail{background:#0f172a;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 0;color:#cbd5e1}
+  .rail .r-ico{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:17px;cursor:pointer;position:relative}
+  .rail .r-ico.active{background:#1e293b;color:#fff}
+  .rail .r-ico .badge{position:absolute;top:-2px;right:-2px;min-width:17px;height:17px;border-radius:9px;
+    font-size:10px;font-weight:800;display:grid;place-items:center;color:#fff;padding:0 4px}
+  .rail .spacer{flex:1}
+  .rail .seg{width:30px;height:4px;border-radius:3px;margin:3px 0}
+
+  /* List column */
+  .col{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  .col-head{padding:13px 14px 0}
+  .col-head .h{display:flex;align-items:center;justify-content:space-between}
+  .col-head .h b{font-size:15px}
+  .search{margin:11px 0 0;display:flex;align-items:center;gap:8px;background:var(--chip);border:1px solid var(--line);
+    border-radius:10px;padding:8px 11px;color:var(--muted);font-size:13px}
+  .tabs{display:flex;gap:4px;margin:12px 0 0;border-bottom:1px solid var(--line);overflow:auto}
+  .tab{position:relative;white-space:nowrap;border:0;background:transparent;padding:9px 9px 11px;font-size:12.5px;
+    font-weight:600;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px}
+  .tab .cnt{background:var(--chip);border-radius:999px;font-size:10.5px;padding:1px 7px;font-weight:800;color:var(--muted)}
+  .tab.on{color:var(--ink)}
+  .tab.on::after{content:"";position:absolute;left:6px;right:6px;bottom:-1px;height:2.5px;background:var(--ink);border-radius:3px}
+  .tab.on .cnt{background:var(--ink);color:#fff}
+
+  .list{overflow:auto;padding:8px;display:flex;flex-direction:column;gap:7px}
+  .conv{position:relative;display:flex;gap:11px;padding:11px 12px 11px 14px;border:1px solid var(--line);
+    border-radius:13px;cursor:pointer;background:#fff}
+  .conv:hover{border-color:#cbd5e1}
+  .conv.sel{border-color:var(--bot);background:var(--bot-soft)}
+  .conv .stripe{position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:4px}
+  .conv .av{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px}
+  .conv .body{min-width:0;flex:1}
+  .conv .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .conv .nm{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .conv .tm{font-size:11px;color:var(--muted);flex:none}
+  .conv .pv{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+  .conv .meta{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px}
+  .pill.bot{background:var(--bot-soft);color:var(--bot-ink)}
+  .pill.human{background:var(--human-soft);color:var(--human-ink)}
+  .pill.waiting{background:var(--waiting-soft);color:var(--waiting-ink)}
+  .pill.urgent{background:var(--urgent-soft);color:var(--urgent-ink)}
+  .pill.ch{background:#f1f5f9;color:#475569}
+  .unread{width:9px;height:9px;border-radius:50%;background:var(--brand);flex:none}
+
+  /* Thread column */
+  .thread{display:flex;flex-direction:column;min-width:0;background:linear-gradient(#fff,#fbfdff)}
+  .th-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+  .th-head .av{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700}
+  .th-head .who{flex:1;min-width:0}
+  .th-head .who b{font-size:15px}
+  .th-head .who .s{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .iconbtn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:7px 11px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink);display:inline-flex;gap:6px;align-items:center}
+  .iconbtn.warn{border-color:#fcaca8;background:var(--urgent-soft);color:var(--urgent-ink)}
+
+  /* Safety banner — the anti-accidental-reply guardrail */
+  .safety{margin:12px 16px 0;border-radius:13px;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;
+    border:1px solid;font-size:13px}
+  .safety.human{background:var(--human-soft);border-color:#a7f3d0;color:var(--human-ink)}
+  .safety.urgent{background:var(--urgent-soft);border-color:#fecaca;color:var(--urgent-ink)}
+  .safety .ico{font-size:18px;line-height:1}
+  .safety b{display:block;margin-bottom:2px}
+  .safety .grow{flex:1}
+  .safety .mini{font-weight:700;font-size:11px;border-radius:999px;padding:3px 10px;border:1px solid currentColor;white-space:nowrap}
+
+  /* Appointment status strip */
+  .appt{margin:12px 16px 0;border:1px dashed var(--line);border-radius:13px;background:#fff;padding:11px 14px;
+    display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .appt .seg-i{display:flex;flex-direction:column;gap:1px}
+  .appt .seg-i .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+  .appt .seg-i .v{font-size:13px;font-weight:600}
+  .status{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px}
+  .status.conf{background:var(--human-soft);color:var(--human-ink)}
+  .status.pend{background:var(--waiting-soft);color:var(--waiting-ink)}
+
+  /* Messages */
+  .msgs{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+  .daystamp{align-self:center;font-size:11px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 12px}
+  .msg{max-width:74%;padding:10px 13px;border-radius:15px;font-size:13.5px;box-shadow:var(--shadow);position:relative}
+  .msg .meta-l{font-size:10.5px;margin-top:5px;opacity:.7;display:flex;gap:6px;align-items:center}
+  .msg.in{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:5px}
+  .msg.bot{align-self:flex-end;background:var(--bot-soft);border:1px solid #c7d2fe;color:#312e81;border-bottom-right-radius:5px}
+  .msg.human{align-self:flex-end;background:var(--human);color:#fff;border-bottom-right-radius:5px}
+  .msg.note{align-self:center;max-width:84%;background:#fffbeb;border:1px dashed #fcd34d;color:#92400e;font-size:12.5px}
+  .msg .tag-by{font-weight:800}
+
+  /* Quick replies + composer */
+  .qr{display:flex;gap:8px;padding:10px 16px 0;flex-wrap:wrap}
+  .qr .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 13px;font-size:12.5px;cursor:pointer;color:var(--ink)}
+  .qr .chip:hover{border-color:var(--brand);color:var(--brand-ink)}
+  .qr .lab{font-size:11px;color:var(--muted);font-weight:700;align-self:center;margin-right:2px}
+  .composer{padding:12px 16px 16px}
+  .composer .box{border:1px solid var(--line);border-radius:14px;background:#fff;padding:11px 13px;box-shadow:var(--shadow)}
+  .composer.locked .box{background:#f8fafc;border-style:dashed}
+  .composer .row{display:flex;align-items:center;gap:10px;margin-top:9px}
+  .composer textarea{width:100%;border:0;outline:0;resize:none;font:inherit;font-size:13.5px;background:transparent;color:var(--ink)}
+  .composer .who-send{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .composer .grow{flex:1}
+  .btn{border:0;border-radius:11px;padding:9px 16px;font-weight:700;font-size:13px;cursor:pointer}
+  .btn.send{background:var(--human);color:#fff}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .send-as{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--human-soft);color:var(--human-ink)}
+
+  /* Context column */
+  .context-col{overflow:auto;border-left:1px solid var(--line);background:#fbfdff}
+  .card{padding:14px 15px;border-bottom:1px solid var(--line-soft)}
+  .card h4{margin:0 0 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;display:flex;align-items:center;gap:7px}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-weight:600;text-align:right}
+  .patient-id{display:flex;gap:12px;align-items:center;margin-bottom:4px}
+  .patient-id .av{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800}
+  .patient-id .nm{font-weight:800;font-size:15px}
+  .patient-id .meta{font-size:12px;color:var(--muted)}
+  .flagrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+  .flag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;background:var(--urgent-soft);color:var(--urgent-ink);border:1px solid #fecaca}
+  .flag.ok{background:var(--human-soft);color:var(--human-ink);border-color:#a7f3d0}
+
+  .tagset{display:flex;gap:7px;flex-wrap:wrap}
+  .tag{font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--chip);color:#475569;display:inline-flex;gap:6px;align-items:center}
+  .tag .x{opacity:.5}
+  .tag.add{border:1px dashed var(--line);background:#fff;color:var(--muted);cursor:pointer}
+
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:11px;padding:9px 11px;font-size:12.5px;color:#92400e;margin-bottom:8px}
+  .note .by{font-weight:800;font-size:10.5px;opacity:.8;margin-bottom:2px}
+  .note-input{display:flex;gap:7px;margin-top:4px}
+  .note-input input{flex:1;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:inherit;font-size:12.5px}
+
+  /* Bot control switch */
+  .botctl{border:1px solid var(--line);border-radius:13px;padding:12px;background:#fff}
+  .botctl.paused{border-color:#fcd34d;background:var(--waiting-soft)}
+  .botctl .top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .botctl .top b{font-size:13px}
+  .switch{width:48px;height:27px;border-radius:999px;background:#cbd5e1;position:relative;cursor:pointer;flex:none;transition:.15s}
+  .switch.on{background:var(--human)}
+  .switch i{position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .switch.on i{left:24px}
+  .botctl .desc{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .assignbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .assignbtns .btn{flex:1;min-width:120px;text-align:center}
+  .btn.handoff{background:var(--urgent);color:#fff}
+  .btn.assign{background:var(--bot);color:#fff}
+  .assignee{display:flex;align-items:center;gap:9px;background:var(--human-soft);border:1px solid #a7f3d0;border-radius:11px;padding:9px 11px;margin-bottom:9px}
+  .assignee .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:12px;background:var(--human)}
+  .assignee .t{font-size:12.5px}
+  .assignee .t b{display:block}
+
+  /* Mobile */
+  .phones{display:flex;gap:26px;flex-wrap:wrap}
+  .phone{width:320px;flex:none}
+  .screen{width:320px;height:660px;background:#fff;border:10px solid #0f172a;border-radius:36px;overflow:hidden;
+    box-shadow:var(--shadow);display:flex;flex-direction:column;position:relative}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:24px;background:#0f172a;border-radius:0 0 16px 16px;z-index:5}
+  .m-top{padding:26px 14px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .m-top b{font-size:15px}
+  .m-tabs{display:flex;gap:5px;padding:9px 10px;overflow:auto;border-bottom:1px solid var(--line)}
+  .m-tab{white-space:nowrap;font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:999px;background:var(--chip);color:var(--muted);border:0;display:flex;gap:5px;align-items:center}
+  .m-tab.on{background:var(--ink);color:#fff}
+  .m-list{flex:1;overflow:auto;padding:9px;display:flex;flex-direction:column;gap:7px}
+  .m-foot{display:flex;border-top:1px solid var(--line)}
+  .m-foot .f{flex:1;text-align:center;padding:9px 0;font-size:10px;color:var(--muted);font-weight:700}
+  .m-foot .f.on{color:var(--brand-ink)}
+  .m-foot .f .i{font-size:17px;display:block}
+  .m-th{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:12px}
+  .m-back{padding:24px 12px 9px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700}
+  .m-comp{border-top:1px solid var(--line);padding:9px 11px}
+  .caption{font-size:11.5px;color:var(--muted);margin:8px 0 0;text-align:center;max-width:320px}
+
+  .footnote{margin-top:40px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:18px}
+  .footnote code{background:#fff;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <div class="topbar">
+    <div>
+      <div class="logo">
+        <div class="mark">D</div>
+        <div>
+          <h1>Docmee · <span class="lang-only-es">Bandeja Unificada</span><span class="lang-only-en">Unified Inbox</span></h1>
+          <p class="sub">
+            <span class="lang-only-es">Diseño de alta fidelidad — espacio de trabajo para secretarias de clínica</span>
+            <span class="lang-only-en">High-fidelity design — clinic secretary workspace</span>
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="toggle" role="group" aria-label="Language">
+      <button id="es" class="on" onclick="setLang('es')">Español</button>
+      <button id="en" onclick="setLang('en')">English</button>
+    </div>
+  </div>
+
+  <!-- ── Mode-rail legend ───────────────────────────────────── -->
+  <div class="legend">
+    <div class="item"><span class="dot" style="background:var(--bot)"></span><b>Bot</b>
+      <span class="lang-only-es">· IA respondiendo</span><span class="lang-only-en">· AI replying</span></div>
+    <div class="item"><span class="dot" style="background:var(--human)"></span><b><span class="lang-only-es">Humano</span><span class="lang-only-en">Human</span></b>
+      <span class="lang-only-es">· secretaria al mando</span><span class="lang-only-en">· secretary in control</span></div>
+    <div class="item"><span class="dot" style="background:var(--waiting)"></span><b><span class="lang-only-es">En espera</span><span class="lang-only-en">Waiting</span></b>
+      <span class="lang-only-es">· requiere acción</span><span class="lang-only-en">· needs action</span></div>
+    <div class="item"><span class="dot" style="background:var(--urgent)"></span><b><span class="lang-only-es">Urgente</span><span class="lang-only-en">Urgent</span></b>
+      <span class="lang-only-es">· prioridad clínica</span><span class="lang-only-en">· clinical priority</span></div>
+  </div>
+
+  <!-- ════════════════════════ DESKTOP ════════════════════════ -->
+  <h2 class="section"><span class="lang-only-es">Escritorio</span><span class="lang-only-en">Desktop</span></h2>
+
+  <div class="desktop">
+    <div class="chrome">
+      <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+      <div class="url">app.docmee.health/inbox</div>
+    </div>
+
+    <div class="grid">
+      <!-- Mode rail -->
+      <div class="rail">
+        <div class="r-ico active" title="Inbox">🗨️<span class="badge" style="background:var(--urgent)">2</span></div>
+        <div class="r-ico" title="Calendar">📅</div>
+        <div class="r-ico" title="Patients">👥</div>
+        <div class="r-ico" title="Reports">📊</div>
+        <div class="spacer"></div>
+        <!-- mode color key, vertical -->
+        <div class="seg" style="background:var(--bot)"></div>
+        <div class="seg" style="background:var(--human)"></div>
+        <div class="seg" style="background:var(--waiting)"></div>
+        <div class="seg" style="background:var(--urgent)"></div>
+        <div class="r-ico" title="Settings">⚙️</div>
+      </div>
+
+      <!-- List column -->
+      <div class="col">
+        <div class="col-head">
+          <div class="h">
+            <b><span class="lang-only-es">Conversaciones</span><span class="lang-only-en">Conversations</span></b>
+            <span style="font-size:12px;color:var(--muted)">Clínica Vida · WhatsApp</span>
+          </div>
+          <div class="search">🔎 <span class="lang-only-es">Buscar paciente o teléfono…</span><span class="lang-only-en">Search patient or phone…</span></div>
+          <div class="tabs">
+            <button class="tab on"><span class="lang-only-es">Activas</span><span class="lang-only-en">Active</span><span class="cnt">8</span></button>
+            <button class="tab"><span class="lang-only-es">Bot</span><span class="lang-only-en">Bot</span><span class="cnt">14</span></button>
+            <button class="tab"><span class="lang-only-es">Asignadas</span><span class="lang-only-en">Assigned</span><span class="cnt">3</span></button>
+            <button class="tab"><span class="lang-only-es">Cerradas</span><span class="lang-only-en">Closed</span><span class="cnt">52</span></button>
+          </div>
+        </div>
+
+        <div class="list">
+          <!-- URGENT, human handling, selected -->
+          <div class="conv sel">
+            <div class="stripe" style="background:var(--urgent)"></div>
+            <div class="av" style="background:#ef4444">MR</div>
+            <div class="body">
+              <div class="r1"><span class="nm">María Rodríguez</span><span class="tm">14:32</span></div>
+              <div class="pv lang-only-es">«Tengo mucho dolor en el pecho y…»</div>
+              <div class="pv lang-only-en">"I have strong chest pain and…"</div>
+              <div class="meta">
+                <span class="pill urgent">● <span class="lang-only-es">Urgente</span><span class="lang-only-en">Urgent</span></span>
+                <span class="pill human">👤 <span class="lang-only-es">Tú</span><span class="lang-only-en">You</span></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- WAITING, needs action -->
+          <div class="conv">
+            <div class="stripe" style="background:var(--waiting)"></div>
+            <div class="av" style="background:#f59e0b">JL</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Jorge Luna</span><span class="tm">14:20</span></div>
+              <div class="pv lang-only-es">«¿Puedo cambiar mi cita del jueves?»</div>
+              <div class="pv lang-only-en">"Can I move my Thursday appointment?"</div>
+              <div class="meta">
+                <span class="pill waiting">⏳ <span class="lang-only-es">En espera</span><span class="lang-only-en">Waiting</span></span>
+                <span class="pill ch">WhatsApp</span>
+                <span class="unread"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- BOT handling -->
+          <div class="conv">
+            <div class="stripe" style="background:var(--bot)"></div>
+            <div class="av" style="background:#6366f1">AC</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Ana Castro</span><span class="tm">14:18</span></div>
+              <div class="pv lang-only-es">Bot: «Confirmado para el martes 10:00 ✔»</div>
+              <div class="pv lang-only-en">Bot: "Confirmed for Tuesday 10:00 ✔"</div>
+              <div class="meta">
+                <span class="pill bot">🤖 Bot</span>
+                <span class="pill ch">Instagram</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- HUMAN assigned to colleague -->
+          <div class="conv">
+            <div class="stripe" style="background:var(--human)"></div>
+            <div class="av" style="background:#10b981">PD</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Pedro Díaz</span><span class="tm">13:55</span></div>
+              <div class="pv lang-only-es">«Gracias, ahí estaré»</div>
+              <div class="pv lang-only-en">"Thanks, I'll be there"</div>
+              <div class="meta">
+                <span class="pill human">👤 Lucía</span>
+                <span class="pill ch">Messenger</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- BOT -->
+          <div class="conv">
+            <div class="stripe" style="background:var(--bot)"></div>
+            <div class="av" style="background:#6366f1">SV</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Sofía Vega</span><span class="tm">13:40</span></div>
+              <div class="pv lang-only-es">Bot: «¿Para qué especialidad…?»</div>
+              <div class="pv lang-only-en">Bot: "Which specialty…?"</div>
+              <div class="meta"><span class="pill bot">🤖 Bot</span><span class="pill ch">WhatsApp</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thread column -->
+      <div class="thread">
+        <div class="th-head">
+          <div class="av" style="background:#ef4444">MR</div>
+          <div class="who">
+            <b>María Rodríguez</b>
+            <div class="s">
+              <span>+34 612 345 678</span> · <span>WhatsApp</span> ·
+              <span class="lang-only-es">Paciente desde 2023</span><span class="lang-only-en">Patient since 2023</span>
+            </div>
+          </div>
+          <button class="iconbtn warn">🚑 <span class="lang-only-es">Marcar urgencia</span><span class="lang-only-en">Flag urgent</span></button>
+          <button class="iconbtn">✔ <span class="lang-only-es">Cerrar</span><span class="lang-only-en">Close</span></button>
+        </div>
+
+        <!-- URGENT safety banner -->
+        <div class="safety urgent">
+          <div class="ico">🚑</div>
+          <div class="grow">
+            <b><span class="lang-only-es">Posible urgencia clínica — prioriza esta conversación</span><span class="lang-only-en">Possible clinical emergency — prioritize this conversation</span></b>
+            <span class="lang-only-es">El paciente mencionó “dolor en el pecho”. Si hay riesgo vital, indícale llamar al 112.</span>
+            <span class="lang-only-en">Patient mentioned "chest pain". If life-threatening, tell them to call emergency services.</span>
+          </div>
+        </div>
+
+        <!-- HUMAN-in-control safety banner: prevents accidental bot replies -->
+        <div class="safety human">
+          <div class="ico">🔒</div>
+          <div class="grow">
+            <b><span class="lang-only-es">Bot en pausa — tú estás respondiendo</span><span class="lang-only-en">Bot paused — you are replying</span></b>
+            <span class="lang-only-es">La IA no enviará mensajes automáticos mientras atiendes este chat.</span>
+            <span class="lang-only-en">The AI will not send automatic messages while you handle this chat.</span>
+          </div>
+          <span class="mini"><span class="lang-only-es">Auto-pausa activa</span><span class="lang-only-en">Auto-pause on</span></span>
+        </div>
+
+        <!-- Appointment status -->
+        <div class="appt">
+          <div class="seg-i"><span class="k"><span class="lang-only-es">Próxima cita</span><span class="lang-only-en">Next appointment</span></span><span class="v">25 jun · 09:30</span></div>
+          <div class="seg-i"><span class="k"><span class="lang-only-es">Doctor</span><span class="lang-only-en">Doctor</span></span><span class="v">Dra. Pérez · Cardiología</span></div>
+          <div class="seg-i"><span class="k"><span class="lang-only-es">Estado</span><span class="lang-only-en">Status</span></span><span class="status pend"><span class="lang-only-es">Pendiente</span><span class="lang-only-en">Pending</span></span></div>
+          <div style="flex:1"></div>
+          <button class="iconbtn">📅 <span class="lang-only-es">Ver agenda</span><span class="lang-only-en">Open calendar</span></button>
+        </div>
+
+        <!-- Messages -->
+        <div class="msgs">
+          <div class="daystamp"><span class="lang-only-es">Hoy</span><span class="lang-only-en">Today</span> · 14:25</div>
+
+          <div class="msg in">
+            <div class="lang-only-es">Hola, tengo mucho dolor en el pecho desde anoche 😟</div>
+            <div class="lang-only-en">Hi, I've had strong chest pain since last night 😟</div>
+            <div class="meta-l">María · 14:25 ✓✓</div>
+          </div>
+
+          <!-- Bot reply BEFORE handoff -->
+          <div class="msg bot">
+            <div class="lang-only-es">Lamento oír eso. ¿Desde cuándo y con qué intensidad? Estoy avisando a la clínica.</div>
+            <div class="lang-only-en">Sorry to hear that. Since when and how intense? I'm alerting the clinic.</div>
+            <div class="meta-l">🤖 <span class="tag-by">Bot</span> · 14:25</div>
+          </div>
+
+          <!-- System note: handoff -->
+          <div class="msg note">
+            <span class="lang-only-es">⤴ La conversación fue transferida a un humano y el bot se pausó automáticamente — 14:26</span>
+            <span class="lang-only-en">⤴ Conversation handed off to a human and the bot was auto-paused — 14:26</span>
+          </div>
+
+          <div class="msg in">
+            <div class="lang-only-es">Es un dolor fuerte, me cuesta respirar</div>
+            <div class="lang-only-en">It's a strong pain, I'm having trouble breathing</div>
+            <div class="meta-l">María · 14:30 ✓✓</div>
+          </div>
+
+          <!-- Human reply -->
+          <div class="msg human">
+            <div class="lang-only-es">María, soy Carla de Clínica Vida. Si te falta el aire o el dolor se irradia al brazo, llama YA al 112. Te dejo en línea.</div>
+            <div class="lang-only-en">María, this is Carla from Clínica Vida. If you're short of breath or the pain spreads to your arm, call emergency services NOW. I'm staying with you.</div>
+            <div class="meta-l">👤 Carla (<span class="lang-only-es">tú</span><span class="lang-only-en">you</span>) · 14:32 ✓</div>
+          </div>
+        </div>
+
+        <!-- Quick replies -->
+        <div class="qr">
+          <span class="lab"><span class="lang-only-es">Respuestas rápidas:</span><span class="lang-only-en">Quick replies:</span></span>
+          <button class="chip">🚑 <span class="lang-only-es">Protocolo urgencia</span><span class="lang-only-en">Emergency protocol</span></button>
+          <button class="chip"><span class="lang-only-es">Confirmar cita</span><span class="lang-only-en">Confirm appointment</span></button>
+          <button class="chip"><span class="lang-only-es">Horario clínica</span><span class="lang-only-en">Clinic hours</span></button>
+          <button class="chip"><span class="lang-only-es">Pedir ubicación</span><span class="lang-only-en">Share location</span></button>
+        </div>
+
+        <!-- Composer: shows the human is sending, not the bot -->
+        <div class="composer">
+          <div class="box">
+            <div class="who-send">✍️ <span class="lang-only-es">Escribiendo como</span><span class="lang-only-en">Sending as</span>
+              <span class="send-as">👤 Carla — <span class="lang-only-es">humano</span><span class="lang-only-en">human</span></span></div>
+            <textarea rows="2" placeholder=""></textarea>
+            <div class="row">
+              <button class="iconbtn">📎</button>
+              <button class="iconbtn">😀</button>
+              <button class="iconbtn">⚡ <span class="lang-only-es">Plantillas</span><span class="lang-only-en">Templates</span></button>
+              <div class="grow"></div>
+              <button class="btn ghost"><span class="lang-only-es">Nota interna</span><span class="lang-only-en">Internal note</span></button>
+              <button class="btn send"><span class="lang-only-es">Enviar</span><span class="lang-only-en">Send</span> ➤</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Context column -->
+      <div class="context-col">
+        <!-- Patient context -->
+        <div class="card">
+          <h4>👤 <span class="lang-only-es">Contexto del paciente</span><span class="lang-only-en">Patient context</span></h4>
+          <div class="patient-id">
+            <div class="av" style="background:#ef4444">MR</div>
+            <div>
+              <div class="nm">María Rodríguez</div>
+              <div class="meta">48 a. · F · +34 612 345 678</div>
+            </div>
+          </div>
+          <div class="kv"><span class="k"><span class="lang-only-es">Historia</span><span class="lang-only-en">Record #</span></span><span class="v">#10293</span></div>
+          <div class="kv"><span class="k"><span class="lang-only-es">Última visita</span><span class="lang-only-en">Last visit</span></span><span class="v">12 may 2026</span></div>
+          <div class="kv"><span class="k"><span class="lang-only-es">Seguro</span><span class="lang-only-en">Insurance</span></span><span class="v">Sanitas</span></div>
+          <div class="flagrow">
+            <span class="flag">⚠ <span class="lang-only-es">Alergia: penicilina</span><span class="lang-only-en">Allergy: penicillin</span></span>
+            <span class="flag">❤ <span class="lang-only-es">Cardiopatía</span><span class="lang-only-en">Heart condition</span></span>
+          </div>
+        </div>
+
+        <!-- Appointment status -->
+        <div class="card">
+          <h4>📅 <span class="lang-only-es">Estado de la cita</span><span class="lang-only-en">Appointment status</span></h4>
+          <div class="kv"><span class="k"><span class="lang-only-es">Fecha</span><span class="lang-only-en">Date</span></span><span class="v">25 jun · 09:30</span></div>
+          <div class="kv"><span class="k"><span class="lang-only-es">Especialidad</span><span class="lang-only-en">Specialty</span></span><span class="v">Cardiología</span></div>
+          <div class="kv"><span class="k"><span class="lang-only-es">Estado</span><span class="lang-only-en">Status</span></span><span class="v"><span class="status pend"><span class="lang-only-es">Pendiente</span><span class="lang-only-en">Pending</span></span></span></div>
+          <div class="kv" style="margin-top:6px"><span class="k"></span><span class="v" style="display:flex;gap:6px"><button class="iconbtn" style="padding:5px 9px"><span class="lang-only-es">Confirmar</span><span class="lang-only-en">Confirm</span></button><button class="iconbtn" style="padding:5px 9px"><span class="lang-only-es">Reagendar</span><span class="lang-only-en">Reschedule</span></button></span></div>
+        </div>
+
+        <!-- Tags -->
+        <div class="card">
+          <h4>🏷️ <span class="lang-only-es">Etiquetas</span><span class="lang-only-en">Tags</span></h4>
+          <div class="tagset">
+            <span class="tag" style="background:var(--urgent-soft);color:var(--urgent-ink)">🚑 <span class="lang-only-es">Urgencia</span><span class="lang-only-en">Emergency</span> <span class="x">✕</span></span>
+            <span class="tag">❤ <span class="lang-only-es">Cardiología</span><span class="lang-only-en">Cardiology</span> <span class="x">✕</span></span>
+            <span class="tag"><span class="lang-only-es">Seguimiento</span><span class="lang-only-en">Follow-up</span> <span class="x">✕</span></span>
+            <span class="tag add">+ <span class="lang-only-es">Añadir</span><span class="lang-only-en">Add</span></span>
+          </div>
+        </div>
+
+        <!-- Internal notes -->
+        <div class="card">
+          <h4>📝 <span class="lang-only-es">Notas internas</span><span class="lang-only-en">Internal notes</span></h4>
+          <div class="note">
+            <div class="by">Carla · 14:31</div>
+            <span class="lang-only-es">Paciente con cardiopatía conocida. Avisé a la Dra. Pérez por interno.</span>
+            <span class="lang-only-en">Patient has known heart condition. Notified Dr. Pérez internally.</span>
+          </div>
+          <div class="note-input">
+            <input placeholder="" />
+            <button class="btn ghost"><span class="lang-only-es">Guardar</span><span class="lang-only-en">Save</span></button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">🔒 <span class="lang-only-es">Sólo visible para el equipo — el paciente no lo ve.</span><span class="lang-only-en">Team-only — never shown to the patient.</span></div>
+        </div>
+
+        <!-- Assignment + bot control + handoff -->
+        <div class="card">
+          <h4>🎯 <span class="lang-only-es">Asignación y control</span><span class="lang-only-en">Assignment & control</span></h4>
+
+          <div class="assignee">
+            <div class="av">CA</div>
+            <div class="t">
+              <b>Carla Antón (<span class="lang-only-es">tú</span><span class="lang-only-en">you</span>)</b>
+              <span style="color:var(--muted);font-size:11.5px"><span class="lang-only-es">Asignada · atendiendo ahora</span><span class="lang-only-en">Assigned · handling now</span></span>
+            </div>
+          </div>
+
+          <!-- Bot pause/resume -->
+          <div class="botctl paused">
+            <div class="top">
+              <b>🤖 <span class="lang-only-es">Bot automático</span><span class="lang-only-en">Auto bot</span></b>
+              <div class="switch" aria-label="bot toggle"><i></i></div>
+            </div>
+            <div class="desc">
+              <span class="lang-only-es"><b>En pausa.</b> El bot no responderá hasta que lo reactives. Reanúdalo sólo cuando el caso esté resuelto.</span>
+              <span class="lang-only-en"><b>Paused.</b> The bot won't reply until you resume it. Resume only once the case is resolved.</span>
+            </div>
+          </div>
+
+          <div class="assignbtns">
+            <button class="btn assign"><span class="lang-only-es">Reasignar</span><span class="lang-only-en">Reassign</span></button>
+            <button class="btn ghost"><span class="lang-only-es">Devolver al bot</span><span class="lang-only-en">Return to bot</span></button>
+          </div>
+          <div class="assignbtns" style="margin-top:8px">
+            <button class="btn handoff" style="flex:1">🙋 <span class="lang-only-es">Escalar a doctor / humano</span><span class="lang-only-en">Escalate to doctor / human</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════ MOBILE ════════════════════════ -->
+  <h2 class="section"><span class="lang-only-es">Móvil</span><span class="lang-only-en">Mobile</span></h2>
+
+  <div class="phones">
+
+    <!-- Phone 1: list with tabs -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="m-top">
+          <div class="logo"><div class="mark" style="width:30px;height:30px;font-size:14px;border-radius:9px">D</div></div>
+          <b><span class="lang-only-es">Bandeja</span><span class="lang-only-en">Inbox</span></b>
+          <div style="flex:1"></div>
+          <span style="font-size:18px">🔔</span>
+        </div>
+        <div class="m-tabs">
+          <button class="m-tab on"><span class="lang-only-es">Activas</span><span class="lang-only-en">Active</span> <span class="cnt" style="background:#fff3;color:#fff">8</span></button>
+          <button class="m-tab">Bot 14</button>
+          <button class="m-tab"><span class="lang-only-es">Asignadas</span><span class="lang-only-en">Assigned</span> 3</button>
+          <button class="m-tab"><span class="lang-only-es">Cerradas</span><span class="lang-only-en">Closed</span></button>
+        </div>
+        <div class="m-list">
+          <div class="conv">
+            <div class="stripe" style="background:var(--urgent)"></div>
+            <div class="av" style="background:#ef4444">MR</div>
+            <div class="body">
+              <div class="r1"><span class="nm">María Rodríguez</span><span class="tm">14:32</span></div>
+              <div class="pv lang-only-es">«…dolor en el pecho»</div>
+              <div class="pv lang-only-en">"…chest pain"</div>
+              <div class="meta"><span class="pill urgent">● <span class="lang-only-es">Urgente</span><span class="lang-only-en">Urgent</span></span><span class="pill human">👤 <span class="lang-only-es">Tú</span><span class="lang-only-en">You</span></span></div>
+            </div>
+          </div>
+          <div class="conv">
+            <div class="stripe" style="background:var(--waiting)"></div>
+            <div class="av" style="background:#f59e0b">JL</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Jorge Luna</span><span class="tm">14:20</span></div>
+              <div class="pv lang-only-es">«¿Cambiar mi cita?»</div>
+              <div class="pv lang-only-en">"Move my appt?"</div>
+              <div class="meta"><span class="pill waiting">⏳ <span class="lang-only-es">Espera</span><span class="lang-only-en">Waiting</span></span><span class="unread"></span></div>
+            </div>
+          </div>
+          <div class="conv">
+            <div class="stripe" style="background:var(--bot)"></div>
+            <div class="av" style="background:#6366f1">AC</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Ana Castro</span><span class="tm">14:18</span></div>
+              <div class="pv">Bot: «Confirmado ✔»</div>
+              <div class="meta"><span class="pill bot">🤖 Bot</span></div>
+            </div>
+          </div>
+          <div class="conv">
+            <div class="stripe" style="background:var(--human)"></div>
+            <div class="av" style="background:#10b981">PD</div>
+            <div class="body">
+              <div class="r1"><span class="nm">Pedro Díaz</span><span class="tm">13:55</span></div>
+              <div class="pv lang-only-es">«Gracias, ahí estaré»</div>
+              <div class="pv lang-only-en">"Thanks, see you"</div>
+              <div class="meta"><span class="pill human">👤 Lucía</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="m-foot">
+          <div class="f on"><span class="i">🗨️</span><span class="lang-only-es">Bandeja</span><span class="lang-only-en">Inbox</span></div>
+          <div class="f"><span class="i">📅</span><span class="lang-only-es">Agenda</span><span class="lang-only-en">Calendar</span></div>
+          <div class="f"><span class="i">👥</span><span class="lang-only-es">Pacientes</span><span class="lang-only-en">Patients</span></div>
+          <div class="f"><span class="i">⚙️</span><span class="lang-only-es">Ajustes</span><span class="lang-only-en">Settings</span></div>
+        </div>
+      </div>
+      <p class="caption"><span class="lang-only-es">Lista con pestañas y franja de color de modo. El color rojo salta primero.</span><span class="lang-only-en">List with tabs and mode color stripe. Red surfaces first.</span></p>
+    </div>
+
+    <!-- Phone 2: conversation + safety -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="m-back">← <div class="av" style="width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:12px;background:#ef4444">MR</div> María Rodríguez
+          <div style="flex:1"></div><span style="font-size:17px">⋮</span></div>
+
+        <div class="safety urgent" style="margin:10px 10px 0;padding:9px 11px;font-size:12px">
+          <div class="ico" style="font-size:15px">🚑</div>
+          <div class="grow"><b><span class="lang-only-es">Posible urgencia</span><span class="lang-only-en">Possible emergency</span></b>
+            <span class="lang-only-es">Mencionó “dolor en el pecho”.</span><span class="lang-only-en">Mentioned "chest pain".</span></div>
+        </div>
+        <div class="safety human" style="margin:8px 10px 0;padding:9px 11px;font-size:12px">
+          <div class="ico" style="font-size:15px">🔒</div>
+          <div class="grow"><b><span class="lang-only-es">Bot en pausa — tú respondes</span><span class="lang-only-en">Bot paused — you reply</span></b></div>
+        </div>
+
+        <div class="m-th">
+          <div class="msg in" style="max-width:88%"><div class="lang-only-es">…me cuesta respirar</div><div class="lang-only-en">…trouble breathing</div><div class="meta-l">14:30 ✓✓</div></div>
+          <div class="msg human" style="max-width:88%"><div class="lang-only-es">Si el dolor se irradia, llama YA al 112.</div><div class="lang-only-en">If the pain spreads, call emergency NOW.</div><div class="meta-l">👤 Carla · 14:32</div></div>
+        </div>
+
+        <div class="qr" style="padding:8px 10px 0">
+          <button class="chip" style="font-size:11.5px;padding:6px 10px">🚑 <span class="lang-only-es">Protocolo</span><span class="lang-only-en">Protocol</span></button>
+          <button class="chip" style="font-size:11.5px;padding:6px 10px"><span class="lang-only-es">Confirmar</span><span class="lang-only-en">Confirm</span></button>
+        </div>
+        <div class="m-comp">
+          <div class="who-send" style="font-size:10.5px;margin-bottom:6px">✍️ <span class="lang-only-es">Como</span><span class="lang-only-en">As</span> <span class="send-as">👤 Carla</span></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="flex:1;border:1px solid var(--line);border-radius:11px;padding:8px 11px;color:var(--muted);font-size:12.5px"><span class="lang-only-es">Mensaje…</span><span class="lang-only-en">Message…</span></div>
+            <button class="btn send" style="padding:8px 13px">➤</button>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><span class="lang-only-es">Conversación con doble aviso de seguridad fijado arriba.</span><span class="lang-only-en">Conversation with both safety banners pinned on top.</span></p>
+    </div>
+
+    <!-- Phone 3: details drawer -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="m-back">✕ <b><span class="lang-only-es">Detalles</span><span class="lang-only-en">Details</span></b></div>
+        <div style="flex:1;overflow:auto">
+          <div class="card">
+            <h4>👤 <span class="lang-only-es">Paciente</span><span class="lang-only-en">Patient</span></h4>
+            <div class="patient-id"><div class="av" style="background:#ef4444;width:40px;height:40px">MR</div><div><div class="nm">María Rodríguez</div><div class="meta">48 a. · #10293</div></div></div>
+            <div class="flagrow"><span class="flag">⚠ <span class="lang-only-es">Penicilina</span><span class="lang-only-en">Penicillin</span></span><span class="flag">❤ <span class="lang-only-es">Cardiopatía</span><span class="lang-only-en">Cardiac</span></span></div>
+          </div>
+          <div class="card">
+            <h4>📅 <span class="lang-only-es">Cita</span><span class="lang-only-en">Appointment</span></h4>
+            <div class="kv"><span class="k">25 jun · 09:30</span><span class="v"><span class="status pend"><span class="lang-only-es">Pendiente</span><span class="lang-only-en">Pending</span></span></span></div>
+          </div>
+          <div class="card">
+            <h4>🏷️ <span class="lang-only-es">Etiquetas</span><span class="lang-only-en">Tags</span></h4>
+            <div class="tagset"><span class="tag" style="background:var(--urgent-soft);color:var(--urgent-ink)">🚑 <span class="lang-only-es">Urgencia</span><span class="lang-only-en">Emergency</span></span><span class="tag">❤ <span class="lang-only-es">Cardio</span><span class="lang-only-en">Cardio</span></span><span class="tag add">+</span></div>
+          </div>
+          <div class="card">
+            <h4>🤖 <span class="lang-only-es">Control del bot</span><span class="lang-only-en">Bot control</span></h4>
+            <div class="botctl paused">
+              <div class="top"><b><span class="lang-only-es">En pausa</span><span class="lang-only-en">Paused</span></b><div class="switch"><i></i></div></div>
+              <div class="desc"><span class="lang-only-es">Reanudar sólo si el caso está resuelto.</span><span class="lang-only-en">Resume only when resolved.</span></div>
+            </div>
+            <div class="assignbtns" style="margin-top:9px"><button class="btn handoff" style="flex:1">🙋 <span class="lang-only-es">Escalar a humano</span><span class="lang-only-en">Escalate</span></button></div>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><span class="lang-only-es">Panel “Detalles” (cajón): contexto, etiquetas, control del bot y handoff.</span><span class="lang-only-en">"Details" drawer: context, tags, bot control & handoff.</span></p>
+    </div>
+  </div>
+
+  <!-- ── Design notes ───────────────────────────────────────── -->
+  <div class="footnote">
+    <b><span class="lang-only-es">Decisiones de seguridad clave</span><span class="lang-only-en">Key safety decisions</span></b><br>
+    <span class="lang-only-es">
+      • <b>Anti-respuesta accidental del bot:</b> abrir o asignar un chat <b>auto-pausa</b> la IA; la barra verde “Bot en pausa — tú estás respondiendo” es persistente y el redactor muestra “Enviando como 👤 humano”, nunca como bot.<br>
+      • <b>Urgencias primero:</b> franja roja en la lista, banner 🚑 al abrir, etiqueta de urgencia y atajo a “Protocolo urgencia”.<br>
+      • <b>Riesgos del paciente</b> (alergias, cardiopatía) siempre visibles junto al nombre.<br>
+      • <b>Reanudar el bot es deliberado</b> — interruptor explícito con advertencia; nunca se reactiva solo mientras hay un humano asignado.<br>
+      • Modos: <code>--bot #6366f1</code> · <code>--human #10b981</code> · <code>--waiting #f59e0b</code> · <code>--urgent #ef4444</code>.
+    </span>
+    <span class="lang-only-en">
+      • <b>Anti accidental bot reply:</b> opening or assigning a chat <b>auto-pauses</b> the AI; the green "Bot paused — you are replying" bar is persistent and the composer shows "Sending as 👤 human", never as the bot.<br>
+      • <b>Urgent first:</b> red stripe in the list, 🚑 banner on open, urgent tag, and an "Emergency protocol" quick reply.<br>
+      • <b>Patient risks</b> (allergies, heart condition) are always visible next to the name.<br>
+      • <b>Resuming the bot is deliberate</b> — explicit switch with a warning; it never re-activates itself while a human is assigned.<br>
+      • Modes: <code>--bot #6366f1</code> · <code>--human #10b981</code> · <code>--waiting #f59e0b</code> · <code>--urgent #ef4444</code>.
+    </span>
+  </div>
+</div>
+
+<script>
+  function setLang(l){
+    document.documentElement.lang = l;
+    document.getElementById('es').classList.toggle('on', l==='es');
+    document.getElementById('en').classList.toggle('on', l==='en');
+  }
+  // Demo-only: clicking a conversation selects it; bot switch toggles paused look.
+  document.querySelectorAll('.list .conv').forEach(c=>c.addEventListener('click',()=>{
+    document.querySelectorAll('.list .conv').forEach(x=>x.classList.remove('sel'));
+    c.classList.add('sel');
+  }));
+  document.querySelectorAll('.switch').forEach(s=>s.addEventListener('click',()=>{
+    s.classList.toggle('on');
+    const ctl=s.closest('.botctl'); if(ctl) ctl.classList.toggle('paused', !s.classList.contains('on'));
+  }));
+</script>
+</body>
+</html>

@@ -1,0 +1,761 @@
+// Docmee Help Center — self-contained bilingual (ES/EN) knowledge base.
+//
+// Mirrors the BotPenguin help-center information architecture: a searchable
+// landing page → categories → articles, where each article is a sequence of
+// structured blocks (no markdown library, no dangerouslySetInnerHTML — the
+// renderer maps blocks to safe React elements). All copy lives here so the
+// feature never needs to touch the typed panel dictionary in `i18n.ts`.
+import type { PanelLanguage } from '../types'
+
+/** A string available in every panel language. */
+export type Localized = Record<PanelLanguage, string>
+
+/** Pick the active language with a sensible fallback chain. */
+export function L(value: Localized, lang: PanelLanguage): string {
+  return value[lang] ?? value.en ?? value.es
+}
+
+/** Article body blocks — a tiny, safe content model rendered by the article page. */
+export type HelpBlock =
+  | { type: 'h'; text: Localized }
+  | { type: 'p'; text: Localized }
+  | { type: 'ul'; items: Localized[] }
+  | { type: 'steps'; items: Localized[] }
+  | { type: 'note'; text: Localized }
+  | { type: 'video'; title: Localized; src: Localized; caption?: Localized }
+
+export interface HelpArticle {
+  slug: string
+  title: Localized
+  excerpt: Localized
+  body: HelpBlock[]
+}
+
+export interface HelpCategory {
+  slug: string
+  icon: string // NavIcon glyph name
+  title: Localized
+  description: Localized
+  articles: HelpArticle[]
+}
+
+// --- UI chrome (button label, hero, search, etc.) -------------------------------
+
+export const HELP_UI = {
+  navHelp: { es: 'Ayuda', en: 'Help' },
+  title: { es: 'Centro de ayuda', en: 'Help Center' },
+  subtitle: { es: '¿Cómo podemos ayudarte hoy?', en: 'How can we help you today?' },
+  searchPlaceholder: { es: 'Buscar en la ayuda…', en: 'Search the help center…' },
+  popular: { es: 'Artículos populares', en: 'Popular articles' },
+  browse: { es: 'Explorar por categoría', en: 'Browse by category' },
+  articlesCount: { es: 'artículos', en: 'articles' },
+  articleSingular: { es: 'artículo', en: 'article' },
+  backToHelp: { es: 'Centro de ayuda', en: 'Help Center' },
+  inThisCategory: { es: 'Artículos en esta categoría', en: 'Articles in this category' },
+  related: { es: 'Artículos relacionados', en: 'Related articles' },
+  searchResults: { es: 'Resultados de la búsqueda', en: 'Search results' },
+  resultsFor: { es: 'Resultados para', en: 'Results for' },
+  noResults: { es: 'No encontramos artículos. Prueba con otras palabras.', en: 'No articles found. Try different keywords.' },
+  clearSearch: { es: 'Limpiar búsqueda', en: 'Clear search' },
+  wasHelpfulTitle: { es: '¿Te resultó útil este artículo?', en: 'Was this article helpful?' },
+  contactTitle: { es: '¿No encuentras lo que buscas?', en: "Can't find what you're looking for?" },
+  contactBody: {
+    es: 'Nuestro equipo de soporte está listo para ayudarte. Escríbenos y te responderemos a la brevedad.',
+    en: 'Our support team is here to help. Reach out and we will get back to you shortly.',
+  },
+  contactCta: { es: 'Contactar a soporte', en: 'Contact support' },
+  yes: { es: 'Sí', en: 'Yes' },
+  no: { es: 'No', en: 'No' },
+  thanks: { es: '¡Gracias por tu comentario!', en: 'Thanks for your feedback!' },
+} satisfies Record<string, Localized>
+
+// --- Knowledge base content -----------------------------------------------------
+
+export const HELP_CATEGORIES: HelpCategory[] = [
+  {
+    slug: 'getting-started',
+    icon: 'kb',
+    title: { es: 'Primeros pasos', en: 'Getting Started' },
+    description: {
+      es: 'Conoce Docmee InboxOS, inicia sesión y aprende a moverte por la plataforma.',
+      en: 'Get to know Docmee InboxOS, sign in, and learn your way around the platform.',
+    },
+    articles: [
+      {
+        slug: 'welcome-to-docmee',
+        title: { es: 'Bienvenido a Docmee InboxOS', en: 'Welcome to Docmee InboxOS' },
+        excerpt: {
+          es: 'Qué es Docmee y cómo ayuda a tu clínica a atender, agendar y dar seguimiento por WhatsApp, Messenger e Instagram.',
+          en: 'What Docmee is and how it helps your clinic reply, schedule, and follow up across WhatsApp, Messenger, and Instagram.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Docmee InboxOS es la bandeja de entrada todo-en-uno para clínicas: centraliza las conversaciones de WhatsApp y otros canales, agenda citas, y deja que un asistente de IA clasifique y responda los mensajes más comunes.',
+              en: 'Docmee InboxOS is the all-in-one inbox for clinics: it centralizes WhatsApp and other channel conversations, books appointments, and lets an AI assistant triage and answer the most common messages.',
+            },
+          },
+          {
+            type: 'video',
+            title: { es: 'Guía rápida de Docmee', en: 'Docmee quick guide' },
+            src: { es: '/help/docmee-quick-guide.html', en: '/help/docmee-quick-guide.html' },
+            caption: {
+              es: 'Un recorrido visual breve para entender la bandeja, agenda, ayuda y analítica.',
+              en: 'A short visual walkthrough of inbox, scheduling, help, and analytics.',
+            },
+          },
+          { type: 'h', text: { es: 'Lo que puedes hacer', en: 'What you can do' } },
+          {
+            type: 'ul',
+            items: [
+              { es: 'Atender todas tus conversaciones desde una sola bandeja.', en: 'Handle every conversation from a single inbox.' },
+              { es: 'Agendar, reprogramar y cancelar citas desde el chat.', en: 'Book, reschedule, and cancel appointments from the chat.' },
+              { es: 'Dejar que la IA responda preguntas frecuentes y haga triage.', en: 'Let AI answer FAQs and triage incoming messages.' },
+              { es: 'Medir tiempos de respuesta, inasistencias y calidad de servicio.', en: 'Measure response times, no-shows, and quality of service.' },
+            ],
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'Tu vista depende de tu rol. Un administrador ve más secciones que una secretaria o un doctor.',
+              en: 'What you see depends on your role. An admin sees more sections than a secretary or doctor.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'meet-jzel',
+        title: { es: 'Conoce a J.zel', en: 'Meet J.zel' },
+        excerpt: {
+          es: 'Quién es J.zel, qué significa su nombre y cómo cuida a tu clínica.',
+          en: 'Who J.zel is, what the name means, and how it cares for your clinic.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'J.zel es el asistente de IA integrado en toda la aplicación Docmee. No es solo para WhatsApp: te acompaña en cada parte de la plataforma (InboxOS, Studio, agenda), te guía sobre cómo usar Docmee, clasifica y responde mensajes de pacientes en todos los canales y agenda citas, siempre con base en el conocimiento y la ayuda de tu clínica.',
+              en: 'J.zel is the AI assistant built into the entire Docmee application. It is not just for WhatsApp: it is with you across the whole platform (InboxOS, Studio, scheduling), guides you on how to use Docmee, triages and answers patient messages on every channel, and books appointments, always grounded in the knowledge base and help of your clinic.',
+            },
+          },
+          { type: 'h', text: { es: 'Qué significa el nombre', en: 'What the name means' } },
+          {
+            type: 'p',
+            text: {
+              es: 'J.zel (se pronuncia "ya-ZEL", como gacela) reúne tres ideas que se resumen en una: atención atenta.',
+              en: 'J.zel (say "jah-ZEL", like gazelle) braids together three ideas that all land on one promise: attentive care.',
+            },
+          },
+          {
+            type: 'ul',
+            items: [
+              { es: 'Gacela: veloz, elegante y siempre alerta. J.zel responde al instante y nunca deja de observar.', en: 'Gazelle: swift, graceful, and always alert. J.zel responds instantly and never looks away.' },
+              { es: 'Célula (en alemán "Zelle"): la unidad más pequeña de la salud. J.zel es la célula que ayuda a dar vida a cada clínica.', en: 'Cell (German "Zelle"): the smallest unit of health. J.zel is the helper cell at the heart of every clinic.' },
+              { es: 'Celo y dedicación: J.zel trabaja sin descanso para que tu equipo no tenga que hacerlo.', en: 'Zeal: quiet dedication. J.zel works tirelessly so your team does not have to.' },
+            ],
+          },
+          {
+            type: 'p',
+            text: {
+              es: 'En resumen: J.zel une la gracia atenta de la gacela y la célula que está en el corazón de la salud: el guardián incansable de tu clínica en toda la aplicación Docmee.',
+              en: 'In short: J.zel combines the swift, watchful grace of a gazelle with the cell at the heart of all health: the tireless guardian for your clinic across the entire Docmee application.',
+            },
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'Regla para recordarlo: J.Z.E.L., "Just Zealous, Empathetic and Listening" (siempre dedicado, empático y atento).',
+              en: 'As a handy backronym: J.Z.E.L., "Just Zealous, Empathetic and Listening".',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'logging-in',
+        title: { es: 'Iniciar sesión y cambiar de idioma', en: 'Logging in and switching language' },
+        excerpt: {
+          es: 'Cómo entrar a tu cuenta, cambiar entre español e inglés y alternar el modo claro/oscuro.',
+          en: 'How to sign in, switch between Spanish and English, and toggle light/dark mode.',
+        },
+        body: [
+          { type: 'h', text: { es: 'Iniciar sesión', en: 'Sign in' } },
+          {
+            type: 'steps',
+            items: [
+              { es: 'Abre Docmee InboxOS en tu navegador.', en: 'Open Docmee InboxOS in your browser.' },
+              { es: 'Escribe tu correo y contraseña.', en: 'Enter your email and password.' },
+              { es: 'Presiona “Iniciar sesión”.', en: 'Press “Sign in”.' },
+            ],
+          },
+          { type: 'h', text: { es: 'Idioma y tema', en: 'Language and theme' } },
+          {
+            type: 'p',
+            text: {
+              es: 'Usa el selector de idioma al final del menú lateral para cambiar entre Español e Inglés. El botón de tema en la barra superior alterna entre modo claro y oscuro. Tus preferencias se guardan en tu cuenta.',
+              en: 'Use the language switch at the bottom of the side rail to change between Spanish and English. The theme button in the top bar toggles light and dark mode. Your preferences are saved to your account.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'install-mobile-app',
+        title: { es: 'Instalar la app en tu teléfono', en: 'Install the app on your phone' },
+        excerpt: {
+          es: 'Docmee es una PWA: instálala en tu celular para recibir notificaciones y trabajar sin pestañas.',
+          en: 'Docmee is a PWA: install it on your phone to get notifications and work without tabs.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Docmee InboxOS se puede instalar como aplicación (PWA) en tu teléfono o computadora. Una vez instalada, se abre en su propia ventana y puede enviarte notificaciones push.',
+              en: 'Docmee InboxOS can be installed as an app (PWA) on your phone or computer. Once installed it opens in its own window and can send you push notifications.',
+            },
+          },
+          {
+            type: 'steps',
+            items: [
+              { es: 'Abre Docmee en tu navegador móvil.', en: 'Open Docmee in your mobile browser.' },
+              { es: 'Toca “Agregar a la pantalla de inicio” cuando aparezca el aviso.', en: 'Tap “Add to Home Screen” when the prompt appears.' },
+              { es: 'Acepta las notificaciones para recibir alertas de mensajes nuevos.', en: 'Allow notifications to get alerts for new messages.' },
+            ],
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'Si la app se ve desactualizada tras una actualización, recarga con Ctrl+Shift+R (o cierra y vuelve a abrir).',
+              en: 'If the app looks out of date after an update, hard-refresh with Ctrl+Shift+R (or close and reopen).',
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'inbox',
+    icon: 'inbox',
+    title: { es: 'Bandeja y conversaciones', en: 'Inbox & Conversations' },
+    description: {
+      es: 'Responde, asigna y organiza las conversaciones de tus pacientes.',
+      en: 'Reply to, assign, and organize your patient conversations.',
+    },
+    articles: [
+      {
+        slug: 'managing-conversations',
+        title: { es: 'Gestionar conversaciones', en: 'Managing conversations' },
+        excerpt: {
+          es: 'Cómo leer, responder y dar seguimiento a los mensajes en la bandeja.',
+          en: 'How to read, reply to, and follow up on messages in the inbox.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'La bandeja muestra todas las conversaciones en una sola lista. Selecciona una para ver el historial completo y responder. Los mensajes sin leer se destacan para que no se te pase ninguno.',
+              en: 'The inbox shows every conversation in one list. Select one to see the full history and reply. Unread messages are highlighted so none slip through.',
+            },
+          },
+          {
+            type: 'steps',
+            items: [
+              { es: 'Elige una conversación de la lista.', en: 'Pick a conversation from the list.' },
+              { es: 'Escribe tu respuesta en el cuadro inferior.', en: 'Type your reply in the box at the bottom.' },
+              { es: 'Envía con Enter o el botón de enviar.', en: 'Send with Enter or the send button.' },
+            ],
+          },
+        ],
+      },
+      {
+        slug: 'assigning-and-statuses',
+        title: { es: 'Asignaciones y estados', en: 'Assignments and statuses' },
+        excerpt: {
+          es: 'Asigna conversaciones a un agente y usa estados para saber qué falta atender.',
+          en: 'Assign conversations to an agent and use statuses to track what still needs attention.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Asignar una conversación deja claro quién es responsable de responderla. Los estados (por ejemplo, abierta o resuelta) te ayudan a separar lo pendiente de lo terminado.',
+              en: 'Assigning a conversation makes it clear who is responsible for replying. Statuses (for example, open or resolved) help you separate what is pending from what is done.',
+            },
+          },
+          {
+            type: 'ul',
+            items: [
+              { es: 'Asigna a ti mismo o a un compañero para evitar respuestas duplicadas.', en: 'Assign to yourself or a teammate to avoid duplicate replies.' },
+              { es: 'Marca como resuelta cuando termines para limpiar la bandeja.', en: 'Mark as resolved when finished to keep the inbox clean.' },
+            ],
+          },
+        ],
+      },
+      {
+        slug: 'notes-and-collaboration',
+        title: { es: 'Notas internas', en: 'Internal notes' },
+        excerpt: {
+          es: 'Deja notas que solo ve tu equipo, sin enviárselas al paciente.',
+          en: 'Leave notes only your team can see, without sending them to the patient.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Las notas internas te permiten dejar contexto para tus compañeros —por ejemplo, “paciente pidió llamar después de las 5pm”— sin que el paciente las vea. Son ideales para entregar un caso a otro turno.',
+              en: 'Internal notes let you leave context for teammates — for example, “patient asked to call after 5pm” — without the patient seeing them. They are perfect for handing a case to another shift.',
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'appointments',
+    icon: 'calendar',
+    title: { es: 'Citas y agenda', en: 'Appointments & Calendar' },
+    description: {
+      es: 'Agenda, reprograma y administra la disponibilidad de tu clínica.',
+      en: "Book, reschedule, and manage your clinic's availability.",
+    },
+    articles: [
+      {
+        slug: 'booking-an-appointment',
+        title: { es: 'Agendar una cita', en: 'Booking an appointment' },
+        excerpt: {
+          es: 'Crea una cita para un paciente directamente desde la conversación o el calendario.',
+          en: 'Create an appointment for a patient straight from the conversation or the calendar.',
+        },
+        body: [
+          {
+            type: 'steps',
+            items: [
+              { es: 'Abre el calendario o la conversación del paciente.', en: 'Open the calendar or the patient conversation.' },
+              { es: 'Selecciona un horario disponible.', en: 'Select an available time slot.' },
+              { es: 'Confirma el doctor, el motivo y la duración.', en: 'Confirm the doctor, reason, and duration.' },
+              { es: 'Guarda la cita; el paciente recibe la confirmación en su canal (WhatsApp, Messenger o Instagram).', en: 'Save the appointment; the patient gets a confirmation on their channel (WhatsApp, Messenger, or Instagram).' },
+            ],
+          },
+        ],
+      },
+      {
+        slug: 'reschedule-cancel',
+        title: { es: 'Reprogramar y cancelar', en: 'Rescheduling and cancelling' },
+        excerpt: {
+          es: 'Mueve o cancela una cita existente y notifica al paciente automáticamente.',
+          en: 'Move or cancel an existing appointment and notify the patient automatically.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Desde el calendario, abre la cita y elige reprogramar o cancelar. Al guardar el cambio, el paciente recibe una notificación con la nueva información.',
+              en: 'From the calendar, open the appointment and choose reschedule or cancel. When you save the change, the patient receives a notification with the new details.',
+            },
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'Reprogramar en lugar de cancelar y crear de nuevo conserva el historial de la cita.',
+              en: 'Rescheduling instead of cancel-and-recreate preserves the appointment history.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'availability-booking-grid',
+        title: { es: 'Disponibilidad y rejilla de turnos', en: 'Availability and the booking grid' },
+        excerpt: {
+          es: 'Define los horarios reservables y la duración de cada turno.',
+          en: 'Define which hours are bookable and how long each slot is.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'La rejilla de turnos define los horarios que los pacientes (o tu equipo) pueden reservar. Configura la hora de inicio, la hora de fin y la duración de cada turno (por ejemplo, de 9 a 18, cada 30 minutos).',
+              en: 'The booking grid defines the hours patients (or your team) can reserve. Set a start time, an end time, and the length of each slot (for example, 9 to 6, every 30 minutes).',
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'channels',
+    icon: 'channels',
+    title: { es: 'Canales y WhatsApp', en: 'Channels & WhatsApp' },
+    description: {
+      es: 'Conecta WhatsApp y otros canales, y vigila su estado.',
+      en: 'Connect WhatsApp and other channels, and keep an eye on their health.',
+    },
+    articles: [
+      {
+        slug: 'connecting-whatsapp',
+        title: { es: 'Conectar WhatsApp', en: 'Connecting WhatsApp' },
+        excerpt: {
+          es: 'Vincula el número de WhatsApp de tu clínica para empezar a recibir mensajes.',
+          en: "Link your clinic's WhatsApp number to start receiving messages.",
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'La conexión de WhatsApp se administra en Admin Studio › Canales. Una vez conectado, los mensajes entrantes llegan a la bandeja y puedes responder desde Docmee.',
+              en: 'WhatsApp connection is managed in Admin Studio › Channels. Once connected, incoming messages land in the inbox and you can reply from Docmee.',
+            },
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'Conectar un canal requiere permisos de administrador (Admin Studio).',
+              en: 'Connecting a channel requires admin (Admin Studio) permissions.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'channel-health',
+        title: { es: 'Estado y salud del canal', en: 'Channel status and health' },
+        excerpt: {
+          es: 'Detecta cuándo un canal está desconectado o limitado para actuar a tiempo.',
+          en: 'Spot when a channel is disconnected or rate-limited so you can act in time.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Docmee vigila el estado de cada canal. Si un canal se desconecta o queda limitado, lo verás señalado para que puedas reconectarlo antes de perder mensajes.',
+              en: 'Docmee monitors each channel. If a channel disconnects or gets rate-limited, you will see it flagged so you can reconnect before losing messages.',
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'ai-automations',
+    icon: 'automations',
+    title: { es: 'Asistente de IA y automatizaciones', en: 'AI Assistant & Automations' },
+    description: {
+      es: 'Deja que la IA responda y crea flujos que trabajan por ti.',
+      en: 'Let AI reply for you and build flows that do the work automatically.',
+    },
+    articles: [
+      {
+        slug: 'using-the-ai-assistant',
+        title: { es: 'Usar el asistente de IA', en: 'Using the AI assistant' },
+        excerpt: {
+          es: 'El asistente sugiere y redacta respuestas dentro de cada conversación.',
+          en: 'The assistant suggests and drafts replies inside each conversation.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Dentro de una conversación, el asistente de IA puede proponer una respuesta basada en el historial y en la base de conocimiento de tu clínica. Puedes editarla antes de enviarla; tú siempre tienes la última palabra.',
+              en: "Inside a conversation, the AI assistant can propose a reply based on the history and your clinic's knowledge base. You can edit it before sending; you always have the final say.",
+            },
+          },
+        ],
+      },
+      {
+        slug: 'building-automations',
+        title: { es: 'Crear automatizaciones', en: 'Building automations' },
+        excerpt: {
+          es: 'Automatiza tareas repetitivas como recordatorios y respuestas fuera de horario.',
+          en: 'Automate repetitive tasks like reminders and after-hours replies.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Las automatizaciones ejecutan acciones según reglas: por ejemplo, enviar un recordatorio antes de la cita o responder automáticamente fuera del horario de atención. Se configuran en Admin Studio › Automatizaciones.',
+              en: 'Automations run actions based on rules: for example, sending a reminder before an appointment or auto-replying outside business hours. They are configured in Admin Studio › Automations.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'custom-flows-workflows',
+        title: { es: 'Flujos personalizados y de trabajo', en: 'Custom flows and workflows' },
+        excerpt: {
+          es: 'Diseña conversaciones guiadas paso a paso y procesos internos para tu equipo.',
+          en: 'Design step-by-step guided conversations and internal processes for your team.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Los flujos personalizados guían al paciente por una serie de pasos (por ejemplo, un pre-registro). Los flujos de trabajo organizan tareas internas de tu equipo. Ambos se administran desde Admin Studio.',
+              en: 'Custom flows guide the patient through a series of steps (for example, a pre-registration). Workflows organize your team’s internal tasks. Both are managed from Admin Studio.',
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'templates',
+    icon: 'templates',
+    title: { es: 'Plantillas y respuestas rápidas', en: 'Templates & Quick Replies' },
+    description: {
+      es: 'Responde más rápido con mensajes guardados y plantillas de WhatsApp.',
+      en: 'Reply faster with saved messages and WhatsApp templates.',
+    },
+    articles: [
+      {
+        slug: 'whatsapp-templates',
+        title: { es: 'Plantillas de WhatsApp', en: 'WhatsApp templates' },
+        excerpt: {
+          es: 'Qué son las plantillas aprobadas por WhatsApp y cuándo usarlas.',
+          en: 'What WhatsApp-approved templates are and when to use them.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'WhatsApp exige plantillas aprobadas para iniciar conversaciones o escribir fuera de la ventana de 24 horas. Docmee te permite gestionar estas plantillas y usarlas con un par de clics.',
+              en: 'WhatsApp requires approved templates to start conversations or to message outside the 24-hour window. Docmee lets you manage these templates and use them in a couple of clicks.',
+            },
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'Las plantillas deben ser aprobadas por WhatsApp antes de poder enviarse.',
+              en: 'Templates must be approved by WhatsApp before they can be sent.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'quick-replies',
+        title: { es: 'Respuestas rápidas', en: 'Quick replies' },
+        excerpt: {
+          es: 'Guarda respuestas frecuentes con variables para insertarlas al instante.',
+          en: 'Save frequent answers with variables to drop them in instantly.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Las respuestas rápidas son mensajes guardados que puedes insertar en cualquier conversación. Admiten variables (como el nombre del paciente) que se completan automáticamente al enviarlas.',
+              en: 'Quick replies are saved messages you can drop into any conversation. They support variables (like the patient’s name) that fill in automatically when sent.',
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'analytics',
+    icon: 'metrics',
+    title: { es: 'Métricas y reportes', en: 'Analytics & Reports' },
+    description: {
+      es: 'Mide el rendimiento de tu clínica y recibe reportes automáticos.',
+      en: "Measure your clinic's performance and receive automatic reports.",
+    },
+    articles: [
+      {
+        slug: 'metrics-dashboard',
+        title: { es: 'Panel de métricas', en: 'Metrics dashboard' },
+        excerpt: {
+          es: 'Tiempos de respuesta, inasistencias y resolución por IA de un vistazo.',
+          en: 'Response times, no-shows, and AI resolution at a glance.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'El panel de métricas resume la salud operativa de tu clínica: tiempo de respuesta, tasa de inasistencia y porcentaje de mensajes resueltos por la IA, entre otros.',
+              en: "The metrics dashboard summarizes your clinic's operational health: response time, no-show rate, and the share of messages resolved by AI, among others.",
+            },
+          },
+        ],
+      },
+      {
+        slug: 'quality-of-service',
+        title: { es: 'Calidad de servicio (QoS)', en: 'Quality of service (QoS)' },
+        excerpt: {
+          es: 'Monitorea si tu equipo cumple los tiempos de respuesta esperados.',
+          en: 'Monitor whether your team is meeting expected response times.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'El monitor de calidad de servicio te muestra si las conversaciones se están atendiendo dentro de los tiempos esperados, para detectar cuellos de botella antes de que afecten a los pacientes.',
+              en: 'The quality-of-service monitor shows whether conversations are being handled within expected times, so you can catch bottlenecks before they affect patients.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'automatic-reports',
+        title: { es: 'Reportes automáticos', en: 'Automatic reports' },
+        excerpt: {
+          es: 'Recibe resúmenes periódicos del desempeño de tu clínica.',
+          en: "Receive periodic summaries of your clinic's performance.",
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Docmee puede generar reportes automáticos con los indicadores clave de tu clínica para que no tengas que armarlos a mano.',
+              en: "Docmee can generate automatic reports with your clinic's key indicators so you don't have to build them by hand.",
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    slug: 'account-security',
+    icon: 'compliance',
+    title: { es: 'Cuenta, roles y seguridad', en: 'Account, Roles & Security' },
+    description: {
+      es: 'Administra usuarios, entiende los roles y conoce cómo cuidamos los datos.',
+      en: 'Manage users, understand roles, and learn how we protect data.',
+    },
+    articles: [
+      {
+        slug: 'roles-explained',
+        title: { es: 'Roles explicados', en: 'Roles explained' },
+        excerpt: {
+          es: 'Qué puede hacer cada rol: secretaria, doctor, admin de clínica y admin de Admin Studio.',
+          en: 'What each role can do: secretary, doctor, clinic admin, and Admin Studio admin.',
+        },
+        body: [
+          {
+            type: 'ul',
+            items: [
+              { es: 'Secretaria y doctor: bandeja, agenda y asistente de IA.', en: 'Secretary and doctor: inbox, calendar, and AI assistant.' },
+              { es: 'Admin de clínica: lo anterior más métricas, analítica y reportes.', en: 'Clinic admin: the above plus metrics, analytics, and reports.' },
+              { es: 'Admin de Admin Studio: configuración de la plataforma (canales, plantillas, usuarios).', en: 'Admin Studio admin: platform configuration (channels, templates, users).' },
+            ],
+          },
+          {
+            type: 'note',
+            text: {
+              es: 'El menú lateral se adapta a tu rol: solo verás las secciones que puedes usar.',
+              en: 'The side rail adapts to your role: you only see the sections you can use.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'managing-users',
+        title: { es: 'Administrar usuarios', en: 'Managing users' },
+        excerpt: {
+          es: 'Invita, edita o desactiva miembros del equipo desde Admin Studio.',
+          en: 'Invite, edit, or deactivate team members from Admin Studio.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Los administradores pueden gestionar el equipo en Admin Studio › Usuarios: agregar nuevos miembros, asignarles un rol y desactivarlos cuando dejan la clínica.',
+              en: 'Admins can manage the team in Admin Studio › Users: add new members, assign them a role, and deactivate them when they leave the clinic.',
+            },
+          },
+        ],
+      },
+      {
+        slug: 'compliance-and-data',
+        title: { es: 'Cumplimiento y datos', en: 'Compliance and data' },
+        excerpt: {
+          es: 'Cómo Docmee maneja la información sensible de los pacientes.',
+          en: 'How Docmee handles sensitive patient information.',
+        },
+        body: [
+          {
+            type: 'p',
+            text: {
+              es: 'Docmee trata la información de los pacientes con criterios de cumplimiento y separación por clínica (cada clínica solo ve sus propios datos). Consulta las secciones de Cumplimiento y Gobernanza en Admin Studio para más detalle.',
+              en: 'Docmee treats patient information with compliance in mind and tenant separation by clinic (each clinic only sees its own data). See the Compliance and Governance sections in Admin Studio for more detail.',
+            },
+          },
+        ],
+      },
+    ],
+  },
+]
+
+// Curated "popular" articles shown on the landing page (category + article slug).
+export const POPULAR_ARTICLES: { category: string; article: string }[] = [
+  { category: 'getting-started', article: 'welcome-to-docmee' },
+  { category: 'channels', article: 'connecting-whatsapp' },
+  { category: 'appointments', article: 'booking-an-appointment' },
+  { category: 'ai-automations', article: 'using-the-ai-assistant' },
+  { category: 'templates', article: 'whatsapp-templates' },
+  { category: 'account-security', article: 'roles-explained' },
+]
+
+// --- Lookup + search helpers ----------------------------------------------------
+
+export function getCategory(slug: string): HelpCategory | undefined {
+  return HELP_CATEGORIES.find((c) => c.slug === slug)
+}
+
+export function getArticle(categorySlug: string, articleSlug: string) {
+  const category = getCategory(categorySlug)
+  const article = category?.articles.find((a) => a.slug === articleSlug)
+  if (!category || !article) return undefined
+  return { category, article }
+}
+
+export interface SearchHit {
+  category: HelpCategory
+  article: HelpArticle
+}
+
+/** Case-insensitive search over title + excerpt + body text in BOTH languages. */
+export function searchArticles(query: string): SearchHit[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const hits: SearchHit[] = []
+  for (const category of HELP_CATEGORIES) {
+    for (const article of category.articles) {
+      const haystack = [
+        article.title.es,
+        article.title.en,
+        article.excerpt.es,
+        article.excerpt.en,
+        ...article.body.flatMap((b) => {
+          if (b.type === 'ul' || b.type === 'steps') return b.items.flatMap((i) => [i.es, i.en])
+          if (b.type === 'video') return [b.title.es, b.title.en, b.caption?.es ?? '', b.caption?.en ?? '']
+          return [b.text.es, b.text.en]
+        }),
+      ]
+        .join(' ')
+        .toLowerCase()
+      if (haystack.includes(q)) hits.push({ category, article })
+    }
+  }
+  return hits
+}
+
+/**
+ * Flatten the Help Center into plain text for one language. J.zel sends this as
+ * grounding context so its answers stay based on the actual Help content.
+ */
+export function helpAsText(lang: PanelLanguage): string {
+  const out: string[] = []
+  for (const cat of HELP_CATEGORIES) {
+    out.push(`## ${L(cat.title, lang)}`)
+    for (const art of cat.articles) {
+      out.push(`### ${L(art.title, lang)}`)
+      for (const block of art.body) {
+        if (block.type === 'ul') {
+          out.push(block.items.map((i) => `- ${L(i, lang)}`).join('\n'))
+        } else if (block.type === 'steps') {
+          out.push(block.items.map((i, n) => `${n + 1}. ${L(i, lang)}`).join('\n'))
+        } else if (block.type === 'video') {
+          out.push(`${L(block.title, lang)}${block.caption ? ` - ${L(block.caption, lang)}` : ''}`)
+        } else {
+          out.push(L(block.text, lang))
+        }
+      }
+    }
+  }
+  return out.join('\n')
+}

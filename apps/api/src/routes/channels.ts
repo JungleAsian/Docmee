@@ -1,0 +1,683 @@
+import type { FastifyPluginAsync } from 'fastify'
+import { randomBytes } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, parse } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { z } from 'zod'
+import { createChannelAccountsRepository } from '@docmee/db'
+import { decryptValue, encryptValue } from '@docmee/shared'
+import { withDb } from '../lib/db.js'
+import { validate } from '../lib/validate.js'
+import { resolveClinicScope } from '../lib/scope.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
+
+const whatsappSchema = z.object({
+  provider: z.literal('meta_whatsapp').optional(),
+  accountId: z.string().min(1),
+  displayName: z.string().optional(),
+  accessToken: z.string().min(1).optional(),
+  webhookVerifyToken: z.string().optional(),
+  setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
+  status: z.enum(['active', 'inactive', 'error']).optional(),
+  tokenExpiresAt: z.string().optional(),
+})
+
+const embeddedSignupSchema = z.object({
+  code: z.string().min(1),
+  phoneNumberId: z.string().min(1),
+  wabaId: z.string().min(1).optional(),
+  setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
+  displayName: z.string().optional(),
+  webhookVerifyToken: z.string().optional(),
+})
+
+const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
+
+const META_ENV_ITEMS = [
+  {
+    key: 'META_APP_ID',
+    label: 'Meta app ID',
+    detail: 'App ID from the production Meta Developer app that owns WhatsApp Business Platform access.',
+  },
+  {
+    key: 'META_EMBEDDED_SIGNUP_CONFIG_ID',
+    label: 'Embedded Signup configuration ID',
+    detail: 'Facebook Login for Business configuration ID used by the WhatsApp Embedded Signup flow.',
+  },
+  {
+    key: 'META_APP_SECRET',
+    label: 'Meta app secret',
+    detail: 'Required for exchanging Embedded Signup codes and validating signed webhook POST requests.',
+  },
+] as const
+
+function metaEmbeddedSignupConfig() {
+  const appId = process.env['META_APP_ID'] || process.env['NEXT_PUBLIC_META_APP_ID'] || ''
+  const configId =
+    process.env['META_EMBEDDED_SIGNUP_CONFIG_ID'] ||
+    process.env['META_LOGIN_CONFIG_ID'] ||
+    process.env['NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID'] ||
+    ''
+  const appSecretConfigured = Boolean(process.env['META_APP_SECRET'])
+  return {
+    appId,
+    configId,
+    graphApiVersion: GRAPH_API_VERSION,
+    appSecretConfigured,
+    webhookUrl: publicWebhookUrl('/webhook/whatsapp'),
+    isConfigured: Boolean(appId && configId && appSecretConfigured),
+    missing: [
+      !appId ? 'META_APP_ID' : null,
+      !configId ? 'META_EMBEDDED_SIGNUP_CONFIG_ID' : null,
+      !appSecretConfigured ? 'META_APP_SECRET' : null,
+    ].filter(Boolean),
+    checklist: META_ENV_ITEMS.map((item) => ({
+      ...item,
+      configured:
+        item.key === 'META_APP_ID'
+          ? Boolean(appId)
+          : item.key === 'META_EMBEDDED_SIGNUP_CONFIG_ID'
+            ? Boolean(configId)
+            : appSecretConfigured,
+    })),
+  }
+}
+
+async function exchangeEmbeddedSignupCode(code: string): Promise<string> {
+  const { appId } = metaEmbeddedSignupConfig()
+  const appSecret = process.env['META_APP_SECRET'] ?? ''
+  if (!appId || !appSecret) throw new Error('Meta app credentials are not configured')
+
+  const url = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/oauth/access_token`)
+  url.searchParams.set('client_id', appId)
+  url.searchParams.set('client_secret', appSecret)
+  url.searchParams.set('code', code)
+
+  const res = await fetch(url)
+  const body = (await res.json().catch(() => null)) as { access_token?: string; error?: { message?: string } } | null
+  if (!res.ok || !body?.access_token) {
+    throw new Error(body?.error?.message ?? `Meta token exchange failed with ${res.status}`)
+  }
+  return body.access_token
+}
+
+async function graphRequest<T>(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  const url = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/${path.replace(/^\//, '')}`)
+  const headers = new Headers(init.headers)
+  headers.set('Authorization', `Bearer ${accessToken}`)
+  const res = await fetch(url, { ...init, headers })
+  const data = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null
+  if (!res.ok) return { ok: false, error: data?.error?.message ?? `Graph API request failed with ${res.status}` }
+  return { ok: true, data: data as T }
+}
+
+async function subscribeWabaToApp(wabaId: string | undefined, accessToken: string): Promise<{ subscribed: boolean; error?: string }> {
+  if (!wabaId) return { subscribed: false, error: 'Embedded Signup did not return a WABA ID.' }
+  const result = await graphRequest<{ success?: boolean }>(`${wabaId}/subscribed_apps`, accessToken, { method: 'POST' })
+  if (!result.ok) return { subscribed: false, error: result.error }
+  return { subscribed: true }
+}
+
+function publicWebhookUrl(path: string) {
+  const appUrl = (process.env['APP_URL'] || process.env['PUBLIC_APP_URL'] || process.env['WEBHOOK_BASE_URL'] || '').replace(/\/$/, '')
+  return `${appUrl || 'https://docmeedevelopment.dev'}/api${path}`
+}
+
+function readEncryptionKeyFromLocalEnv(startDir: string) {
+  let currentDir = startDir
+  const root = parse(currentDir).root
+  while (true) {
+    const envPath = join(currentDir, '.env')
+    if (existsSync(envPath)) {
+      const line = readFileSync(envPath, 'utf8')
+        .split(/\r?\n/)
+        .find((item) => item.trim().startsWith('ENCRYPTION_KEY='))
+      const separatorIndex = line?.indexOf('=') ?? -1
+      const value = separatorIndex >= 0 ? line?.slice(separatorIndex + 1).trim() : ''
+      if (value) return value.replace(/^['"]|['"]$/g, '')
+    }
+    const keyPath = join(currentDir, 'ENCRYPTION_KEY.txt')
+    if (existsSync(keyPath)) {
+      const value = readFileSync(keyPath, 'utf8').trim()
+      if (value) return value.replace(/^['"]|['"]$/g, '')
+    }
+    if (currentDir === root) return ''
+    currentDir = dirname(currentDir)
+  }
+}
+
+function resolveEncryptionKey() {
+  const existing = process.env['ENCRYPTION_KEY']?.trim()
+  if (existing) return existing
+  const local =
+    readEncryptionKeyFromLocalEnv(process.cwd()) ||
+    readEncryptionKeyFromLocalEnv(dirname(fileURLToPath(import.meta.url)))
+  if (local) process.env['ENCRYPTION_KEY'] = local
+  return local
+}
+
+function encryptChannelSecret(value: string) {
+  if (!resolveEncryptionKey()) {
+    throw new Error(
+      'ENCRYPTION_KEY is not set. Set ENCRYPTION_KEY to a stable secret before saving WhatsApp tokens.',
+    )
+  }
+  return encryptValue(value)
+}
+
+function isEncryptionConfigError(error: unknown) {
+  return error instanceof Error && error.message.includes('ENCRYPTION_KEY')
+}
+
+async function fetchPhoneNumberInfo(phoneNumberId: string, accessToken: string) {
+  const result = await graphRequest<{
+    id?: string
+    display_phone_number?: string
+    verified_name?: string
+    quality_rating?: string
+    code_verification_status?: string
+    name_status?: string
+    platform_type?: string
+    status?: string
+    throughput?: { level?: string }
+  }>(
+    `${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,name_status,platform_type,status,throughput`,
+    accessToken,
+  )
+  if (!result.ok) return { phoneInfo: null, phoneInfoError: result.error }
+  return { phoneInfo: result.data, phoneInfoError: undefined }
+}
+
+async function fetchWabaPhoneNumbers(wabaId: string | undefined, accessToken: string) {
+  if (!wabaId) return { phones: [], error: 'No WABA ID is stored for this WhatsApp account.' }
+  const result = await graphRequest<{
+    data?: Array<{
+      id?: string
+      display_phone_number?: string
+      verified_name?: string
+      platform_type?: string
+      status?: string
+      code_verification_status?: string
+    }>
+  }>(
+    `${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,platform_type,status,code_verification_status`,
+    accessToken,
+  )
+  if (!result.ok) return { phones: [], error: result.error }
+  return { phones: result.data.data ?? [], error: undefined }
+}
+
+function readMetaToken(stored: string | null | undefined): string | null {
+  if (!stored) return null
+  if (stored.split(':').length !== 3) return stored
+  try {
+    return decryptValue(stored)
+  } catch {
+    return null
+  }
+}
+
+function redactAccount(account: {
+  id: string
+  clinicId: string
+  channel: string
+  accountId: string
+  displayName: string | null
+  status: string
+  accessTokenEnc: string | null
+  webhookVerifyToken: string | null
+  settings: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}) {
+  return {
+    id: account.id,
+    clinicId: account.clinicId,
+    channel: account.channel,
+    accountId: account.accountId,
+    displayName: account.displayName,
+    status: account.status,
+    provider:
+      account.settings?.provider === 'meta_whatsapp' || !account.settings?.provider
+        ? 'meta_whatsapp'
+        : 'unsupported',
+    setupMode:
+      account.settings?.setupMode === 'new-number' ||
+      account.settings?.setupMode === 'migrate-business-app' ||
+      account.settings?.setupMode === 'existing-cloud-api'
+        ? account.settings.setupMode
+        : null,
+    wabaId: typeof account.settings?.wabaId === 'string' ? account.settings.wabaId : null,
+    source: typeof account.settings?.source === 'string' ? account.settings.source : null,
+    embeddedSignupVersion:
+      typeof account.settings?.embeddedSignupVersion === 'string'
+        ? account.settings.embeddedSignupVersion
+        : null,
+    hasAccessToken: Boolean(account.accessTokenEnc),
+    hasWebhookVerifyToken: Boolean(account.webhookVerifyToken),
+    tokenExpiresAt:
+      typeof account.settings?.tokenExpiresAt === 'string' ? account.settings.tokenExpiresAt : null,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+  }
+}
+
+type ChannelAccountRecord = {
+  id: string
+  clinicId: string
+  channel: string
+  accountId: string
+  displayName: string | null
+  status: string
+  accessTokenEnc: string | null
+  webhookVerifyToken: string | null
+  settings: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+type RedactedChannelAccount = ReturnType<typeof redactAccount>
+type WhatsAppHealthState = 'pass' | 'warning' | 'fail'
+
+function buildWhatsAppHealth(accounts: RedactedChannelAccount[]) {
+  const config = metaEmbeddedSignupConfig()
+  const whatsappAccounts = accounts.filter((account) => account.channel === 'whatsapp')
+  const metaAccounts = whatsappAccounts.filter((account) => account.provider === 'meta_whatsapp')
+  const activeMetaAccounts = metaAccounts.filter((account) => account.status === 'active')
+  const hasProductionCredentials = activeMetaAccounts.some((account) => account.hasAccessToken)
+  const hasWebhookVerifyToken = activeMetaAccounts.some((account) => account.hasWebhookVerifyToken)
+  const productionReady = activeMetaAccounts.length > 0 && hasProductionCredentials
+  const checks = [
+    {
+      key: 'meta_app',
+      label: 'Meta embedded signup app',
+      state: config.isConfigured ? 'pass' : 'fail',
+      detail: config.isConfigured
+        ? 'Meta app, signup configuration, and app secret are configured.'
+        : `Missing ${config.missing.join(', ')}.`,
+      action: 'Set the missing Meta app values on the live server before production onboarding.',
+    },
+    {
+      key: 'production_account',
+      label: 'Production WhatsApp account',
+      state: activeMetaAccounts.length > 0 ? 'pass' : 'fail',
+      detail:
+        activeMetaAccounts.length > 0
+          ? `${activeMetaAccounts.length} Meta WhatsApp Business account(s) are active.`
+          : 'No Meta WhatsApp Business account is active.',
+      action: 'Connect Meta WhatsApp Business Cloud API for the clinic.',
+    },
+    {
+      key: 'provider_credentials',
+      label: 'Provider credentials',
+      state: hasProductionCredentials ? 'pass' : 'fail',
+      detail: hasProductionCredentials
+        ? 'A Meta WhatsApp Business access token is stored.'
+        : 'No Meta WhatsApp Business access token is stored.',
+      action: 'Save a production Meta WhatsApp Business access token.',
+    },
+    {
+      key: 'webhook_verify_token',
+      label: 'Webhook verify token',
+      state: hasWebhookVerifyToken ? 'pass' : 'warning',
+      detail: hasWebhookVerifyToken
+        ? 'A webhook verify token is stored for Meta WhatsApp Business.'
+        : 'No production webhook verify token is stored.',
+      action: 'Generate and save the verify token, then paste it into Meta webhook settings.',
+    },
+    {
+      key: 'live_webhook_urls',
+      label: 'Live webhook URLs',
+      state: 'pass',
+      detail: publicWebhookUrl('/webhook/whatsapp'),
+      action: 'Use this URL in Meta and confirm one inbound plus one outbound message.',
+    },
+  ] satisfies Array<{
+    key: string
+    label: string
+    state: WhatsAppHealthState
+    detail: string
+    action: string
+  }>
+  const failedRequired = checks.filter((check) => check.state === 'fail')
+  const overall = productionReady && failedRequired.length === 0 ? 'ready' : 'blocked'
+  return {
+    checkedAt: new Date().toISOString(),
+    overall,
+    productionReady,
+    providerSummary: {
+      metaConfigured: config.isConfigured,
+      missingMetaConfig: config.missing,
+      activeProductionAccounts: activeMetaAccounts.length,
+      activeMetaAccounts: activeMetaAccounts.length,
+    },
+    checks,
+    requiredActions: checks.filter((check) => check.state === 'fail').map((check) => check.action),
+  }
+}
+
+async function buildWhatsAppCoexistenceReadiness(accounts: ChannelAccountRecord[]) {
+  const config = metaEmbeddedSignupConfig()
+  const metaAccounts = accounts
+    .filter((account) => account.channel === 'whatsapp')
+    .filter((account) => account.settings?.provider === 'meta_whatsapp' || !account.settings?.provider)
+  const active = metaAccounts.find((account) => account.status === 'active') ?? metaAccounts[0] ?? null
+  const token = readMetaToken(active?.accessTokenEnc)
+  const wabaId = typeof active?.settings?.wabaId === 'string' ? active.settings.wabaId : undefined
+  const setupMode = typeof active?.settings?.setupMode === 'string' ? active.settings.setupMode : null
+  const isCoexistenceIntent = setupMode === 'migrate-business-app'
+  const phoneLookup = active && token ? await fetchPhoneNumberInfo(active.accountId, token) : null
+  const phoneInfo = phoneLookup?.phoneInfo ?? null
+  const wabaLookup = token ? await fetchWabaPhoneNumbers(wabaId, token) : null
+  const targetInWaba = Boolean(wabaLookup?.phones.some((phone) => phone.id === active?.accountId))
+  const platform = phoneInfo?.platform_type ?? null
+  const status = phoneInfo?.status ?? null
+  const codeVerification = phoneInfo?.code_verification_status ?? null
+  const cloudReady = platform === 'CLOUD_API' && status === 'CONNECTED'
+  const oldSetupDetected = platform === 'ON_PREMISE' || status === 'DISCONNECTED'
+  const checks = [
+    {
+      key: 'meta_app',
+      label: 'Meta app configuration',
+      state: config.isConfigured ? 'pass' : 'fail',
+      detail: config.isConfigured
+        ? 'Embedded Signup app values are configured on Docmee.'
+        : `Missing ${config.missing.join(', ')}.`,
+      action: 'Set the missing Meta app values before using the co-existence wizard.',
+    },
+    {
+      key: 'docmee_account',
+      label: 'Docmee WhatsApp account',
+      state: active ? 'pass' : 'fail',
+      detail: active
+        ? `${active.displayName ?? 'WhatsApp'} is saved in Docmee for phone ID ${active.accountId}.`
+        : 'No Meta WhatsApp account is saved for this clinic.',
+      action: 'Connect the clinic WhatsApp number through Embedded Signup or manual Cloud API setup.',
+    },
+    {
+      key: 'access_token',
+      label: 'Meta access token',
+      state: token ? 'pass' : 'fail',
+      detail: token ? 'Docmee can query Meta Graph for this clinic.' : 'No usable Meta access token is stored.',
+      action: 'Save a valid Meta system-user or Embedded Signup token.',
+    },
+    {
+      key: 'waba_membership',
+      label: 'WABA membership',
+      state: !active || !wabaId ? 'warning' : targetInWaba ? 'pass' : 'fail',
+      detail: !active
+        ? 'No phone number is selected yet.'
+        : !wabaId
+          ? 'No WABA ID is stored for this account.'
+          : targetInWaba
+            ? 'The saved phone number belongs to the stored WABA.'
+            : 'The saved phone number was not found under the stored WABA.',
+      action: 'Finish Embedded Signup so Docmee stores the correct WABA ID and phone number ID together.',
+    },
+    {
+      key: 'phone_platform',
+      label: 'Phone platform',
+      state: !phoneInfo ? 'warning' : cloudReady ? 'pass' : oldSetupDetected ? 'fail' : 'warning',
+      detail: !phoneInfo
+        ? phoneLookup?.phoneInfoError ?? 'Phone metadata is not available yet.'
+        : `Meta reports ${phoneInfo.display_phone_number ?? active?.accountId} as ${platform ?? 'unknown'} / ${status ?? 'unknown'}.`,
+      action: oldSetupDetected
+        ? 'Release or migrate the old On-Premise/BSP setup, then retry co-existence or Cloud API onboarding.'
+        : 'Complete Meta verification and webhook subscription for this number.',
+    },
+    {
+      key: 'verification',
+      label: 'Phone verification',
+      state: codeVerification === 'VERIFIED' || cloudReady ? 'pass' : codeVerification ? 'warning' : 'warning',
+      detail: codeVerification
+        ? `Meta code verification status is ${codeVerification}.`
+        : 'Verification status is not available.',
+      action: 'Use the code or QR shown by Meta during Embedded Signup to finish ownership verification.',
+    },
+    {
+      key: 'webhook',
+      label: 'Docmee webhook',
+      state: active?.webhookVerifyToken ? 'pass' : 'warning',
+      detail: active?.webhookVerifyToken
+        ? `Use ${publicWebhookUrl('/webhook/whatsapp')} in Meta webhooks.`
+        : 'No webhook verify token is saved for this clinic.',
+      action: 'Save a webhook verify token in Docmee and paste the same value in Meta.',
+    },
+  ] satisfies Array<{
+    key: string
+    label: string
+    state: WhatsAppHealthState
+    detail: string
+    action: string
+  }>
+
+  return {
+    checkedAt: new Date().toISOString(),
+    mode: isCoexistenceIntent ? 'coexistence' : setupMode ?? 'unknown',
+    overall: checks.some((check) => check.state === 'fail') ? 'blocked' : cloudReady ? 'ready' : 'needs_review',
+    account: active ? redactAccount(active) : null,
+    meta: {
+      webhookUrl: publicWebhookUrl('/webhook/whatsapp'),
+      graphApiVersion: GRAPH_API_VERSION,
+      wabaId: wabaId ?? null,
+      phone: phoneInfo
+        ? {
+            id: active?.accountId ?? null,
+            number: phoneInfo.display_phone_number ?? null,
+            name: phoneInfo.verified_name ?? null,
+            platform: platform,
+            status: status,
+            codeVerification: codeVerification,
+            quality: phoneInfo.quality_rating ?? null,
+            nameStatus: phoneInfo.name_status ?? null,
+            throughput: phoneInfo.throughput?.level ?? null,
+          }
+        : null,
+      wabaPhoneCount: wabaLookup?.phones.length ?? 0,
+      wabaError: wabaLookup?.error ?? null,
+    },
+    limitations: [
+      'Co-existence uses one Business Platform connection at a time.',
+      'Keep the WhatsApp Business App opened at least once every 14 days after connection.',
+      'Co-existence phone numbers may be limited to 20 messages per second.',
+      'Groups, calls, broadcast lists, status, catalog tools, disappearing messages, view-once, and live location remain WhatsApp Business App features, not Docmee automation features.',
+    ],
+    recommendedDocmeeScope: [
+      'Appointment confirmations, reminders, reschedules, cancellations, and follow-up templates.',
+      'Shared inbox, AI triage, human handoff, and staff replies.',
+      'Clinic-safe patient segments based on booking state and opt-in, not generic marketing blasts.',
+    ],
+    checks,
+    requiredActions: checks.filter((check) => check.state === 'fail').map((check) => check.action),
+  }
+}
+
+const channelsRoute: FastifyPluginAsync = async (app) => {
+  app.addHook('preHandler', requireAuth)
+
+  app.get(
+    '/channels/meta-config',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async () => {
+      const config = metaEmbeddedSignupConfig()
+      return {
+        appId: config.appId || null,
+        configId: config.configId || null,
+        graphApiVersion: config.graphApiVersion,
+        appSecretConfigured: config.appSecretConfigured,
+        webhookUrl: config.webhookUrl,
+        isConfigured: config.isConfigured,
+        missing: config.missing,
+        checklist: config.checklist,
+      }
+    },
+  )
+
+  app.get<{ Params: { id: string } }>(
+    '/clinics/:id/channels',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
+      return { accounts: accounts.map(redactAccount) }
+    },
+  )
+
+  app.get<{ Params: { id: string } }>(
+    '/clinics/:id/channels/whatsapp/health',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
+      return buildWhatsAppHealth(accounts.map(redactAccount))
+    },
+  )
+
+  app.get<{ Params: { id: string } }>(
+    '/clinics/:id/channels/whatsapp/coexistence-readiness',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
+      return buildWhatsAppCoexistenceReadiness(accounts)
+    },
+  )
+
+  app.put<{ Params: { id: string; channel: string } }>(
+    '/clinics/:id/channels/:channel',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      if (request.params.channel !== 'whatsapp') {
+        return reply.code(400).send({ error: 'Only WhatsApp channel linking is supported here' })
+      }
+      const parsed = validate(whatsappSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      try {
+        const account = await withDb(async (sql) => {
+          const repo = createChannelAccountsRepository(sql)
+          const provider = parsed.data.provider ?? 'meta_whatsapp'
+          const existing = (await repo.listByClinic(clinicId)).find(
+            (item) => item.channel === 'whatsapp' && item.accountId === parsed.data.accountId,
+          )
+          const settings = {
+            ...(existing?.settings ?? {}),
+            provider,
+            setupMode: parsed.data.setupMode ?? existing?.settings?.setupMode ?? 'existing-cloud-api',
+            ...(parsed.data.tokenExpiresAt ? { tokenExpiresAt: parsed.data.tokenExpiresAt } : {}),
+          }
+          return repo.create({
+            clinicId,
+            channel: 'whatsapp',
+            accountId: parsed.data.accountId,
+            displayName: parsed.data.displayName ?? existing?.displayName ?? undefined,
+            accessTokenEnc: parsed.data.accessToken
+              ? encryptChannelSecret(parsed.data.accessToken)
+              : existing?.accessTokenEnc ?? undefined,
+            webhookVerifyToken: parsed.data.webhookVerifyToken ?? existing?.webhookVerifyToken ?? undefined,
+            status: parsed.data.status ?? existing?.status ?? 'active',
+            settings,
+          })
+        })
+
+        return { account: redactAccount(account) }
+      } catch (error) {
+        if (isEncryptionConfigError(error)) return reply.code(500).send({ error: (error as Error).message })
+        throw error
+      }
+    },
+  )
+
+  app.delete<{ Params: { id: string; accountId: string } }>(
+    '/clinics/:id/channels/whatsapp/:accountId',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      const deleted = await withDb(async (sql) => {
+        const repo = createChannelAccountsRepository(sql)
+        const existing = (await repo.listByClinic(clinicId)).find(
+          (item) => item.channel === 'whatsapp' && item.id === request.params.accountId,
+        )
+        if (!existing) return false
+        return repo.delete(clinicId, existing.id)
+      })
+
+      if (!deleted) return reply.code(404).send({ error: 'WhatsApp account was not found.' })
+      return { ok: true }
+    },
+  )
+
+  app.post<{ Params: { id: string } }>(
+    '/clinics/:id/channels/whatsapp/embedded-signup',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(embeddedSignupSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      try {
+        const accessToken = await exchangeEmbeddedSignupCode(parsed.data.code)
+        const subscription = await subscribeWabaToApp(parsed.data.wabaId, accessToken)
+        const phoneLookup = await fetchPhoneNumberInfo(parsed.data.phoneNumberId, accessToken)
+        const account = await withDb(async (sql) => {
+          const repo = createChannelAccountsRepository(sql)
+          const existing = (await repo.listByClinic(clinicId)).find(
+            (item) => item.channel === 'whatsapp' && item.accountId === parsed.data.phoneNumberId,
+          )
+          const webhookVerifyToken =
+            parsed.data.webhookVerifyToken?.trim() ||
+            existing?.webhookVerifyToken ||
+            `docmee_${randomBytes(18).toString('hex')}`
+          return repo.create({
+            clinicId,
+            channel: 'whatsapp',
+            accountId: parsed.data.phoneNumberId,
+            displayName:
+              parsed.data.displayName ??
+              phoneLookup.phoneInfo?.verified_name ??
+              phoneLookup.phoneInfo?.display_phone_number ??
+              existing?.displayName ??
+              'WhatsApp Business',
+            accessTokenEnc: encryptChannelSecret(accessToken),
+            webhookVerifyToken,
+            status: 'active',
+            settings: {
+              ...(existing?.settings ?? {}),
+              provider: 'meta_whatsapp',
+              source: 'embedded_signup',
+              setupMode: parsed.data.setupMode ?? 'existing-cloud-api',
+              wabaId: parsed.data.wabaId,
+              embeddedSignupVersion:
+                parsed.data.setupMode === 'migrate-business-app' ? 'whatsapp_business_app_onboarding' : 'standard',
+              appSubscribedToWaba: subscription.subscribed,
+              appSubscriptionError: subscription.error,
+              phoneInfo: phoneLookup.phoneInfo,
+              phoneInfoError: phoneLookup.phoneInfoError,
+              linkedAt: new Date().toISOString(),
+            },
+          })
+        })
+        return { account: redactAccount(account) }
+      } catch (error) {
+        request.log.error({ err: error }, 'Meta Embedded Signup completion failed')
+        if (isEncryptionConfigError(error)) return reply.code(500).send({ error: (error as Error).message })
+        return reply.code(400).send({ error: (error as Error).message })
+      }
+    },
+  )
+
+}
+
+export default channelsRoute

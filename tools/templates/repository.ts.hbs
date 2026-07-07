@@ -1,0 +1,35 @@
+import { supabaseAdmin } from 'packages/db/src/client.js'
+import type { Database } from 'packages/db/src/types.js'
+
+type Row = Database['public']['Tables']['{{table_name}}']['Row']
+
+export class {{pascalName}}Repository {
+  async findById(id: string): Promise<Row | null> {
+    const { data, error } = await supabaseAdmin.from('{{table_name}}').select('*').eq('id', id).single()
+    if (error) throw error
+    return data
+  }
+
+  async findByClinicId(clinicId: string): Promise<Row[]> {
+    const { data, error } = await supabaseAdmin.from('{{table_name}}').select('*').eq('clinic_id', clinicId)
+    if (error) throw error
+    return data ?? []
+  }
+
+  async create(input: Partial<Row>): Promise<Row> {
+    const { data, error } = await supabaseAdmin.from('{{table_name}}').insert(input).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async update(id: string, input: Partial<Row>): Promise<Row> {
+    const { data, error } = await supabaseAdmin.from('{{table_name}}').update(input).eq('id', id).select().single()
+    if (error) throw error
+    return data
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabaseAdmin.from('{{table_name}}').delete().eq('id', id)
+    if (error) throw error
+  }
+}

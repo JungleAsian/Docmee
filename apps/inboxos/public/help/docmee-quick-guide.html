@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Docmee quick guide</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f8fbfa;
+        color: #0f172a;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 15% 15%, rgba(20, 184, 166, 0.18), transparent 30%),
+          linear-gradient(135deg, #f8fbfa 0%, #eef8f6 100%);
+      }
+      main {
+        width: min(900px, calc(100vw - 32px));
+        display: grid;
+        gap: 18px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .mark {
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background: #0f766e;
+        color: white;
+        font-weight: 800;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 5vw, 56px);
+        line-height: 1;
+      }
+      p {
+        margin: 0;
+        color: #475569;
+        font-size: clamp(15px, 2vw, 20px);
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .step {
+        min-height: 128px;
+        border: 1px solid #dbe7e4;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 10px 26px rgba(15, 46, 43, 0.08);
+        padding: 18px;
+      }
+      .step strong {
+        display: block;
+        margin-bottom: 10px;
+        color: #0f766e;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .step span {
+        display: block;
+        font-size: 18px;
+        font-weight: 750;
+      }
+      @media (max-width: 720px) {
+        .steps {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-label="Docmee quick guide">
+      <div class="brand">
+        <div class="mark">D</div>
+        <div>
+          <h1>Docmee quick guide</h1>
+          <p>Your AI booking agent, with simplicity in mind.</p>
+        </div>
+      </div>
+      <section class="steps">
+        <div class="step"><strong>1. Inbox</strong><span>Manage every patient conversation from one place.</span></div>
+        <div class="step"><strong>2. Calendar</strong><span>Book, revise, and cancel appointments quickly.</span></div>
+        <div class="step"><strong>3. J.zel</strong><span>Use clinic knowledge to support staff and patients.</span></div>
+        <div class="step"><strong>4. Analytics</strong><span>Track response time, bookings, channels, and quality.</span></div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+
+# Build output
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment (never commit real secrets)
+# Ignore every real env file (.env, .env.production, .env.tools, .env.local, …)
+# but keep the *.example templates trackable.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs (keep tools/logs tracked by tools/.gitignore rules)
+*.log
+tools/logs/fix-docker-runtime.ps1
+tools/runtime/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Testing
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Rust (tools Tauri app)
+tools/app/src-tauri/target/
+
+# Local-only backup archives
+.local-backup-archives/
+*.tgz
+*.tar.gz

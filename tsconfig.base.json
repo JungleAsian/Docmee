@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@docmee/config": ["packages/config/src/index.ts"],
+      "@docmee/shared": ["packages/shared/src/index.ts"],
+      "@docmee/db": ["packages/db/src/index.ts"],
+      "@docmee/queue": ["packages/queue/src/index.ts"],
+      "@docmee/llm": ["packages/llm/src/index.ts"],
+      "@docmee/channels": ["packages/channels/src/index.ts"],
+      "@docmee/notifications": ["packages/notifications/src/index.ts"],
+      "@docmee/agents": ["packages/agents/src/index.ts"],
+      "@docmee/kb": ["packages/kb/src/index.ts"]
+    }
+  }
+}

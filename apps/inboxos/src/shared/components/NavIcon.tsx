@@ -1,0 +1,73 @@
+import {
+  Bell,
+  BookOpen,
+  CalendarBlank,
+  ChartLineUp,
+  ChatCircleDots,
+  CheckCircle,
+  Clock,
+  CurrencyDollar,
+  EnvelopeSimple,
+  FirstAidKit,
+  GearSix,
+  GitBranch,
+  Hospital,
+  Key,
+  Lifebuoy,
+  LinkSimple,
+  ListChecks,
+  MagnifyingGlass,
+  Megaphone,
+  Pulse,
+  Robot,
+  ShieldCheck,
+  Tag,
+  User,
+  Users,
+  WarningCircle,
+  type Icon,
+} from '@phosphor-icons/react'
+
+const ICONS: Record<string, Icon> = {
+  clinics: Hospital,
+  users: Users,
+  doctors: FirstAidKit,
+  channels: Megaphone,
+  integrations: LinkSimple,
+  quickReplies: ChatCircleDots,
+  templates: ListChecks,
+  automations: Pulse,
+  kb: BookOpen,
+  customFlows: GitBranch,
+  workflows: GitBranch,
+  errors: WarningCircle,
+  usage: ChartLineUp,
+  costMonitoring: CurrencyDollar,
+  license: Key,
+  compliance: ShieldCheck,
+  inbox: ChatCircleDots,
+  alerts: Bell,
+  calendar: CalendarBlank,
+  help: Lifebuoy,
+  search: MagnifyingGlass,
+  mail: EnvelopeSimple,
+  bot: Robot,
+  shield: ShieldCheck,
+  check: CheckCircle,
+  clock: Clock,
+  tag: Tag,
+  user: User,
+  metrics: Pulse,
+  analytics: ChartLineUp,
+  qos: Pulse,
+  reports: ListChecks,
+  studio: GearSix,
+}
+
+export type NavIconName = keyof typeof ICONS
+
+export function NavIcon({ name, className = 'h-5 w-5' }: { name: NavIconName | string; className?: string }) {
+  const Icon = ICONS[name]
+  if (!Icon) return null
+  return <Icon className={className} size={20} weight="duotone" aria-hidden="true" />
+}

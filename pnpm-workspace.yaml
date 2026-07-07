@@ -1,0 +1,12 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'tools'
+  - 'tools/app'
+  - 'tools/dashboard'
+  - 'tools/eslint'
+  - 'tools/discord'
+allowBuilds:
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  sharp: set this to true or false

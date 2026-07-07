@@ -1,0 +1,31 @@
+{
+  "name": "docmee",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @docmee/api dev",
+    "typecheck": "pnpm -r --filter @docmee/* typecheck",
+    "lint": "pnpm -r --filter @docmee/* lint",
+    "test": "pnpm -r --filter @docmee/* test",
+    "build": "pnpm -r --filter @docmee/* build",
+    "tool": "pnpm --dir tools tool",
+    "i18n:check": "pnpm --filter @docmee/inboxos i18n:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.5.0",
+    "@playwright/test": "^1.45.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "eslint": "^9.5.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "google-auth-library": "10.7.0",
+      "fast-uri": "^3",
+      "@types/react": "^19.0.0",
+      "@types/react-dom": "^19.0.0"
+    }
+  }
+}

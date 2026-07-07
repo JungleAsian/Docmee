@@ -1,0 +1,17 @@
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS {{table_name}} (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  clinic_id uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE {{table_name}} ENABLE ROW LEVEL SECURITY;
+
+CREATE TRIGGER set_updated_at
+BEFORE UPDATE ON {{table_name}}
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+COMMIT;

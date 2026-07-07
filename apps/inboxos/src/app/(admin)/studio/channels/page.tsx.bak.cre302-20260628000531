@@ -1,0 +1,2284 @@
+'use client'
+
+// Screen 10 — Channels & integrations. Pick a clinic, then see an at-a-glance health
+// card for every channel/integration: connection state, concrete setup gaps, the
+// webhook URL, and Meta token-expiry warnings (Req 19). Each card links into the
+// matching section of the clinic detail page to fix things. WhatsApp is shown as an
+// informational card because its config lives outside the clinic record.
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, API_BASE } from '@/shared/api/client'
+import { ClinicSelect } from '@/shared/components/ClinicSelect'
+import { useI18n } from '@/shared/hooks/useI18n'
+import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
+import {
+  channelCards,
+  type ServiceCard,
+  type ServiceKey,
+  type ServiceStatus,
+} from '@/shared/channelStatus'
+import type { TranslationKey } from '@/shared/i18n'
+import type { Clinic, ClinicSettings } from '@/shared/types'
+
+interface ChannelAccount {
+  id: string
+  clinicId: string
+  channel: 'whatsapp' | 'messenger' | 'instagram'
+  accountId: string
+  displayName: string | null
+  status: 'active' | 'inactive' | 'error'
+  provider?: 'meta_whatsapp' | 'twilio_whatsapp' | 'evolution_test'
+  hasAccessToken: boolean
+  hasWebhookVerifyToken: boolean
+  tokenExpiresAt: string | null
+  twilioMessagingServiceSid?: string | null
+  twilioWhatsappFrom?: string | null
+  twilioSenderSid?: string | null
+  twilioSenderId?: string | null
+  twilioSenderStatus?: string | null
+  evolutionInstance?: string | null
+  evolutionApiUrl?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface MetaEmbeddedSignupConfig {
+  appId: string | null
+  configId: string | null
+  graphApiVersion: string
+  isConfigured: boolean
+  missing: string[]
+}
+
+interface EmbeddedSignupAssets {
+  event?: 'FINISH' | 'CANCEL' | 'ERROR'
+  phoneNumberId?: string
+  wabaId?: string
+  errorMessage?: string
+}
+
+interface ProviderReadiness {
+  key: 'meta' | 'google' | 'email' | 'openai' | 'anthropic'
+  state: 'ready' | 'missing' | 'fallback'
+  configured: boolean
+  missing: string[]
+}
+
+interface LaunchWaiver {
+  reviewer: string
+  reason: string
+  risk: string
+  owner: string
+  followUpDate: string
+  createdAt: string
+}
+
+interface LaunchReadinessEvent {
+  id: string
+  actorEmail: string | null
+  action: string
+  field: string
+  createdAt: string
+}
+
+declare global {
+  interface Window {
+    FB?: {
+      init: (options: { appId: string; autoLogAppEvents?: boolean; xfbml?: boolean; version: string }) => void
+      login: (
+        callback: (response: { authResponse?: { code?: string } }) => void,
+        options: Record<string, unknown>,
+      ) => void
+    }
+    fbAsyncInit?: () => void
+  }
+}
+
+const SVC_NAME: Record<ServiceKey | 'whatsapp', TranslationKey> = {
+  whatsapp: 'studio.channels.svc.whatsapp',
+  messenger: 'studio.channels.svc.messenger',
+  instagram: 'studio.channels.svc.instagram',
+  calendar: 'studio.channels.svc.calendar',
+  sheets: 'studio.channels.svc.sheets',
+}
+const SVC_DESC: Record<ServiceKey | 'whatsapp', TranslationKey> = {
+  whatsapp: 'studio.channels.desc.whatsapp',
+  messenger: 'studio.channels.desc.messenger',
+  instagram: 'studio.channels.desc.instagram',
+  calendar: 'studio.channels.desc.calendar',
+  sheets: 'studio.channels.desc.sheets',
+}
+const SVC_TILE: Record<ServiceKey | 'whatsapp', string> = {
+  whatsapp: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300',
+  messenger: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+  instagram: 'bg-pink-100 text-pink-700 dark:bg-pink-950 dark:text-pink-300',
+  calendar: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300',
+  sheets: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+}
+const STATUS_LABEL: Record<ServiceStatus, TranslationKey> = {
+  connected: 'studio.channels.status.connected',
+  expiring: 'studio.channels.status.expiring',
+  expired: 'studio.channels.status.expired',
+  pending: 'studio.channels.status.pending',
+  disconnected: 'studio.channels.status.disconnected',
+}
+const STATUS_STYLE: Record<ServiceStatus, string> = {
+  connected:
+    'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
+  expiring:
+    'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300',
+  expired: 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
+  pending:
+    'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-300',
+  disconnected:
+    'border-gray-300 bg-gray-50 text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400',
+}
+const STATUS_DOT: Record<ServiceStatus, string> = {
+  connected: 'bg-emerald-500',
+  expiring: 'bg-amber-500',
+  expired: 'bg-red-500',
+  pending: 'bg-orange-500',
+  disconnected: 'bg-gray-400',
+}
+
+export default function ChannelsPage() {
+  const { t } = useI18n()
+  const { clinicId, switchClinic } = useActiveClinic()
+  const queryClient = useQueryClient()
+
+  const query = useQuery({
+    queryKey: ['clinic', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ clinic: Clinic }>(`/clinics/${clinicId}`),
+  })
+  const clinic = query.data?.clinic
+  const channelQuery = useQuery({
+    queryKey: ['clinic-channels', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ accounts: ChannelAccount[] }>(`/clinics/${clinicId}/channels`),
+  })
+  const whatsappAccounts = channelQuery.data?.accounts.filter((account) => account.channel === 'whatsapp') ?? []
+  const whatsappAccount =
+    whatsappAccounts.find((account) => account.provider === 'evolution_test') ??
+    whatsappAccounts.find((account) => account.status === 'active') ??
+    whatsappAccounts[0] ??
+    null
+
+  // Date.now() is read once per render; channelStatus stays pure (now is passed in).
+  const cards = useMemo<ServiceCard[]>(
+    () =>
+      clinic
+        ? channelCards(clinic, { apiBase: API_BASE, now: Date.now() }).filter(
+            (card) => card.key === 'messenger' || card.key === 'instagram',
+          )
+        : [],
+    [clinic],
+  )
+  const connectedCount = cards.filter((c) => c.status === 'connected').length
+
+  return (
+    <div className="mx-auto max-w-4xl p-6">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">{t('studio.channels.title')}</h1>
+        <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />
+      </div>
+      <p className="mb-4 text-xs text-gray-400">{t('studio.channels.subtitle')}</p>
+
+      {!clinicId ? (
+        <p className="text-sm text-gray-400">{t('studio.kb.selectClinic')}</p>
+      ) : query.isLoading ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-32 animate-pulse rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900"
+            />
+          ))}
+        </div>
+      ) : query.isError || !clinic ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {t('common.error')}{' '}
+          <button type="button" onClick={() => query.refetch()} className="font-medium underline">
+            {t('common.retry')}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="mb-3 flex items-center gap-2 text-xs text-gray-500">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 font-medium dark:bg-gray-800">
+              {t('studio.channels.connectedSummary', { n: connectedCount, total: cards.length })}
+            </span>
+          </div>
+
+          <ProviderStatusPanel clinic={clinic} whatsappAccounts={whatsappAccounts} />
+          <ClinicLaunchReadinessPanel clinic={clinic} clinicId={clinicId} whatsappAccounts={whatsappAccounts} channelCards={cards} />
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {cards.map((card) => (
+              <ServiceCardView key={card.key} card={card} clinic={clinic} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic', clinicId] })} />
+            ))}
+            <WhatsAppCard clinicId={clinicId} account={whatsappAccount} webhookUrl={`${API_BASE}/webhook/whatsapp`} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic-channels', clinicId] })} />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ProviderStatusPanel({
+  clinic,
+  whatsappAccounts,
+}: {
+  clinic: Clinic
+  whatsappAccounts: ChannelAccount[]
+}) {
+  const { t } = useI18n()
+  const settings = clinic.settings as ClinicSettings
+  const whatsappActive = whatsappAccounts.some((account) => account.status === 'active')
+  const whatsappError = whatsappAccounts.some((account) => account.status === 'error')
+  const whatsappConfigured = whatsappAccounts.some(
+    (account) =>
+      account.provider === 'twilio_whatsapp'
+        ? Boolean(account.twilioMessagingServiceSid || account.twilioWhatsappFrom || account.twilioSenderSid)
+        : account.hasAccessToken || account.provider === 'evolution_test',
+  )
+  const lastWhatsAppUpdate = whatsappAccounts
+    .map((account) => account.updatedAt)
+    .sort()
+    .at(-1)
+
+  const googleConnected = Boolean(settings.googleCalendar && typeof settings.googleCalendar === 'object')
+  const sheetsReady = Boolean(settings.googleSheets?.enabled && settings.googleSheets?.spreadsheetId)
+  const providerQuery = useQuery({
+    queryKey: ['provider-status'],
+    queryFn: () => api.get<{ providers: ProviderReadiness[] }>('/provider-status'),
+  })
+  const providerMap = new Map((providerQuery.data?.providers ?? []).map((provider) => [provider.key, provider]))
+  const email = providerMap.get('email')
+  const openai = providerMap.get('openai')
+  const anthropic = providerMap.get('anthropic')
+  const llmMissing = [...(openai?.missing ?? []), ...(anthropic?.missing ?? [])]
+  const llmFallback = openai?.state === 'fallback' || anthropic?.state === 'fallback'
+  const llmReady = Boolean(openai?.configured || anthropic?.configured)
+
+  return (
+    <section className="mb-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{t('studio.channels.providerStatus.title')}</h2>
+        <span className="text-[11px] text-gray-400">{t('studio.channels.providerStatus.noSecrets')}</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ProviderTile
+          label={t('studio.channels.providerStatus.whatsapp')}
+          state={whatsappError ? 'error' : whatsappActive && whatsappConfigured ? 'ready' : whatsappConfigured ? 'warning' : 'missing'}
+          detail={
+            whatsappError
+              ? t('studio.channels.providerStatus.whatsappError')
+              : lastWhatsAppUpdate
+              ? t('studio.channels.providerStatus.lastUpdated', { date: lastWhatsAppUpdate.slice(0, 10) })
+              : t('studio.channels.providerStatus.noWebhookYet')
+          }
+        />
+        <ProviderTile
+          label={t('studio.channels.providerStatus.google')}
+          state={googleConnected ? 'ready' : 'missing'}
+          detail={googleConnected ? t('studio.channels.providerStatus.calendarReady') : t('studio.channels.providerStatus.connectGoogle')}
+        />
+        <ProviderTile
+          label={t('studio.channels.providerStatus.email')}
+          state={email?.configured ? 'ready' : 'missing'}
+          detail={
+            email?.configured
+              ? t('studio.channels.providerStatus.emailReady')
+              : t('studio.channels.providerStatus.missingVars', { vars: (email?.missing ?? ['RESEND_API_KEY']).join(', ') })
+          }
+        />
+        <ProviderTile
+          label={t('studio.channels.providerStatus.llm')}
+          state={llmFallback ? 'fallback' : llmReady ? 'ready' : 'missing'}
+          detail={
+            llmFallback
+              ? t('studio.channels.providerStatus.llmFallback')
+              : llmReady
+                ? t('studio.channels.providerStatus.llmReady')
+                : t('studio.channels.providerStatus.missingVars', { vars: llmMissing.join(', ') || 'OPENAI_API_KEY, ANTHROPIC_API_KEY' })
+          }
+        />
+        <ProviderTile
+          label={t('studio.channels.providerStatus.sheets')}
+          state={sheetsReady ? 'ready' : 'missing'}
+          detail={sheetsReady ? t('studio.channels.providerStatus.sheetsReady') : t('studio.channels.providerStatus.configureSheets')}
+        />
+      </div>
+    </section>
+  )
+}
+
+function ClinicLaunchReadinessPanel({
+  clinic,
+  clinicId,
+  whatsappAccounts,
+  channelCards,
+}: {
+  clinic: Clinic
+  clinicId: string
+  whatsappAccounts: ChannelAccount[]
+  channelCards: ServiceCard[]
+}) {
+  const settings = clinic.settings as ClinicSettings
+  const settingsRecord = settings as unknown as Record<string, unknown>
+  const clinicRecord = clinic as unknown as Record<string, unknown>
+  const clinicName =
+    typeof clinicRecord.name === 'string'
+      ? clinicRecord.name
+      : typeof clinicRecord.id === 'string'
+        ? clinicRecord.id
+        : 'Selected clinic'
+  const waiverStorageKey = `docmee-launch-waivers:${clinicId}`
+  const [waivers, setWaivers] = useState<Record<string, LaunchWaiver>>(() => {
+    if (typeof window === 'undefined') return {}
+    try {
+      return JSON.parse(window.localStorage.getItem(waiverStorageKey) ?? '{}') as Record<string, LaunchWaiver>
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      setWaivers(JSON.parse(window.localStorage.getItem(waiverStorageKey) ?? '{}') as Record<string, LaunchWaiver>)
+    } catch {
+      setWaivers({})
+    }
+  }, [waiverStorageKey])
+  const readinessQuery = useQuery({
+    queryKey: ['launch-readiness', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () =>
+      api.get<{
+        readiness: { waivers: Record<string, LaunchWaiver>; whatsappTests: Record<string, string>; updatedAt: string }
+        persistence?: 'database' | 'file'
+      }>(`/clinics/${clinicId}/launch-readiness`),
+  })
+  const readinessEventsQuery = useQuery({
+    queryKey: ['launch-readiness-events', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () =>
+      api.get<{
+        events: LaunchReadinessEvent[]
+        persistence?: 'database' | 'file'
+      }>(`/clinics/${clinicId}/launch-readiness/events`),
+  })
+  const readinessMutation = useMutation({
+    mutationFn: (nextWaivers: Record<string, LaunchWaiver>) =>
+      api.put(`/clinics/${clinicId}/launch-readiness`, { waivers: nextWaivers }),
+    onSuccess: () => readinessEventsQuery.refetch(),
+  })
+  const activeWaivers = { ...waivers, ...(readinessQuery.data?.readiness.waivers ?? {}) }
+  const [copied, setCopied] = useState(false)
+  const whatsappActive = whatsappAccounts.some((account) => account.status === 'active')
+  const whatsappError = whatsappAccounts.some((account) => account.status === 'error')
+  const whatsappConfigured = whatsappAccounts.some(
+    (account) =>
+      account.provider === 'twilio_whatsapp'
+        ? Boolean(account.twilioMessagingServiceSid || account.twilioWhatsappFrom || account.twilioSenderSid)
+        : account.hasAccessToken || account.provider === 'evolution_test',
+  )
+  const googleConnected = Boolean(settings.googleCalendar && typeof settings.googleCalendar === 'object')
+  const sheetsReady = Boolean(settings.googleSheets?.enabled && settings.googleSheets?.spreadsheetId)
+  const socialChannelsReady = channelCards.some((card) => card.status === 'connected')
+  const businessHoursReady = Boolean(
+    settingsRecord.businessHours ||
+      settingsRecord.hours ||
+      settingsRecord.workingHours ||
+      clinicRecord.businessHours ||
+      clinicRecord.hours,
+  )
+  const aiInstructionsReady = Boolean(
+    settingsRecord.aiInstructions ||
+      settingsRecord.systemPrompt ||
+      settingsRecord.instructions ||
+      settingsRecord.persona ||
+      settingsRecord.guardrails,
+  )
+  const ownerReady = Boolean(
+    settingsRecord.owner ||
+      settingsRecord.admin ||
+      settingsRecord.users ||
+      clinicRecord.ownerId ||
+      clinicRecord.adminId,
+  )
+  const providerQuery = useQuery({
+    queryKey: ['provider-status'],
+    queryFn: () => api.get<{ providers: ProviderReadiness[] }>('/provider-status'),
+  })
+  const providerMap = new Map((providerQuery.data?.providers ?? []).map((provider) => [provider.key, provider]))
+  const emailReady = providerMap.get('email')?.configured
+  const llmReady = Boolean(providerMap.get('openai')?.configured || providerMap.get('anthropic')?.configured)
+  const checks = [
+    {
+      key: 'whatsapp',
+      area: 'WhatsApp provider',
+      owner: 'Implementation',
+      severity: 'Required',
+      state: whatsappError ? 'fail' : whatsappActive && whatsappConfigured ? 'pass' : 'fail',
+      detail: whatsappError ? 'Provider is in error state.' : whatsappConfigured ? 'Provider credentials exist.' : 'Provider not fully configured.',
+      action: 'Open Channels and finish Meta, Twilio, or test-mode setup.',
+      href: '#whatsapp',
+    },
+    {
+      key: 'calendar',
+      area: 'Calendar booking',
+      owner: 'Clinic operations',
+      severity: 'Required',
+      state: googleConnected ? 'pass' : 'fail',
+      detail: googleConnected ? 'Google Calendar settings are present.' : 'Calendar connection is missing.',
+      action: 'Connect Google Calendar before enabling automated appointment booking.',
+      href: '/studio/doctors',
+    },
+    {
+      key: 'availability',
+      area: 'Doctors and availability',
+      owner: 'Clinic operations',
+      severity: 'Required',
+      state: businessHoursReady ? 'pass' : 'warning',
+      detail: businessHoursReady ? 'Business hours or working-hours config is present.' : 'Hours need confirmation against staff schedules.',
+      action: 'Review doctors, services, and weekly availability.',
+      href: '/studio/doctors',
+    },
+    {
+      key: 'ai-instructions',
+      area: 'AI instructions',
+      owner: 'Clinical admin',
+      severity: 'Required',
+      state: aiInstructionsReady ? 'pass' : 'warning',
+      detail: aiInstructionsReady ? 'Instruction or guardrail settings are present.' : 'No prompt/guardrail signal found in clinic settings.',
+      action: 'Confirm clinical boundaries, escalation rules, and prohibited advice.',
+      href: '/studio/kb',
+    },
+    {
+      key: 'knowledge',
+      area: 'Knowledge sources',
+      owner: 'Clinical admin',
+      severity: 'Recommended',
+      state: 'warning',
+      detail: 'Review freshness and relevance before trusting AI answers.',
+      action: 'Open Knowledge Base and re-index stale or irrelevant sources.',
+      href: '/studio/kb',
+    },
+    {
+      key: 'templates',
+      area: 'Message templates',
+      owner: 'Implementation',
+      severity: 'Recommended',
+      state: 'warning',
+      detail: 'Template approval cannot be inferred from Channels.',
+      action: 'Confirm reminders, confirmations, cancellations, and follow-up templates.',
+      href: '/studio/templates',
+    },
+    {
+      key: 'quick-replies',
+      area: 'Quick replies',
+      owner: 'Support',
+      severity: 'Recommended',
+      state: 'warning',
+      detail: 'Support shortcuts should match clinic services and escalation policy.',
+      action: 'Seed clinic info, booking, handoff, and safety replies.',
+      href: '/studio/quick-replies',
+    },
+    {
+      key: 'social-channels',
+      area: 'Messenger and Instagram',
+      owner: 'Implementation',
+      severity: 'Optional',
+      state: socialChannelsReady ? 'pass' : 'warning',
+      detail: socialChannelsReady ? 'At least one social messaging channel is connected.' : 'No secondary social channel is connected.',
+      action: 'Enable only when the clinic actively handles Facebook or Instagram patient messages.',
+      href: '#provider-status',
+    },
+    {
+      key: 'provider-env',
+      area: 'Provider environment',
+      owner: 'Engineering',
+      severity: 'Required',
+      state: providerQuery.isError ? 'warning' : emailReady && llmReady ? 'pass' : 'fail',
+      detail: providerQuery.isError ? 'Provider status endpoint is unavailable.' : emailReady && llmReady ? 'Email and LLM providers are configured.' : 'Email or LLM provider is missing.',
+      action: 'Review server env vars before launch.',
+      href: '#provider-status',
+    },
+    {
+      key: 'crm-export',
+      area: 'CRM export',
+      owner: 'Operations',
+      severity: 'Optional',
+      state: sheetsReady ? 'pass' : 'warning',
+      detail: sheetsReady ? 'Google Sheets export target is configured.' : 'Sheets export is not configured.',
+      action: 'Configure Sheets only when the clinic needs spreadsheet CRM export.',
+      href: '#provider-status',
+    },
+    {
+      key: 'operator-owner',
+      area: 'Operator ownership',
+      owner: 'Account admin',
+      severity: 'Required',
+      state: ownerReady ? 'pass' : 'warning',
+      detail: ownerReady ? 'Owner/admin signal is present.' : 'Confirm who can approve launch and waivers.',
+      action: 'Assign launch reviewer and support escalation owner.',
+      href: '/studio/users',
+    },
+  ] as const
+  const requiredChecks = checks.filter((check) => check.severity === 'Required')
+  const failingRequired = requiredChecks.filter((check) => check.state !== 'pass' && !activeWaivers[check.key])
+  const passCount = checks.filter((check) => check.state === 'pass').length
+  const waivedCount = requiredChecks.filter((check) => check.state !== 'pass' && activeWaivers[check.key]).length
+  const summary = checks
+    .map((check) => {
+      const waiver = activeWaivers[check.key]
+      const status = check.state === 'pass' ? 'PASS' : waiver ? 'WAIVED' : check.state.toUpperCase()
+      return `${check.severity} | ${status} | ${check.area} | ${check.action}${waiver ? ` | waiver: ${waiver.reason}` : ''}`
+    })
+    .join('\n')
+
+  function saveWaiver(key: string, waiver: LaunchWaiver | null) {
+    const next = { ...activeWaivers }
+    if (waiver) next[key] = waiver
+    else delete next[key]
+    setWaivers(next)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(waiverStorageKey, JSON.stringify(next))
+    }
+    readinessMutation.mutate(next)
+  }
+
+  async function copyAudit() {
+    try {
+      await navigator.clipboard.writeText(`Docmee launch readiness audit\nClinic: ${clinicName}\n\n${summary}`)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <section className="mb-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Clinic launch readiness</h2>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {passCount}/{checks.length} checks passing. {waivedCount} required waiver(s) recorded.
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-400">
+            Evidence persistence: {readinessQuery.data?.persistence === 'database' ? 'database audit table' : 'local fallback'}
+            {readinessQuery.data?.readiness.updatedAt ? ` · updated ${readinessQuery.data.readiness.updatedAt.slice(0, 16).replace('T', ' ')}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={
+              failingRequired.length
+                ? 'rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200'
+                : 'rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'
+            }
+          >
+            {failingRequired.length ? `${failingRequired.length} required open` : 'Ready gate clear'}
+          </span>
+          <button
+            type="button"
+            onClick={copyAudit}
+            className="rounded-md border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            {copied ? 'Copied' : 'Copy audit'}
+          </button>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {checks.map((check) => (
+          <div key={check.area} className="rounded-md border border-gray-200 bg-gray-50 p-2 dark:border-gray-800 dark:bg-gray-950/60">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={
+                    check.state === 'pass'
+                      ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                      : check.state === 'fail'
+                        ? 'rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300'
+                        : 'rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  }
+                >
+                  {check.state === 'pass' ? 'Pass' : check.state === 'fail' ? 'Fail' : 'Check'}
+                </span>
+                <p className="font-medium text-gray-900 dark:text-gray-50">{check.area}</p>
+                <span className="text-[11px] text-gray-400">{check.severity}</span>
+              </div>
+              <span className="text-[11px] text-gray-400">{check.owner}</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{check.detail}</p>
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-gray-600 dark:text-gray-300">{check.action}</p>
+              <a className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-300" href={check.href}>
+                Fix
+              </a>
+            </div>
+            {check.severity === 'Required' && check.state !== 'pass' ? (
+              <LaunchWaiverEditor
+                waiver={activeWaivers[check.key]}
+                onSave={(waiver) => saveWaiver(check.key, waiver)}
+              />
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-2 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-300">
+        <span className="font-medium text-gray-900 dark:text-gray-100">Waiver policy:</span> a required check can only be
+        bypassed when the reviewer records the reason, risk, temporary owner, and follow-up date in the launch notes.
+      </div>
+      <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-950/60">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-50">Readiness audit trail</h3>
+          <span className="text-[11px] text-gray-400">
+            {readinessEventsQuery.data?.persistence === 'database' ? 'DB events' : 'No DB events in fallback mode'}
+          </span>
+        </div>
+        {(readinessEventsQuery.data?.events ?? []).length > 0 ? (
+          <div className="mt-2 space-y-1.5">
+            {readinessEventsQuery.data?.events.slice(0, 5).map((event) => (
+              <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-2 py-1.5 dark:bg-gray-900">
+                <span className="font-medium text-gray-800 dark:text-gray-100">{event.field}</span>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {event.actorEmail ?? 'system'} · {event.createdAt.slice(0, 16).replace('T', ' ')}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-gray-500 dark:text-gray-400">
+            Audit events appear after DB-backed waiver or WhatsApp evidence updates.
+          </p>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function LaunchWaiverEditor({
+  waiver,
+  onSave,
+}: {
+  waiver?: LaunchWaiver
+  onSave: (waiver: LaunchWaiver | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [reviewer, setReviewer] = useState(waiver?.reviewer ?? '')
+  const [reason, setReason] = useState(waiver?.reason ?? '')
+  const [risk, setRisk] = useState(waiver?.risk ?? '')
+  const [owner, setOwner] = useState(waiver?.owner ?? '')
+  const [followUpDate, setFollowUpDate] = useState(waiver?.followUpDate ?? '')
+  const ready = Boolean(reviewer.trim() && reason.trim() && risk.trim() && owner.trim() && followUpDate)
+
+  if (waiver && !open) {
+    return (
+      <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p>
+            Waived by <span className="font-medium">{waiver.reviewer}</span> until {waiver.followUpDate}: {waiver.reason}
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setOpen(true)} className="font-medium underline">
+              Edit
+            </button>
+            <button type="button" onClick={() => onSave(null)} className="font-medium underline">
+              Clear
+            </button>
+          </div>
+        </div>
+        <p className="mt-1">Risk: {waiver.risk}. Owner: {waiver.owner}.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="text-xs font-medium text-amber-700 hover:underline dark:text-amber-300"
+      >
+        {open ? 'Hide waiver' : waiver ? 'Edit waiver' : 'Record waiver'}
+      </button>
+      {open ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <input value={reviewer} onChange={(e) => setReviewer(e.target.value)} placeholder="Reviewer" className="rounded-md border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-950" />
+          <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Temporary owner" className="rounded-md border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-950" />
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Waiver reason" className="rounded-md border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-950" />
+          <input value={risk} onChange={(e) => setRisk(e.target.value)} placeholder="Accepted risk" className="rounded-md border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-950" />
+          <input value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} type="date" className="rounded-md border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-950" />
+          <button
+            type="button"
+            disabled={!ready}
+            onClick={() => {
+              onSave({
+                reviewer: reviewer.trim(),
+                reason: reason.trim(),
+                risk: risk.trim(),
+                owner: owner.trim(),
+                followUpDate,
+                createdAt: new Date().toISOString(),
+              })
+              setOpen(false)
+            }}
+            className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+          >
+            Save waiver
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ProviderTile({
+  label,
+  state,
+  detail,
+}: {
+  label: string
+  state: 'ready' | 'warning' | 'missing' | 'unknown' | 'fallback' | 'error'
+  detail: string
+}) {
+  const { t } = useI18n()
+  const tone =
+    state === 'ready'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+      : state === 'warning'
+        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+      : state === 'unknown' || state === 'fallback'
+          ? 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300'
+          : 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+  return (
+    <div className={`rounded-md border p-2 text-xs ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-semibold">{label}</p>
+        <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] dark:bg-black/20">
+          {t(`studio.channels.providerStatus.${state}` as TranslationKey)}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] opacity-90">{detail}</p>
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: ServiceStatus }) {
+  const { t } = useI18n()
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[status]}`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[status]}`} />
+      {t(STATUS_LABEL[status])}
+    </span>
+  )
+}
+
+function ServiceTile({ svc }: { svc: ServiceKey | 'whatsapp' }) {
+  const { t } = useI18n()
+  const name = t(SVC_NAME[svc])
+  return (
+    <span
+      aria-hidden
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-bold ${SVC_TILE[svc]}`}
+    >
+      {name.charAt(0)}
+    </span>
+  )
+}
+
+function ServiceCardView({
+  card,
+  clinic,
+  onSaved,
+}: {
+  card: ServiceCard
+  clinic: Clinic
+  onSaved: () => void
+}) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex items-start gap-2.5">
+        <ServiceTile svc={card.key} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{t(SVC_NAME[card.key])}</p>
+          <p className="truncate text-xs text-gray-400">{t(SVC_DESC[card.key])}</p>
+        </div>
+        <StatusBadge status={card.status} />
+      </div>
+
+      <div className="mt-2.5 flex-1 space-y-1.5 text-xs">
+        {card.issues.length > 0 ? (
+          <ul className="space-y-1">
+            {card.issues.map((issue) => (
+              <li key={issue} className="flex gap-1.5 text-orange-700 dark:text-orange-300">
+                <span aria-hidden>!</span>
+                <span>{t(`studio.channels.issue.${issue}` as TranslationKey)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : card.status === 'connected' ? (
+          <p className="text-emerald-600 dark:text-emerald-400">{t('studio.channels.allGood')}</p>
+        ) : null}
+
+        {card.tokenExpiry && (
+          <p
+            className={
+              card.tokenExpiry.state === 'expired'
+                ? 'text-red-600 dark:text-red-400'
+                : card.tokenExpiry.state === 'expiring'
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-gray-400'
+            }
+          >
+            {card.tokenExpiry.state === 'expired'
+              ? t('studio.channels.tokenExpiredOn', { date: card.tokenExpiry.date.slice(0, 10) })
+              : card.tokenExpiry.state === 'expiring'
+                ? t('studio.channels.tokenExpiresIn', {
+                    n: card.tokenExpiry.daysLeft,
+                    date: card.tokenExpiry.date.slice(0, 10),
+                  })
+                : t('studio.channels.tokenOk', { date: card.tokenExpiry.date.slice(0, 10) })}
+          </p>
+        )}
+
+        {card.webhookUrl && <WebhookRow url={card.webhookUrl} />}
+      </div>
+
+      <div className="mt-2.5 border-t border-gray-100 pt-2 dark:border-gray-800">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+        >
+          {open ? 'Hide setup' : `${t('studio.channels.configure')} ->`}
+        </button>
+      </div>
+
+      {open && <IntegrationWizard card={card} clinic={clinic} onSaved={onSaved} />}
+    </div>
+  )
+}
+
+function IntegrationWizard({ card, clinic, onSaved }: { card: ServiceCard; clinic: Clinic; onSaved: () => void }) {
+  if (card.key === 'messenger' || card.key === 'instagram') {
+    return <MetaChannelWizard card={card} clinic={clinic} onSaved={onSaved} />
+  }
+  if (card.key === 'calendar') return <CalendarWizard clinic={clinic} onSaved={onSaved} />
+  return <SheetsWizard clinic={clinic} onSaved={onSaved} />
+}
+
+function loadFacebookSdk(appId: string, version: string): Promise<void> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Facebook signup must run in the browser.'))
+  if (window.FB) {
+    window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version })
+    return Promise.resolve()
+  }
+  return new Promise((resolve, reject) => {
+    window.fbAsyncInit = () => {
+      window.FB?.init({ appId, autoLogAppEvents: true, xfbml: false, version })
+      resolve()
+    }
+    const existing = document.getElementById('facebook-jssdk') as HTMLScriptElement | null
+    if (existing) {
+      existing.addEventListener('error', () => reject(new Error('Could not load Facebook SDK.')), { once: true })
+      return
+    }
+    const script = document.createElement('script')
+    script.id = 'facebook-jssdk'
+    script.async = true
+    script.defer = true
+    script.crossOrigin = 'anonymous'
+    script.src = 'https://connect.facebook.net/en_US/sdk.js'
+    script.onerror = () => reject(new Error('Could not load Facebook SDK.'))
+    document.body.appendChild(script)
+  })
+}
+
+function parseEmbeddedSignupMessage(event: MessageEvent): EmbeddedSignupAssets | null {
+  if (!['https://www.facebook.com', 'https://web.facebook.com'].includes(event.origin)) return null
+  const payload = typeof event.data === 'string' ? safeJson(event.data) : event.data
+  if (!payload || payload.type !== 'WA_EMBEDDED_SIGNUP') return null
+  return {
+    event: payload.event,
+    phoneNumberId: payload.data?.phone_number_id,
+    wabaId: payload.data?.waba_id,
+    errorMessage: payload.data?.error_message,
+  }
+}
+
+function safeJson(value: string): {
+  type?: string
+  event?: 'FINISH' | 'CANCEL' | 'ERROR'
+  data?: { phone_number_id?: string; waba_id?: string; error_message?: string }
+} | null {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function MetaStandardChecklist({ webhookUrl, configured }: { webhookUrl: string; configured?: boolean }) {
+  return (
+    <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 text-left text-xs dark:border-gray-800 dark:bg-gray-900">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="font-semibold text-gray-900 dark:text-gray-50">Standard WhatsApp requirements</h4>
+        <span
+          className={
+            configured
+              ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+          }
+        >
+          {configured ? 'Meta app ready' : 'Meta app setup needed'}
+        </span>
+      </div>
+      <ul className="list-disc space-y-1 pl-4 text-gray-600 dark:text-gray-300">
+        <li>Facebook Login for Business configuration ID is connected to the Meta app.</li>
+        <li>App has WhatsApp permissions and uses HTTPS in the app domain/login settings.</li>
+        <li>Business portfolio admin completes Embedded Signup and selects or creates a WABA.</li>
+        <li>Phone number can receive SMS or voice verification and is eligible for Business Platform use.</li>
+        <li>Webhook callback is configured for message events and points to Docmee.</li>
+      </ul>
+      <div className="mt-2">
+        <WebhookRow url={webhookUrl} />
+      </div>
+    </div>
+  )
+}
+
+function WhatsAppOperatingStandards() {
+  const standards = [
+    ['Cloud API', 'Use the configured Graph API version for messages, media, templates, and phone metadata.'],
+    ['Webhooks', 'Subscribe the app to WhatsApp Business Account message events and verify the callback URL.'],
+    ['Error codes', 'Review Meta error codes from failed sends; retry only when the error is transient or rate-limit related.'],
+    ['Policy', 'Keep templates, automations, and patient messaging compliant with WhatsApp Business policy enforcement.'],
+    ['Rate limits', 'Avoid bursts to the same recipient and respect business quality / throughput limits.'],
+    ['Opt-in', 'Only initiate WhatsApp conversations where the clinic has captured valid user opt-in.'],
+    ['Changelog', 'Review the Business Platform changelog before changing Graph API versions or message behavior.'],
+  ] as const
+  return (
+    <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-left text-xs dark:border-gray-800 dark:bg-gray-950/60">
+      <h4 className="font-semibold text-gray-900 dark:text-gray-50">Production standards</h4>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {standards.map(([title, body]) => (
+          <div key={title} className="rounded-md border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-900">
+            <p className="font-medium text-gray-800 dark:text-gray-100">{title}</p>
+            <p className="mt-0.5 text-gray-500 dark:text-gray-400">{body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function WhatsAppBookingReadiness() {
+  const items = [
+    ['Dedicated number', 'Use a clinic-owned mobile or landline that can receive SMS or voice verification and is reserved for business messaging.'],
+    ['Meta Business', 'Connect the clinic business portfolio/WABA so ownership, billing, verification, and phone assets are managed in Meta.'],
+    ['Cloud API path', 'Use WhatsApp Business Platform for Docmee automation, shared inbox, AI assistant replies, reminders, and confirmations.'],
+    ['Booking templates', 'Create approved templates for appointment confirmation, reminder, reschedule, cancellation, and follow-up messages.'],
+    ['Patient opt-in', 'Capture consent before Docmee initiates WhatsApp reminders or booking confirmations outside an active patient thread.'],
+    ['wa.me intake', 'Add a pre-filled booking request link on the website or ads for patient-initiated conversations.'],
+  ] as const
+  return (
+    <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-left text-xs dark:border-emerald-900 dark:bg-emerald-950/30">
+      <h4 className="font-semibold text-emerald-900 dark:text-emerald-100">Booking system readiness</h4>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {items.map(([title, body]) => (
+          <div key={title} className="rounded-md bg-white/80 p-2 dark:bg-gray-950/40">
+            <p className="font-medium text-gray-800 dark:text-gray-100">{title}</p>
+            <p className="mt-0.5 text-gray-600 dark:text-gray-300">{body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HelpPills({ kind }: { kind: 'whatsapp' | 'meta' }) {
+  const [open, setOpen] = useState<'requirements' | 'migration' | null>(null)
+  const isWhatsApp = kind === 'whatsapp'
+  return (
+    <div className="mt-3 text-left">
+      <div className="flex flex-wrap justify-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(open === 'requirements' ? null : 'requirements')}
+          className="rounded-full border border-gray-300 px-3 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          Meta requirements
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(open === 'migration' ? null : 'migration')}
+          className="rounded-full border border-gray-300 px-3 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          {isWhatsApp ? 'Number migration guide' : 'Setup guide'}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-300">
+          {open === 'requirements' ? (
+            isWhatsApp ? (
+              <ul className="list-disc space-y-1 pl-4">
+                <li>Meta Business portfolio with admin access.</li>
+                <li>WhatsApp Business Account connected to the Meta app.</li>
+                <li>Verified business phone number with SMS or voice access.</li>
+                <li>Phone number ID, WABA/API access token, webhook callback URL, and verify token.</li>
+                <li>Global Meta app secret must be configured on the VPS for signed webhook POSTs.</li>
+              </ul>
+            ) : (
+              <ul className="list-disc space-y-1 pl-4">
+                <li>Meta Business portfolio with admin access to the Page/professional account.</li>
+                <li>Meta app with Messenger/Instagram permissions configured.</li>
+                <li>Page or Instagram account ID, access token, webhook callback URL, and verify token.</li>
+                <li>Subscribe the app to messages and delivery/read events for the channel.</li>
+              </ul>
+            )
+          ) : isWhatsApp ? (
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>If the number is used in personal WhatsApp, plan a migration window or use a new number.</li>
+              <li>Move/onboard the number into WhatsApp Business Platform through Meta Business Manager.</li>
+              <li>Complete phone verification and copy the phone number ID from WhatsApp API setup.</li>
+              <li>Create a long-lived/system-user token with WhatsApp permissions.</li>
+              <li>Save the credentials here, then verify the webhook in Meta.</li>
+            </ol>
+          ) : (
+            <ol className="list-decimal space-y-1 pl-4">
+              <li>Open Meta Developer settings for the connected app.</li>
+              <li>Add the Messenger or Instagram product and connect the Page/account.</li>
+              <li>Generate or copy a Page/account access token with message permissions.</li>
+              <li>Paste the ID/token/verify token here and save.</li>
+              <li>Verify the webhook callback in Meta and subscribe to message events.</li>
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WizardShell({
+  title,
+  recommendedTitle,
+  recommendedBody,
+  recommendedButton,
+  children,
+}: {
+  title: string
+  recommendedTitle: string
+  recommendedBody: string
+  recommendedButton: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-center dark:border-gray-800 dark:bg-gray-950/50">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-50">{title}</h3>
+      <div className="relative mt-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+        <span className="absolute right-3 top-3 rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-medium text-white">
+          Recommended
+        </span>
+        <h4 className="mt-6 text-sm font-semibold text-gray-900 dark:text-gray-50 sm:mt-2">{recommendedTitle}</h4>
+        <p className="mx-auto mt-2 max-w-xl text-xs text-gray-500 dark:text-gray-400">{recommendedBody}</p>
+        <div className="mt-3">{recommendedButton}</div>
+      </div>
+      <div className="my-3 text-xs font-semibold text-gray-500">OR</div>
+      <div className="rounded-lg border border-gray-200 bg-white p-3 text-left dark:border-gray-800 dark:bg-gray-900">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function MetaChannelWizard({ card, clinic, onSaved }: { card: ServiceCard; clinic: Clinic; onSaved: () => void }) {
+  const isMessenger = card.key === 'messenger'
+  const settings = clinic.settings as ClinicSettings
+  const [idValue, setIdValue] = useState(isMessenger ? (clinic.messengerPageId ?? '') : (clinic.instagramAccountId ?? ''))
+  const [token, setToken] = useState('')
+  const [verifyToken, setVerifyToken] = useState(
+    isMessenger ? (clinic.messengerWebhookVerifyToken ?? '') : (clinic.instagramWebhookVerifyToken ?? ''),
+  )
+  const [expiresAt, setExpiresAt] = useState(
+    isMessenger
+      ? (settings.messengerTokenExpiresAt?.slice(0, 10) ?? '')
+      : (settings.instagramTokenExpiresAt?.slice(0, 10) ?? ''),
+  )
+  const [message, setMessage] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: () => {
+      const body: Record<string, unknown> = {
+        settings: {
+          ...settings,
+          ...(isMessenger ? { messengerTokenExpiresAt: expiresAt || undefined } : { instagramTokenExpiresAt: expiresAt || undefined }),
+        },
+      }
+      if (isMessenger) {
+        body.messengerPageId = idValue.trim()
+        body.messengerWebhookVerifyToken = verifyToken.trim()
+        body.messengerEnabled = true
+        if (token.trim()) body.messengerPageAccessToken = token.trim()
+      } else {
+        body.instagramAccountId = idValue.trim()
+        body.instagramWebhookVerifyToken = verifyToken.trim()
+        body.instagramEnabled = true
+        if (token.trim()) body.instagramPageAccessToken = token.trim()
+      }
+      return api.patch(`/clinics/${clinic.id}`, body)
+    },
+    onSuccess: () => {
+      setToken('')
+      setMessage(`${isMessenger ? 'Messenger' : 'Instagram'} settings saved.`)
+      onSaved()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not save settings.'),
+  })
+  const label = isMessenger ? 'Messenger' : 'Instagram'
+  const idLabel = isMessenger ? 'Facebook Page ID' : 'Instagram account ID'
+  return (
+    <WizardShell
+      title={`${label} setup`}
+      recommendedTitle={`Connect ${label} with Facebook`}
+      recommendedBody="Use a Meta admin account for the connected Page or professional account. Embedded signup is the fastest path once the Meta app is configured."
+      recommendedButton={
+        <button type="button" disabled className="min-h-10 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white opacity-60">
+          Continue with Facebook
+        </button>
+      }
+    >
+      <h4 className="text-center text-sm font-semibold">More Options (Advanced)</h4>
+      <p className="mt-1 text-center text-xs text-gray-500 dark:text-gray-400">
+        If you already have the Page/account ID, access token, and webhook verify token, save them here.
+      </p>
+      <HelpPills kind="meta" />
+      <div className="mt-3 space-y-2 text-xs">
+        {card.webhookUrl && <WebhookRow url={card.webhookUrl} />}
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">{idLabel}</span>
+          <input value={idValue} onChange={(e) => setIdValue(e.target.value)} className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" required />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Access token {idValue ? '(leave blank to keep existing)' : ''}</span>
+          <input value={token} onChange={(e) => setToken(e.target.value)} type="password" className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Webhook verify token</span>
+          <input value={verifyToken} onChange={(e) => setVerifyToken(e.target.value)} type="password" className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Token expires</span>
+          <input value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} type="date" className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" />
+        </label>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <p className={save.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+          <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+            {save.isPending ? 'Saving...' : `Connect ${label}`}
+          </button>
+        </div>
+      </div>
+    </WizardShell>
+  )
+}
+
+function CalendarWizard({ clinic, onSaved }: { clinic: Clinic; onSaved: () => void }) {
+  const [message, setMessage] = useState<string | null>(null)
+  const disconnect = useMutation({
+    mutationFn: () => api.del(`/clinic/${clinic.id}/calendar/disconnect`),
+    onSuccess: () => {
+      setMessage('Google Calendar disconnected.')
+      onSaved()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect calendar.'),
+  })
+  return (
+    <WizardShell
+      title="Google Calendar setup"
+      recommendedTitle="Connect with Google for booking sync"
+      recommendedBody="Authorize the clinic Google account so Docmee can create appointment events and reuse the same consent for Google Sheets export."
+      recommendedButton={
+        <a href={`${API_BASE}/clinic/${clinic.id}/calendar/auth`} className="inline-flex min-h-10 items-center rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white">
+          Continue with Google
+        </a>
+      }
+    >
+      <h4 className="text-center text-sm font-semibold">More Options (Advanced)</h4>
+      <p className="mt-1 text-center text-xs text-gray-500 dark:text-gray-400">
+        Calendar uses Google OAuth. If the wrong account is connected, disconnect and run the Google connection again.
+      </p>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className={disconnect.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+        <button type="button" onClick={() => disconnect.mutate()} disabled={disconnect.isPending} className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-60 dark:border-red-900 dark:text-red-300">
+          {disconnect.isPending ? 'Disconnecting...' : 'Disconnect calendar'}
+        </button>
+      </div>
+    </WizardShell>
+  )
+}
+
+function SheetsWizard({ clinic, onSaved }: { clinic: Clinic; onSaved: () => void }) {
+  const settings = clinic.settings as ClinicSettings
+  const sheets = settings.googleSheets ?? {}
+  const [enabled, setEnabled] = useState(Boolean(sheets.enabled))
+  const [spreadsheetId, setSpreadsheetId] = useState(sheets.spreadsheetId ?? '')
+  const [sheetName, setSheetName] = useState(sheets.sheetName ?? 'Patients')
+  const [message, setMessage] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: () => api.patch(`/clinics/${clinic.id}`, { settings: { ...settings, googleSheets: { enabled, spreadsheetId: spreadsheetId.trim(), sheetName: sheetName.trim() || 'Patients' } } }),
+    onSuccess: () => {
+      setMessage('Google Sheets settings saved.')
+      onSaved()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not save Sheets settings.'),
+  })
+  return (
+    <WizardShell
+      title="Google Sheets setup"
+      recommendedTitle="Use the connected Google account"
+      recommendedBody="Connect Google Calendar first, then choose the spreadsheet where Docmee should sync CRM exports. The same Google authorization includes Sheets access."
+      recommendedButton={
+        <a href={`${API_BASE}/clinic/${clinic.id}/calendar/auth`} className="inline-flex min-h-10 items-center rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white">
+          Continue with Google
+        </a>
+      }
+    >
+      <h4 className="text-center text-sm font-semibold">More Options (Advanced)</h4>
+      <p className="mt-1 text-center text-xs text-gray-500 dark:text-gray-400">
+        Already have a spreadsheet? Paste its ID and choose the sheet tab name.
+      </p>
+      <div className="mt-3 space-y-2 text-xs">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Enable Google Sheets export
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Spreadsheet ID</span>
+          <input value={spreadsheetId} onChange={(e) => setSpreadsheetId(e.target.value)} className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Sheet name</span>
+          <input value={sheetName} onChange={(e) => setSheetName(e.target.value)} className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950" />
+        </label>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <p className={save.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+          <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">
+            {save.isPending ? 'Saving...' : 'Save Sheets setup'}
+          </button>
+        </div>
+      </div>
+    </WizardShell>
+  )
+}
+
+function WebhookRow({ url }: { url: string }) {
+  const { t } = useI18n()
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard may be unavailable (insecure context); silently no-op.
+    }
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="shrink-0 text-[10px] font-medium uppercase text-gray-400">
+        {t('studio.channels.webhook')}
+      </span>
+      <code className="min-w-0 flex-1 truncate rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+        {url}
+      </code>
+      <button
+        type="button"
+        onClick={copy}
+        className="shrink-0 rounded border border-gray-300 px-1.5 py-0.5 text-[10px] hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+      >
+        {copied ? t('studio.channels.copied') : t('studio.channels.copy')}
+      </button>
+    </div>
+  )
+}
+
+function WhatsAppCard({
+  clinicId,
+  account,
+  webhookUrl,
+  onSaved,
+}: {
+  clinicId: string
+  account: ChannelAccount | null
+  webhookUrl: string
+  onSaved: () => void
+}) {
+  const { t } = useI18n()
+  const [step, setStep] = useState<'start' | 'prerequisites' | 'number' | 'prepare' | 'credentials' | 'twilio' | 'evolution'>(
+    account?.provider === 'twilio_whatsapp'
+      ? 'twilio'
+      : account?.provider === 'evolution_test'
+        ? 'evolution'
+        : account
+          ? 'credentials'
+          : 'start',
+  )
+  const [numberType, setNumberType] = useState<'standard' | 'business-app' | 'cloud-ready' | 'new-number' | null>(
+    account ? 'cloud-ready' : null,
+  )
+  const [prereqs, setPrereqs] = useState<Record<string, boolean>>({
+    business: false,
+    website: false,
+    payment: false,
+    policy: false,
+    phone: false,
+  })
+  const [accountId, setAccountId] = useState(account?.accountId ?? '')
+  const [displayName, setDisplayName] = useState(account?.displayName ?? '')
+  const [accessToken, setAccessToken] = useState('')
+  const [webhookVerifyToken, setWebhookVerifyToken] = useState('')
+  const [tokenExpiresAt, setTokenExpiresAt] = useState(account?.tokenExpiresAt?.slice(0, 10) ?? '')
+  const [twilioAccountSid, setTwilioAccountSid] = useState(account?.provider === 'twilio_whatsapp' ? account.accountId : '')
+  const [twilioAuthToken, setTwilioAuthToken] = useState('')
+  const [twilioMessagingServiceSid, setTwilioMessagingServiceSid] = useState(account?.twilioMessagingServiceSid ?? '')
+  const [twilioWhatsappFrom, setTwilioWhatsappFrom] = useState(account?.twilioWhatsappFrom ?? '')
+  const [twilioWabaId, setTwilioWabaId] = useState('')
+  const [twilioSenderPhone, setTwilioSenderPhone] = useState('')
+  const [evolutionInstance, setEvolutionInstance] = useState(
+    account?.provider === 'evolution_test' ? account.evolutionInstance ?? account.accountId : 'docmee2',
+  )
+  const [message, setMessage] = useState<string | null>(null)
+  const metaConfigQuery = useQuery({
+    queryKey: ['meta-embedded-signup-config'],
+    queryFn: () => api.get<MetaEmbeddedSignupConfig>('/channels/meta-config'),
+  })
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.put<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp`, {
+        accountId: accountId.trim(),
+        displayName: displayName.trim() || undefined,
+        accessToken: accessToken.trim() || undefined,
+        webhookVerifyToken: webhookVerifyToken.trim() || undefined,
+        tokenExpiresAt: tokenExpiresAt || undefined,
+        status: 'active',
+      }),
+    onSuccess: (data) => {
+      setAccessToken('')
+      setWebhookVerifyToken('')
+      setAccountId(data.account.accountId)
+      setDisplayName(data.account.displayName ?? '')
+      setTokenExpiresAt(data.account.tokenExpiresAt?.slice(0, 10) ?? '')
+      setMessage('WhatsApp account saved.')
+      setStep('credentials')
+      setNumberType('cloud-ready')
+      onSaved()
+    },
+    onError: (error) => {
+      setMessage(error instanceof Error ? error.message : 'Could not save WhatsApp account.')
+    },
+  })
+  const twilioMutation = useMutation({
+    mutationFn: () =>
+      api.put<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp`, {
+        provider: 'twilio_whatsapp',
+        accountId: twilioAccountSid.trim(),
+        displayName: displayName.trim() || 'Twilio WhatsApp',
+        accessToken: twilioAuthToken.trim() || undefined,
+        webhookVerifyToken: webhookVerifyToken.trim() || undefined,
+        twilioMessagingServiceSid: twilioMessagingServiceSid.trim() || undefined,
+        twilioWhatsappFrom: twilioWhatsappFrom.trim() || undefined,
+        status: 'active',
+      }),
+    onSuccess: (data) => {
+      setTwilioAuthToken('')
+      setWebhookVerifyToken('')
+      setTwilioAccountSid(data.account.accountId)
+      setDisplayName(data.account.displayName ?? '')
+      setTwilioMessagingServiceSid(data.account.twilioMessagingServiceSid ?? '')
+      setTwilioWhatsappFrom(data.account.twilioWhatsappFrom ?? '')
+      setMessage('Twilio WhatsApp provider saved.')
+      setStep('twilio')
+      onSaved()
+    },
+    onError: (error) => {
+      setMessage(error instanceof Error ? error.message : 'Could not save Twilio provider.')
+    },
+  })
+  const twilioSenderMutation = useMutation({
+    mutationFn: () =>
+      api.post<{
+        account: ChannelAccount
+        sender: { sid: string; senderId: string; status: string; callbackUrl: string; statusCallbackUrl: string }
+      }>(`/clinics/${clinicId}/channels/whatsapp/twilio-sender`, {
+        accountSid: twilioAccountSid.trim(),
+        authToken: twilioAuthToken.trim(),
+        senderId: twilioSenderPhone.trim(),
+        wabaId: twilioWabaId.trim() || undefined,
+        profileName: displayName.trim() || undefined,
+      }),
+    onSuccess: (data) => {
+      setTwilioAuthToken('')
+      setTwilioWhatsappFrom(data.sender.senderId)
+      setTwilioSenderPhone(data.sender.senderId)
+      setDisplayName(data.account.displayName ?? '')
+      setMessage(`Twilio sender ${data.sender.sid} registered.`)
+      onSaved()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not register Twilio sender.'),
+  })
+  const evolutionMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.put<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp`, {
+        provider: 'evolution_test',
+        accountId: evolutionInstance.trim() || 'docmee2',
+        displayName: 'Test mode',
+        evolutionInstance: evolutionInstance.trim() || 'docmee2',
+        status: enabled ? 'active' : 'inactive',
+      }),
+    onSuccess: (data) => {
+      setEvolutionInstance(data.account.evolutionInstance ?? data.account.accountId)
+      setMessage(data.account.status === 'active' ? 'Test mode enabled.' : 'Test mode disabled.')
+      setStep('evolution')
+      onSaved()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not update test mode.'),
+  })
+  const embeddedSignup = useMutation({
+    mutationFn: (payload: { code: string; phoneNumberId: string; wabaId?: string }) =>
+      api.post<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp/embedded-signup`, {
+        ...payload,
+        displayName: displayName.trim() || undefined,
+        webhookVerifyToken: webhookVerifyToken.trim() || undefined,
+      }),
+    onSuccess: (data) => {
+      setAccountId(data.account.accountId)
+      setDisplayName(data.account.displayName ?? '')
+      setAccessToken('')
+      setWebhookVerifyToken('')
+      setTokenExpiresAt(data.account.tokenExpiresAt?.slice(0, 10) ?? '')
+      setMessage('WhatsApp number linked through Facebook.')
+      setStep('credentials')
+      setNumberType('cloud-ready')
+      onSaved()
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not finish Facebook signup.'),
+  })
+
+  const status: ServiceStatus = account?.status === 'active' ? 'connected' : account ? 'pending' : 'disconnected'
+  const twilioWebhookUrl = `${API_BASE}/webhook/whatsapp/twilio`
+  const canContinue = Boolean(numberType)
+  const hasTwilioMessagingService = Boolean(twilioMessagingServiceSid.trim())
+  const hasTwilioWhatsappSender = Boolean(twilioWhatsappFrom.trim())
+  const canSaveTwilio = Boolean(twilioAccountSid.trim() && (hasTwilioMessagingService || hasTwilioWhatsappSender))
+  const evolutionEnabled = account?.provider === 'evolution_test' && account.status === 'active'
+  const needsPrep = numberType === 'standard' || numberType === 'business-app' || numberType === 'new-number'
+  const prereqItems = [
+    ['business', 'Legally registered business', 'The clinic should have a business name/address that can match Meta Business verification.'],
+    ['website', 'Valid website with privacy policy', 'Meta commonly checks for a public website and data/privacy policy for business messaging.'],
+    ['payment', 'Valid payment method', 'Add a debit/credit card in Meta Business Manager for WhatsApp conversations and verification.'],
+    ['policy', 'Compliant WhatsApp use case', 'Healthcare messaging must follow WhatsApp Business, commerce, and patient-consent rules.'],
+    ['phone', 'Phone can receive SMS or call', 'The number must not have active WhatsApp sessions when Meta asks to verify or migrate it.'],
+  ] as const
+  const allPrereqsReady = prereqItems.every(([id]) => prereqs[id])
+  const setAllPrereqs = (checked: boolean) =>
+    setPrereqs(Object.fromEntries(prereqItems.map(([id]) => [id, checked])) as Record<string, boolean>)
+  async function continueWithFacebook() {
+    const config = metaConfigQuery.data
+    if (!config?.isConfigured || !config.appId || !config.configId) {
+      const missing = config?.missing?.length ? ` Missing: ${config.missing.join(', ')}.` : ''
+      setMessage(`Meta Embedded Signup is not configured yet.${missing}`)
+      setStep('prerequisites')
+      return
+    }
+
+    setMessage('Opening Facebook setup...')
+    try {
+      await loadFacebookSdk(config.appId, config.graphApiVersion)
+      const assets: EmbeddedSignupAssets = {}
+      let resolveAssets: (value: EmbeddedSignupAssets) => void = () => undefined
+      const assetsReady = new Promise<EmbeddedSignupAssets>((resolve) => {
+        resolveAssets = resolve
+      })
+      const timeout = window.setTimeout(() => resolveAssets(assets), 5000)
+      const listener = (event: MessageEvent) => {
+        const parsed = parseEmbeddedSignupMessage(event)
+        if (!parsed) return
+        if (parsed.event === 'ERROR') {
+          window.clearTimeout(timeout)
+          resolveAssets({ event: 'ERROR', errorMessage: parsed.errorMessage ?? 'Meta Embedded Signup returned an error.' })
+          return
+        }
+        if (parsed.event === 'CANCEL') {
+          window.clearTimeout(timeout)
+          resolveAssets({ event: 'CANCEL' })
+          return
+        }
+        if (parsed.event && parsed.event !== 'FINISH') return
+        Object.assign(assets, parsed)
+        if (assets.phoneNumberId) {
+          window.clearTimeout(timeout)
+          resolveAssets(assets)
+        }
+      }
+      window.addEventListener('message', listener)
+      window.FB?.login(
+        async (response) => {
+          window.removeEventListener('message', listener)
+          const code = response.authResponse?.code
+          const returnedAssets = assets.phoneNumberId ? assets : await assetsReady
+          if (!code) {
+            setMessage('Facebook setup was cancelled before authorization finished.')
+            return
+          }
+          if (returnedAssets.event === 'ERROR') {
+            setMessage(returnedAssets.errorMessage ?? 'Meta Embedded Signup returned an error.')
+            setStep('prepare')
+            return
+          }
+          if (returnedAssets.event === 'CANCEL') {
+            setMessage('Facebook setup was cancelled. You can try again or use Cloud API setup.')
+            setStep('number')
+            return
+          }
+          if (!returnedAssets.phoneNumberId) {
+            setMessage('Facebook returned authorization, but no WhatsApp phone number ID. Try again after selecting a number.')
+            setStep('prepare')
+            return
+          }
+          embeddedSignup.mutate({
+            code,
+            phoneNumberId: returnedAssets.phoneNumberId,
+            wabaId: returnedAssets.wabaId,
+          })
+        },
+        {
+          config_id: config.configId,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: {
+            sessionInfoVersion: '3',
+            setup: {},
+          },
+        },
+      )
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not start Facebook setup.')
+    }
+  }
+
+  if (step === 'start') {
+    return (
+      <div className="col-span-1 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900 sm:col-span-2">
+        <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
+            <span className="text-3xl text-emerald-600">?</span>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50">WhatsApp Phone Number Setup</h2>
+
+          <div className="relative mt-6 w-full rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950/60">
+            <span className="absolute right-5 top-4 rounded-full bg-green-600 px-3 py-1 text-xs font-medium text-white">
+              Recommended
+            </span>
+            <h3 className="mt-8 text-base font-semibold text-gray-900 dark:text-gray-50 sm:mt-4">
+              Connect with Facebook for the fastest setup
+            </h3>
+            <div className="mx-auto mt-3 flex max-w-xl items-start gap-3 text-left text-sm text-gray-500 dark:text-gray-400">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-300">
+                ?
+              </span>
+              <p>
+                <strong className="text-gray-800 dark:text-gray-100">Recommended method:</strong> use an admin role on the clinic Facebook page or Meta Business portfolio for the smoothest setup.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={continueWithFacebook}
+              disabled={embeddedSignup.isPending}
+              className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-blue-600">f</span>
+              {embeddedSignup.isPending ? 'Linking...' : 'Continue with Facebook'}
+            </button>
+            <p className="mt-2 text-[11px] text-gray-400">
+              {metaConfigQuery.data?.isConfigured
+                ? 'Opens Facebook Login for Business and saves the selected WhatsApp number.'
+                : 'If Meta config is missing, Docmee will continue with the guided setup.'}
+            </p>
+            {message && <p className={message.includes('missing') || message.includes('cancelled') ? 'mt-2 text-xs text-amber-600' : 'mt-2 text-xs text-emerald-600'}>{message}</p>}
+            <HelpPills kind="whatsapp" />
+            <MetaStandardChecklist webhookUrl={webhookUrl} configured={metaConfigQuery.data?.isConfigured} />
+            <WhatsAppBookingReadiness />
+            <WhatsAppOperatingStandards />
+          </div>
+
+          <div className="my-4 text-sm font-semibold text-gray-700 dark:text-gray-300">OR</div>
+
+          <div className="w-full rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-50">More Options (Advanced)</h3>
+            <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500 dark:text-gray-400">
+              If you already have a verified number, phone number ID, WABA access token, and webhook verify token, continue with the Cloud API setup.
+            </p>
+            <HelpPills kind="whatsapp" />
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setNumberType('cloud-ready')
+                  setStep('credentials')
+                }}
+                className="min-h-11 rounded-md border border-blue-500 px-5 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-950/40"
+              >
+                Connect using Cloud API
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('number')}
+                className="min-h-11 rounded-md border border-gray-300 px-5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                Help me choose a path
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('twilio')}
+                className="min-h-11 rounded-md border border-sky-500 px-5 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-400 dark:text-sky-300 dark:hover:bg-sky-950/40"
+              >
+                Use Twilio instead
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('evolution')}
+                className="min-h-11 rounded-md border border-amber-500 px-5 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-400 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              >
+                Test mode
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <form
+      className="flex flex-col rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900 sm:col-span-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        setMessage(null)
+        mutation.mutate()
+      }}
+    >
+      <div className="flex items-start gap-2.5">
+        <ServiceTile svc="whatsapp" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{t('studio.channels.svc.whatsapp')}</p>
+          <p className="truncate text-xs text-gray-400">Connection wizard for WhatsApp Business Platform</p>
+        </div>
+        <StatusBadge status={status} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-1 text-[10px] font-medium sm:grid-cols-6">
+        {[
+          ['prerequisites', '1. Ready'],
+          ['number', '2. Number'],
+          ['prepare', '3. Meta'],
+          ['credentials', '4. Meta API'],
+          ['twilio', '5. Twilio'],
+          ['evolution', 'Test mode'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setStep(id as 'prerequisites' | 'number' | 'prepare' | 'credentials' | 'twilio' | 'evolution')}
+            className={
+              step === id
+                ? 'rounded-md bg-emerald-600 px-2 py-1 text-white'
+                : 'rounded-md bg-gray-100 px-2 py-1 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {step === 'prerequisites' && (
+        <div className="mt-3 grid gap-4 text-xs md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)]">
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-50">WhatsApp Bot Pre-requisites</h3>
+              <label className="flex items-center gap-2 text-[11px] font-medium text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={allPrereqsReady}
+                  onChange={(event) => setAllPrereqs(event.target.checked)}
+                />
+                Select all
+              </label>
+            </div>
+            <div className="space-y-2">
+              {prereqItems.map(([id, title, desc]) => (
+                <label
+                  key={id}
+                  className={
+                    prereqs[id]
+                      ? 'block rounded-md border border-emerald-300 bg-emerald-50 p-2 dark:border-emerald-900 dark:bg-emerald-950/30'
+                      : 'block rounded-md border border-gray-200 p-2 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50'
+                  }
+                >
+                  <span className="flex gap-2">
+                    <input
+                      type="checkbox"
+                      checked={prereqs[id]}
+                      onChange={(event) => setPrereqs((current) => ({ ...current, [id]: event.target.checked }))}
+                    />
+                    <span>
+                      <span className="block font-medium text-gray-800 dark:text-gray-100">{title}</span>
+                      <span className="block text-gray-500 dark:text-gray-400">{desc}</span>
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStep('start')}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                disabled={!allPrereqsReady}
+                onClick={() => setStep('number')}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Proceed
+              </button>
+            </div>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center dark:border-gray-800 dark:bg-gray-950/50">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-gray-200 bg-white text-2xl shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              ?
+            </div>
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-50">Let Docmee guide the setup</h4>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              Once these items are ready, the next screens help choose the number path, collect Meta credentials, and save the webhook details.
+            </p>
+            <button
+              type="button"
+              onClick={() => setStep('number')}
+              className="mt-4 rounded-full bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+            >
+              WhatsApp now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'number' && (
+        <div className="mt-3 space-y-2 text-xs">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center dark:border-gray-800 dark:bg-gray-950/50">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-50">WhatsApp Phone Number Setup</h3>
+            <div className="relative mt-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+              <span className="absolute right-4 top-3 rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-medium text-white">
+                Recommended
+              </span>
+              <h4 className="mt-6 text-sm font-semibold text-gray-900 dark:text-gray-50 sm:mt-2">
+                Connect with Facebook for the fastest setup
+              </h4>
+              <p className="mx-auto mt-2 max-w-xl text-xs text-gray-500 dark:text-gray-400">
+                Use an admin role on the clinic Facebook page or Meta Business portfolio. Docmee will guide the steps now; real Meta login can be attached later.
+              </p>
+              <button
+                type="button"
+                onClick={continueWithFacebook}
+                disabled={embeddedSignup.isPending}
+                className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-blue-600">f</span>
+                {embeddedSignup.isPending ? 'Linking...' : 'Continue with Facebook'}
+              </button>
+            </div>
+            <div className="my-3 text-xs font-semibold text-gray-500">OR</div>
+            <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-50">More Options (Advanced)</h4>
+              <p className="mx-auto mt-1 max-w-xl text-xs text-gray-500 dark:text-gray-400">
+                If you already have a verified number, phone number ID, WABA ID, and access token, connect directly with Cloud API.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setNumberType('cloud-ready')
+                  setStep('credentials')
+                }}
+                className="mt-3 rounded-md border border-blue-500 px-4 py-2 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-300 dark:hover:bg-blue-950/40"
+              >
+                Connect using Cloud API
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('twilio')}
+                className="ml-2 mt-3 rounded-md border border-sky-500 px-4 py-2 text-xs font-medium text-sky-700 hover:bg-sky-50 dark:border-sky-400 dark:text-sky-300 dark:hover:bg-sky-950/40"
+              >
+                Connect with Twilio
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('evolution')}
+                className="ml-2 mt-3 rounded-md border border-amber-500 px-4 py-2 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-400 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              >
+                Test mode
+              </button>
+            </div>
+            <MetaStandardChecklist webhookUrl={webhookUrl} configured={metaConfigQuery.data?.isConfigured} />
+          </div>
+          <p className="pt-2 text-gray-500 dark:text-gray-400">
+            Choose the exact number state when the clinic is not already Cloud API-ready.
+          </p>
+          {[
+            ['standard', 'Standard personal WhatsApp number', 'Used in the regular WhatsApp app. It cannot connect directly until it is moved/onboarded to the Business Platform.'],
+            ['business-app', 'WhatsApp Business app number', 'Used in the WhatsApp Business mobile app. It may be eligible for Business Platform onboarding/coexistence.'],
+            ['cloud-ready', 'Already have Cloud API credentials', 'You have the Meta phone number ID and a permanent/system-user access token.'],
+            ['new-number', 'Use a new business number', 'Recommended when you do not want to disrupt the existing clinic WhatsApp line.'],
+          ].map(([id, title, desc]) => (
+            <label
+              key={id}
+              className={
+                numberType === id
+                  ? 'block rounded-md border border-emerald-400 bg-emerald-50 p-2 dark:border-emerald-800 dark:bg-emerald-950/30'
+                  : 'block rounded-md border border-gray-200 p-2 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50'
+              }
+            >
+              <span className="flex gap-2">
+                <input
+                  type="radio"
+                  name="wa-number-type"
+                  checked={numberType === id}
+                  onChange={() => setNumberType(id as typeof numberType)}
+                />
+                <span>
+                  <span className="block font-medium text-gray-800 dark:text-gray-100">{title}</span>
+                  <span className="block text-gray-500 dark:text-gray-400">{desc}</span>
+                </span>
+              </span>
+            </label>
+          ))}
+            <button
+              type="button"
+              onClick={() => setStep('prerequisites')}
+              className="mt-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              disabled={!canContinue}
+              onClick={() => setStep(needsPrep ? 'prepare' : 'credentials')}
+              className="ml-2 mt-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              Continue
+            </button>
+        </div>
+      )}
+
+      {step === 'prepare' && (
+        <div className="mt-3 space-y-2 text-xs text-gray-600 dark:text-gray-300">
+          {numberType === 'standard' && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              A standard WhatsApp Messenger number cannot be connected directly. Convert the line to WhatsApp Business/Business Platform or choose a new number before continuing.
+            </div>
+          )}
+          {numberType === 'business-app' && (
+            <div className="rounded-md border border-blue-300 bg-blue-50 p-2 text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+              Open Meta Business Manager and onboard this WhatsApp Business app number to a WhatsApp Business Account. If coexistence is available for the account, follow Meta's onboarding flow; otherwise migration may require removing the number from the app first.
+            </div>
+          )}
+          {numberType === 'new-number' && (
+            <div className="rounded-md border border-emerald-300 bg-emerald-50 p-2 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+              Add a fresh phone number in Meta Business Manager, verify it by SMS or call, then use its phone number ID below. This avoids interrupting the existing clinic WhatsApp app.
+            </div>
+          )}
+          <ol className="list-decimal space-y-1 pl-4">
+            <li>Create or open the clinic's Meta Business portfolio.</li>
+            <li>Add WhatsApp to a Meta app and create/select a WhatsApp Business Account.</li>
+            <li>Add the clinic phone number and complete Meta phone verification.</li>
+            <li>Copy the phone number ID from WhatsApp API Setup.</li>
+            <li>Create a long-lived/system-user access token with WhatsApp permissions.</li>
+            <li>Set the callback URL to the webhook shown below and use the verify token you save here.</li>
+          </ol>
+          <WebhookRow url={webhookUrl} />
+          <MetaStandardChecklist webhookUrl={webhookUrl} configured={metaConfigQuery.data?.isConfigured} />
+          <WhatsAppBookingReadiness />
+          <WhatsAppOperatingStandards />
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setStep('start')}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep('credentials')}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white"
+            >
+              I have the Meta credentials
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'evolution' && (
+        <div className="mt-2.5 space-y-3 text-xs">
+          <div
+            className={
+              evolutionEnabled
+                ? 'rounded-md bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                : 'rounded-md bg-amber-50 p-2 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+            }
+          >
+            Evolution API test mode is {evolutionEnabled ? 'enabled' : 'disabled'}.
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)]">
+            <div className="space-y-2">
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Evolution instance</span>
+                <input
+                  value={evolutionInstance}
+                  onChange={(event) => setEvolutionInstance(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  placeholder="docmee2"
+                />
+              </label>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/50">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-50">Test mode</p>
+                  <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    Use the linked Evolution API instance for WhatsApp testing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={evolutionEnabled}
+                  onClick={() => {
+                    setMessage(null)
+                    evolutionMutation.mutate(!evolutionEnabled)
+                  }}
+                  disabled={evolutionMutation.isPending || !evolutionInstance.trim()}
+                  className={
+                    evolutionEnabled
+                      ? 'relative h-6 w-11 rounded-full bg-emerald-600 transition disabled:opacity-60'
+                      : 'relative h-6 w-11 rounded-full bg-gray-300 transition disabled:opacity-60 dark:bg-gray-700'
+                  }
+                >
+                  <span
+                    className={
+                      evolutionEnabled
+                        ? 'absolute left-6 top-1 h-4 w-4 rounded-full bg-white transition'
+                        : 'absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition'
+                    }
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+              <h3 className="text-sm font-semibold">Test mode</h3>
+              <div className="mt-2 space-y-1 text-[11px]">
+                <p>Provider: Evolution API</p>
+                <p>Instance: {evolutionInstance.trim() || 'docmee2'}</p>
+                {account?.provider === 'evolution_test' && account.evolutionApiUrl ? <p>API: {account.evolutionApiUrl}</p> : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+            <button
+              type="button"
+              onClick={() => setStep('start')}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
+            >
+              Back
+            </button>
+            <p className={evolutionMutation.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setMessage(null)
+                evolutionMutation.mutate(true)
+              }}
+              disabled={evolutionMutation.isPending || !evolutionInstance.trim()}
+              className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            >
+              {evolutionMutation.isPending ? 'Saving...' : evolutionEnabled ? 'Update test mode' : 'Enable test mode'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'twilio' && (
+        <div className="mt-2.5 space-y-3 text-xs">
+          {account?.provider === 'twilio_whatsapp' ? (
+            <div className="rounded-md bg-sky-50 p-2 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+              Twilio provider connected with Account SID {account.accountId}. Auth token{' '}
+              {account.hasAccessToken ? 'stored' : 'missing'}.
+              {account.twilioSenderSid ? ` Sender ${account.twilioSenderSid} is ${account.twilioSenderStatus ?? 'registered'}.` : ''}
+            </div>
+          ) : (
+            <div className="rounded-md bg-sky-50 p-2 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+              Connect Twilio as the WhatsApp provider for this clinic. This keeps Docmee conversations on WhatsApp while reducing direct Meta setup work.
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)]">
+            <div className="space-y-2">
+              <WebhookRow url={twilioWebhookUrl} />
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Twilio Account SID</span>
+                <input
+                  value={twilioAccountSid}
+                  onChange={(event) => setTwilioAccountSid(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+                  Twilio Auth Token {account?.provider === 'twilio_whatsapp' && account.hasAccessToken ? '(leave blank to keep existing)' : ''}
+                </span>
+                <input
+                  value={twilioAuthToken}
+                  onChange={(event) => setTwilioAuthToken(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  placeholder="Stored securely after save"
+                  type="password"
+                  required={account?.provider !== 'twilio_whatsapp' || !account.hasAccessToken}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+                  Messaging Service SID {hasTwilioWhatsappSender ? '(optional)' : '(or use sender below)'}
+                </span>
+                <input
+                  value={twilioMessagingServiceSid}
+                  onChange={(event) => setTwilioMessagingServiceSid(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  type="password"
+                />
+                <span className="mt-1 block text-[11px] text-gray-400">
+                  Stored encrypted and shown as **** after saving. Leave **** in place to keep the saved SID.
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+                  Twilio WhatsApp sender number {hasTwilioMessagingService ? '(optional)' : '(or use Messaging Service above)'}
+                </span>
+                <input
+                  value={twilioWhatsappFrom}
+                  onChange={(event) => setTwilioWhatsappFrom(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  placeholder="whatsapp:+14155238886"
+                />
+                <span className="mt-1 block text-[11px] text-gray-400">
+                  Use a Twilio-approved WhatsApp Business sender; Docmee will add the whatsapp: prefix if omitted.
+                </span>
+              </label>
+              <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+                <h3 className="text-sm font-semibold text-sky-900 dark:text-sky-100">Register a WhatsApp sender</h3>
+                <p className="mt-1 text-[11px] text-sky-800 dark:text-sky-200">
+                  Use this when the clinic completed Twilio Embedded Signup and you have the WABA ID plus phone number.
+                  WABA ID is required for the first sender on a subaccount; additional senders can usually omit it.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block font-medium text-sky-900 dark:text-sky-100">WABA ID</span>
+                    <input
+                      value={twilioWabaId}
+                      onChange={(event) => setTwilioWabaId(event.target.value)}
+                      className="w-full rounded-md border border-sky-200 bg-white px-2 py-1.5 text-sm dark:border-sky-900 dark:bg-gray-950"
+                      placeholder="123456789012345"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block font-medium text-sky-900 dark:text-sky-100">Sender phone</span>
+                    <input
+                      value={twilioSenderPhone}
+                      onChange={(event) => setTwilioSenderPhone(event.target.value)}
+                      className="w-full rounded-md border border-sky-200 bg-white px-2 py-1.5 text-sm dark:border-sky-900 dark:bg-gray-950"
+                      placeholder="+50255550001"
+                    />
+                  </label>
+                </div>
+                <div className="mt-2 rounded-md border border-sky-200 bg-white/70 p-2 text-[11px] text-sky-800 dark:border-sky-900 dark:bg-gray-950/40 dark:text-sky-200">
+                  Docmee sends Twilio: sender_id, optional waba_id, callback_url, fallback_url, status_callback_url,
+                  and profile.name when provided.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessage(null)
+                    twilioSenderMutation.mutate()
+                  }}
+                  disabled={
+                    twilioSenderMutation.isPending ||
+                    !twilioAccountSid.trim() ||
+                    !twilioAuthToken.trim() ||
+                    !twilioSenderPhone.trim()
+                  }
+                  className="mt-2 rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                >
+                  {twilioSenderMutation.isPending ? 'Registering...' : 'Register sender with Twilio'}
+                </button>
+              </div>
+              <label className="block">
+                <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Display name</span>
+                <input
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  placeholder="Twilio WhatsApp"
+                />
+              </label>
+            </div>
+
+            <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+              <h3 className="text-sm font-semibold">Twilio setup checklist</h3>
+              <ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px]">
+                <li>Onboard or verify the clinic WhatsApp Business sender in Twilio.</li>
+                <li>Paste this webhook URL into Twilio's inbound message callback.</li>
+                <li>Use the Account SID and Auth Token from the Twilio Console.</li>
+                <li>Set either a Messaging Service SID or the Twilio-approved WhatsApp sender number.</li>
+                <li>Send a sandbox or live WhatsApp test after saving.</li>
+              </ol>
+              <div className="mt-3 rounded-md border border-sky-200 bg-white/70 p-2 text-[11px] dark:border-sky-900 dark:bg-gray-950/40">
+                Messaging Service SIDs are encrypted and masked as **** after saving. A WhatsApp sender can replace the Messaging Service SID when the sender is hosted in this Twilio account.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+            <button
+              type="button"
+              onClick={() => setStep('start')}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
+            >
+              Back
+            </button>
+            <p className={twilioMutation.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setMessage(null)
+                twilioMutation.mutate()
+              }}
+              disabled={twilioMutation.isPending || !canSaveTwilio}
+              className="shrink-0 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            >
+              {twilioMutation.isPending ? 'Saving...' : account?.provider === 'twilio_whatsapp' ? 'Update Twilio' : 'Connect Twilio'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'credentials' && (
+        <div className="mt-2.5 space-y-2 text-xs">
+          {account ? (
+            <div className="rounded-md bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+              Connected phone ID {account.accountId}. Token {account.hasAccessToken ? 'stored' : 'missing'}.
+            </div>
+          ) : (
+            <div className="rounded-md bg-amber-50 p-2 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              Save the Meta Cloud API credentials to activate WhatsApp for this clinic.
+            </div>
+          )}
+          <WebhookRow url={webhookUrl} />
+          <WhatsAppBookingReadiness />
+          <WhatsAppOperatingStandards />
+
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Phone number ID</span>
+            <input
+              value={accountId}
+              onChange={(event) => setAccountId(event.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+              placeholder="1234567890"
+              required
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Display name</span>
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+              placeholder="Clinic WhatsApp"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
+              Access token {account?.hasAccessToken ? '(leave blank to keep existing)' : ''}
+            </span>
+            <input
+              value={accessToken}
+              onChange={(event) => setAccessToken(event.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+              placeholder="EAAB..."
+              type="password"
+              required={!account?.hasAccessToken}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Webhook verify token</span>
+            <input
+              value={webhookVerifyToken}
+              onChange={(event) => setWebhookVerifyToken(event.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+              placeholder={account?.hasWebhookVerifyToken ? 'Stored' : 'Create a random phrase and paste it in Meta'}
+              type="password"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Token expires</span>
+            <input
+              value={tokenExpiresAt}
+              onChange={(event) => setTokenExpiresAt(event.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+              type="date"
+            />
+          </label>
+
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+            <button
+              type="button"
+              onClick={() => setStep('start')}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-700"
+            >
+              Back
+            </button>
+            <p className={mutation.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+            <button
+              type="submit"
+              disabled={mutation.isPending}
+              className="shrink-0 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            >
+              {mutation.isPending ? 'Saving...' : account ? 'Update' : 'Connect'}
+            </button>
+          </div>
+        </div>
+      )}
+    </form>
+  )
+}

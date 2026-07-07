@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Sin conexión · Docmee</title>
+    <meta name="theme-color" content="#3b82f6" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: #030712;
+        color: #e5e7eb;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      .card {
+        max-width: 22rem;
+      }
+      .mark {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 1.25rem;
+        border-radius: 16px;
+        background: #3b82f6;
+        position: relative;
+      }
+      .mark::before,
+      .mark::after {
+        content: "";
+        position: absolute;
+        background: #fff;
+        border-radius: 2px;
+      }
+      .mark::before {
+        width: 12px;
+        height: 36px;
+        top: 14px;
+        left: 26px;
+      }
+      .mark::after {
+        width: 36px;
+        height: 12px;
+        top: 26px;
+        left: 14px;
+      }
+      h1 {
+        font-size: 1.125rem;
+        margin: 0 0 0.5rem;
+      }
+      p {
+        font-size: 0.875rem;
+        color: #9ca3af;
+        line-height: 1.5;
+        margin: 0 0 1.5rem;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 8px;
+        background: #3b82f6;
+        color: #fff;
+        font-size: 0.875rem;
+        font-weight: 600;
+        padding: 0.625rem 1.25rem;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #2563eb;
+      }
+      .alt {
+        font-size: 0.75rem;
+        color: #6b7280;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="mark" aria-hidden="true"></div>
+      <h1>Estás sin conexión / You're offline</h1>
+      <p>
+        No pudimos conectar con Docmee. Revisa tu conexión a internet e inténtalo de nuevo.<br />
+        We couldn't reach Docmee. Check your connection and try again.
+      </p>
+      <button type="button" onclick="location.reload()">Reintentar / Retry</button>
+      <p class="alt">Las conversaciones ya cargadas siguen disponibles sin conexión.</p>
+    </main>
+  </body>
+</html>

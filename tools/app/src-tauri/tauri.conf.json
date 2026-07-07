@@ -1,0 +1,47 @@
+{
+  "build": {
+    "beforeDevCommand": "cd ../dashboard && node_modules\\.bin\\next.cmd dev -p 4000 -H 127.0.0.1",
+    "devPath": "http://127.0.0.1:4000",
+    "distDir": "../dashboard/.next"
+  },
+  "package": {
+    "productName": "Docmee DevTools",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "bundle": {
+      "identifier": "com.docmee.devtools",
+      "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+    },
+    "windows": [
+      {
+        "title": "Docmee DevTools",
+        "width": 960,
+        "height": 680,
+        "url": "http://127.0.0.1:4000",
+        "center": true,
+        "visible": false,
+        "minWidth": 720,
+        "minHeight": 520
+      }
+    ],
+    "systemTray": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false
+    },
+    "allowlist": {
+      "shell": {
+        "all": true,
+        "execute": true,
+        "open": true
+      },
+      "fs": {
+        "all": true
+      },
+      "notification": {
+        "all": true
+      }
+    }
+  }
+}

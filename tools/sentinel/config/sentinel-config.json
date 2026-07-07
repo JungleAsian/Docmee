@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "mode": "observe-only",
+  "subsystems": {
+    "guardianEnabled": false,
+    "aegisEnabled": false
+  },
+  "beacon": {
+    "criticalIntervalSeconds": 15,
+    "standardIntervalSeconds": 30,
+    "backgroundIntervalSeconds": 60,
+    "staleThresholds": {
+      "criticalSeconds": 120,
+      "standardSeconds": 180,
+      "backgroundSeconds": 300,
+      "claudeSessionSeconds": 600
+    }
+  },
+  "healer": {
+    "enabled": true,
+    "maxRestartsPerHour": 3,
+    "cooldownSeconds": 120,
+    "escalateAfterAttempts": 3
+  },
+  "api": {
+    "port": 4001,
+    "token": ""
+  },
+  "logging": {
+    "level": "info",
+    "rotationSizeMb": 10,
+    "rotationsKept": 5
+  },
+  "notifications": {
+    "alertsWebhookUrl": "",
+    "activityWebhookUrl": "",
+    "crossPostCriticalToDevtools": true,
+    "devtoolsCriticalWebhookUrl": "",
+    "push": { "enabled": true, "minSeverity": "warning" },
+    "quietHours": { "enabled": false, "startHour": 22, "endHour": 7 }
+  },
+  "providers": {
+    "globalDefault": "claude-code",
+    "perAgentOverrides": {},
+    "claudeCode": { "command": "claude", "maxConcurrent": 1, "sessionGuardEnabled": true, "sessionGuardThresholdPct": 80 },
+    "codex": { "command": "codex", "model": "codex-1", "maxConcurrent": 1 },
+    "localModel": { "endpoint": "http://localhost:11434", "model": "llama3", "maxConcurrent": 1 },
+    "autoFallback": { "enabled": false, "fallbackProvider": "codex", "restoreAfterSessionReset": true }
+  },
+  "tunnel": {
+    "activeMode": "none",
+    "none": { "description": "DevTools and Sentinel are accessible on 127.0.0.1 only. No external access." },
+    "ngrok": { "appUrl": "" },
+    "cloudflare": { "tunnelId": "", "appUrl": "", "apiUrl": "", "devtoolsUrl": "", "accessEnabled": false },
+    "permanent": { "appUrl": "", "apiUrl": "", "devtoolsUrl": "" }
+  },
+  "targets": {
+    "devtoolsHealthUrl": "http://127.0.0.1:4000/api/health",
+    "docmeeApiHealthUrl": "",
+    "vpsHost": "",
+    "cloudflareTunnelHealthUrl": ""
+  }
+}

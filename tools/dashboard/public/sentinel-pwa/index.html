@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#07111f" />
+    <title>Sentinel Mobile</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="radar-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Sentinel</h1>
+            <p id="connectionLabel">DevTools observer</p>
+          </div>
+        </div>
+        <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh">
+          <span class="refresh-icon" aria-hidden="true"></span>
+        </button>
+      </header>
+
+      <section class="setup-panel" id="setupPanel">
+        <label for="baseUrlInput">DevTools URL</label>
+        <div class="url-row">
+          <input id="baseUrlInput" type="url" inputmode="url" autocomplete="url" placeholder="http://100.x.x.x:4000" />
+          <button id="saveUrlButton" type="button">Save</button>
+        </div>
+        <p>Use the Tailscale address of the computer running Docmee DevTools.</p>
+      </section>
+
+      <section class="status-grid" aria-label="Sentinel status">
+        <article class="metric-card">
+          <span>Heartbeat</span>
+          <strong id="heartbeatValue">--</strong>
+        </article>
+        <article class="metric-card">
+          <span>Phase</span>
+          <strong id="phaseValue">--</strong>
+        </article>
+        <article class="metric-card">
+          <span>Claude reset</span>
+          <strong id="claudeValue">--</strong>
+        </article>
+        <article class="metric-card">
+          <span>Cost</span>
+          <strong id="costValue">$0.00</strong>
+        </article>
+      </section>
+
+      <section class="controls-panel">
+        <div>
+          <h2>Issue Queue</h2>
+          <p id="lastUpdated">Waiting for first scan</p>
+        </div>
+        <label class="toggle-row">
+          <input id="autoRefreshToggle" type="checkbox" checked />
+          <span>Auto</span>
+        </label>
+      </section>
+
+      <section class="summary-row" aria-label="Issue summary">
+        <span class="summary-pill critical"><strong id="criticalCount">0</strong> critical</span>
+        <span class="summary-pill warning"><strong id="warningCount">0</strong> warning</span>
+        <span class="summary-pill approval"><strong id="approvalCount">0</strong> approval</span>
+      </section>
+
+      <section id="issueList" class="issue-list" aria-live="polite"></section>
+    </main>
+
+    <dialog id="issueDialog" class="issue-dialog">
+      <div class="dialog-header">
+        <div>
+          <span id="dialogSeverity" class="summary-pill">issue</span>
+          <h2 id="dialogTitle">Issue</h2>
+        </div>
+        <button id="closeDialogButton" class="icon-button" type="button" aria-label="Close">x</button>
+      </div>
+      <p id="dialogDiagnosis" class="dialog-copy"></p>
+      <div class="dialog-section">
+        <h3>Evidence</h3>
+        <ul id="dialogEvidence"></ul>
+      </div>
+      <div class="dialog-section">
+        <h3>Route</h3>
+        <div class="route-grid">
+          <label>Agent<select id="agentSelect"></select></label>
+          <label>Provider<select id="providerSelect"></select></label>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button id="approveButton" type="button">Approve</button>
+        <button id="dismissButton" type="button">Dismiss</button>
+      </div>
+    </dialog>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

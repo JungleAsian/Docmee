@@ -1,0 +1,17 @@
+[package]
+name = "docmee-deploykit"
+version = "0.1.0"
+description = "Docmee DeployKit Installer"
+authors = ["Docmee"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = ["shell-open", "dialog-all"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

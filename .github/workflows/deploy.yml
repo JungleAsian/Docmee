@@ -1,0 +1,29 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required GitHub secrets:
+#   VPS_HOST    = 2.25.170.214
+#   VPS_USER    = deploy user (e.g. docmee)
+#   VPS_SSH_KEY = contents of ~/.ssh/id_ed25519 (the matching public key is on the VPS)
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Hostinger VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /var/www/docmee
+            git pull origin main
+            pnpm install --frozen-lockfile
+            pnpm build
+            pm2 reload ecosystem.config.cjs --update-env

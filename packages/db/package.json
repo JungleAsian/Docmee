@@ -1,0 +1,28 @@
+{
+  "name": "@docmee/db",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "tsx scripts/migrate.ts --reset",
+    "db:rls-check": "tsx scripts/rls-check.ts",
+    "db:types": "echo 'Run with Supabase CLI: supabase gen types typescript --local > src/types/generated.ts'"
+  },
+  "dependencies": {
+    "postgres": "^3.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "dotenv": "^16.4.5",
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

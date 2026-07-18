@@ -26,27 +26,29 @@ import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
 import type { CustomFlowStep, CustomFlowAction, CustomFlowBranchOp } from '../types'
 
-const ReactFlow = ReactFlowBase as any
-const Background = BackgroundBase as any
-const Controls = ControlsBase as any
-const MiniMap = MiniMapBase as any
-const Handle = HandleBase as any
+const ReactFlow = ReactFlowBase
+const Background = BackgroundBase
+const Controls = ControlsBase
+const MiniMap = MiniMapBase
+const Handle = HandleBase
 
 const TERMINALS = ['book', 'handoff', 'end'] as const
 type Terminal = (typeof TERMINALS)[number]
 const isTerminal = (id: string): id is Terminal => (TERMINALS as readonly string[]).includes(id)
 type LibraryNode =
-  | { kind: 'message'; label: string; description: string }
-  | { kind: 'collect'; label: string; description: string }
-  | { kind: 'action'; action: Terminal; label: string; description: string }
+  | { kind: 'message'; labelKey: string; descriptionKey: string }
+  | { kind: 'collect'; labelKey: string; descriptionKey: string }
+  | { kind: 'action'; action: Terminal; labelKey: string; descriptionKey: string }
 
 const FLOW_NODE_LIBRARY: LibraryNode[] = [
-  { kind: 'message', label: 'Message', description: 'Send one or more WhatsApp replies.' },
-  { kind: 'collect', label: 'Collect answer', description: 'Ask and store a patient response.' },
-  { kind: 'action', action: 'book', label: 'Book', description: 'Finish by opening the booking path.' },
-  { kind: 'action', action: 'handoff', label: 'Handoff', description: 'Route the chat to staff.' },
-  { kind: 'action', action: 'end', label: 'End', description: 'Stop this custom flow.' },
+  { kind: 'message', labelKey: 'flows.canvas.nodeMessage', descriptionKey: 'flows.canvas.nodeMessageDesc' },
+  { kind: 'collect', labelKey: 'flows.canvas.nodeCollect', descriptionKey: 'flows.canvas.nodeCollectDesc' },
+  { kind: 'action', action: 'book', labelKey: 'flows.canvas.nodeBook', descriptionKey: 'flows.canvas.nodeBookDesc' },
+  { kind: 'action', action: 'handoff', labelKey: 'flows.canvas.nodeHandoff', descriptionKey: 'flows.canvas.nodeHandoffDesc' },
+  { kind: 'action', action: 'end', labelKey: 'flows.canvas.nodeEnd', descriptionKey: 'flows.canvas.nodeEndDesc' },
 ]
+
+type TranslateKey = Parameters<ReturnType<typeof useI18n>['t']>[0]
 
 type StepNodeData = { step: CustomFlowStep; isStart: boolean }
 type TermNodeData = { kind: Terminal }
@@ -180,6 +182,7 @@ export function FlowCanvas({
     let n = steps.length + 1
     while (steps.some((s) => s.id === `step${n}`)) n++
     const id = `step${n}`
+    const label = t(item.labelKey as TranslateKey)
     const nextStep: CustomFlowStep = {
       id,
       messages:
@@ -187,7 +190,7 @@ export function FlowCanvas({
           ? ['']
           : item.kind === 'collect'
             ? ['']
-            : [`${item.label}.`],
+            : [`${label}.`],
       ...(item.kind === 'collect' ? { collect: 'answer' } : {}),
       ...(item.kind === 'action' ? { action: item.action } : {}),
       x: 80 + (steps.length % 3) * 60,
@@ -195,7 +198,7 @@ export function FlowCanvas({
     }
     update([...steps, nextStep], startStepId ?? id)
     setSelectedId(id)
-  }, [steps, startStepId, update])
+  }, [steps, startStepId, t, update])
 
   const patchSelected = useCallback(
     (patch: Partial<CustomFlowStep>) => {
@@ -215,7 +218,9 @@ export function FlowCanvas({
   return (
     <div className="flex h-[42rem] min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       <div className="w-48 shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
-        <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Nodes</p>
+        <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+          {t('flows.canvas.nodes')}
+        </p>
         <div className="space-y-1">
           {FLOW_NODE_LIBRARY.map((item) => (
             <button
@@ -224,8 +229,12 @@ export function FlowCanvas({
               onClick={() => addStep(item)}
               className="block w-full rounded border-l-2 border-teal-300 bg-white px-2 py-1.5 text-left hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700"
             >
-              <span className="block font-medium text-gray-800 dark:text-gray-100">+ {item.label}</span>
-              <span className="mt-0.5 block text-[10px] leading-snug text-gray-500">{item.description}</span>
+              <span className="block font-medium text-gray-800 dark:text-gray-100">
+                + {t(item.labelKey as TranslateKey)}
+              </span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-gray-500">
+                {t(item.descriptionKey as TranslateKey)}
+              </span>
             </button>
           ))}
         </div>

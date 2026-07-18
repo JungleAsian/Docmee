@@ -24,6 +24,8 @@ import {
   matchCustomFlow,
   startFlow,
   advanceFlow,
+  advanceFlowTo,
+  inspectFlowReply,
   toFlowDef,
   isBotPaused,
   detectHumanRequest,
@@ -41,6 +43,7 @@ import {
   type Language,
   type FlowState,
 } from '@docmee/agents'
+import { hybridClarificationMessage, resolveHybridFlowBranch } from './custom-flow-hybrid.js'
 import { sendMessengerText, sendInstagramText } from '@docmee/channels'
 import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender } from './meta-token.js'
 import { schedulingQueue, notificationQueue, type Job } from '@docmee/queue'
@@ -76,7 +79,7 @@ const AgentJobSchema = z.object({
 
 export type AgentJobData = z.infer<typeof AgentJobSchema>
 
-// ── Clinic / patient settings extraction ────────────────────────────────────────
+// ?? Clinic / patient settings extraction ????????????????????????????????????????
 // Clinic bot config and business hours live in clinics.settings (jsonb); patient
 // language + opt-out live in patients.metadata. All parsing is defensive.
 
@@ -89,8 +92,8 @@ function getBusinessHours(clinic: Clinic): BusinessHours | null {
  * Read the bot configuration the Admin Studio clinic-detail page persists.
  *
  * Clinic-Specific Rules / Bot Tone Control (Req 27 / Req 26): the Studio UI saves
- * the bot tone and clinic rules as FLAT keys on clinics.settings — settings.botTone
- * and settings.clinicRules (mirroring settings.businessHours) — but this reader used
+ * the bot tone and clinic rules as FLAT keys on clinics.settings ? settings.botTone
+ * and settings.clinicRules (mirroring settings.businessHours) ? but this reader used
  * to look for them nested under settings.bot.{tone,rulesText}. Those keys were never
  * written, so the configured tone and clinic rules NEVER reached the bot prompt: the
  * bot always ran with the default professional tone and no clinic rules at all. We
@@ -133,7 +136,7 @@ function isPatientOptedOut(patient: Patient | null): boolean {
  * Meta Compliance (Req 19): persist the patient's STOP/START decision to
  * patients.metadata so it sticks across turns. Previously a STOP was routed to
  * silence for that one message but never stored, so the patient was re-engaged on
- * their next message — breaking the opt-out. Idempotent (skips when unchanged) and
+ * their next message ? breaking the opt-out. Idempotent (skips when unchanged) and
  * a no-op for an unknown (null) patient. Stamps optedOutAt when opting out.
  */
 async function setPatientOptedOut(
@@ -174,7 +177,7 @@ async function persistPatientLanguage(
 /**
  * Resolve the outbound reply transport for the message's channel. Returns null
  * when the clinic has no usable credentials (WhatsApp account inactive, or
- * Messenger/Instagram not connected) — the caller then stays silent.
+ * Messenger/Instagram not connected) ? the caller then stays silent.
  *
  * The transport resolves to the provider message id (the WhatsApp wamid, or the
  * Messenger / Instagram `mid`) when the channel surfaces one, so the caller can
@@ -203,11 +206,11 @@ function resolveSendReply(
   return resolveWhatsAppSender(account, recipient)
 }
 
-// ── Sentiment detection (Gap #30) ───────────────────────────────────────────────
-// Cheap keyword match — no extra LLM call. An upset patient is tagged and a human
+// ?? Sentiment detection (Gap #30) ???????????????????????????????????????????????
+// Cheap keyword match ? no extra LLM call. An upset patient is tagged and a human
 // handoff alert is fired so a secretary can step in.
 const UPSET_KEYWORDS = [
-  'molesto', 'enojado', 'terrible', 'horrible', 'pésimo',
+  'molesto', 'enojado', 'terrible', 'horrible', 'p?simo',
   'angry', 'upset', 'awful',
   'no funciona', 'mentira', 'estafa',
 ]
@@ -219,7 +222,7 @@ export function detectUpsetTone(message: string): boolean {
 
 function outsideHoursMessage(language: Language): string {
   return language === 'es'
-    ? 'Estamos fuera de horario. Déjame tu nombre y el motivo de tu consulta y te contactamos mañana.'
+    ? 'Estamos fuera de horario. D?jame tu nombre y el motivo de tu consulta y te contactamos ma?ana.'
     : 'We are outside business hours. Please leave your name and reason for your inquiry and we will contact you tomorrow.'
 }
 
@@ -236,19 +239,48 @@ function readFlowState(metadata: Record<string, unknown> | undefined): FlowState
     s.variables && typeof s.variables === 'object'
       ? (s.variables as Record<string, string>)
       : {}
-  return { flowId: s.flowId, stepId: s.stepId, variables }
+  const clarificationCount =
+    typeof s.clarificationCount === 'number' && Number.isInteger(s.clarificationCount)
+      ? Math.max(0, s.clarificationCount)
+      : 0
+  return { flowId: s.flowId, stepId: s.stepId, variables, clarificationCount }
+}
+
+function flowBranchCompletion(clinic: Clinic) {
+  const cfg = ((clinic.settings as {
+    aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string }
+  }).aiAssistant ?? {})
+  const providers = ['claude', 'openai', 'custom', 'gemini']
+  const provider: ChatProvider =
+    typeof cfg.chatProvider === 'string' && providers.includes(cfg.chatProvider)
+      ? (cfg.chatProvider as ChatProvider)
+      : 'claude'
+  const model = typeof cfg.model === 'string' && cfg.model.trim()
+    ? cfg.model.trim()
+    : defaultChatModel(provider)
+
+  return (system: string, message: string, maxTokens: number) =>
+    chatComplete({
+      provider,
+      system,
+      message,
+      maxTokens,
+      apiKey: resolveClinicAiKey(clinic.settings, provider),
+      model,
+      baseURL: typeof cfg.baseURL === 'string' ? cfg.baseURL.trim() : undefined,
+    })
 }
 
 /**
  * P18 (Gap #34) / Rev1 #28: drive the custom-flow EXECUTION ENGINE.
  *
  * Two entry points, in priority order:
- *  1. RESUME — if the conversation is mid-flow (a cursor is persisted in its
+ *  1. RESUME ? if the conversation is mid-flow (a cursor is persisted in its
  *     metadata), advance that flow with this message: collect/branch/auto-advance,
  *     send the step's messages, persist the new cursor (or clear it when the flow
  *     ends) and fire any terminal action. A reply that routes nowhere clears the
  *     cursor and falls through to normal processing.
- *  2. START — otherwise, if an enabled flow's trigger keyword matches, start that
+ *  2. START ? otherwise, if an enabled flow's trigger keyword matches, start that
  *     flow from its first step.
  *
  * Returns true when the flow handled the turn (caller skips the LLM).
@@ -259,6 +291,7 @@ async function runMatchingCustomFlow(
   patient: Patient | null,
   conversation: Conversation | null,
   sendReply: (text: string) => Promise<void>,
+  clinic: Clinic,
 ): Promise<boolean> {
   const flowsRepo = createCustomFlowsRepository(sql)
 
@@ -266,10 +299,44 @@ async function runMatchingCustomFlow(
   const activeState = conversation ? readFlowState(conversation.metadata) : null
   if (activeState && conversation) {
     const flowRow = await flowsRepo.findById(data.clinicId, activeState.flowId)
-    const result =
-      flowRow && flowRow.enabled
-        ? advanceFlow(toFlowDef(flowRow), activeState, data.message)
-        : null
+    let result: ReturnType<typeof advanceFlow> = null
+    if (flowRow?.enabled) {
+      const flow = toFlowDef(flowRow)
+      const routing = inspectFlowReply(flow, activeState, data.message)
+      if (routing?.matchedNext) {
+        result = advanceFlowTo(flow, activeState, data.message, routing.matchedNext)
+      } else if (routing && routing.candidates.length > 0) {
+        const decision = await resolveHybridFlowBranch({
+          message: data.message,
+          candidates: routing.candidates,
+          complete: flowBranchCompletion(clinic),
+        })
+        if (decision.kind === 'route') {
+          result = advanceFlowTo(flow, activeState, data.message, decision.next)
+        } else {
+          const language = data.isNewPatient ? detectLanguage(data.message) : getPatientLanguage(patient)
+          if ((activeState.clarificationCount ?? 0) >= 1) {
+            await sendReply(handoffNotice(language))
+            await emitFlowResult(sql, data, conversation, activeState.flowId, sendReply, {
+              messages: [],
+              variables: activeState.variables,
+              nextStepId: null,
+              awaitingInput: false,
+              action: 'handoff',
+            })
+          } else {
+            await sendReply(hybridClarificationMessage(routing.candidates, language))
+            await persistFlowState(sql, data, conversation, {
+              ...activeState,
+              clarificationCount: 1,
+            })
+          }
+          return true
+        }
+      } else {
+        result = advanceFlow(flow, activeState, data.message)
+      }
+    }
     if (result) {
       await emitFlowResult(sql, data, conversation, activeState.flowId, sendReply, result)
       return true
@@ -303,6 +370,22 @@ async function runMatchingCustomFlow(
   return true
 }
 
+async function persistFlowState(
+  sql: Sql,
+  data: AgentJobData,
+  conversation: Conversation,
+  state: FlowState,
+): Promise<void> {
+  if (!data.conversationId) return
+  await createConversationsRepository(sql).update(data.clinicId, data.conversationId, {
+    metadata: {
+      ...conversation.metadata,
+      lastIntent: 'custom_flow_clarification',
+      [FLOW_STATE]: state,
+    },
+  })
+}
+
 /** Send a flow run's messages, persist/clear its cursor, and fire its action. */
 async function emitFlowResult(
   sql: Sql,
@@ -314,6 +397,7 @@ async function emitFlowResult(
 ): Promise<void> {
   for (const text of result.messages) await sendReply(text)
 
+  let persistedMetadata = conversation?.metadata
   if (data.conversationId && conversation) {
     const metadata: Record<string, unknown> = {
       ...conversation.metadata,
@@ -326,11 +410,20 @@ async function emitFlowResult(
       delete metadata[FLOW_STATE]
     }
     await createConversationsRepository(sql).update(data.clinicId, data.conversationId, { metadata })
+    persistedMetadata = metadata
   }
 
   if (result.action === 'book') {
     await schedulingQueue.add('schedule', { ...data, action: 'book' })
   } else if (result.action === 'handoff') {
+    if (conversation) {
+      await pauseBotForHandoff(
+        createConversationsRepository(sql),
+        data,
+        persistedMetadata,
+        'custom_flow_handoff',
+      )
+    }
     await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
   }
 }
@@ -382,7 +475,7 @@ export async function processAgentJob(job: Job): Promise<void> {
       return
     }
 
-    // Rev 3 — fire any active "message keyword" automation workflows for this inbound.
+    // Rev 3 ? fire any active "message keyword" automation workflows for this inbound.
     // Awaited (so the lookup finishes before sql closes) but gated + best-effort: with
     // no matching active workflow it's a single empty EXISTS query and a no-op, so this
     // never changes the reply path or existing behaviour.
@@ -402,10 +495,11 @@ export async function processAgentJob(job: Job): Promise<void> {
     // Channel-aware reply transport (WhatsApp account or Messenger Page token).
     const rawSendReply = resolveSendReply(data.channel, clinic, account, data.patientWaId)
 
+
     // Unified Inbox (Req 4): persist every outbound bot reply as an `assistant`
     // message so the inbox thread shows the bot's side. Wrapping the single send
-    // transport captures ALL reply paths — emergency reassurance, handoff ack,
-    // custom-flow scripts, outside-hours collection and the botbase LLM answer —
+    // transport captures ALL reply paths ? emergency reassurance, handoff ack,
+    // custom-flow scripts, outside-hours collection and the botbase LLM answer ?
     // without threading persistence through each branch. Best-effort: a storage
     // failure is logged but never blocks delivery, and we only record a reply that
     // actually went out (persist after the send resolves).
@@ -464,7 +558,7 @@ export async function processAgentJob(job: Job): Promise<void> {
 
     // Bot Interruption Rule (Rev1 #6): once a human owns the conversation
     // (assigned/handoff) or it is closed (resolved), the bot stays completely
-    // silent — no custom flow, no LLM, no auto-reply. Control returns to the bot
+    // silent ? no custom flow, no LLM, no auto-reply. Control returns to the bot
     // only when the conversation is reactivated to `open` (manual resume or the
     // reactivation timeout), at which point a later message routes normally.
     if (conversation && isBotPaused(conversation.status)) {
@@ -477,7 +571,7 @@ export async function processAgentJob(job: Job): Promise<void> {
       : getPatientLanguage(patient)
 
     // Bilingual bot (Req 22): capture the language from the patient's FIRST message
-    // so every later turn — and any non-bot route (calbot booking, alertflow) — can
+    // so every later turn ? and any non-bot route (calbot booking, alertflow) ? can
     // answer in the same language. The botbase route re-persists the bot's resolved
     // language below in case the clinic forces a fixed reply language.
     if (data.isNewPatient) {
@@ -498,9 +592,9 @@ export async function processAgentJob(job: Job): Promise<void> {
     }
 
     // Medical emergency (Req 20: emergency routing). A cheap pre-LLM keyword check
-    // runs FIRST — before business hours, opt-out, custom flows and intent
-    // classification — so a true emergency (chest pain, can't breathe, bleeding,
-    // suicide…) is never silenced by the outside-hours rule, never waits on the
+    // runs FIRST ? before business hours, opt-out, custom flows and intent
+    // classification ? so a true emergency (chest pain, can't breathe, bleeding,
+    // suicide?) is never silenced by the outside-hours rule, never waits on the
     // model, and is never answered by the bot. We reassure the patient and point
     // them at local emergency services, pause the bot, tag the conversation, and
     // raise the highest-priority alert. Safety overrides opt-out here by design.
@@ -524,7 +618,7 @@ export async function processAgentJob(job: Job): Promise<void> {
     // even when the LLM is stubbed or misclassifies. STOP is absolute: we PERSIST
     // the opt-out to the patient (so every later turn stays silent via the router's
     // patientOptedOut gate), tag the conversation, and stay silent now. START
-    // re-subscribes and confirms. Emergency safety still overrides opt-out — the
+    // re-subscribes and confirms. Emergency safety still overrides opt-out ? the
     // emergency guard above runs first by design.
     const optedOutBefore = isPatientOptedOut(patient)
 
@@ -550,7 +644,7 @@ export async function processAgentJob(job: Job): Promise<void> {
 
     // Explicit "connect me with a human" request (Rev1 #5). Cheap keyword check so
     // an unambiguous request hands off reliably without waiting on the LLM: ack the
-    // patient, pause the bot (status → handoff), and alert a human.
+    // patient, pause the bot (status ? handoff), and alert a human.
     if (sendReply && detectHumanRequest(data.message)) {
       await sendReply(handoffNotice(patientLanguage))
       if (conversation) {
@@ -567,14 +661,14 @@ export async function processAgentJob(job: Job): Promise<void> {
     // P18 (Gap #34): custom flows run BEFORE intent classification. A keyword match
     // runs the clinic's scripted message sequence (and optional terminal action)
     // and skips the LLM entirely.
-    if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply))) {
+    if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply, clinic))) {
       return
     }
 
     const patientOptedOut = isPatientOptedOut(patient)
     const insideHours = isInsideBusinessHours(getBusinessHours(clinic), clinic.timezone)
 
-    // Intent provider is per-clinic (Studio → Automations → AI Assistant). DeepSeek by
+    // Intent provider is per-clinic (Studio ? Automations ? AI Assistant). DeepSeek by
     // default (server key); other providers use the clinic's connected key.
     const intentCfg = (clinic.settings as { aiAssistant?: { intentProvider?: string; baseURL?: string } })
       .aiAssistant ?? {}
@@ -608,7 +702,7 @@ export async function processAgentJob(job: Job): Promise<void> {
           conversationId: data.conversationId,
           reason: 'upset',
         })
-        // Rev 3 — fire any active patient_upset automation workflows (gated + best-effort).
+        // Rev 3 ? fire any active patient_upset automation workflows (gated + best-effort).
         try {
           await enqueueWorkflowRuns(sql, data.clinicId, 'trigger.patient_upset', {
             message: data.message,
@@ -645,7 +739,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         if (route.reason === 'outside_hours' && sendReply) {
           await sendReply(outsideHoursMessage(patientLanguage))
         } else if (route.reason === 'opted_out') {
-          // An opt-out the keyword guard missed but the classifier caught — persist
+          // An opt-out the keyword guard missed but the classifier caught ? persist
           // it (Req 19) so it sticks, then stay silent.
           await setPatientOptedOut(patients, data.clinicId, patient, true)
           if (data.conversationId && conversation) {
@@ -664,8 +758,8 @@ export async function processAgentJob(job: Job): Promise<void> {
         }
         const allChunks = await knowledge.listEmbeddedChunks(data.clinicId)
         // Per-doctor FAQs (Req 30): when any document is doctor-scoped, restrict the
-        // retrievable chunks to clinic-wide ones plus the doctor the patient named —
-        // so "Does Dr. García do video calls?" pulls García's FAQ but not López's,
+        // retrievable chunks to clinic-wide ones plus the doctor the patient named ?
+        // so "Does Dr. Garc?a do video calls?" pulls Garc?a's FAQ but not L?pez's,
         // and a generic question never surfaces a doctor-specific FAQ. Only load the
         // doctor list when scoping is actually in play (back-compat / no extra query).
         let chunks = allChunks
@@ -676,8 +770,8 @@ export async function processAgentJob(job: Job): Promise<void> {
         let kbHit = false
 
         // J.zel per-clinic identity for the AI fallback: the clinic's chosen model
-        // and persona (Studio → Automations → AI Assistant). Flows, templates,
-        // handoff and the medical-safety/anti-injection screens are unchanged — this
+        // and persona (Studio ? Automations ? AI Assistant). Flows, templates,
+        // handoff and the medical-safety/anti-injection screens are unchanged ? this
         // only shapes the MODEL and VOICE of an AI-generated reply, never the control.
         const JZEL_PROVIDERS = ['claude', 'openai', 'custom', 'gemini']
         const jzelCfg = ((
@@ -728,7 +822,7 @@ export async function processAgentJob(job: Job): Promise<void> {
               h?: Array<{ role: 'user' | 'assistant'; content: string }>,
             ) =>
               jzelBase(
-                `${system}\n\nClinic voice (tone and clinic-specific phrasing only — keep every rule above):\n${jzelPersona}`,
+                `${system}\n\nClinic voice (tone and clinic-specific phrasing only ? keep every rule above):\n${jzelPersona}`,
                 userMessage,
                 maxTokens,
                 h,
@@ -793,7 +887,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         await persistPatientLanguage(patients, data.clinicId, patient, botResult.language)
 
         // Medical-safety handoff (Req 20): the output screen inside runClinicBot
-        // tripped — the unsafe LLM reply was suppressed and a safe deferral sent
+        // tripped ? the unsafe LLM reply was suppressed and a safe deferral sent
         // in its place. Pause the bot for a human, tag the conversation, and raise
         // a handoff alert so a person takes over (and the safety event is already
         // logged to the Error Review area by the bot). We re-read the conversation
@@ -804,7 +898,7 @@ export async function processAgentJob(job: Job): Promise<void> {
           if (data.conversationId && conversation) {
             const latest = await conversations.findById(data.clinicId, data.conversationId)
             // Only a real safety event carries the medical_safety tag; a knowledge-gap
-            // (low-confidence) handoff is a routine "couldn't answer → human" case.
+            // (low-confidence) handoff is a routine "couldn't answer ? human" case.
             if (handoffReason === 'medical_safety') {
               const tag = await conversations.createTag({ clinicId: data.clinicId, name: 'medical_safety' })
               await conversations.addTag(data.clinicId, data.conversationId, tag.id)
@@ -821,9 +915,9 @@ export async function processAgentJob(job: Job): Promise<void> {
             conversationId: data.conversationId,
             reason: 'human_handoff',
           })
-          // ⑤ Knowledge-gap handoff: the bot found no KB grounding for a real
+          // ? Knowledge-gap handoff: the bot found no KB grounding for a real
           // question and deferred to a human. Log it for the Add-to-KB queue (Req 29)
-          // — the reply path's unanswered logging is skipped because we break here.
+          // ? the reply path's unanswered logging is skipped because we break here.
           if (handoffReason === 'low_confidence') {
             await errorReviews
               .create({
@@ -844,7 +938,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         }
 
         // Unanswered question (Req 29 Error Review): the bot replied but found NO
-        // clinic-KB match, so the answer was ungrounded — exactly the case an
+        // clinic-KB match, so the answer was ungrounded ? exactly the case an
         // operator should review and (via the Add-to-KB path) turn into approved
         // content. Gated by isLikelyQuestion so greetings/thanks don't flood the
         // queue. Best-effort: a logging failure never affects the patient reply.
@@ -870,8 +964,8 @@ export async function processAgentJob(job: Job): Promise<void> {
           const existing = await conversations.findById(data.clinicId, data.conversationId)
           if (existing) {
             await conversations.update(data.clinicId, data.conversationId, {
-              // ⑥ Citations: record which KB entries grounded the bot's reply so the
-              // inbox can show "grounded in …" for trust + audit.
+              // ? Citations: record which KB entries grounded the bot's reply so the
+              // inbox can show "grounded in ?" for trust + audit.
               metadata: { ...existing.metadata, kbHit: true, kbCitations: botResult.citations },
             })
           }

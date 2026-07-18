@@ -10,6 +10,7 @@ import {
   templateCategoryForType,
   followUpMessage,
   scheduleAppointmentFollowUps,
+  scheduleNoResponseFollowUp,
 } from '../follow-up.js'
 
 const HOUR = 60 * 60 * 1000
@@ -119,5 +120,22 @@ describe('scheduleAppointmentFollowUps', () => {
       nowIso: '2026-06-19T08:00:00.000Z',
     })
     expect(scheduled).toHaveLength(4) // the failed one is omitted, the rest succeed
+  })
+})
+
+describe('scheduleNoResponseFollowUp', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('carries the exact configured recovery question into the delayed job', async () => {
+    await scheduleNoResponseFollowUp({
+      clinicId: 'c1', patientId: 'p1', conversationId: 'v1',
+      silentSinceIso: '2026-07-18T10:00:00.000Z',
+      recoveryPrompt: 'Please send the appointment date as YYYY-MM-DD.',
+      delayMs: 500,
+    })
+    expect(h.followUpAdd).toHaveBeenCalledWith('follow-up', expect.objectContaining({
+      type: FOLLOW_UP_TYPES.NO_RESPONSE,
+      recoveryPrompt: 'Please send the appointment date as YYYY-MM-DD.',
+    }), { delay: 500 })
   })
 })

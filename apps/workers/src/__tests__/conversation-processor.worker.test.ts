@@ -14,7 +14,9 @@ const h = vi.hoisted(() => ({
   updatePatient: vi.fn(),
   findOpenByContact: vi.fn(),
   createConversation: vi.fn(),
+  findConversationById: vi.fn(),
   createMessage: vi.fn(),
+  sql: vi.fn(),
   end: vi.fn(),
 }))
 
@@ -25,7 +27,7 @@ vi.mock('@docmee/queue', () => ({
 }))
 
 vi.mock('@docmee/db', () => ({
-  createServiceDbClient: () => ({ end: h.end }),
+  createServiceDbClient: () => Object.assign(h.sql, { end: h.end, json: (value: unknown) => value }),
   createChannelAccountsRepository: () => ({ findByAccount: h.findByAccount }),
   createClinicsRepository: () => ({
     findByMessengerPageId: h.findByMessengerPageId,
@@ -40,6 +42,7 @@ vi.mock('@docmee/db', () => ({
   }),
   createConversationsRepository: () => ({
     findOpenByContact: h.findOpenByContact,
+    findById: h.findConversationById,
     create: h.createConversation,
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
@@ -74,6 +77,8 @@ beforeEach(() => {
   h.createPatient.mockResolvedValue({ id: PATIENT, status: 'new' })
   h.findOpenByContact.mockResolvedValue(null)
   h.createConversation.mockResolvedValue({ id: CONVO })
+  h.findConversationById.mockResolvedValue({ id: CONVO, metadata: {} })
+  h.sql.mockResolvedValue([])
   h.createMessage.mockResolvedValue({ id: 'msg1' })
 })
 

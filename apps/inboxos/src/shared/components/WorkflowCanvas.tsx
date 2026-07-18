@@ -25,16 +25,21 @@ import { useI18n } from '../hooks/useI18n'
 import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
 import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, type NodeTypeDef } from '../workflowNodes'
 
-const ReactFlow = ReactFlowBase as any
-const Background = BackgroundBase as any
-const Controls = ControlsBase as any
-const MiniMap = MiniMapBase as any
-const Handle = HandleBase as any
+const ReactFlow = ReactFlowBase
+const Background = BackgroundBase
+const Controls = ControlsBase
+const MiniMap = MiniMapBase
+const Handle = HandleBase
 
 type WfNodeData = { wf: WfNode; label: string }
 
 function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
   const { wf, label } = data
+  const branches = wf.type === 'logic.condition'
+    ? ['true', 'false']
+    : wf.type === 'logic.ai_classify_intent'
+      ? ['high', 'low', 'error']
+      : []
   return (
     <div
       className={`w-44 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
@@ -44,7 +49,18 @@ function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
       {wf.kind !== 'trigger' && <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-gray-400" />}
       <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{wf.kind}</p>
       <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{label}</p>
-      {wf.type !== 'action.end' && <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />}
+      {wf.type !== 'action.end' && branches.length === 0 && <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />}
+      {branches.map((branch, index) => (
+        <Handle
+          key={branch}
+          id={branch}
+          type="source"
+          position={Position.Right}
+          style={{ top: `${((index + 1) / (branches.length + 1)) * 100}%` }}
+          title={branch}
+          className="!h-2 !w-2 !bg-teal-500"
+        />
+      ))}
     </div>
   )
 }
@@ -64,7 +80,7 @@ export function WorkflowCanvas({
 
   const graph = useMemo(() => {
     const rfNodes: Node[] = nodes.map((n) => ({ id: n.id, type: 'wf', position: { x: n.x, y: n.y }, data: { wf: n, label: label(n.type) } }))
-    const rfEdges: Edge[] = edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.sourceHandle ?? undefined }))
+    const rfEdges: Edge[] = edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? undefined, label: e.sourceHandle ?? undefined }))
     return { nodes: rfNodes, edges: rfEdges }
   }, [nodes, edges, label])
 
@@ -96,7 +112,15 @@ export function WorkflowCanvas({
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target) return
-      onChange({ nodes, edges: [...edges, { id: `e_${c.source}_${c.target}_${edges.length}`, source: c.source, target: c.target }] })
+      onChange({
+        nodes,
+        edges: [...edges, {
+          id: `e_${c.source}_${c.target}_${c.sourceHandle ?? 'default'}_${edges.length}`,
+          source: c.source,
+          target: c.target,
+          ...(c.sourceHandle ? { sourceHandle: c.sourceHandle } : {}),
+        }],
+      })
     },
     [nodes, edges, onChange],
   )

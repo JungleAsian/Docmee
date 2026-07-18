@@ -15,6 +15,7 @@ const whatsappSchema = z.object({
   provider: z.literal('meta_whatsapp').optional(),
   accountId: z.string().min(1),
   displayName: z.string().optional(),
+  wabaId: z.string().trim().min(1).optional(),
   accessToken: z.string().min(1).optional(),
   webhookVerifyToken: z.string().optional(),
   setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
@@ -29,6 +30,12 @@ const embeddedSignupSchema = z.object({
   setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
   displayName: z.string().optional(),
   webhookVerifyToken: z.string().optional(),
+})
+
+const phoneRegistrationSchema = z.object({
+  // Meta requires the two-step verification PIN as exactly six decimal digits.
+  // Keep this as a string so leading zeroes survive validation and transport.
+  pin: z.string().regex(/^\d{6}$/, 'PIN must contain exactly six digits'),
 })
 
 const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
@@ -113,6 +120,46 @@ async function graphRequest<T>(
   const data = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null
   if (!res.ok) return { ok: false, error: data?.error?.message ?? `Graph API request failed with ${res.status}` }
   return { ok: true, data: data as T }
+}
+
+type MetaPhoneRegistrationResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string; code?: number; subcode?: number }
+
+export async function registerMetaPhoneNumber(
+  phoneNumberId: string,
+  accessToken: string,
+  pin: string,
+): Promise<MetaPhoneRegistrationResult> {
+  const url = new URL(
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${encodeURIComponent(phoneNumberId)}/register`,
+  )
+  const headers = new Headers({
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+  })
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ messaging_product: 'whatsapp', pin }),
+  })
+  const body = (await response.json().catch(() => null)) as
+    | {
+        success?: boolean
+        error?: { message?: string; code?: number; error_subcode?: number }
+      }
+    | null
+
+  if (!response.ok || body?.success !== true) {
+    return {
+      ok: false,
+      status: response.status,
+      error: body?.error?.message ?? `Meta phone registration failed with ${response.status}`,
+      ...(typeof body?.error?.code === 'number' ? { code: body.error.code } : {}),
+      ...(typeof body?.error?.error_subcode === 'number' ? { subcode: body.error.error_subcode } : {}),
+    }
+  }
+  return { ok: true }
 }
 
 async function subscribeWabaToApp(wabaId: string | undefined, accessToken: string): Promise<{ subscribed: boolean; error?: string }> {
@@ -573,6 +620,7 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
             ...(existing?.settings ?? {}),
             provider,
             setupMode: parsed.data.setupMode ?? existing?.settings?.setupMode ?? 'existing-cloud-api',
+            ...(provider === 'meta_whatsapp' && parsed.data.wabaId ? { wabaId: parsed.data.wabaId } : {}),
             ...(parsed.data.tokenExpiresAt ? { tokenExpiresAt: parsed.data.tokenExpiresAt } : {}),
           }
           return repo.create({
@@ -593,6 +641,73 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
       } catch (error) {
         if (isEncryptionConfigError(error)) return reply.code(500).send({ error: (error as Error).message })
         throw error
+      }
+    },
+  )
+
+  app.post<{ Params: { id: string; accountId: string } }>(
+    '/clinics/:id/channels/whatsapp/:accountId/register',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(phoneRegistrationSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      const account = await withDb(async (sql) => {
+        const accounts = await createChannelAccountsRepository(sql).listByClinic(clinicId)
+        return accounts.find(
+          (item) => item.id === request.params.accountId && item.channel === 'whatsapp',
+        ) ?? null
+      })
+      if (!account) {
+        return reply.code(404).send({ error: 'WhatsApp account was not found for this clinic.' })
+      }
+
+      const accessToken = readMetaToken(account.accessTokenEnc)
+      if (!accessToken) {
+        return reply.code(409).send({
+          error: 'No usable Meta access token is stored for this account.',
+          action: 'Save a valid Meta system-user or Embedded Signup token, then retry registration.',
+        })
+      }
+      const wabaId = typeof account.settings?.wabaId === 'string' ? account.settings.wabaId : undefined
+      if (!wabaId) {
+        return reply.code(409).send({
+          error: 'No WABA ID is stored for this account.',
+          action: 'Save the WABA ID that owns this phone number before registration.',
+        })
+      }
+
+      const wabaLookup = await fetchWabaPhoneNumbers(wabaId, accessToken)
+      if (wabaLookup.error) {
+        return reply.code(502).send({
+          error: `Meta could not verify WABA ownership: ${wabaLookup.error}`,
+          action: 'Confirm the token has WhatsApp Business Management access and retry.',
+        })
+      }
+      if (!wabaLookup.phones.some((phone) => phone.id === account.accountId)) {
+        return reply.code(409).send({
+          error: 'The stored phone number does not belong to the stored WABA.',
+          action: 'Correct the WABA ID or reconnect the phone through Embedded Signup.',
+        })
+      }
+
+      const registration = await registerMetaPhoneNumber(account.accountId, accessToken, parsed.data.pin)
+      if (!registration.ok) {
+        return reply.code(registration.status >= 500 ? 502 : 400).send({
+          error: registration.error,
+          ...(registration.code !== undefined ? { metaCode: registration.code } : {}),
+          ...(registration.subcode !== undefined ? { metaSubcode: registration.subcode } : {}),
+          action:
+            'Confirm the six-digit two-step verification PIN and phone-number status in WhatsApp Manager, then retry.',
+        })
+      }
+
+      return {
+        ok: true,
+        phoneNumberId: account.accountId,
+        message: 'Meta accepted the phone-number registration.',
       }
     },
   )

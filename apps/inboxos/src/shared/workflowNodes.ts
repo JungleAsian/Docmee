@@ -22,6 +22,13 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
   // Logic - routing + timing.
   { type: 'logic.condition', kind: 'logic', labelKey: 'wf.node.condition', fields: ['field', 'op', 'value'] },
   { type: 'logic.delay', kind: 'logic', labelKey: 'wf.node.delay', fields: ['amount', 'unit'] },
+  { type: 'logic.wait_for_reply', kind: 'logic', labelKey: 'wf.node.waitForReply', fields: ['timeoutMinutes'] },
+  {
+    type: 'logic.ai_classify_intent',
+    kind: 'logic',
+    labelKey: 'wf.node.aiClassifyIntent',
+    fields: ['confidenceField', 'highThreshold', 'lowThreshold', 'prompt'],
+  },
   // Actions - what the workflow does.
   { type: 'action.send_message', kind: 'action', labelKey: 'wf.node.sendMessage', fields: ['text'] },
   { type: 'action.send_template', kind: 'action', labelKey: 'wf.node.sendTemplate', fields: ['category'] },
@@ -29,6 +36,45 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
   { type: 'action.add_tag', kind: 'action', labelKey: 'wf.node.addTag', fields: ['tag'] },
   { type: 'action.ai_draft', kind: 'action', labelKey: 'wf.node.aiDraft', fields: ['prompt'] },
   { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', fields: [] },
+  {
+    type: 'action.ask_capture',
+    kind: 'action',
+    labelKey: 'wf.node.askCapture',
+    fields: ['field', 'question', 'validation', 'retryQuestion', 'maxAttempts'],
+  },
+  {
+    type: 'action.extract_booking_details',
+    kind: 'action',
+    labelKey: 'wf.node.extractBookingDetails',
+    fields: ['provider', 'allowedFields', 'reviewTag'],
+  },
+  {
+    type: 'action.check_availability',
+    kind: 'action',
+    labelKey: 'wf.node.checkAvailability',
+    fields: ['doctorIdField', 'dateField', 'days', 'slotsField'],
+  },
+  {
+    type: 'action.offer_slots',
+    kind: 'action',
+    labelKey: 'wf.node.offerSlots',
+    fields: ['slotsField', 'count', 'message'],
+  },
+  {
+    type: 'action.create_or_reschedule_booking',
+    kind: 'action',
+    labelKey: 'wf.node.createOrRescheduleBooking',
+    fields: [
+      'mode',
+      'appointmentIdField',
+      'doctorIdField',
+      'serviceIdField',
+      'dateField',
+      'timeField',
+      'durationMinutes',
+      'title',
+    ],
+  },
   {
     type: 'action.transcribe_booking_voice',
     kind: 'action',

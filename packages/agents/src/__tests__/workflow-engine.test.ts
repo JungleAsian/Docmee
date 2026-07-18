@@ -67,6 +67,24 @@ describe('runWorkflow', () => {
     expect(no.notifySecretary).not.toHaveBeenCalled()
   })
 
+  it('routes AI confidence through explicit high, low, and error handles', async () => {
+    const wf = {
+      nodes: [
+        node('t', 'trigger', 'trigger.message_keyword'),
+        node('classify', 'logic', 'logic.ai_classify_intent'),
+        node('high', 'action', 'action.add_tag', { tag: 'high' }),
+        node('low', 'action', 'action.add_tag', { tag: 'low' }),
+        node('error', 'action', 'action.add_tag', { tag: 'error' }),
+      ],
+      edges: [edge('t', 'classify'), edge('classify', 'high', 'high'), edge('classify', 'low', 'low'), edge('classify', 'error', 'error')],
+    }
+    for (const route of ['high', 'low', 'error'] as const) {
+      const exec = makeExec({ classifyIntentConfidence: vi.fn(async () => route) })
+      await runWorkflow(wf, {}, exec)
+      expect(exec.addTag).toHaveBeenCalledWith(route, expect.any(Object))
+    }
+  })
+
   it('pauses at a delay node and resumes at the next node', async () => {
     const wf = {
       nodes: [
@@ -101,6 +119,64 @@ describe('runWorkflow', () => {
     expect(exec.requestApproval).toHaveBeenCalled()
     expect(exec.sendMessage).not.toHaveBeenCalled()
     expect(trace.at(-1)?.status).toBe('paused')
+  })
+
+  it('runs calendar-native booking nodes with the shared mutable context', async () => {
+    const wf = {
+      nodes: [
+        node('t', 'trigger', 'trigger.message_keyword'),
+        node('check', 'action', 'action.check_availability'),
+        node('offer', 'action', 'action.offer_slots'),
+        node('book', 'action', 'action.create_or_reschedule_booking'),
+      ],
+      edges: [edge('t', 'check'), edge('check', 'offer'), edge('offer', 'book')],
+    }
+    const ctx = { preferred_date: '2026-07-21' }
+    const exec = makeExec({
+      checkAvailability: vi.fn(async (_node, shared) => {
+        shared['available_slots'] = [{ start: '2026-07-21T09:00:00', end: '2026-07-21T09:30:00' }]
+      }),
+      offerSlots: vi.fn(),
+      createOrRescheduleBooking: vi.fn(),
+    })
+
+    await runWorkflow(wf, ctx, exec)
+
+    expect(exec.checkAvailability).toHaveBeenCalledWith(wf.nodes[1], ctx)
+    expect(exec.offerSlots).toHaveBeenCalledWith(wf.nodes[2], ctx)
+    expect(exec.createOrRescheduleBooking).toHaveBeenCalledWith(wf.nodes[3], ctx)
+  })
+
+  it('asks, persists at wait, then resumes after a captured reply', async () => {
+    const wf = {
+      nodes: [
+        node('t', 'trigger', 'trigger.message_keyword'),
+        node('ask', 'action', 'action.ask_capture', { field: 'preferred_date' }),
+        node('wait', 'logic', 'logic.wait_for_reply'),
+        node('done', 'action', 'action.send_message', { text: 'Thanks' }),
+      ],
+      edges: [edge('t', 'ask'), edge('ask', 'wait'), edge('wait', 'done')],
+    }
+    const first = makeExec({
+      askAndCapture: vi.fn(async (_node, ctx) => {
+        ctx['__workflowCapture'] = { nodeId: 'ask', status: 'pending' }
+      }),
+      waitForReply: vi.fn(async () => true),
+    })
+    const firstTrace = await runWorkflow(wf, {}, first)
+    expect(firstTrace.at(-1)).toEqual({ nodeId: 'wait', type: 'logic.wait_for_reply', status: 'paused' })
+    expect(first.sendMessage).not.toHaveBeenCalled()
+
+    const resumed = makeExec({
+      askAndCapture: vi.fn(async (_node, ctx) => {
+        ctx['preferred_date'] = String(ctx.message)
+        ctx['__workflowCapture'] = { nodeId: 'ask', status: 'captured' }
+      }),
+      waitForReply: vi.fn(async () => false),
+    })
+    const context = { message: '2026-07-22' }
+    await runWorkflow(wf, context, resumed, { startNodeId: 'ask' })
+    expect(resumed.sendMessage).toHaveBeenCalledWith('Thanks', expect.objectContaining({ preferred_date: '2026-07-22' }))
   })
 
   it('terminates on a cyclic graph instead of looping forever', async () => {

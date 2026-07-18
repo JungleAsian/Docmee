@@ -58,6 +58,23 @@ export interface FlowState {
   flowId: string
   stepId: string
   variables: Record<string, string>
+  /** Consecutive hybrid-routing clarification attempts at this waiting step. */
+  clarificationCount?: number
+}
+
+/** A configured non-catch-all edge an LLM may classify an off-script reply into. */
+export interface FlowSemanticCandidate {
+  index: number
+  op: Exclude<FlowBranchOp, 'any'>
+  keywords: string[]
+  next: string
+}
+
+/** Deterministic routing evidence exposed to the worker's bounded hybrid layer. */
+export interface FlowReplyRouting {
+  matchedNext: string | null
+  fallbackNext: string | null
+  candidates: FlowSemanticCandidate[]
 }
 
 /** What the worker must emit after a start/advance. */
@@ -122,14 +139,14 @@ function findStep(flow: FlowDef, id: string): FlowStep | undefined {
   return flow.steps.find((s) => s.id === id)
 }
 
-/** Pick the first branch whose condition matches the reply, if any. */
+/** Pick a deterministic branch; `any` is a fallback and never masks later edges. */
 function selectBranch(branches: FlowBranch[], message: string): FlowBranch | undefined {
   const tokens = tokenize(message)
   const normalized = deaccent(message).trim()
   for (const branch of branches) {
     switch (branch.op) {
       case 'any':
-        return branch
+        break
       case 'yes':
         if (isAffirmative(tokens)) return branch
         break
@@ -146,6 +163,29 @@ function selectBranch(branches: FlowBranch[], message: string): FlowBranch | und
     }
   }
   return undefined
+}
+
+/**
+ * Inspect a waiting reply without advancing the flow. The worker uses this to
+ * keep exact/keyword/yes-no routing deterministic and invoke its LLM classifier
+ * only when those checks do not understand an off-script answer.
+ */
+export function inspectFlowReply(flow: FlowDef, state: FlowState, message: string): FlowReplyRouting | null {
+  const step = findStep(flow, state.stepId)
+  if (!step?.branches?.length) return null
+
+  const matched = selectBranch(step.branches, message)
+  const fallback = step.branches.find((branch) => branch.op === 'any')
+  const candidates = step.branches.flatMap((branch, index): FlowSemanticCandidate[] =>
+    branch.op === 'any'
+      ? []
+      : [{ index, op: branch.op, keywords: branch.keywords ?? [], next: branch.next }],
+  )
+  return {
+    matchedNext: matched?.next ?? null,
+    fallbackNext: fallback?.next ?? step.next ?? null,
+    candidates,
+  }
 }
 
 /**
@@ -223,13 +263,33 @@ export function advanceFlow(flow: FlowDef, state: FlowState, message: string): F
   const step = findStep(flow, state.stepId)
   if (!step || !step.branches || step.branches.length === 0) return null
 
+  const routing = inspectFlowReply(flow, state, message)
+  const target = routing?.matchedNext ?? routing?.fallbackNext ?? null
+  if (target == null) return null
+  return advanceFlowTo(flow, state, message, target)
+}
+
+/**
+ * Advance through one of the waiting step's configured targets. This is the
+ * only entry the hybrid classifier receives: a model-selected value is rejected
+ * unless it exactly matches a real branch/default edge on the current step.
+ */
+export function advanceFlowTo(
+  flow: FlowDef,
+  state: FlowState,
+  message: string,
+  target: string,
+): FlowRunResult | null {
+  const step = findStep(flow, state.stepId)
+  if (!step?.branches?.length) return null
+  const allowedTargets = new Set([
+    ...step.branches.map((branch) => branch.next),
+    ...(step.next ? [step.next] : []),
+  ])
+  if (!allowedTargets.has(target)) return null
+
   const variables = { ...state.variables }
   if (step.collect) variables[step.collect] = message.trim()
-
-  const branch = selectBranch(step.branches, message)
-  const target = branch?.next ?? step.next ?? null
-  if (target == null) return null
-
   return runFrom(flow, target, variables)
 }
 

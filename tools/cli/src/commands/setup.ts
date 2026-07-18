@@ -31,8 +31,10 @@ async function runSetup(opts: { reset?: boolean; notion?: boolean } = {}) {
   const createdEnv = !fs.existsSync(envFile)
   if (createdEnv) {
     if (!fs.existsSync(envExampleFile)) {
-      log('setup', '.env.tools.example was not found.', 'error')
-      process.exitCode = 1
+      // A clean checkout intentionally has no local DevTools environment file.
+      // Keep dependency installation non-interactive; operators can run the
+      // setup command after supplying an example file or their local config.
+      log('setup', '.env.tools.example was not found; skipping local DevTools setup.', 'warn')
       return
     }
     fs.copyFileSync(envExampleFile, envFile)

@@ -206,11 +206,11 @@ function resolveSendReply(
   return resolveWhatsAppSender(account, recipient)
 }
 
-// ?? Sentiment detection (Gap #30) ???????????????????????????????????????????????
-// Cheap keyword match ? no extra LLM call. An upset patient is tagged and a human
+// ── Sentiment detection (Gap #30) ───────────────────────────────────────────────
+// Cheap keyword match — no extra LLM call. An upset patient is tagged and a human
 // handoff alert is fired so a secretary can step in.
 const UPSET_KEYWORDS = [
-  'molesto', 'enojado', 'terrible', 'horrible', 'p?simo',
+  'molesto', 'enojado', 'terrible', 'horrible', 'pésimo',
   'angry', 'upset', 'awful',
   'no funciona', 'mentira', 'estafa',
 ]
@@ -222,7 +222,7 @@ export function detectUpsetTone(message: string): boolean {
 
 function outsideHoursMessage(language: Language): string {
   return language === 'es'
-    ? 'Estamos fuera de horario. D?jame tu nombre y el motivo de tu consulta y te contactamos ma?ana.'
+    ? 'Estamos fuera de horario. Déjame tu nombre y el motivo de tu consulta y te contactamos mañana.'
     : 'We are outside business hours. Please leave your name and reason for your inquiry and we will contact you tomorrow.'
 }
 

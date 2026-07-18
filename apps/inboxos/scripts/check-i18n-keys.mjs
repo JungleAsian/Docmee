@@ -41,11 +41,18 @@ function extractObjectBody(source, marker) {
   throw new Error(`Could not close object for ${marker}`)
 }
 
-function extractDictKeys(marker) {
+function extractDictKeys(marker, seen = new Set()) {
+  if (seen.has(marker)) return new Set()
+  seen.add(marker)
   const body = extractObjectBody(i18nSource, marker)
   const keys = new Set()
   const keyPattern = /^\s*['"]([^'"]+)['"]\s*:/gm
   for (const match of body.matchAll(keyPattern)) keys.add(match[1])
+  const spreadPattern = /^\s*\.\.\.(\w+)\s*,?/gm
+  for (const match of body.matchAll(spreadPattern)) {
+    const spreadKeys = extractDictKeys(`const ${match[1]}: Dict =`, seen)
+    for (const key of spreadKeys) keys.add(key)
+  }
   return keys
 }
 

@@ -7,7 +7,7 @@
     "dev": "next dev -p 4000 -H 127.0.0.1",
     "dev:mobile": "node -e \"console.error('dev:mobile is disabled: binding 0.0.0.0 exposes an unauthenticated control plane to your LAN over plain HTTP. Use a private HTTPS tailnet instead: pnpm tool devtools serve'); process.exit(1)\"",
     "build": "next build",
-    "lint": "tsx ../node_modules/eslint/bin/eslint.js . --config eslint.config.js"
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --config eslint.config.js"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.12",

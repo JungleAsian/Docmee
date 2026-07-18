@@ -43,32 +43,38 @@ const baseAccount = {
 
 describe('Meta phone registration', () => {
   let app = Fastify()
-  const clinicAdminAuth = {
-    authorization: `Bearer ${signAccessToken({
-      userId: 'admin-1',
-      clinicId: 'c-1',
-      role: 'clinic_admin',
-      email: 'admin@clinic.test',
-    })}`,
-  }
-  const foreignClinicAdminAuth = {
-    authorization: `Bearer ${signAccessToken({
-      userId: 'admin-2',
-      clinicId: 'c-2',
-      role: 'clinic_admin',
-      email: 'admin@other.test',
-    })}`,
-  }
-  const secretaryAuth = {
-    authorization: `Bearer ${signAccessToken({
-      userId: 'staff-1',
-      clinicId: 'c-1',
-      role: 'secretary',
-      email: 'staff@clinic.test',
-    })}`,
-  }
+  let previousJwtSecret: string | undefined
+  let clinicAdminAuth: { authorization: string }
+  let foreignClinicAdminAuth: { authorization: string }
+  let secretaryAuth: { authorization: string }
 
   beforeAll(async () => {
+    previousJwtSecret = process.env['JWT_SECRET']
+    process.env['JWT_SECRET'] = 'channels-registration-test-secret'
+    clinicAdminAuth = {
+      authorization: `Bearer ${signAccessToken({
+        userId: 'admin-1',
+        clinicId: 'c-1',
+        role: 'clinic_admin',
+        email: 'admin@clinic.test',
+      })}`,
+    }
+    foreignClinicAdminAuth = {
+      authorization: `Bearer ${signAccessToken({
+        userId: 'admin-2',
+        clinicId: 'c-2',
+        role: 'clinic_admin',
+        email: 'admin@other.test',
+      })}`,
+    }
+    secretaryAuth = {
+      authorization: `Bearer ${signAccessToken({
+        userId: 'staff-1',
+        clinicId: 'c-1',
+        role: 'secretary',
+        email: 'staff@clinic.test',
+      })}`,
+    }
     app = Fastify()
     await app.register(channelsRoute)
     await app.ready()
@@ -76,6 +82,8 @@ describe('Meta phone registration', () => {
 
   afterAll(async () => {
     await app.close()
+    if (previousJwtSecret === undefined) delete process.env['JWT_SECRET']
+    else process.env['JWT_SECRET'] = previousJwtSecret
   })
 
   afterEach(() => {

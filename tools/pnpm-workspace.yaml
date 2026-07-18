@@ -3,3 +3,5 @@ packages:
   - dashboard
   - eslint
   - discord
+allowBuilds:
+  esbuild: true

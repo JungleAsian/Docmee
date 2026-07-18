@@ -47,6 +47,9 @@ importers:
       '@docmee/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@docmee/channels':
+        specifier: workspace:*
+        version: link:../../packages/channels
       '@docmee/db':
         specifier: workspace:*
         version: link:../../packages/db

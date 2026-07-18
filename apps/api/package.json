@@ -16,6 +16,7 @@
     "@aws-sdk/client-s3": "^3.1077.0",
     "@aws-sdk/s3-request-presigner": "^3.1077.0",
     "@docmee/agents": "workspace:*",
+    "@docmee/channels": "workspace:*",
     "@docmee/db": "workspace:*",
     "@docmee/llm": "workspace:*",
     "@docmee/notifications": "workspace:*",

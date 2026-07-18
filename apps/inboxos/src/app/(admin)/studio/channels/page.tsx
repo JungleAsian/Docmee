@@ -580,6 +580,15 @@ function ProviderStatusPanel({
   const whatsappConfigured = whatsappAccounts.some(
     (account) => account.provider === 'meta_whatsapp' && account.hasAccessToken,
   )
+  const whatsappReleaseReady = whatsappAccounts.some(
+    (account) =>
+      account.status === 'active' &&
+      account.provider === 'meta_whatsapp' &&
+      account.hasAccessToken &&
+      account.hasWebhookVerifyToken &&
+      Boolean(account.wabaId?.trim()) &&
+      /^\d{8,25}$/.test(account.accountId),
+  )
   const lastWhatsAppUpdate = whatsappAccounts
     .map((account) => account.updatedAt)
     .sort()
@@ -608,18 +617,18 @@ function ProviderStatusPanel({
         <ProviderTile
           icon="whatsapp"
           label={t('studio.channels.providerStatus.whatsapp')}
-          state={whatsappActive && whatsappConfigured ? 'ready' : whatsappConfigured ? 'warning' : 'missing'}
+          state={whatsappReleaseReady ? 'ready' : whatsappActive && whatsappConfigured ? 'warning' : 'missing'}
           detail={
-            lastWhatsAppUpdate
+            whatsappReleaseReady && lastWhatsAppUpdate
               ? t('studio.channels.providerStatus.lastUpdated', { date: lastWhatsAppUpdate.slice(0, 10) })
-              : t('studio.channels.providerStatus.noWebhookYet')
+              : 'Needs an active token, WABA ID, numeric phone-number ID, and webhook verify token.'
           }
         />
         <ProviderTile
           icon="googleCalendar"
           label={t('studio.channels.providerStatus.google')}
-          state={googleConnected ? 'ready' : 'missing'}
-          detail={googleConnected ? t('studio.channels.providerStatus.calendarReady') : t('studio.channels.providerStatus.connectGoogle')}
+          state={googleConnected ? 'warning' : 'missing'}
+          detail={googleConnected ? 'OAuth is configured; verify that every active bookable doctor has a linked calendar in Credential Health.' : t('studio.channels.providerStatus.connectGoogle')}
         />
         <ProviderTile
           icon="email"

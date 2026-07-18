@@ -13,7 +13,9 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const whatsappSchema = z.object({
   provider: z.literal('meta_whatsapp').optional(),
-  accountId: z.string().min(1),
+  // Meta Graph phone-number IDs are numeric identifiers, never phone numbers or
+  // email addresses. Reject invalid values before they can be persisted.
+  accountId: z.string().regex(/^\d{8,25}$/, 'Meta phone-number ID must contain 8 to 25 digits'),
   displayName: z.string().optional(),
   wabaId: z.string().trim().min(1).optional(),
   accessToken: z.string().min(1).optional(),
@@ -25,7 +27,7 @@ const whatsappSchema = z.object({
 
 const embeddedSignupSchema = z.object({
   code: z.string().min(1),
-  phoneNumberId: z.string().min(1),
+  phoneNumberId: z.string().regex(/^\d{8,25}$/, 'Meta phone-number ID must contain 8 to 25 digits'),
   wabaId: z.string().min(1).optional(),
   setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
   displayName: z.string().optional(),
@@ -337,7 +339,14 @@ function buildWhatsAppHealth(accounts: RedactedChannelAccount[]) {
   const activeMetaAccounts = metaAccounts.filter((account) => account.status === 'active')
   const hasProductionCredentials = activeMetaAccounts.some((account) => account.hasAccessToken)
   const hasWebhookVerifyToken = activeMetaAccounts.some((account) => account.hasWebhookVerifyToken)
-  const productionReady = activeMetaAccounts.length > 0 && hasProductionCredentials
+  const hasWabaId = activeMetaAccounts.some((account) => Boolean(account.wabaId?.trim()))
+  const hasValidPhoneNumberId = activeMetaAccounts.some((account) => /^\d{8,25}$/.test(account.accountId))
+  const productionReady =
+    activeMetaAccounts.length > 0 &&
+    hasProductionCredentials &&
+    hasWebhookVerifyToken &&
+    hasWabaId &&
+    hasValidPhoneNumberId
   const checks = [
     {
       key: 'meta_app',
@@ -368,9 +377,27 @@ function buildWhatsAppHealth(accounts: RedactedChannelAccount[]) {
       action: 'Save a production Meta WhatsApp Business access token.',
     },
     {
+      key: 'waba_id',
+      label: 'WABA ID',
+      state: hasWabaId ? 'pass' : 'fail',
+      detail: hasWabaId
+        ? 'A WABA ID is stored for an active Meta WhatsApp Business account.'
+        : 'No WABA ID is stored for an active Meta WhatsApp Business account.',
+      action: 'Complete Embedded Signup or save the WABA ID that owns this phone number.',
+    },
+    {
+      key: 'phone_number_id',
+      label: 'Meta phone-number ID',
+      state: hasValidPhoneNumberId ? 'pass' : 'fail',
+      detail: hasValidPhoneNumberId
+        ? 'An active account has a numeric Meta phone-number ID.'
+        : 'An active account has no valid numeric Meta phone-number ID.',
+      action: 'Replace the account ID with the numeric phone-number ID from WhatsApp Manager.',
+    },
+    {
       key: 'webhook_verify_token',
       label: 'Webhook verify token',
-      state: hasWebhookVerifyToken ? 'pass' : 'warning',
+      state: hasWebhookVerifyToken ? 'pass' : 'fail',
       detail: hasWebhookVerifyToken
         ? 'A webhook verify token is stored for Meta WhatsApp Business.'
         : 'No production webhook verify token is stored.',

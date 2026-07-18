@@ -137,4 +137,18 @@ describe('processSchedulingJob — calendar failure (Req 29)', () => {
     // The partially-advanced flow state is NOT persisted (we returned early).
     expect(h.updateConversation).not.toHaveBeenCalled()
   })
+
+  it('classifies WhatsApp delivery errors separately from Calendar failures', async () => {
+    h.advanceBookingFlow.mockRejectedValue(new Error('META_SEND_FAILURE: 401 Unauthorized (Zernio)'))
+
+    await processSchedulingJob(makeJob(job))
+
+    expect(h.createError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clinicId: CLINIC,
+        errorType: 'whatsapp_delivery_failure',
+        errorMessage: expect.stringContaining('META_SEND_FAILURE'),
+      }),
+    )
+  })
 })

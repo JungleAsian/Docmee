@@ -1,4 +1,4 @@
-// Inline-SVG icons sourced from the MIT Lineicons set (JungleAsian/LineIcons-Art3mis),
+// Inline SVG icons sourced from the MIT Lineicons set (JungleAsian/LineIcons-Art3mis),
 // fills normalized to currentColor so they inherit text color. Keep a tooltip on
 // every icon-only button via the `label` prop (sets title + aria-label).
 type IconDef = { viewBox: string; body: string }

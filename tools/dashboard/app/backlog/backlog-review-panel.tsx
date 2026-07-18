@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 // One "Review" button per item that opens everything needed to review a
 // resolution in plain language — suggested solution, next steps, verification,

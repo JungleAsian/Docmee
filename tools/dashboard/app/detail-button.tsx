@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { Icon, type IconName } from './icon'
+import { Icon, type IconName } from './icons'
 
 // A compact button that opens long text in a centered modal pop-up, so text-heavy
 // cells/cards don't bloat a row or column. Uses the native <dialog> so backdrop,

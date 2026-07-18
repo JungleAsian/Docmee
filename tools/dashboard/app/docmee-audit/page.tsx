@@ -23,7 +23,7 @@ import { LaneFlowStrip } from '../lane-flow-strip'
 import { LaneItemGauge } from '../lane-item-gauge'
 import { runLiveness, isProcessAlive, heartbeatAge } from '../lib/run-live'
 import { ElapsedTimer } from '../elapsed-timer'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 import { readJson } from '../lib/read-json'
 
 const toolsRoot = path.resolve(process.cwd(), '..')

@@ -1,6 +1,6 @@
 'use client'
 
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 const STATUSES = ['todo', 'in-progress', 'blocked', 'review', 'done'] as const
 

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { readJson } from '../lib/read-json'
 import { isProcessAlive, isHeartbeatFresh } from '../lib/run-live'
 import { AutoRefresh } from '../auto-refresh'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 export const dynamic = 'force-dynamic'
 

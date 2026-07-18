@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const appRoot = new URL('..', import.meta.url).pathname
+const appRoot = fileURLToPath(new URL('..', import.meta.url))
 const srcRoot = join(appRoot, 'src')
 const i18nPath = join(srcRoot, 'shared', 'i18n.ts')
 const i18nSource = readFileSync(i18nPath, 'utf8')

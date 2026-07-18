@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
+
+const originalLlmStub = process.env['LLM_STUB']
 
 const h = vi.hoisted(() => ({
   agentAdd: vi.fn(),
@@ -57,6 +59,7 @@ const base = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  process.env['LLM_STUB'] = 'false'
   process.env['TRANSCRIPTION_RETRY_DELAY_MS'] = '0' // no real backoff in tests
   process.env['DOCMEE_BUILTIN_TRANSCRIBER_URL'] = 'https://transcriber.test/v1/transcribe'
   h.downloadMedia.mockResolvedValue({ buffer: new ArrayBuffer(8), mimeType: 'audio/ogg' })
@@ -77,6 +80,11 @@ beforeEach(() => {
   h.findConversationById.mockResolvedValue(null)
   h.findOpenByContact.mockResolvedValue(null)
   h.createConversation.mockResolvedValue({ id: CONVO, metadata: {} })
+})
+
+afterAll(() => {
+  if (originalLlmStub === undefined) delete process.env['LLM_STUB']
+  else process.env['LLM_STUB'] = originalLlmStub
 })
 
 describe('processTranscriptionJob', () => {

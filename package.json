@@ -2,6 +2,7 @@
   "name": "docmee",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
     "dev": "pnpm --filter @docmee/api dev",
     "typecheck": "pnpm -r --filter @docmee/* typecheck",

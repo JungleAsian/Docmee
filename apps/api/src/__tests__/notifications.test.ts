@@ -58,6 +58,22 @@ function authFor(userId: string, clinicId = 'c1') {
   return { authorization: `Bearer ${token}` }
 }
 
+const USER_ID = '00000000-0000-4000-8000-000000000001'
+const GHOST_ID = '00000000-0000-4000-8000-000000000099'
+const DEFAULT_PREFS = {
+  emailEnabled: true,
+  mutedTypes: [],
+  soundEnabled: false,
+  jzelEnabled: true,
+  alertCategories: {
+    whatsapp: true,
+    newBooking: true,
+    cancellation: true,
+    bookingRevision: true,
+    internal: true,
+  },
+}
+
 describe('notification + heartbeat routes (P08 auth)', () => {
   let app: Awaited<ReturnType<typeof buildApp>>
 
@@ -112,11 +128,11 @@ describe('notification + heartbeat routes (P08 auth)', () => {
   })
 
   it('POST /user/heartbeat updates last_seen for the authenticated user', async () => {
-    store.users.add('u1')
-    const res = await app.inject({ method: 'POST', url: '/user/heartbeat', headers: authFor('u1') })
+    store.users.add(USER_ID)
+    const res = await app.inject({ method: 'POST', url: '/user/heartbeat', headers: authFor(USER_ID) })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({ ok: true })
-    expect(store.lastSeen.get('u1')).toBe('now')
+    expect(store.lastSeen.get(USER_ID)).toBe('now')
   })
 
   it('POST /user/heartbeat without a token → 401', async () => {
@@ -125,16 +141,16 @@ describe('notification + heartbeat routes (P08 auth)', () => {
   })
 
   it('POST /user/heartbeat for an unknown user → 404', async () => {
-    const res = await app.inject({ method: 'POST', url: '/user/heartbeat', headers: authFor('ghost') })
+    const res = await app.inject({ method: 'POST', url: '/user/heartbeat', headers: authFor(GHOST_ID) })
     expect(res.statusCode).toBe(404)
   })
 
   it('POST /user/preferences sets the panel language', async () => {
-    store.users.add('u1')
+    store.users.add(USER_ID)
     const res = await app.inject({
       method: 'POST',
       url: '/user/preferences',
-      headers: authFor('u1'),
+      headers: authFor(USER_ID),
       payload: { panel_language: 'en' },
     })
     expect(res.statusCode).toBe(200)
@@ -142,53 +158,53 @@ describe('notification + heartbeat routes (P08 auth)', () => {
   })
 
   it('GET /user/notification-preferences returns normalized defaults for a new user', async () => {
-    store.users.add('u1')
+    store.users.add(USER_ID)
     const res = await app.inject({
       method: 'GET',
       url: '/user/notification-preferences',
-      headers: authFor('u1'),
+      headers: authFor(USER_ID),
     })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ preferences: { emailEnabled: true, mutedTypes: [] } })
+    expect(JSON.parse(res.body)).toEqual({ preferences: DEFAULT_PREFS })
   })
 
   it('GET /user/notification-preferences for an unknown user → 404', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/user/notification-preferences',
-      headers: authFor('ghost'),
+      headers: authFor(GHOST_ID),
     })
     expect(res.statusCode).toBe(404)
   })
 
   it('PUT /user/notification-preferences persists normalized prefs', async () => {
-    store.users.add('u1')
+    store.users.add(USER_ID)
     const res = await app.inject({
       method: 'PUT',
       url: '/user/notification-preferences',
-      headers: authFor('u1'),
+      headers: authFor(USER_ID),
       payload: { emailEnabled: false, mutedTypes: ['new_patient', 'new_patient'] },
     })
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({
       ok: true,
-      preferences: { emailEnabled: false, mutedTypes: ['new_patient'] },
+      preferences: { ...DEFAULT_PREFS, emailEnabled: false, mutedTypes: ['new_patient'] },
     })
     // Re-reading returns the persisted prefs.
     const get = await app.inject({
       method: 'GET',
       url: '/user/notification-preferences',
-      headers: authFor('u1'),
+      headers: authFor(USER_ID),
     })
-    expect(JSON.parse(get.body).preferences).toEqual({ emailEnabled: false, mutedTypes: ['new_patient'] })
+    expect(JSON.parse(get.body).preferences).toEqual({ ...DEFAULT_PREFS, emailEnabled: false, mutedTypes: ['new_patient'] })
   })
 
   it('PUT /user/notification-preferences rejects an unknown alert type → 400', async () => {
-    store.users.add('u1')
+    store.users.add(USER_ID)
     const res = await app.inject({
       method: 'PUT',
       url: '/user/notification-preferences',
-      headers: authFor('u1'),
+      headers: authFor(USER_ID),
       payload: { emailEnabled: true, mutedTypes: ['not_a_real_type'] },
     })
     expect(res.statusCode).toBe(400)

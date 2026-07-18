@@ -96,13 +96,18 @@ const WhatsAppEntrySchema = z.object({
 async function isAllowedVerifyToken(token: string | undefined): Promise<boolean> {
   if (!token) return false
   if (token === process.env['META_VERIFY_TOKEN']) return true
-  const rows = await withDb((sql) => sql<{ exists: boolean }[]>`
-    SELECT true AS exists
-    FROM channel_accounts
-    WHERE channel = 'whatsapp' AND webhook_verify_token = ${token}
-    LIMIT 1
-  `)
-  return Boolean(rows[0]?.exists)
+  try {
+    const rows = await withDb((sql) => sql<{ exists: boolean }[]>`
+      SELECT true AS exists
+      FROM channel_accounts
+      WHERE channel = 'whatsapp' AND webhook_verify_token = ${token}
+      LIMIT 1
+    `)
+    return Boolean(rows[0]?.exists)
+  } catch {
+    // Verification must fail closed when the account-token lookup is unavailable.
+    return false
+  }
 }
 
 function interactiveText(msg: {

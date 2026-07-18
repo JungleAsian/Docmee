@@ -564,14 +564,14 @@ describe('conversation routes', () => {
     })
     expect(res.statusCode).toBe(400)
   })
-  it('POST /conversations/:id/assign as ia_studio_admin → 403', async () => {
+  it('POST /conversations/:id/assign allows an ia_studio_admin working in the active clinic', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/conversations/open-1/assign',
       headers: authHeader('ia_studio_admin'),
       payload: { userId: 'u-2' },
     })
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(200)
   })
 
   it('POST /conversations/:id/assign without auth → 401', async () => {

@@ -9,7 +9,7 @@ const EXPECTED: Record<PanelRole, Capability[]> = {
   secretary: ['inbox', 'calendar', 'assistant'],
   doctor: ['inbox', 'calendar', 'assistant'],
   clinic_admin: ['inbox', 'calendar', 'assistant', 'metrics', 'analytics', 'qos', 'reports', 'studio'],
-  ia_studio_admin: ['inbox', 'calendar', 'metrics', 'analytics', 'qos', 'reports', 'studio'],
+  ia_studio_admin: ['inbox', 'calendar', 'assistant', 'metrics', 'analytics', 'qos', 'reports', 'studio'],
 }
 
 describe('permissions.can', () => {
@@ -45,6 +45,7 @@ describe('permissions.rolesWith', () => {
   it('lists the roles allowed per capability (matches API gates)', () => {
     expect(rolesWith('inbox').sort()).toEqual(['clinic_admin', 'doctor', 'ia_studio_admin', 'secretary'])
     expect(rolesWith('calendar').sort()).toEqual(['clinic_admin', 'doctor', 'ia_studio_admin', 'secretary'])
+    expect(rolesWith('assistant').sort()).toEqual(['clinic_admin', 'doctor', 'ia_studio_admin', 'secretary'])
     expect(rolesWith('metrics').sort()).toEqual(['clinic_admin', 'ia_studio_admin'])
     expect(rolesWith('analytics').sort()).toEqual(['clinic_admin', 'ia_studio_admin'])
     expect(rolesWith('qos').sort()).toEqual(['clinic_admin', 'ia_studio_admin'])

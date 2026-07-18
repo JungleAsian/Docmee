@@ -18,14 +18,18 @@ function buildTestApp(): FastifyInstance {
 
 describe('auth middleware', () => {
   let app: FastifyInstance
+  let previousJwtSecret: string | undefined
 
   beforeAll(async () => {
+    previousJwtSecret = process.env['JWT_SECRET']
     process.env['JWT_SECRET'] = 'test-access-secret'
     app = buildTestApp()
     await app.ready()
   })
   afterAll(async () => {
     await app.close()
+    if (previousJwtSecret === undefined) delete process.env['JWT_SECRET']
+    else process.env['JWT_SECRET'] = previousJwtSecret
   })
 
   it('missing bearer → 401', async () => {

@@ -51,8 +51,12 @@ const hasRedis = await redisAvailable()
 describe('auth integration', () => {
   let app: Awaited<ReturnType<typeof buildApp>>
   let clinicId: string | undefined
+  let previousNodeEnv: string | undefined
+  let previousJwtSecret: string | undefined
 
   beforeAll(async () => {
+    previousNodeEnv = process.env['NODE_ENV']
+    previousJwtSecret = process.env['JWT_SECRET']
     process.env['NODE_ENV'] = 'test'
     process.env['JWT_SECRET'] = JWT_KEY
     app = await buildApp()
@@ -103,6 +107,10 @@ describe('auth integration', () => {
       }
     }
     await app.close()
+    if (previousNodeEnv === undefined) delete process.env['NODE_ENV']
+    else process.env['NODE_ENV'] = previousNodeEnv
+    if (previousJwtSecret === undefined) delete process.env['JWT_SECRET']
+    else process.env['JWT_SECRET'] = previousJwtSecret
   })
 
   it('rejects a request with no token (401)', async () => {

@@ -16,6 +16,7 @@ export default defineConfig({
       '@docmee/channels': fileURLToPath(new URL('../../packages/channels/src/index.ts', import.meta.url)),
       '@docmee/llm': fileURLToPath(new URL('../../packages/llm/src/index.ts', import.meta.url)),
       '@docmee/agents': fileURLToPath(new URL('../../packages/agents/src/index.ts', import.meta.url)),
+      '@docmee/shared': fileURLToPath(new URL('../../packages/shared/src/index.ts', import.meta.url)),
     },
   },
 })

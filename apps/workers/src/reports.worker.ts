@@ -32,7 +32,8 @@ interface ReportConfig {
   hourLocal: number
 }
 
-function readReportConfig(settings: Record<string, unknown>): ReportConfig {
+function readReportConfig(settings: Record<string, unknown> | null | undefined): ReportConfig {
+  settings ??= {}
   const raw = settings['reports']
   const cfg = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const frequency = cfg['frequency'] === 'weekly' || cfg['frequency'] === 'monthly' ? cfg['frequency'] : 'daily'

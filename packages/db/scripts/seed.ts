@@ -100,21 +100,6 @@ async function seed() {
 
     // ── Roles, passwords, role assignments (P08 auth — enables panel login) ──
     const demoPasswordHash = hashPassword(DEMO_PASSWORD)
-    const roleSpecs = [
-      { clinicId: clinicAId, name: 'clinic_admin' },
-      { clinicId: clinicAId, name: 'secretary' },
-      { clinicId: clinicAId, name: 'ia_studio_admin' },
-      { clinicId: clinicBId, name: 'clinic_admin' },
-    ]
-    const roleIds = new Map<string, string>()
-    for (const r of roleSpecs) {
-      const [role] = await tx<{ id: string }[]>`
-        INSERT INTO roles (clinic_id, name, description)
-        VALUES (${r.clinicId}, ${r.name}, ${`${r.name} (seed)`})
-        RETURNING id
-      `
-      roleIds.set(`${r.clinicId}:${r.name}`, role!.id)
-    }
     const assignments = [
       { email: 'admin@demo-a.test', clinicId: clinicAId, role: 'clinic_admin' },
       { email: 'secretary@demo-a.test', clinicId: clinicAId, role: 'secretary' },
@@ -122,14 +107,31 @@ async function seed() {
       { email: 'admin@demo-b.test', clinicId: clinicBId, role: 'clinic_admin' },
     ]
     for (const a of assignments) {
-      const [u] = await tx<{ id: string }[]>`
+      const [u] = await tx<{ id: string; userId: string }[]>`
         UPDATE clinic_users SET password_hash = ${demoPasswordHash}
         WHERE clinic_id = ${a.clinicId} AND email = ${a.email}
-        RETURNING id
+        RETURNING id, user_id
+      `
+      // Login authorization resolves from memberships. Use the system role catalogue
+      // so seeded accounts exercise the same access model as production accounts.
+      const [role] = await tx<{ id: string }[]>`
+        SELECT id FROM roles
+        WHERE clinic_id IS NULL AND name = ${a.role} AND is_system = TRUE
+        LIMIT 1
       `
       await tx`
         INSERT INTO user_roles (clinic_user_id, role_id)
-        VALUES (${u!.id}, ${roleIds.get(`${a.clinicId}:${a.role}`)!})
+        VALUES (${u!.id}, ${role!.id})
+        ON CONFLICT DO NOTHING
+      `
+      await tx`
+        INSERT INTO memberships (user_id, clinic_id, role_id, status)
+        VALUES (
+          ${u!.userId},
+          ${a.role === 'ia_studio_admin' ? null : a.clinicId},
+          ${role!.id},
+          'active'
+        )
         ON CONFLICT DO NOTHING
       `
     }

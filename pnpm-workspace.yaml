@@ -12,6 +12,6 @@ overrides:
   '@types/react': ^19.0.0
   '@types/react-dom': ^19.0.0
 allowBuilds:
-  esbuild: set this to true or false
-  msgpackr-extract: set this to true or false
-  sharp: set this to true or false
+  esbuild: true
+  msgpackr-extract: true
+  sharp: true

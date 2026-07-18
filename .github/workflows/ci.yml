@@ -46,6 +46,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Migrate test database
+        run: pnpm --filter @docmee/db db:migrate
+
       - run: pnpm typecheck
 
       - run: pnpm lint

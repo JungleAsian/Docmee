@@ -12,6 +12,7 @@ vi.mock('@docmee/agents', () => ({
 }))
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: vi.fn(),
+  sendZernioWhatsAppText: vi.fn(),
   sendMessengerText: vi.fn(),
   sendInstagramText: vi.fn(),
 }))

@@ -40,7 +40,10 @@ vi.mock('@docmee/agents', () => ({
   buildStatusReply: vi.fn(),
 }))
 
-vi.mock('@docmee/channels', () => ({ sendWhatsAppText: h.sendWhatsAppText }))
+vi.mock('@docmee/channels', () => ({
+  sendWhatsAppText: h.sendWhatsAppText,
+  sendZernioWhatsAppText: h.sendWhatsAppText,
+}))
 
 vi.mock('@docmee/queue', () => ({ notificationQueue: { add: h.notificationAdd } }))
 
@@ -101,6 +104,7 @@ beforeEach(() => {
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → uses clinic calendar
   h.createError.mockResolvedValue(undefined)
+  h.sendWhatsAppText.mockResolvedValue({ messageId: 'wamid.reply' })
   h.createGoogleCalendarOps.mockReturnValue({
     listSlots: vi.fn(),
     createEvent: vi.fn(),

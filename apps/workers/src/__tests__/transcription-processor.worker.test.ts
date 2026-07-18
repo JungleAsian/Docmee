@@ -20,8 +20,8 @@ vi.mock('@docmee/queue', () => ({
 
 vi.mock('@docmee/channels', () => ({
   downloadMedia: h.downloadMedia,
-  deepgramProvider: { transcribe: h.transcribe },
   sendWhatsAppText: h.sendWhatsAppText,
+  sendZernioWhatsAppText: h.sendWhatsAppText,
 }))
 
 vi.mock('@docmee/db', () => ({
@@ -32,6 +32,7 @@ vi.mock('@docmee/db', () => ({
     findById: h.findConversationById,
     findOpenByContact: h.findOpenByContact,
     create: h.createConversation,
+    update: vi.fn(),
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
 }))
@@ -57,20 +58,25 @@ const base = {
 beforeEach(() => {
   vi.clearAllMocks()
   process.env['TRANSCRIPTION_RETRY_DELAY_MS'] = '0' // no real backoff in tests
+  process.env['DOCMEE_BUILTIN_TRANSCRIBER_URL'] = 'https://transcriber.test/v1/transcribe'
   h.downloadMedia.mockResolvedValue({ buffer: new ArrayBuffer(8), mimeType: 'audio/ogg' })
   h.transcribe.mockResolvedValue({
-    text: 'Hola quiero una cita.',
-    language: 'es',
-    duration_seconds: 3.2,
-    confidence: 0.98,
-    words: [],
+    ok: true,
+    json: async () => ({
+      text: 'Hola quiero una cita.',
+      language: 'es',
+      duration_seconds: 3.2,
+      confidence: 0.98,
+      words: [],
+    }),
   })
+  vi.stubGlobal('fetch', h.transcribe)
   h.listByClinic.mockResolvedValue([
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE_ID', accessTokenEnc: 'token' },
   ])
   h.findConversationById.mockResolvedValue(null)
   h.findOpenByContact.mockResolvedValue(null)
-  h.createConversation.mockResolvedValue({ id: CONVO })
+  h.createConversation.mockResolvedValue({ id: CONVO, metadata: {} })
 })
 
 describe('processTranscriptionJob', () => {
@@ -161,11 +167,14 @@ describe('processTranscriptionJob', () => {
     h.transcribe
       .mockRejectedValueOnce(new Error('deepgram timeout'))
       .mockResolvedValueOnce({
-        text: 'segundo intento',
-        language: 'es',
-        duration_seconds: 2,
-        confidence: 0.9,
-        words: [],
+        ok: true,
+        json: async () => ({
+          text: 'segundo intento',
+          language: 'es',
+          duration_seconds: 2,
+          confidence: 0.9,
+          words: [],
+        }),
       })
 
     await processTranscriptionJob(makeJob(base))

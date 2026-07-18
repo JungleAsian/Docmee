@@ -11,13 +11,16 @@ const h = vi.hoisted(() => ({
   end: vi.fn(),
 }))
 
-vi.mock('@docmee/llm', () => ({ embedText: h.embedText }))
+vi.mock('@docmee/llm', () => ({
+  embedText: h.embedText,
+  embed: ({ text }: { text: string }) => h.embedText(text),
+}))
 
 vi.mock('@docmee/db', () => {
   // A minimal postgres-style tagged-template client: callable, with .json and .end.
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
     h.sqlCall(strings.join('?'), values)
-    return Promise.resolve()
+    return Promise.resolve(strings.join('').includes('SELECT settings FROM clinics') ? [] : [])
   }) as unknown as { json: (v: unknown) => unknown; end: () => void }
   sql.json = (v: unknown) => ({ __json: v })
   sql.end = h.end
@@ -45,7 +48,7 @@ describe('processKbEmbedJob — per-clinic isolation (Req 7)', () => {
 
     expect(h.embedText).toHaveBeenCalledWith('Lun-Vie 9-17')
 
-    const [sqlText, values] = h.sqlCall.mock.calls[0]
+    const [sqlText, values] = h.sqlCall.mock.calls.find(([text]) => String(text).includes('UPDATE knowledge_chunks'))!
     // The WHERE clause must constrain BOTH id and clinic_id.
     expect(sqlText).toContain('UPDATE knowledge_chunks')
     expect(sqlText).toContain('clinic_id')

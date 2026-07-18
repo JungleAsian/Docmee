@@ -25,6 +25,8 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock('@docmee/llm', () => ({
+  defaultChatModel: () => 'test-model',
+  chatComplete: vi.fn(),
   classifyIntent: h.classifyIntent,
   claudeComplete: vi.fn(),
   embedText: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock('@docmee/agents', async () => {
 
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
+  sendZernioWhatsAppText: h.sendWhatsAppText,
   sendMessengerText: vi.fn(),
   sendInstagramText: vi.fn(),
 }))
@@ -65,7 +68,8 @@ vi.mock('@docmee/db', () => ({
     createTag: h.createTag,
     addTag: h.addTag,
   }),
-  createMessagesRepository: () => ({ create: h.createMessage }),
+  createMessagesRepository: () => ({ create: h.createMessage, listByConversation: vi.fn().mockResolvedValue([]) }),
+  createWorkflowsRepository: () => ({ listEnabled: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
 }))
 

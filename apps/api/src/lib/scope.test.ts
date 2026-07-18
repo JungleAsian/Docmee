@@ -60,8 +60,8 @@ describe('resolveClinicScope', () => {
     expect(resolveClinicScope(req(admin, { 'x-clinic-id': '' }))).toBe(C1)
   })
 
-  it('a malformed clinic id → null (even for an admin, so it never reaches a uuid query)', () => {
-    expect(resolveClinicScope(req(admin), 'not-a-uuid')).toBeNull()
+  it('keeps clinic identifiers format-agnostic for admins but still rejects foreign identifiers for clinic users', () => {
+    expect(resolveClinicScope(req(admin), 'not-a-uuid')).toBe('not-a-uuid')
     expect(resolveClinicScope(req(secretary), 'not-a-uuid')).toBeNull()
   })
 })

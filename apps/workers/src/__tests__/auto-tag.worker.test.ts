@@ -90,7 +90,7 @@ vi.mock('@docmee/db', () => ({
     addTag: h.addTag,
   }),
   createMessagesRepository: () => ({ create: vi.fn(), listByConversation: vi.fn().mockResolvedValue([]) }),
-  createWorkflowsRepository: () => ({ listEnabled: vi.fn().mockResolvedValue([]) }),
+  createWorkflowsRepository: () => ({ listEnabled: vi.fn().mockResolvedValue([]), listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
   createAppointmentsRepository: () => ({
     listProviders: h.listProviders,

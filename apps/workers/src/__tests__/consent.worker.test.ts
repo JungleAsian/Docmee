@@ -68,6 +68,7 @@ vi.mock('@docmee/db', () => ({
     addTag: h.addTag,
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
+  createWorkflowsRepository: () => ({ listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
 }))
 

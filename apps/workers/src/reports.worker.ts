@@ -184,7 +184,8 @@ export async function processReportsJob(_job: Job): Promise<void> {
       if (!reportConfig.enabled) continue
       const local = localTimeIn(clinic.timezone, now)
       const wantDaily = reportConfig.frequency === 'daily' && local.hour === reportConfig.hourLocal
-      const wantWeekly = reportConfig.frequency === 'weekly' && local.dayOfWeek === MONDAY && local.hour === reportConfig.hourLocal
+      const weeklyHour = reportConfig.frequency === 'weekly' ? reportConfig.hourLocal : WEEKLY_HOUR
+      const wantWeekly = (reportConfig.frequency === 'daily' || reportConfig.frequency === 'weekly') && local.dayOfWeek === MONDAY && local.hour === weeklyHour
       const wantMonthly = reportConfig.frequency === 'monthly' && now.getUTCDate() === 1 && local.hour === reportConfig.hourLocal
       if (!wantDaily && !wantWeekly && !wantMonthly) continue
 

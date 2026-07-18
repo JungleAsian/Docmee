@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 // Automated mockup-first flow (Option A, HTML preview):
 //  1. Generate mockup  -> Claude Code writes tools/logs/mockups/screen-N.html

@@ -49,6 +49,8 @@ export const FollowUpJobSchema = z.object({
   conversationId: z.string().uuid().optional(),
   /** no_response self-cancel: the patient's last-inbound time when the job was scheduled. */
   silentSinceIso: z.string().optional(),
+  /** Configuration-derived copy used to resume the exact missing booking question. */
+  recoveryPrompt: z.string().trim().min(1).max(1_000).optional(),
   /** Rev 2 Approval node: a re-enqueued job after a secretary approved the draft —
    *  skips the approval gate but re-runs every consent/window/anti-spam re-check. */
   approved: z.boolean().optional(),
@@ -220,6 +222,7 @@ export interface NoResponseFollowUpInput {
   /** The patient's last-inbound time now; the job self-cancels if they reply after it. */
   silentSinceIso: string
   delayMs?: number
+  recoveryPrompt?: string
 }
 
 /**
@@ -236,6 +239,7 @@ export async function scheduleNoResponseFollowUp(input: NoResponseFollowUpInput)
         conversationId: input.conversationId,
         type: FOLLOW_UP_TYPES.NO_RESPONSE,
         silentSinceIso: input.silentSinceIso,
+        ...(input.recoveryPrompt ? { recoveryPrompt: input.recoveryPrompt } : {}),
       },
       input.delayMs ?? NO_RESPONSE_DELAY_MS,
     )

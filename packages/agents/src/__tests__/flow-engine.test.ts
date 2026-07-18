@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { startFlow, advanceFlow, toFlowDef, type FlowDef, type FlowState } from '../botbase/flow-engine.js'
+import {
+  startFlow,
+  advanceFlow,
+  advanceFlowTo,
+  inspectFlowReply,
+  toFlowDef,
+  type FlowDef,
+  type FlowState,
+} from '../botbase/flow-engine.js'
 
 const bookingFlow: FlowDef = {
   id: 'f1',
@@ -90,6 +98,56 @@ describe('flow-engine — advanceFlow', () => {
     expect(spec.messages).toEqual(['Costo especialista.'])
     const other = advanceFlow(flow, { flowId: 'f', stepId: 'q', variables: {} }, 'algo más')!
     expect(other.action).toBe('handoff')
+  })
+
+  it('does not let an early `any` branch mask a later deterministic match', () => {
+    const flow: FlowDef = {
+      id: 'f',
+      startStepId: 'q',
+      steps: [
+        {
+          id: 'q',
+          messages: ['?'],
+          branches: [
+            { op: 'any', next: 'other' },
+            { op: 'contains', keywords: ['especialista'], next: 'specialist' },
+          ],
+        },
+        { id: 'other', messages: ['Otro'], next: 'end' },
+        { id: 'specialist', messages: ['Especialista'], next: 'end' },
+      ],
+    }
+    const r = advanceFlow(flow, { flowId: 'f', stepId: 'q', variables: {} }, 'un especialista')!
+    expect(r.messages).toEqual(['Especialista'])
+  })
+
+  it('exposes bounded semantic candidates and rejects an invented target', () => {
+    const flow: FlowDef = {
+      id: 'f',
+      startStepId: 'q',
+      steps: [
+        {
+          id: 'q',
+          messages: ['?'],
+          branches: [
+            { op: 'yes', next: 'book' },
+            { op: 'no', next: 'end' },
+            { op: 'any', next: 'handoff' },
+          ],
+        },
+      ],
+    }
+    const state: FlowState = { flowId: 'f', stepId: 'q', variables: {} }
+    expect(inspectFlowReply(flow, state, 'maybe')).toEqual({
+      matchedNext: null,
+      fallbackNext: 'handoff',
+      candidates: [
+        { index: 0, op: 'yes', keywords: [], next: 'book' },
+        { index: 1, op: 'no', keywords: [], next: 'end' },
+      ],
+    })
+    expect(advanceFlowTo(flow, state, 'maybe', 'delete_everything')).toBeNull()
+    expect(advanceFlowTo(flow, state, 'please do it', 'book')?.action).toBe('book')
   })
 
   it('returns null when the reply routes nowhere (no branch, no default next)', () => {

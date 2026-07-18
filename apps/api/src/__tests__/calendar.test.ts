@@ -82,7 +82,7 @@ describe('calendar routes', () => {
     store.clinics.set('c3', { id: 'c3', name: 'Demo', settings: {} })
     const res = await app.inject({ method: 'GET', url: '/clinic/calendar/callback?code=abc&state=c3' })
     expect(res.statusCode).toBe(302)
-    expect(res.headers.location).toBe('/admin/clinics/c3?calendar=connected')
+    expect(res.headers.location).toBe('/studio/channels?calendar=connected&clinic=c3')
     const gc = store.clinics.get('c3')!.settings['googleCalendar'] as Record<string, unknown>
     expect(gc.accessToken).toBe('enc:at-raw')
     expect(gc.refreshToken).toBe('enc:rt-raw')

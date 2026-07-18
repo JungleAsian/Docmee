@@ -274,6 +274,18 @@ describe('processFollowUpJob', () => {
       const [, , , text] = h.sendWhatsAppText.mock.calls[0]
       expect(text).toContain('pendientes')
     })
+
+    it('re-asks the exact missing booking question for workflow recovery', async () => {
+      h.findLastInboundAt.mockResolvedValue(new Date().toISOString())
+      const recovery = {
+        ...noResp,
+        silentSinceIso: new Date(Date.now() + 1000).toISOString(),
+        recoveryPrompt: 'Please send the appointment date as YYYY-MM-DD.',
+      }
+      await processFollowUpJob(makeJob(recovery))
+      const [, , , text] = h.sendWhatsAppText.mock.calls[0]
+      expect(text).toBe(recovery.recoveryPrompt)
+    })
   })
 
   it('scheduleFollowUp enqueues a delayed job', async () => {

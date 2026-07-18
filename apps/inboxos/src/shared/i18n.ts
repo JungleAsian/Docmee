@@ -7,8 +7,65 @@ export const LANGUAGES: PanelLanguage[] = ['es', 'en']
 export const DEFAULT_LANGUAGE: PanelLanguage = 'es'
 
 type Dict = Record<string, string>
+const bookingEs: Dict = {
+  'wf.node.waitForReply': 'Esperar respuesta',
+  'wf.node.aiClassifyIntent': 'Clasificar intención por confianza',
+  'wf.node.askCapture': 'Preguntar y capturar',
+  'wf.node.extractBookingDetails': 'Extraer datos de reserva',
+  'wf.node.checkAvailability': 'Consultar disponibilidad',
+  'wf.node.offerSlots': 'Ofrecer horarios',
+  'wf.node.createOrRescheduleBooking': 'Crear / reprogramar cita',
+  'wf.tpl.singleTurnBookingName': 'Reserva en una sola conversación',
+  'wf.tpl.singleTurnBookingDesc': 'Extrae los datos, aclara campos dudosos, confirma y reserva solo con alta confianza.',
+  'flows.canvas.nodes': 'Nodos',
+  'flows.canvas.nodeMessage': 'Mensaje',
+  'flows.canvas.nodeMessageDesc': 'Envía una o más respuestas por WhatsApp.',
+  'flows.canvas.nodeCollect': 'Capturar respuesta',
+  'flows.canvas.nodeCollectDesc': 'Pregunta y guarda la respuesta del paciente.',
+  'flows.canvas.nodeBook': 'Agendar',
+  'flows.canvas.nodeBookDesc': 'Termina abriendo el proceso de reserva.',
+  'flows.canvas.nodeHandoff': 'Pasar al equipo',
+  'flows.canvas.nodeHandoffDesc': 'Envía la conversación al personal.',
+  'flows.canvas.nodeEnd': 'Finalizar',
+  'flows.canvas.nodeEndDesc': 'Detiene este flujo personalizado.',
+  'studio.customFlows.bookingGuideTitle': 'Asistente guiado de reservas',
+  'studio.customFlows.bookingGuideDesc': 'Empieza con un flujo seguro y editable para recopilar el motivo antes de abrir la reserva.',
+  'studio.customFlows.bookingGuideStep1': 'Revisa las palabras que activan el flujo.',
+  'studio.customFlows.bookingGuideStep2': 'Personaliza la pregunta y el campo recopilado.',
+  'studio.customFlows.bookingGuideStep3': 'Revisa cada rama, guarda y supervisa el flujo.',
+  'studio.customFlows.bookingGuideStart': 'Configurar asistente de reservas',
+}
+const bookingEn: Dict = {
+  'wf.node.waitForReply': 'Wait for reply',
+  'wf.node.aiClassifyIntent': 'AI intent confidence',
+  'wf.node.askCapture': 'Ask & capture',
+  'wf.node.extractBookingDetails': 'Extract booking details',
+  'wf.node.checkAvailability': 'Check availability',
+  'wf.node.offerSlots': 'Offer slots',
+  'wf.node.createOrRescheduleBooking': 'Create / reschedule booking',
+  'wf.tpl.singleTurnBookingName': 'Single-turn booking',
+  'wf.tpl.singleTurnBookingDesc': 'Extract details, clarify uncertainty, confirm, and book only at high confidence.',
+  'flows.canvas.nodes': 'Nodes',
+  'flows.canvas.nodeMessage': 'Message',
+  'flows.canvas.nodeMessageDesc': 'Send one or more WhatsApp replies.',
+  'flows.canvas.nodeCollect': 'Collect answer',
+  'flows.canvas.nodeCollectDesc': 'Ask and store a patient response.',
+  'flows.canvas.nodeBook': 'Book',
+  'flows.canvas.nodeBookDesc': 'Finish by opening the booking path.',
+  'flows.canvas.nodeHandoff': 'Handoff',
+  'flows.canvas.nodeHandoffDesc': 'Route the conversation to staff.',
+  'flows.canvas.nodeEnd': 'End',
+  'flows.canvas.nodeEndDesc': 'Stop this custom flow.',
+  'studio.customFlows.bookingGuideTitle': 'Guided booking assistant',
+  'studio.customFlows.bookingGuideDesc': 'Start with a safe, editable flow that collects the reason before opening booking.',
+  'studio.customFlows.bookingGuideStep1': 'Review the trigger words.',
+  'studio.customFlows.bookingGuideStep2': 'Customize the question and collected field.',
+  'studio.customFlows.bookingGuideStep3': 'Review each branch, then save and monitor the flow.',
+  'studio.customFlows.bookingGuideStart': 'Set up booking assistant',
+}
 
 const es: Dict = {
+  ...bookingEs,
   'app.name': 'Docmee InboxOS',
 
   'common.loading': 'Cargando…',
@@ -1780,6 +1837,7 @@ const es: Dict = {
 }
 
 const en: Dict = {
+  ...bookingEn,
   'app.name': 'Docmee InboxOS',
 
   'common.loading': 'Loading…',

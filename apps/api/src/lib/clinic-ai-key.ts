@@ -8,9 +8,9 @@
 // the server env key (ANTHROPIC_API_KEY / OPENAI_API_KEY) — undefined is passed
 // straight through.
 import { decryptValue } from '@docmee/shared'
-import { claudeComplete, embedText } from '@docmee/llm'
+import { claudeComplete, embedText, type EmbedProvider } from '@docmee/llm'
 
-type AiProvider = 'claude' | 'openai' | 'gemini' | 'custom'
+type AiProvider = 'claude' | EmbedProvider
 type History = { role: 'user' | 'assistant'; content: string }[]
 
 /** Decrypt this clinic's stored provider key, or undefined if none/invalid. */

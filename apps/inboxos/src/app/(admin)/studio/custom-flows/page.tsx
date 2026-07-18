@@ -98,6 +98,7 @@ function templateToEditable(t: FlowTemplate): EditableFlow {
     keywords: t.triggerKeywords.join(', '),
     language: t.language,
     steps: t.steps.map(stepToEditable),
+    startStepId: t.startStepId,
   }
 }
 
@@ -159,8 +160,8 @@ export default function CustomFlowsPage() {
   const { t } = useI18n()
   const qc = useQueryClient()
   const { clinicId, switchClinic } = useActiveClinic()
-  // null = closed; { flow } = editing; {} = creating new
-  const [editor, setEditor] = useState<{ flow?: CustomFlow } | null>(null)
+  // null = closed; flow = editing; initial = a template-backed unsaved draft.
+  const [editor, setEditor] = useState<{ flow?: CustomFlow; initial?: EditableFlow } | null>(null)
 
   const key = ['custom-flows', clinicId]
   const query = useQuery({
@@ -186,14 +187,9 @@ export default function CustomFlowsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   })
 
-  const createFromTemplate = useMutation({
-    mutationFn: (tpl: FlowTemplate) =>
-      api.post(`/clinics/${clinicId}/custom-flows`, editableToPayload(templateToEditable(tpl))),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
-  })
-
   const flows = query.data?.flows ?? []
   const templates = templatesQuery.data?.templates ?? []
+  const bookingTemplate = templates.find((template) => template.key === 'schedule')
 
   return (
     <div className="clinic-page space-y-6">
@@ -218,7 +214,30 @@ export default function CustomFlowsPage() {
             </button>
           </div>
 
-          {/* Template gallery (Rev 2): one click instantiates a prebuilt flow into an
+          {!editor && bookingTemplate ? (
+            <section className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                {t('studio.customFlows.bookingGuideTitle')}
+              </p>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                {t('studio.customFlows.bookingGuideDesc')}
+              </p>
+              <ol className="mt-3 grid gap-2 text-xs text-gray-600 dark:text-gray-300 sm:grid-cols-3">
+                <li>1. {t('studio.customFlows.bookingGuideStep1')}</li>
+                <li>2. {t('studio.customFlows.bookingGuideStep2')}</li>
+                <li>3. {t('studio.customFlows.bookingGuideStep3')}</li>
+              </ol>
+              <button
+                type="button"
+                onClick={() => setEditor({ initial: templateToEditable(bookingTemplate) })}
+                className="mt-3 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                {t('studio.customFlows.bookingGuideStart')}
+              </button>
+            </section>
+          ) : null}
+
+          {/* Template gallery (Rev 2): one click opens a prebuilt flow in the
               editable copy — the no-blank-canvas starting point. */}
           {!editor && templates.length > 0 && (
             <div className="mb-5">
@@ -228,8 +247,7 @@ export default function CustomFlowsPage() {
                   <button
                     key={tpl.key}
                     type="button"
-                    onClick={() => createFromTemplate.mutate(tpl)}
-                    disabled={createFromTemplate.isPending}
+                    onClick={() => setEditor({ initial: templateToEditable(tpl) })}
                     className="group rounded-lg border border-gray-200 bg-white p-3 text-left transition hover:border-cyan-400 hover:shadow-sm disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900"
                   >
                     <p className="text-sm font-medium group-hover:text-cyan-600 dark:group-hover:text-cyan-400">{tpl.name}</p>
@@ -245,8 +263,10 @@ export default function CustomFlowsPage() {
 
           {editor && (
             <FlowEditor
+              key={editor.flow?.id ?? `draft-${editor.initial?.name ?? 'new'}`}
               clinicId={clinicId}
               flow={editor.flow}
+              initial={editor.initial}
               onClose={() => setEditor(null)}
               onSaved={() => {
                 setEditor(null)
@@ -325,16 +345,18 @@ export default function CustomFlowsPage() {
 function FlowEditor({
   clinicId,
   flow,
+  initial,
   onClose,
   onSaved,
 }: {
   clinicId: string
   flow?: CustomFlow
+  initial?: EditableFlow
   onClose: () => void
   onSaved: () => void
 }) {
   const { t } = useI18n()
-  const [model, setModel] = useState<EditableFlow>(() => flowToEditable(flow))
+  const [model, setModel] = useState<EditableFlow>(() => initial ?? flowToEditable(flow))
   const [error, setError] = useState('')
   const [view, setView] = useState<'form' | 'canvas'>('form')
 

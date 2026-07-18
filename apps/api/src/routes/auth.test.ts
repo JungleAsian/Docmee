@@ -33,6 +33,7 @@ vi.mock('@docmee/db', () => ({
   createUsersRepository: () => ({
     findAuthByEmail: async (email: string) =>
       email.toLowerCase() === store.user.email ? store.user : null,
+    getNotificationPrefs: async () => ({}),
   }),
 }))
 

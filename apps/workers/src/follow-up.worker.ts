@@ -262,7 +262,9 @@ export async function processFollowUpJob(job: Job): Promise<void> {
     // response) simply cannot be sent late — we skip rather than risk a policy violation.
     let text: string
     if (isWithinCustomerCareWindow(lastInbound, nowIso)) {
-      text = followUpMessage(data.type, language, formatWhen(appointment, language))
+      text = data.type === FOLLOW_UP_TYPES.NO_RESPONSE && data.recoveryPrompt
+        ? data.recoveryPrompt
+        : followUpMessage(data.type, language, formatWhen(appointment, language))
     } else {
       const category = templateCategoryForType(data.type)
       const template = category

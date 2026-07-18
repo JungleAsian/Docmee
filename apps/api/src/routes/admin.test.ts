@@ -37,6 +37,7 @@ vi.mock('@docmee/db', () => ({
   }),
   createUsersRepository: () => ({
     listByClinic: async (clinicId: string) => store.members.filter((m) => m.clinicId === clinicId),
+    listWithRoles: async (clinicId: string) => store.members.filter((m) => m.clinicId === clinicId),
   }),
   createErrorReviewsRepository: () => ({
     listByClinic: async (clinicId: string, filters: { status?: string } = {}) =>

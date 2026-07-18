@@ -545,12 +545,19 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       }
       }
     } catch (err) {
-      console.error(`[scheduling] calendar flow failed for clinic ${data.clinicId} (${data.action}):`, err)
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      // A response send happens within the booking flow's guarded section. Keep
+      // delivery outages out of the calendar-failure queue so operators can act on
+      // the real provider incident rather than chase a nonexistent Calendar fault.
+      const errorType = /(?:meta[_ ]?send|whatsapp|zernio|phone[_ ]?number)/i.test(errorMessage)
+        ? 'whatsapp_delivery_failure'
+        : 'calendar_failure'
+      console.error(`[scheduling] ${errorType} for clinic ${data.clinicId} (${data.action}):`, err)
       await createErrorReviewsRepository(sql)
         .create({
           clinicId: data.clinicId,
-          errorType: 'calendar_failure',
-          errorMessage: err instanceof Error ? err.message : String(err),
+          errorType,
+          errorMessage,
           context: {
             conversationId: data.conversationId ?? null,
             action: data.action,

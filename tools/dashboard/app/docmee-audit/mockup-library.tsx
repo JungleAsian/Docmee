@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 // Browses saved reference mockups (tools/mockup-library/) with view links.
 export function MockupLibrary({ files, report }: { files: string[]; report?: string }) {

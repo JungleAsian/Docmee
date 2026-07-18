@@ -1,4 +1,4 @@
-// The 20 secretary-alert notification types and their dispatch priority.
+// The 21 secretary-alert notification types and their dispatch priority.
 // These are the alert taxonomy (distinct from the delivery channel — email vs.
 // in_app panel — which is decided per-alert by ./routing.ts from the priority
 // and the recipient's online presence).

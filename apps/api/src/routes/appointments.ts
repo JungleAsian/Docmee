@@ -91,7 +91,6 @@ const timeOf = (iso: string | Date): string => {
   const value = iso instanceof Date ? iso.toISOString() : String(iso)
   return value.slice(11, 16)
 }
-const toIso = (value: string | Date): string => (value instanceof Date ? value.toISOString() : String(value))
 /** The date that follows `YYYY-MM-DD`, for an exclusive end-of-day range bound. */
 function nextDay(date: string): string {
   const d = new Date(`${date}T00:00:00Z`)
@@ -122,10 +121,6 @@ function getCalendarSettings(settings: Record<string, unknown>): GoogleCalendarS
     return gc as GoogleCalendarSettings
   }
   return null
-}
-
-function datePart(iso: string | Date): string {
-  return toIso(iso).slice(0, 10)
 }
 
 function durationMinutes(startTime: string | Date, endTime: string | Date): number {

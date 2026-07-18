@@ -10,6 +10,9 @@ vi.mock('@docmee/queue', () => ({
 }))
 vi.mock('@docmee/llm', () => ({
   claudeComplete: vi.fn(async () => 'unused (agent mocked)'),
+  chatComplete: vi.fn(async () => 'unused (agent mocked)'),
+  defaultChatModel: vi.fn(() => 'test-model'),
+  embed: vi.fn(async () => []),
   embedText: vi.fn(async () => []),
 }))
 vi.mock('@docmee/agents', () => ({
@@ -105,13 +108,13 @@ describe('internal AI assistant routes', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('POST /assist/summary as ia_studio_admin → 403 (not an inbox role)', async () => {
+  it('POST /assist/summary allows an ia_studio_admin working in the active clinic', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/conversations/conv-1/assist/summary',
       headers: authHeader('ia_studio_admin'),
     })
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(200)
   })
 
   it('POST /assist/summary → 200 returns a summary (secretary)', async () => {
@@ -154,13 +157,13 @@ describe('internal AI assistant routes', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('POST /assist/next-step as ia_studio_admin → 403 (not an inbox role)', async () => {
+  it('POST /assist/next-step allows an ia_studio_admin working in the active clinic', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/conversations/conv-1/assist/next-step',
       headers: authHeader('ia_studio_admin'),
     })
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(200)
   })
 
   it('POST /assist/next-step → 200 returns action + rationale (secretary)', async () => {

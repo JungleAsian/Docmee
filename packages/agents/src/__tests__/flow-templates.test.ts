@@ -40,13 +40,12 @@ describe('flow-templates', () => {
     }
   })
 
-  it('schedule template collects a reason then books', () => {
+  it('schedule template hands the trigger straight to the canonical booking flow', () => {
     const def = asDef(findFlowTemplate('schedule')!)
     const start = startFlow(def)
-    expect(start.awaitingInput).toBe(true)
-    const r = advanceFlow(def, { flowId: 'schedule', stepId: start.nextStepId!, variables: {} }, 'control anual')!
-    expect(r.variables.reason).toBe('control anual')
-    expect(r.action).toBe('book')
+    expect(start.awaitingInput).toBe(false)
+    expect(start.action).toBe('book')
+    expect(start.messages.join(' ')).toMatch(/profesional.*motivo.*fecha.*hora/i)
   })
 
   it('review template hands off an unhappy patient and ends a happy one', () => {

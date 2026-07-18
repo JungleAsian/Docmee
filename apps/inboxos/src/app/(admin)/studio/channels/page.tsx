@@ -580,6 +580,15 @@ function ProviderStatusPanel({
   const whatsappConfigured = whatsappAccounts.some(
     (account) => account.provider === 'meta_whatsapp' && account.hasAccessToken,
   )
+  const whatsappReleaseReady = whatsappAccounts.some(
+    (account) =>
+      account.status === 'active' &&
+      account.provider === 'meta_whatsapp' &&
+      account.hasAccessToken &&
+      account.hasWebhookVerifyToken &&
+      Boolean(account.wabaId?.trim()) &&
+      /^\d{8,25}$/.test(account.accountId),
+  )
   const lastWhatsAppUpdate = whatsappAccounts
     .map((account) => account.updatedAt)
     .sort()
@@ -608,18 +617,18 @@ function ProviderStatusPanel({
         <ProviderTile
           icon="whatsapp"
           label={t('studio.channels.providerStatus.whatsapp')}
-          state={whatsappActive && whatsappConfigured ? 'ready' : whatsappConfigured ? 'warning' : 'missing'}
+          state={whatsappReleaseReady ? 'ready' : whatsappActive && whatsappConfigured ? 'warning' : 'missing'}
           detail={
-            lastWhatsAppUpdate
+            whatsappReleaseReady && lastWhatsAppUpdate
               ? t('studio.channels.providerStatus.lastUpdated', { date: lastWhatsAppUpdate.slice(0, 10) })
-              : t('studio.channels.providerStatus.noWebhookYet')
+              : 'Needs an active token, WABA ID, numeric phone-number ID, and webhook verify token.'
           }
         />
         <ProviderTile
           icon="googleCalendar"
           label={t('studio.channels.providerStatus.google')}
-          state={googleConnected ? 'ready' : 'missing'}
-          detail={googleConnected ? t('studio.channels.providerStatus.calendarReady') : t('studio.channels.providerStatus.connectGoogle')}
+          state={googleConnected ? 'warning' : 'missing'}
+          detail={googleConnected ? 'OAuth is configured; verify that every active bookable doctor has a linked calendar in Credential Health.' : t('studio.channels.providerStatus.connectGoogle')}
         />
         <ProviderTile
           icon="email"
@@ -1414,11 +1423,22 @@ function WhatsAppCard({
     phone: false,
   })
   const [accountId, setAccountId] = useState(account?.accountId ?? '')
+  const [wabaId, setWabaId] = useState(account?.wabaId ?? '')
   const [displayName, setDisplayName] = useState(account?.displayName ?? '')
   const [accessToken, setAccessToken] = useState('')
   const [webhookVerifyToken, setWebhookVerifyToken] = useState('')
   const [tokenExpiresAt, setTokenExpiresAt] = useState(account?.tokenExpiresAt?.slice(0, 10) ?? '')
+  const [registrationPin, setRegistrationPin] = useState('')
   const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    setAccountId(account?.accountId ?? '')
+    setWabaId(account?.wabaId ?? '')
+    setDisplayName(account?.displayName ?? '')
+    setTokenExpiresAt(account?.tokenExpiresAt?.slice(0, 10) ?? '')
+    setSetupMode(account?.setupMode ?? (account ? 'existing-cloud-api' : null))
+    setRegistrationPin('')
+  }, [account?.id, account?.accountId, account?.wabaId, account?.displayName, account?.tokenExpiresAt, account?.setupMode])
   const metaConfigQuery = useQuery({
     queryKey: ['meta-embedded-signup-config'],
     queryFn: () => api.get<MetaEmbeddedSignupConfig>('/channels/meta-config'),
@@ -1436,6 +1456,7 @@ function WhatsAppCard({
     mutationFn: () =>
       api.put<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp`, {
         accountId: accountId.trim(),
+        wabaId: wabaId.trim() || undefined,
         displayName: displayName.trim() || undefined,
         accessToken: accessToken.trim() || undefined,
         webhookVerifyToken: webhookVerifyToken.trim() || undefined,
@@ -1447,6 +1468,7 @@ function WhatsAppCard({
       setAccessToken('')
       setWebhookVerifyToken('')
       setAccountId(data.account.accountId)
+      setWabaId(data.account.wabaId ?? '')
       setDisplayName(data.account.displayName ?? '')
       setTokenExpiresAt(data.account.tokenExpiresAt?.slice(0, 10) ?? '')
       setSetupMode(data.account.setupMode ?? 'existing-cloud-api')
@@ -1467,6 +1489,7 @@ function WhatsAppCard({
       }),
     onSuccess: (data) => {
       setAccountId(data.account.accountId)
+      setWabaId(data.account.wabaId ?? '')
       setDisplayName(data.account.displayName ?? '')
       setAccessToken('')
       setWebhookVerifyToken('')
@@ -1485,6 +1508,7 @@ function WhatsAppCard({
     },
     onSuccess: () => {
       setAccountId('')
+      setWabaId('')
       setDisplayName('')
       setAccessToken('')
       setWebhookVerifyToken('')
@@ -1496,6 +1520,30 @@ function WhatsAppCard({
       onSaved()
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect WhatsApp.'),
+  })
+  const registerPhone = useMutation({
+    mutationFn: () => {
+      if (!account?.id) throw new Error('Save the Meta WhatsApp account before registering its phone number.')
+      return api.post<{ ok: true; phoneNumberId: string; message: string }>(
+        `/clinics/${clinicId}/channels/whatsapp/${account.id}/register`,
+        { pin: registrationPin },
+      )
+    },
+    onSuccess: (data) => {
+      setMessage(data.message)
+      coexistenceReadinessQuery.refetch()
+      onSaved()
+    },
+    onError: (error) => {
+      const base = error instanceof Error ? error.message : 'Meta could not register the phone number.'
+      const details = error instanceof Error ? (error as Error & { details?: unknown }).details : undefined
+      const action = details && typeof details === 'object' && typeof (details as { action?: unknown }).action === 'string'
+        ? (details as { action: string }).action
+        : null
+      setMessage(action ? `${base} ${action}` : base)
+    },
+    // The PIN is needed only for this request. Never retain it after an attempt.
+    onSettled: () => setRegistrationPin(''),
   })
 
   const status: ServiceStatus = account?.status === 'active' ? 'connected' : account ? 'pending' : 'disconnected'
@@ -1996,7 +2044,7 @@ function WhatsAppCard({
         <div className="mt-2.5 space-y-2 text-xs">
           {account ? (
             <div className="rounded-md bg-emerald-50 p-2 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-              Connected phone ID {account.accountId}. Token {account.hasAccessToken ? 'stored' : 'missing'}.
+              Connected phone ID {account.accountId}. WABA ID {account.wabaId ? account.wabaId : 'missing'}. Token {account.hasAccessToken ? 'stored' : 'missing'}.
             </div>
           ) : (
             <div className="rounded-md bg-amber-50 p-2 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -2007,6 +2055,7 @@ function WhatsAppCard({
             <p className="font-semibold">What to paste from Meta</p>
             <ol className="mt-1 list-decimal space-y-1 pl-4">
               <li>Phone Number ID from WhatsApp Manager or Meta Developer WhatsApp API setup.</li>
+              <li>WABA ID from WhatsApp Manager / Business settings so Docmee can verify the phone belongs to the stored WABA.</li>
               <li>Permanent or system-user access token for the business app.</li>
               <li>A webhook verify token you choose here and paste into Meta webhooks.</li>
               <li>Optional token expiry date so Docmee can warn you before renewal.</li>
@@ -2018,6 +2067,41 @@ function WhatsAppCard({
             loading={coexistenceReadinessQuery.isLoading || coexistenceReadinessQuery.isFetching}
             onRefresh={() => coexistenceReadinessQuery.refetch()}
           />
+          {account && (
+            <div className="rounded-md border border-purple-200 bg-purple-50 p-3 text-purple-950 dark:border-purple-900 dark:bg-purple-950/30 dark:text-purple-100">
+              <p className="font-semibold">Register this phone with Meta Cloud API</p>
+              <p className="mt-1 text-[11px] text-purple-800 dark:text-purple-200">
+                Enter the six-digit two-step verification PIN configured for this phone number. Docmee sends it directly to Meta and does not store it.
+              </p>
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <label className="min-w-48 flex-1">
+                  <span className="mb-1 block font-medium">Six-digit PIN</span>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={registrationPin}
+                    onChange={(event) => setRegistrationPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="w-full rounded-md border border-purple-300 bg-white px-2 py-1.5 text-sm text-gray-950 dark:border-purple-800 dark:bg-gray-950 dark:text-gray-50"
+                    aria-label="Meta phone registration PIN"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessage(null)
+                    registerPhone.mutate()
+                  }}
+                  disabled={!/^\d{6}$/.test(registrationPin) || registerPhone.isPending}
+                  className="rounded-md bg-purple-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+                >
+                  {registerPhone.isPending ? 'Registering...' : 'Register phone'}
+                </button>
+              </div>
+            </div>
+          )}
           <WhatsAppBookingReadiness />
           <WhatsAppClinicAutomationScope readiness={coexistenceReadinessQuery.data} />
           <WhatsAppOperatingStandards />
@@ -2032,6 +2116,16 @@ function WhatsAppCard({
               required
             />
             <span className="mt-1 block text-[11px] text-gray-400">Find this in Meta WhatsApp Manager or Developers &gt; WhatsApp &gt; API setup.</span>
+          </label>
+          <label className="block">
+            <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Meta WABA ID</span>
+            <input
+              value={wabaId}
+              onChange={(event) => setWabaId(event.target.value)}
+              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+              placeholder="1757229692360293"
+            />
+            <span className="mt-1 block text-[11px] text-gray-400">Required to verify ownership before registering the phone. Leave unchanged to keep the stored WABA ID.</span>
           </label>
           <label className="block">
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Display name for staff</span>
@@ -2104,7 +2198,7 @@ function WhatsAppCard({
                 </button>
               ) : null}
             </div>
-            <p className={mutation.isError || disconnectWhatsApp.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
+            <p className={mutation.isError || disconnectWhatsApp.isError || registerPhone.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
             <button
               type="submit"
               disabled={mutation.isPending || disconnectWhatsApp.isPending}

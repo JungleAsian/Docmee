@@ -10,7 +10,7 @@
 import { decryptValue } from '@docmee/shared'
 import { claudeComplete, embedText, embed, type EmbedProvider } from '@docmee/llm'
 
-type AiProvider = 'claude' | 'openai' | 'gemini' | 'custom'
+type AiProvider = 'claude' | EmbedProvider
 type History = { role: 'user' | 'assistant'; content: string }[]
 
 /** Decrypt this clinic's stored provider key, or undefined if none/invalid. */

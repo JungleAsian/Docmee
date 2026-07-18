@@ -40,7 +40,10 @@ vi.mock('@docmee/agents', () => ({
   buildStatusReply: vi.fn(),
 }))
 
-vi.mock('@docmee/channels', () => ({ sendWhatsAppText: h.sendWhatsAppText }))
+vi.mock('@docmee/channels', () => ({
+  sendWhatsAppText: h.sendWhatsAppText,
+  sendZernioWhatsAppText: h.sendWhatsAppText,
+}))
 
 vi.mock('@docmee/queue', () => ({ notificationQueue: { add: h.notificationAdd } }))
 
@@ -101,6 +104,7 @@ beforeEach(() => {
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → uses clinic calendar
   h.createError.mockResolvedValue(undefined)
+  h.sendWhatsAppText.mockResolvedValue({ messageId: 'wamid.reply' })
   h.createGoogleCalendarOps.mockReturnValue({
     listSlots: vi.fn(),
     createEvent: vi.fn(),
@@ -132,5 +136,19 @@ describe('processSchedulingJob — calendar failure (Req 29)', () => {
     )
     // The partially-advanced flow state is NOT persisted (we returned early).
     expect(h.updateConversation).not.toHaveBeenCalled()
+  })
+
+  it('classifies WhatsApp delivery errors separately from Calendar failures', async () => {
+    h.advanceBookingFlow.mockRejectedValue(new Error('META_SEND_FAILURE: 401 Unauthorized (Zernio)'))
+
+    await processSchedulingJob(makeJob(job))
+
+    expect(h.createError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clinicId: CLINIC,
+        errorType: 'whatsapp_delivery_failure',
+        errorMessage: expect.stringContaining('META_SEND_FAILURE'),
+      }),
+    )
   })
 })

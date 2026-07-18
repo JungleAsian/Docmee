@@ -5,9 +5,18 @@ vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
 }))
-vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
+const calendarOps = vi.hoisted(() => ({
+  createEvent: vi.fn(async () => 'google-event-1'),
+  updateEvent: vi.fn(async () => undefined),
+  deleteEvent: vi.fn(async () => undefined),
+}))
+vi.mock('@docmee/agents', () => ({
+  getOAuth2Client: () => ({}),
+  createGoogleCalendarOps: () => calendarOps,
+}))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (v: string) => `enc:${v}`,
+  decryptValue: (v: string) => v.replace(/^enc:/, ''),
   verifyPassword: () => true,
 }))
 
@@ -36,6 +45,22 @@ const store = vi.hoisted(() => ({
 
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: async () => {} }),
+  createClinicsRepository: () => ({
+    findById: async (id: string) => id === 'c-1'
+      ? {
+          id,
+          timezone: 'America/Guatemala',
+          settings: {
+            googleCalendar: {
+              accessToken: 'enc:access',
+              refreshToken: 'enc:refresh',
+              calendarId: 'primary',
+            },
+          },
+        }
+      : null,
+    update: async () => undefined,
+  }),
   createDoctorsRepository: () => ({
     findById: async (clinicId: string, id: string) => {
       const row = store.doctors.get(id)

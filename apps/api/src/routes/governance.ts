@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { createAuditRepository, createAppointmentsRepository, createDoctorsRepository, createKnowledgeRepository } from '@docmee/db'
 import { toJson } from '@docmee/db'
@@ -8,7 +8,6 @@ import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
-const AREA = ['knowledge', 'attributes', 'schedule', 'developer'] as const
 const REVIEW_STATE = ['trusted', 'needs_review', 'stale', 'excluded', 'archived'] as const
 const RISK = ['low', 'medium', 'high'] as const
 const ATTR_SOURCE = ['ai', 'staff', 'system', 'import'] as const

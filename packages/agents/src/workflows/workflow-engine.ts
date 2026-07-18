@@ -13,6 +13,19 @@ export interface WorkflowContext {
   [key: string]: unknown
 }
 
+export const WORKFLOW_CAPTURE_CONTEXT_KEY = '__workflowCapture'
+
+export interface WorkflowCaptureState {
+  nodeId: string
+  field: string
+  question: string
+  retryQuestion: string
+  validation: string
+  attempts: number
+  maxAttempts: number
+  status: 'pending' | 'captured' | 'error'
+}
+
 export interface WorkflowExecutors {
   sendMessage(text: string, ctx: WorkflowContext): Promise<void> | void
   sendTemplate(category: string, ctx: WorkflowContext): Promise<void> | void
@@ -21,6 +34,14 @@ export interface WorkflowExecutors {
   aiDraft(prompt: string, ctx: WorkflowContext): Promise<void> | void
   requestApproval(node: WorkflowNode, ctx: WorkflowContext): Promise<void> | void
   transcribeBookingVoice?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  checkAvailability?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  offerSlots?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  createOrRescheduleBooking?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  askAndCapture?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  extractBookingDetails?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  classifyIntentConfidence?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<'high' | 'low' | 'error'> | 'high' | 'low' | 'error'
+  /** Persist the context and pause until the conversation receives another reply. */
+  waitForReply?: (node: WorkflowNode, nextNodeId: string, ctx: WorkflowContext) => Promise<boolean> | boolean
   /** Pause and resume the run at `nodeId` after `ms` (delay node). */
   scheduleResume(nodeId: string, ms: number, ctx: WorkflowContext): Promise<void> | void
 }
@@ -67,10 +88,25 @@ export async function runWorkflow(
       case 'logic.condition':
         handle = evalCondition(cfg, ctx) ? 'true' : 'false'
         break
+      case 'logic.ai_classify_intent':
+        handle = exec.classifyIntentConfidence
+          ? await exec.classifyIntentConfidence(node, ctx)
+          : 'error'
+        break
       case 'logic.delay':
         await exec.scheduleResume(nextNodeId(edges, node.id) ?? '', delayMs(cfg), ctx)
         trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
         return trace
+      case 'logic.wait_for_reply': {
+        const paused = exec.waitForReply
+          ? await exec.waitForReply(node, nextNodeId(edges, node.id) ?? '', ctx)
+          : false
+        if (paused) {
+          trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+          return trace
+        }
+        break
+      }
       case 'action.send_message':
         await exec.sendMessage(String(cfg['text'] ?? ''), ctx)
         break
@@ -92,6 +128,21 @@ export async function runWorkflow(
         return trace
       case 'action.transcribe_booking_voice':
         if (exec.transcribeBookingVoice) await exec.transcribeBookingVoice(node, ctx)
+        break
+      case 'action.check_availability':
+        if (exec.checkAvailability) await exec.checkAvailability(node, ctx)
+        break
+      case 'action.offer_slots':
+        if (exec.offerSlots) await exec.offerSlots(node, ctx)
+        break
+      case 'action.create_or_reschedule_booking':
+        if (exec.createOrRescheduleBooking) await exec.createOrRescheduleBooking(node, ctx)
+        break
+      case 'action.ask_capture':
+        if (exec.askAndCapture) await exec.askAndCapture(node, ctx)
+        break
+      case 'action.extract_booking_details':
+        if (exec.extractBookingDetails) await exec.extractBookingDetails(node, ctx)
         break
       case 'action.end':
         trace.push({ nodeId: node.id, type: node.type, status: 'ended' })

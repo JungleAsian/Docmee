@@ -6,11 +6,22 @@
 // only wires the reactive message_keyword trigger today, so sends are inside Meta's
 // care window). Delay nodes re-enqueue to resume; approval / ai_draft alert a
 // secretary in v1 (full approve-and-resume round-trip is phase 3).
-import { runWorkflow, type WorkflowContext, type WorkflowExecutors } from '@docmee/agents'
+import {
+  createGoogleCalendarOps,
+  runWorkflow,
+  WORKFLOW_CAPTURE_CONTEXT_KEY,
+  type CalendarOps,
+  type RefreshedTokens,
+  type WorkflowCaptureState,
+  type WorkflowContext,
+  type WorkflowExecutors,
+} from '@docmee/agents'
+import { decryptValue, encryptValue } from '@docmee/shared'
 import { randomUUID } from 'node:crypto'
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
+import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { type Job } from '@docmee/queue'
 import {
   createServiceDbClient,
@@ -18,6 +29,8 @@ import {
   createPatientsRepository,
   createChannelAccountsRepository,
   createConversationsRepository,
+  createDoctorsRepository,
+  createAppointmentsRepository,
   createMessagesRepository,
   createMessageTemplatesRepository,
   createNotificationsRepository,
@@ -25,8 +38,15 @@ import {
   type Patient,
   type PatientContact,
   type MessageTemplateCategory,
+  type Clinic,
+  type Doctor,
 } from '@docmee/db'
-import { WorkflowRunJobSchema, scheduleWorkflowResume, type WorkflowRunJobData } from './workflow-run.js'
+import {
+  WorkflowRunJobSchema,
+  scheduleWorkflowResume,
+  writePendingWorkflowRun,
+  type WorkflowRunJobData,
+} from './workflow-run.js'
 
 type Sql = ReturnType<typeof createServiceDbClient>
 type ReviewFieldMap = Record<string, string>
@@ -120,6 +140,184 @@ function reviewReasonForExtraction(input: {
   return null
 }
 
+type WorkflowSlot = { start: string; end: string }
+
+function configField(node: { config?: Record<string, unknown> }, key: string, fallback: string): string {
+  const configured = String(node.config?.[key] ?? '').trim()
+  return configured || fallback
+}
+
+function contextString(ctx: WorkflowContext, field: string): string {
+  return String(ctx[field] ?? '').trim()
+}
+
+function calendarTokens(value: unknown): { accessToken: string; refreshToken: string; calendarId: string; expiryDate?: number } | null {
+  if (!isRecord(value)) return null
+  const accessToken = value['accessToken']
+  const refreshToken = value['refreshToken']
+  if (typeof accessToken !== 'string' || typeof refreshToken !== 'string') return null
+  try {
+    return {
+      accessToken: decryptValue(accessToken),
+      refreshToken: decryptValue(refreshToken),
+      calendarId: typeof value['calendarId'] === 'string' ? value['calendarId'] : 'primary',
+      ...(typeof value['expiryDate'] === 'number' ? { expiryDate: value['expiryDate'] } : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
+function doctorCalendarTokens(doctor: Doctor): { accessToken: string; refreshToken: string; calendarId: string } | null {
+  if (!doctor.googleCalendarAccessTokenEncrypted || !doctor.googleCalendarRefreshTokenEncrypted) return null
+  try {
+    return {
+      accessToken: decryptValue(doctor.googleCalendarAccessTokenEncrypted),
+      refreshToken: decryptValue(doctor.googleCalendarRefreshTokenEncrypted),
+      calendarId: doctor.googleCalendarId ?? 'primary',
+    }
+  } catch {
+    return null
+  }
+}
+
+async function workflowCalendar(
+  sql: Sql,
+  clinic: Clinic,
+  doctorId?: string,
+): Promise<CalendarOps | null> {
+  const doctors = createDoctorsRepository(sql)
+  const doctor = doctorId ? await doctors.findById(clinic.id, doctorId) : null
+  const doctorTokens = doctor ? doctorCalendarTokens(doctor) : null
+  const clinicTokens = calendarTokens(clinic.settings['googleCalendar'])
+  const tokens = doctorTokens ?? clinicTokens
+  if (!tokens) return null
+
+  const persistTokens = async (refreshed: RefreshedTokens) => {
+    if (doctor && doctorTokens) {
+      await doctors.update(clinic.id, doctor.id, {
+        googleCalendarAccessTokenEncrypted: encryptValue(refreshed.accessToken),
+        ...(refreshed.refreshToken
+          ? { googleCalendarRefreshTokenEncrypted: encryptValue(refreshed.refreshToken) }
+          : {}),
+      })
+      return
+    }
+    const latest = await createClinicsRepository(sql).findById(clinic.id)
+    const existing = latest && isRecord(latest.settings['googleCalendar'])
+      ? latest.settings['googleCalendar']
+      : {}
+    if (!latest) return
+    await createClinicsRepository(sql).update(clinic.id, {
+      settings: {
+        ...latest.settings,
+        googleCalendar: {
+          ...existing,
+          accessToken: encryptValue(refreshed.accessToken),
+          ...(refreshed.refreshToken ? { refreshToken: encryptValue(refreshed.refreshToken) } : {}),
+          ...(typeof refreshed.expiryDate === 'number' ? { expiryDate: refreshed.expiryDate } : {}),
+        },
+      },
+    })
+  }
+
+  return createGoogleCalendarOps({
+    ...tokens,
+    timezone: clinic.timezone,
+    onTokensRefreshed: persistTokens,
+  })
+}
+
+async function resolveWorkflowDoctorId(sql: Sql, clinicId: string, value: string): Promise<string | undefined> {
+  const raw = value.trim()
+  if (!raw) return undefined
+  const doctors = createDoctorsRepository(sql)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)) {
+    return (await doctors.findById(clinicId, raw))?.id
+  }
+  const normalized = raw.toLowerCase().replace(/^(dr\.?|doctor|doctora)\s+/, '').trim()
+  const matches = (await doctors.listByClinic(clinicId)).filter((doctor) => {
+    const name = doctor.name.toLowerCase().replace(/^(dr\.?|doctor|doctora)\s+/, '').trim()
+    return name === normalized
+  })
+  return matches.length === 1 ? matches[0]?.id : undefined
+}
+
+function dateRange(start: string, days: number): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return []
+  const first = new Date(`${start}T00:00:00Z`)
+  if (Number.isNaN(first.getTime()) || first.toISOString().slice(0, 10) !== start) return []
+  return Array.from({ length: Math.min(Math.max(days, 1), 14) }, (_, index) => {
+    const date = new Date(first)
+    date.setUTCDate(date.getUTCDate() + index)
+    return date.toISOString().slice(0, 10)
+  })
+}
+
+function slotTime(slot: WorkflowSlot): string {
+  return slot.start.slice(11, 16)
+}
+
+function slotDate(slot: WorkflowSlot): string {
+  return slot.start.slice(0, 10)
+}
+
+function addMinutes(localStart: string, minutes: number): string {
+  const value = new Date(`${localStart}Z`)
+  value.setUTCMinutes(value.getUTCMinutes() + minutes)
+  return value.toISOString().slice(0, 19)
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(Math.trunc(parsed), min), max)
+}
+
+function slotsCoverRange(slots: WorkflowSlot[], start: string, end: string): boolean {
+  let cursor = start
+  for (const slot of [...slots].sort((a, b) => a.start.localeCompare(b.start))) {
+    if (slot.start !== cursor) continue
+    cursor = slot.end
+    if (cursor >= end) return true
+  }
+  return false
+}
+
+function captureState(ctx: WorkflowContext): WorkflowCaptureState | null {
+  const value = ctx[WORKFLOW_CAPTURE_CONTEXT_KEY]
+  if (!isRecord(value)) return null
+  if (
+    typeof value['nodeId'] !== 'string' ||
+    typeof value['field'] !== 'string' ||
+    typeof value['status'] !== 'string'
+  ) return null
+  return value as unknown as WorkflowCaptureState
+}
+
+function validCapturedReply(validation: string, raw: string): boolean {
+  const value = raw.trim()
+  if (!value) return false
+  switch (validation) {
+    case 'date': {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+      const parsed = new Date(`${value}T00:00:00Z`)
+      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+    }
+    case 'time': {
+      const match = value.match(/^(\d{1,2}):(\d{2})$/)
+      return Boolean(match && Number(match[1]) <= 23 && Number(match[2]) <= 59)
+    }
+    case 'phone':
+      return /^\+?[1-9]\d{7,14}$/.test(value.replace(/[\s().-]/g, ''))
+    case 'yes_no':
+      return /^(yes|no|y|n|si|sí|confirm|cancel|confirmo|cancelar)$/i.test(value)
+    case 'required':
+    default:
+      return value.length > 0
+  }
+}
+
 function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
   const { clinicId } = data
   const notify = async (content: string, ctx: WorkflowContext) =>
@@ -141,6 +339,17 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
     await conversations.update(clinicId, ctx.conversationId, {
       metadata: { ...conv.metadata, tags: [...existing, tag] },
     })
+  }
+
+  const sendWorkflowMessage = async (text: string, ctx: WorkflowContext) => {
+    if (!text.trim()) return
+    const target = await resolveTarget(sql, clinicId, ctx.patientId)
+    if (!target) {
+      console.log(`[workflow] no sendable WhatsApp target for clinic ${clinicId}; skipping send`)
+      return
+    }
+    const wamid = await target.send(text)
+    await persistOutbound(sql, clinicId, ctx.conversationId, text, wamid)
   }
 
   const persistVoiceBookingReview = async (
@@ -269,16 +478,39 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
     })
   }
 
+  const extractBookingDetails = async (
+    node: import('@docmee/db').WorkflowNode,
+    ctx: WorkflowContext,
+  ): Promise<void> => {
+    const transcript = String(ctx.message ?? ctx.transcript ?? '').trim()
+    if (!transcript) {
+      ctx['needs_review'] = true
+      ctx['voice_booking_confidence'] = 'low'
+      return
+    }
+    const clinic = await createClinicsRepository(sql).findById(clinicId)
+    if (!clinic) return
+    const extraction = await extractVoiceBookingDetails({
+      transcript,
+      clinicSettings: clinic.settings,
+      allowedFields: String(node.config?.['allowedFields'] ?? node.config?.['allowed_fields'] ?? ''),
+      provider: String(node.config?.['provider'] ?? ''),
+    })
+    ctx['needs_review'] = extraction.needsReview
+    ctx['contains_disallowed_medical_content'] = extraction.containsDisallowedMedicalContent
+    ctx['voice_booking_confidence'] = extraction.confidence
+    ctx['booking_confidence'] = extraction.confidence === 'high' ? 0.9 : extraction.confidence === 'medium' ? 0.65 : 0.25
+    ctx['voice_booking_source'] = extraction.source
+    for (const [key, value] of Object.entries(extraction.extracted)) ctx[key] = value
+    await persistVoiceBookingIntake(ctx, extraction)
+    await persistVoiceBookingReview(ctx, extraction)
+    const reviewTag = String(node.config?.['reviewTag'] ?? node.config?.['review_tag'] ?? '').trim()
+    if (reviewTag && extraction.needsReview) await addConversationTag(reviewTag, ctx)
+  }
+
   return {
     async sendMessage(text, ctx) {
-      if (!text.trim()) return
-      const target = await resolveTarget(sql, clinicId, ctx.patientId)
-      if (!target) {
-        console.log(`[workflow] no sendable WhatsApp target for clinic ${clinicId}; skipping send`)
-        return
-      }
-      const wamid = await target.send(text)
-      await persistOutbound(sql, clinicId, ctx.conversationId, text, wamid)
+      await sendWorkflowMessage(text, ctx)
     },
 
     async sendTemplate(category, ctx) {
@@ -317,39 +549,234 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
     },
 
     async transcribeBookingVoice(node, ctx) {
-      const transcript = String(ctx.message ?? ctx.transcript ?? '').trim()
-      if (!transcript) {
-        ctx['needs_review'] = true
-        ctx['voice_booking_confidence'] = 'low'
+      await extractBookingDetails(node, ctx)
+    },
+
+    async extractBookingDetails(node, ctx) {
+      await extractBookingDetails(node, ctx)
+    },
+
+    async classifyIntentConfidence(node, ctx) {
+      const field = configField(node, 'confidenceField', 'booking_confidence')
+      if (ctx[field] === undefined && contextString(ctx, 'message')) await extractBookingDetails(node, ctx)
+      const raw = ctx[field] ?? ctx['voice_booking_confidence']
+      const score = typeof raw === 'number'
+        ? raw
+        : raw === 'high'
+          ? 0.9
+          : raw === 'medium'
+            ? 0.65
+            : raw === 'low'
+              ? 0.25
+              : Number.NaN
+      const highThreshold = Math.min(Math.max(Number(node.config?.['highThreshold'] ?? 0.8), 0), 1)
+      const lowThreshold = Math.min(Math.max(Number(node.config?.['lowThreshold'] ?? 0.5), 0), highThreshold)
+      const route = !Number.isFinite(score) ? 'error' : score >= highThreshold ? 'high' : 'low'
+      ctx['classification_confidence'] = Number.isFinite(score) ? score : null
+      ctx['confidence_route'] = route
+      if (Number.isFinite(score) && score < lowThreshold) ctx['needs_clarification'] = true
+      return route
+    },
+
+    async askAndCapture(node, ctx) {
+      const existing = captureState(ctx)
+      const field = configField(node, 'field', 'answer')
+      if (existing?.nodeId === node.id && existing.status === 'pending') {
+        const reply = contextString(ctx, 'message')
+        if (validCapturedReply(existing.validation, reply)) {
+          ctx[existing.field] = existing.validation === 'phone' ? reply.replace(/[\s().-]/g, '') : reply
+          ctx['capture_status'] = 'captured'
+          ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = { ...existing, status: 'captured' }
+          return
+        }
+        const attempts = existing.attempts + 1
+        if (attempts >= existing.maxAttempts) {
+          ctx['capture_status'] = 'error'
+          ctx['capture_error'] = `invalid_${existing.validation}`
+          ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = { ...existing, attempts, status: 'error' }
+          await notify(`Workflow could not capture a valid ${existing.field} after ${attempts} attempts.`, ctx)
+          return
+        }
+        ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = { ...existing, attempts }
+        await sendWorkflowMessage(existing.retryQuestion, ctx)
         return
       }
 
-      const clinic = await createClinicsRepository(sql).findById(clinicId)
-      if (!clinic) return
+      const currentValue = contextString(ctx, field)
+      const validation = String(node.config?.['validation'] ?? 'required')
+      if (currentValue && validCapturedReply(validation, currentValue)) {
+        ctx['capture_status'] = 'captured'
+        ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = {
+          nodeId: node.id,
+          field,
+          question: '',
+          retryQuestion: '',
+          validation,
+          attempts: 0,
+          maxAttempts: 1,
+          status: 'captured',
+        } satisfies WorkflowCaptureState
+        return
+      }
+      if (currentValue) delete ctx[field]
+      const question = String(node.config?.['question'] ?? `Please provide ${field.replaceAll('_', ' ')}.`).trim()
+      const retryQuestion = String(node.config?.['retryQuestion'] ?? `I couldn't validate that. ${question}`).trim()
+      const pending: WorkflowCaptureState = {
+        nodeId: node.id,
+        field,
+        question,
+        retryQuestion,
+        validation,
+        attempts: 0,
+        maxAttempts: boundedInteger(node.config?.['maxAttempts'], 3, 1, 10),
+        status: 'pending',
+      }
+      ctx['capture_status'] = 'pending'
+      ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = pending
+      await sendWorkflowMessage(question, ctx)
+    },
 
-      const extraction = await extractVoiceBookingDetails({
-        transcript,
-        clinicSettings: clinic.settings,
-        allowedFields: String(node.config?.['allowedFields'] ?? node.config?.['allowed_fields'] ?? ''),
-        provider: String(node.config?.['provider'] ?? ''),
+    async waitForReply(node, _nextNodeId, ctx) {
+      const capture = captureState(ctx)
+      if (!capture || capture.status !== 'pending') {
+        if (capture) delete ctx[WORKFLOW_CAPTURE_CONTEXT_KEY]
+        return false
+      }
+      if (!ctx.conversationId) {
+        ctx['capture_status'] = 'error'
+        ctx['capture_error'] = 'conversation_required'
+        await notify('Workflow cannot wait for a reply because no conversation is attached.', ctx)
+        return false
+      }
+      const conversations = createConversationsRepository(sql)
+      const conversation = await conversations.findById(clinicId, ctx.conversationId)
+      if (!conversation) return false
+      const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
+      const metadata = writePendingWorkflowRun(conversation.metadata, {
+        workflowId: data.workflowId,
+        resumeNodeId: capture.nodeId,
+        context: { ...ctx },
+        expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
       })
+      await conversations.update(clinicId, ctx.conversationId, { metadata })
+      if (ctx.patientId) {
+        await scheduleNoResponseFollowUp({
+          clinicId,
+          patientId: ctx.patientId,
+          conversationId: ctx.conversationId,
+          silentSinceIso: new Date().toISOString(),
+          recoveryPrompt: capture.retryQuestion || capture.question,
+        })
+      }
+      return true
+    },
 
-      ctx['needs_review'] = extraction.needsReview
-      ctx['contains_disallowed_medical_content'] = extraction.containsDisallowedMedicalContent
-      ctx['voice_booking_confidence'] = extraction.confidence
-      ctx['voice_booking_source'] = extraction.source
+    async checkAvailability(node, ctx) {
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
+      const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
+      const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
+      const dateField = configField(node, 'dateField', 'preferred_date')
+      const dates = dateRange(contextString(ctx, dateField), boundedInteger(node.config?.['days'], 1, 1, 14))
+      if (dates.length === 0) throw new Error(`Workflow availability date is invalid or missing in ${dateField}`)
+      const calendar = await workflowCalendar(sql, clinic, doctorId)
+      if (!calendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
+      const slots = (await Promise.all(dates.map((date) => calendar.listSlots(date)))).flat()
+      ctx[configField(node, 'slotsField', 'available_slots')] = slots
+      ctx['availability_count'] = slots.length
+    },
 
-      for (const [key, value] of Object.entries(extraction.extracted)) {
-        ctx[key] = value
+    async offerSlots(node, ctx) {
+      const slotsField = configField(node, 'slotsField', 'available_slots')
+      const raw = ctx[slotsField]
+      const slots = Array.isArray(raw)
+        ? raw.filter((slot): slot is WorkflowSlot => isRecord(slot) && typeof slot['start'] === 'string' && typeof slot['end'] === 'string')
+        : []
+      const count = boundedInteger(node.config?.['count'], 3, 1, 10)
+      const chosen = slots.slice(0, count)
+      ctx['offered_slots'] = chosen
+      const prefix = String(node.config?.['message'] ?? 'Available appointment times:').trim()
+      const text = chosen.length
+        ? `${prefix}\n${chosen.map((slot, index) => `${index + 1}. ${slotDate(slot)} ${slotTime(slot)}`).join('\n')}`
+        : 'No appointment times are available in that date range.'
+      await sendWorkflowMessage(text, ctx)
+    },
+
+    async createOrRescheduleBooking(node, ctx) {
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
+      if (!ctx.patientId) throw new Error('A patient is required to create or reschedule a booking')
+
+      const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
+      const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
+      const serviceId = contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
+      const date = contextString(ctx, configField(node, 'dateField', 'preferred_date'))
+      const time = contextString(ctx, configField(node, 'timeField', 'preferred_time')).slice(0, 5)
+      const hour = Number(time.slice(0, 2))
+      const minute = Number(time.slice(3, 5))
+      if (
+        dateRange(date, 1).length === 0 ||
+        !/^\d{2}:\d{2}$/.test(time) ||
+        hour > 23 ||
+        minute > 59
+      ) {
+        throw new Error('Booking date or time is missing or invalid')
       }
 
-      await persistVoiceBookingIntake(ctx, extraction)
-      await persistVoiceBookingReview(ctx, extraction)
-
-      const reviewTag = String(node.config?.['reviewTag'] ?? node.config?.['review_tag'] ?? '').trim()
-      if (reviewTag && extraction.needsReview) {
-        await addConversationTag(reviewTag, ctx)
+      const appointments = createAppointmentsRepository(sql)
+      const services = await appointments.listServices(clinicId)
+      const service = serviceId ? services.find((item) => item.id === serviceId) : undefined
+      const duration = boundedInteger(node.config?.['durationMinutes'] ?? service?.durationMinutes, 30, 5, 480)
+      const calendar = await workflowCalendar(sql, clinic, doctorId || undefined)
+      if (!calendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
+      const title = String(node.config?.['title'] ?? `Appointment: ${contextString(ctx, 'patient_name') || 'Patient'}`)
+      const startTime = `${date}T${time}:00`
+      const endTime = addMinutes(startTime, duration)
+      const availableSlots = await calendar.listSlots(date)
+      if (!slotsCoverRange(availableSlots, startTime, endTime)) {
+        throw new Error('The selected appointment time is no longer available for the required duration')
       }
+      const mode = String(node.config?.['mode'] ?? 'create')
+
+      if (mode === 'reschedule') {
+        const appointmentId = contextString(ctx, configField(node, 'appointmentIdField', 'appointment_id'))
+        if (!appointmentId) throw new Error('An appointment ID is required to reschedule a booking')
+        const appointment = await appointments.findById(clinicId, appointmentId)
+        if (!appointment) throw new Error(`Appointment not found: ${appointmentId}`)
+        if (appointment.googleEventId) {
+          await calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration })
+        }
+        await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed' })
+        await appointments.addEvent(clinicId, appointmentId, 'rescheduled')
+        ctx['appointment_id'] = appointmentId
+        ctx['booking_status'] = 'rescheduled'
+        return
+      }
+
+      if (!doctorId) throw new Error('A unique active doctor is required to create a booking')
+      const googleEventId = await calendar.createEvent({ title, date, time, durationMinutes: duration })
+      let created: import('@docmee/db').Appointment
+      try {
+        created = await appointments.create({
+          clinicId,
+          patientId: ctx.patientId,
+          doctorId,
+          ...(serviceId ? { serviceId } : {}),
+          ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+          startTime,
+          endTime,
+          metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
+        })
+        await appointments.update(clinicId, created.id, { status: 'confirmed', googleEventId })
+      } catch (error) {
+        await calendar.deleteEvent(googleEventId).catch((cleanupError) => {
+          console.error('[workflow] failed to roll back Google Calendar event after appointment persistence failed', cleanupError)
+        })
+        throw error
+      }
+      ctx['appointment_id'] = created.id
+      ctx['google_event_id'] = googleEventId
+      ctx['booking_status'] = 'created'
     },
 
     async scheduleResume(nodeId, ms) {
@@ -368,7 +795,7 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
       console.log(`[workflow] ${data.workflowId} not active; skipping run`)
       return
     }
-    const ctx: WorkflowContext = { ...data.trigger }
+    const ctx: WorkflowContext = { ...(data.context ?? {}), ...data.trigger }
     const exec = buildExecutors(sql, data)
     const trace = await runWorkflow(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
     console.log(`[workflow] ${workflow.name} ran ${trace.length} step(s) for clinic ${data.clinicId}`)

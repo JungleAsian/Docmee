@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 // Per-item resolution: pick an AI to assign, then the button engages it.
 // Claude auto-runs agentically via the headless CLI (edits + commits). API

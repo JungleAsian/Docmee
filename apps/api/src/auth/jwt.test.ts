@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createSigner } from 'fast-jwt'
 import {
   signAccessToken,
@@ -16,9 +16,21 @@ const payload: JwtPayload = {
 }
 
 describe('jwt', () => {
+  let previousJwtSecret: string | undefined
+  let previousJwtRefreshSecret: string | undefined
+
   beforeAll(() => {
+    previousJwtSecret = process.env['JWT_SECRET']
+    previousJwtRefreshSecret = process.env['JWT_REFRESH_SECRET']
     process.env['JWT_SECRET'] = 'test-access-secret'
     process.env['JWT_REFRESH_SECRET'] = 'test-refresh-secret'
+  })
+
+  afterAll(() => {
+    if (previousJwtSecret === undefined) delete process.env['JWT_SECRET']
+    else process.env['JWT_SECRET'] = previousJwtSecret
+    if (previousJwtRefreshSecret === undefined) delete process.env['JWT_REFRESH_SECRET']
+    else process.env['JWT_REFRESH_SECRET'] = previousJwtRefreshSecret
   })
 
   it('access sign + verify round-trips the payload', () => {

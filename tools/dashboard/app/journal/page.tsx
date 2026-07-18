@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { readJson } from '../lib/read-json'
-import { Icon } from '../icon'
+import { Icon } from '../icons'
 
 export const dynamic = 'force-dynamic'
 

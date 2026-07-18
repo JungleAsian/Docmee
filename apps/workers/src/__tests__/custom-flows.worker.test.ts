@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const h = vi.hoisted(() => ({
   runClinicBot: vi.fn(),
   classifyIntent: vi.fn(),
+  chatComplete: vi.fn(),
   sendWhatsAppText: vi.fn(),
   schedulingAdd: vi.fn(),
   notificationAdd: vi.fn(),
@@ -23,11 +24,14 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
+  listMessages: vi.fn(),
   end: vi.fn(),
 }))
 
 vi.mock('@docmee/llm', () => ({
   classifyIntent: h.classifyIntent,
+  chatComplete: h.chatComplete,
+  defaultChatModel: vi.fn().mockReturnValue('test-model'),
   claudeComplete: vi.fn(),
   embedText: vi.fn(),
 }))
@@ -44,6 +48,7 @@ vi.mock('@docmee/agents', async () => {
 
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
+  sendZernioWhatsAppText: h.sendWhatsAppText,
   sendMessengerText: vi.fn(),
   sendInstagramText: vi.fn(),
 }))
@@ -66,7 +71,8 @@ vi.mock('@docmee/db', () => ({
     createTag: h.createTag,
     addTag: h.addTag,
   }),
-  createMessagesRepository: () => ({ create: h.createMessage }),
+  createMessagesRepository: () => ({ create: h.createMessage, listByConversation: h.listMessages }),
+  createWorkflowsRepository: () => ({ listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows, findById: h.findFlowById }),
 }))
 
@@ -111,8 +117,10 @@ beforeEach(() => {
   h.listEmbeddedChunks.mockResolvedValue([])
   h.listEnabledFlows.mockResolvedValue([])
   h.classifyIntent.mockResolvedValue('general_question')
+  h.chatComplete.mockResolvedValue('{"option":"option_0","confidence":0.95}')
   h.createTag.mockResolvedValue({ id: 'tag1' })
   h.createMessage.mockResolvedValue({ id: 'm1' })
+  h.listMessages.mockResolvedValue([])
   h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: false, language: 'es' })
 })
 
@@ -171,5 +179,90 @@ describe('processAgentJob — custom flow engine', () => {
     // normal processing resumed
     expect(h.classifyIntent).toHaveBeenCalled()
     expect(h.runClinicBot).toHaveBeenCalled()
+  })
+
+  it('uses the LLM only to map an off-script reply onto a configured branch', async () => {
+    const semanticFlow = {
+      ...bookingFlow,
+      steps: [
+        {
+          id: 'ask',
+          messages: ['¿Quieres confirmar la cita?'],
+          branches: [
+            { op: 'yes', next: 'book' },
+            { op: 'no', next: 'end' },
+            { op: 'any', next: 'handoff' },
+          ],
+        },
+      ],
+    }
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { customFlowState: { flowId: 'flow1', stepId: 'ask', variables: {} } },
+    })
+    h.findFlowById.mockResolvedValue(semanticFlow)
+    h.chatComplete.mockResolvedValue('{"option":"option_0","confidence":0.95}')
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'please go ahead with it' }))
+
+    expect(h.chatComplete).toHaveBeenCalledTimes(1)
+    expect(h.schedulingAdd).toHaveBeenCalledWith('schedule', expect.objectContaining({ action: 'book' }))
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+  })
+
+  it('clarifies once and hands off after a second ambiguous reply', async () => {
+    const semanticFlow = {
+      ...bookingFlow,
+      steps: [
+        {
+          id: 'ask',
+          messages: ['¿Quieres confirmar la cita?'],
+          branches: [
+            { op: 'yes', next: 'book' },
+            { op: 'no', next: 'end' },
+          ],
+        },
+      ],
+    }
+    h.findFlowById.mockResolvedValue(semanticFlow)
+    h.chatComplete.mockResolvedValue('{"option":"option_0","confidence":0.4}')
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { customFlowState: { flowId: 'flow1', stepId: 'ask', variables: {} } },
+    })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'maybe later or now' }))
+
+    expect(h.sendWhatsAppText.mock.calls[0]![3]).toContain('sí o no')
+    expect(h.updateConversation.mock.calls.at(-1)![2].metadata.customFlowState.clarificationCount).toBe(1)
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
+
+    vi.clearAllMocks()
+    h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinica', settings: {}, timezone: 'America/Mexico_City' })
+    h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' }])
+    h.findPatient.mockResolvedValue(null)
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { customFlowState: { flowId: 'flow1', stepId: 'ask', variables: {}, clarificationCount: 1 } },
+    })
+    h.findFlowById.mockResolvedValue(semanticFlow)
+    h.chatComplete.mockResolvedValue('{"option":null,"confidence":0}')
+    h.createMessage.mockResolvedValue({ id: 'm2' })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'still unsure' }))
+
+    expect(h.notificationAdd).toHaveBeenCalledWith('notify', expect.objectContaining({ reason: 'human_handoff' }))
+    expect(h.updateConversation).toHaveBeenCalledWith(
+      CLINIC,
+      CONVO,
+      expect.objectContaining({
+        status: 'handoff',
+        metadata: expect.not.objectContaining({ customFlowState: expect.anything() }),
+      }),
+    )
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
   })
 })

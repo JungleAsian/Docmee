@@ -276,6 +276,7 @@ export interface SlotsResponse {
 export interface BookingPatient {
   id: string
   fullName: string | null
+  duplicateName?: boolean
 }
 
 // ── Metrics dashboard (P16 — Gap #27) ──────────────────────────────────────────

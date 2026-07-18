@@ -17,6 +17,7 @@ import {
 import { firstContactMetadata } from './intake.js'
 import { createClinicCrmExporter } from './crm.js'
 import { readMetaToken } from './meta-token.js'
+import { resumePendingWorkflowRuns } from './workflow-run.js'
 
 export const InboundMessageSchema = z.object({
   // Channel the message arrived on. `phoneNumberId` is the provider account id:
@@ -352,6 +353,19 @@ export async function processConversationJob(job: Job): Promise<void> {
       // classification threaded onto that same conversation. `channel` tells the
       // agent worker which sender to reply through.
       const conversationId = await threadInboundMessage(sql, clinicId, channel, patientId, msg)
+      const resumedWorkflows = conversationId
+        ? await resumePendingWorkflowRuns(sql, clinicId, conversationId, {
+            patientId,
+            conversationId,
+            channel,
+            message: msg.content ?? '',
+            waMessageId: msg.waMessageId,
+          })
+        : 0
+      // A pending Ask & Capture owns this turn. Its workflow runner validates the
+      // reply and either advances, re-asks, or hands off; avoid a competing agent
+      // answer for the same patient message.
+      if (resumedWorkflows > 0) return
       // CRE-53: dedupe redelivered webhooks at the queue. A repeat waMessageId maps
       // to the same jobId and BullMQ ignores the duplicate, so one patient message
       // can never produce two AI replies.

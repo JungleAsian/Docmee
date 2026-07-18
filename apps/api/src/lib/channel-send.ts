@@ -9,6 +9,61 @@
 
 const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
 
+function normalizeZernioApiBase(apiBase: string): string {
+  const base = apiBase.trim().replace(/\/+$/, '')
+  if (!base) throw new Error('Zernio send failed: apiBase is required')
+  return base
+}
+
+function extractProviderMessageId(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null
+  const record = data as Record<string, unknown>
+  if (typeof record['id'] === 'string') return record['id']
+  const message = record['message']
+  if (message && typeof message === 'object' && typeof (message as Record<string, unknown>)['id'] === 'string') {
+    return (message as Record<string, string>)['id'] ?? null
+  }
+  const dataValue = record['data']
+  if (dataValue && typeof dataValue === 'object' && typeof (dataValue as Record<string, unknown>)['id'] === 'string') {
+    return (dataValue as Record<string, string>)['id'] ?? null
+  }
+  return null
+}
+
+/** Send a plain-text message through Zernio's inbox conversation endpoint. */
+export async function sendZernioWhatsAppText(
+  apiBase: string,
+  accessToken: string | null | undefined,
+  accountId: string,
+  conversationId: string,
+  message: string,
+): Promise<string | null> {
+  if (process.env['LLM_STUB'] === 'true') return null
+  if (!conversationId.trim()) throw new Error('Zernio send failed: conversationId is required')
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (accessToken?.trim()) headers['Authorization'] = `Bearer ${accessToken.trim()}`
+
+  const res = await fetch(
+    `${normalizeZernioApiBase(apiBase)}/v1/inbox/conversations/${encodeURIComponent(conversationId)}/messages`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ accountId, message }),
+    },
+  )
+
+  if (!res.ok) {
+    throw new Error(`Zernio WhatsApp send failed ${res.status}: ${await res.text()}`)
+  }
+
+  try {
+    return extractProviderMessageId(await res.json())
+  } catch {
+    return null
+  }
+}
+
 /** Send a plain-text WhatsApp Cloud API message; returns the wamid (or null). */
 export async function sendWhatsAppText(
   phoneNumberId: string,

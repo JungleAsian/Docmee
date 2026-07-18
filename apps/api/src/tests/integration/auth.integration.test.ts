@@ -51,8 +51,12 @@ const hasRedis = await redisAvailable()
 describe('auth integration', () => {
   let app: Awaited<ReturnType<typeof buildApp>>
   let clinicId: string | undefined
+  let previousNodeEnv: string | undefined
+  let previousJwtSecret: string | undefined
 
   beforeAll(async () => {
+    previousNodeEnv = process.env['NODE_ENV']
+    previousJwtSecret = process.env['JWT_SECRET']
     process.env['NODE_ENV'] = 'test'
     process.env['JWT_SECRET'] = JWT_KEY
     app = await buildApp()
@@ -72,9 +76,19 @@ describe('auth integration', () => {
         `
         clinicId = clinic?.id
         const hash = hashPassword(LOGIN_PASSWORD)
+        const [user] = await sql<{ id: string; userId: string }[]>`
+          INSERT INTO clinic_users (clinic_id, user_id, email, full_name, status, password_hash)
+          VALUES (${clinicId!}, gen_random_uuid(), ${LOGIN_EMAIL}, 'Auth Int', 'active', ${hash})
+          RETURNING id, user_id AS user_id
+        `
+        const [role] = await sql<{ id: string }[]>`
+          SELECT id FROM roles
+          WHERE clinic_id IS NULL AND name = 'secretary' AND is_system = TRUE
+          LIMIT 1
+        `
         await sql`
-          INSERT INTO clinic_users (clinic_id, email, full_name, role, status, password_hash)
-          VALUES (${clinicId!}, ${LOGIN_EMAIL}, 'Auth Int', 'secretary', 'active', ${hash})
+          INSERT INTO memberships (user_id, clinic_id, role_id, status)
+          VALUES (${user!.userId}, ${clinicId!}, ${role!.id}, 'active')
         `
       } finally {
         await sql.end()
@@ -93,6 +107,10 @@ describe('auth integration', () => {
       }
     }
     await app.close()
+    if (previousNodeEnv === undefined) delete process.env['NODE_ENV']
+    else process.env['NODE_ENV'] = previousNodeEnv
+    if (previousJwtSecret === undefined) delete process.env['JWT_SECRET']
+    else process.env['JWT_SECRET'] = previousJwtSecret
   })
 
   it('rejects a request with no token (401)', async () => {

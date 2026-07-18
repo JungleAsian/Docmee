@@ -4,7 +4,7 @@
 // a startNodeId to resume.
 import { z } from 'zod'
 import { createQueue } from '@docmee/queue'
-import { createWorkflowsRepository, type Workflow } from '@docmee/db'
+import { createConversationsRepository, createWorkflowsRepository, type Workflow } from '@docmee/db'
 import type { createServiceDbClient } from '@docmee/db'
 
 // Lazily created so merely importing this module (e.g. into the agent worker, which
@@ -32,6 +32,8 @@ export const WorkflowRunJobSchema = z.object({
   trigger: WorkflowTriggerSchema,
   /** set when a delay node re-enqueues the run to resume mid-graph. */
   startNodeId: z.string().optional(),
+  /** Mutable workflow context restored after a conversational wait. */
+  context: z.record(z.string(), z.unknown()).optional(),
 })
 export type WorkflowRunJobData = z.infer<typeof WorkflowRunJobSchema>
 
@@ -47,6 +49,83 @@ export interface TriggerContext {
   isVoiceNote?: boolean
   voiceMessageId?: string
   audioObjectKey?: string
+}
+
+const PENDING_WORKFLOWS_KEY = 'pendingWorkflowRuns'
+
+export interface PendingWorkflowRun {
+  workflowId: string
+  resumeNodeId: string
+  context: Record<string, unknown>
+  expiresAt: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+export function readPendingWorkflowRuns(metadata: Record<string, unknown>): PendingWorkflowRun[] {
+  const value = metadata[PENDING_WORKFLOWS_KEY]
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || !isRecord(entry['context'])) return []
+    const workflowId = entry['workflowId']
+    const resumeNodeId = entry['resumeNodeId']
+    const expiresAt = entry['expiresAt']
+    if (typeof workflowId !== 'string' || typeof resumeNodeId !== 'string' || typeof expiresAt !== 'string') return []
+    return [{ workflowId, resumeNodeId, context: entry['context'], expiresAt }]
+  })
+}
+
+export function writePendingWorkflowRun(
+  metadata: Record<string, unknown>,
+  pending: PendingWorkflowRun,
+): Record<string, unknown> {
+  const current = readPendingWorkflowRuns(metadata).filter((item) => item.workflowId !== pending.workflowId)
+  return { ...metadata, [PENDING_WORKFLOWS_KEY]: [...current, pending] }
+}
+
+/** Resume every non-expired workflow waiting on this conversation. The queue job id
+ * makes webhook redelivery idempotent; claimed cursors are then removed so the
+ * regular agent does not race the conversational workflow for the same reply. */
+export async function resumePendingWorkflowRuns(
+  sql: Sql,
+  clinicId: string,
+  conversationId: string,
+  ctx: TriggerContext,
+): Promise<number> {
+  const conversations = createConversationsRepository(sql)
+  const conversation = await conversations.findById(clinicId, conversationId)
+  if (!conversation) return 0
+  const now = Date.now()
+  const all = readPendingWorkflowRuns(conversation.metadata)
+  const active = all.filter((item) => Date.parse(item.expiresAt) > now)
+  if (active.length === 0) {
+    if (all.length > 0) {
+      const metadata = { ...conversation.metadata }
+      delete metadata[PENDING_WORKFLOWS_KEY]
+      await conversations.update(clinicId, conversationId, { metadata })
+    }
+    return 0
+  }
+
+  for (const pending of active) {
+    await workflowQueue().add(
+      'run',
+      {
+        clinicId,
+        workflowId: pending.workflowId,
+        trigger: { type: 'trigger.conversation_reply', ...ctx, conversationId },
+        startNodeId: pending.resumeNodeId,
+        context: pending.context,
+      } satisfies WorkflowRunJobData,
+      ctx.waMessageId ? { jobId: `workflow-reply:${pending.workflowId}:${ctx.waMessageId}` } : {},
+    )
+  }
+  const metadata = { ...conversation.metadata }
+  delete metadata[PENDING_WORKFLOWS_KEY]
+  await conversations.update(clinicId, conversationId, { metadata })
+  return active.length
 }
 
 /** Pure: does this message_keyword workflow's trigger match the message? An empty

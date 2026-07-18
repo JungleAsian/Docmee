@@ -37,14 +37,17 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.8.0
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Migrate test database
+        run: pnpm --filter @docmee/db db:migrate
 
       - run: pnpm typecheck
 

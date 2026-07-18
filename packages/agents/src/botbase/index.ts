@@ -72,6 +72,8 @@ export {
 export {
   startFlow,
   advanceFlow,
+  advanceFlowTo,
+  inspectFlowReply,
   toFlowDef,
   type FlowDef,
   type FlowStep,
@@ -79,6 +81,8 @@ export {
   type FlowBranchOp,
   type FlowState,
   type FlowRunResult,
+  type FlowReplyRouting,
+  type FlowSemanticCandidate,
 } from './flow-engine.js'
 
 export {

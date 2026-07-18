@@ -66,7 +66,7 @@ const STATUS_VALUES = [
   'archived',
 ] as const
 const ASSIGNABLE_ROLES = ['secretary', 'doctor', 'clinic_admin'] as const
-const ROLE_PERMISSIONS = ['inbox', 'calendar', 'patients', 'templates', 'voice_review', 'analytics', 'exports', 'billing', 'staff'] as const
+type RolePermission = 'inbox' | 'calendar' | 'patients' | 'templates' | 'voice_review' | 'analytics' | 'exports' | 'billing' | 'staff'
 const DEFAULT_ROLE_PERMISSIONS = {
   inbox: ['secretary', 'doctor', 'clinic_admin'],
   calendar: ['secretary', 'doctor', 'clinic_admin'],
@@ -77,7 +77,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
   exports: ['clinic_admin'],
   billing: ['clinic_admin'],
   staff: ['clinic_admin'],
-} satisfies Record<(typeof ROLE_PERMISSIONS)[number], Array<(typeof ASSIGNABLE_ROLES)[number]>>
+} satisfies Record<RolePermission, Array<(typeof ASSIGNABLE_ROLES)[number]>>
 
 const listQuerySchema = z.object({
   clinic_id: z.string().optional(),

@@ -6,7 +6,7 @@ describe('durable reports scheduler', () => {
     const queue = { upsertJobScheduler: vi.fn(), add: vi.fn() }
     await bootstrapReportsScheduler(queue as never, new Date('2026-07-20T08:22:00.000Z'))
     expect(queue.upsertJobScheduler).toHaveBeenCalledWith('reports-hourly-v1', { every: 3_600_000 }, { name: 'tick', data: { source: 'durable-scheduler' } })
-    expect(queue.add).toHaveBeenCalledWith('tick', { source: 'startup-catchup', evaluatedAt: '2026-07-20T08:22:00.000Z' }, { jobId: 'reports-catchup:2026-07-20T08' })
+    expect(queue.add).toHaveBeenCalledWith('tick', { source: 'startup-catchup', evaluatedAt: '2026-07-20T08:22:00.000Z' }, { jobId: 'reports-catchup-2026-07-20T08' })
   })
 
   it('uses one catch-up id for every replica started in one hour', async () => {

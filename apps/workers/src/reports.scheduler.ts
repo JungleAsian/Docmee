@@ -16,7 +16,9 @@ export async function ensureReportsScheduler(queue: ReportsSchedulerQueue): Prom
 export async function enqueueReportsCatchup(queue: ReportsSchedulerQueue, now = new Date()): Promise<void> {
   const hourBucket = now.toISOString().slice(0, 13)
   await queue.add('tick', { source: 'startup-catchup', evaluatedAt: now.toISOString() }, {
-    jobId: `reports-catchup:${hourBucket}`,
+    // BullMQ reserves ':' in custom job IDs. Keep the hourly bucket in the
+    // idempotency key without using its ISO timestamp separator.
+    jobId: `reports-catchup-${hourBucket}`,
   })
 }
 

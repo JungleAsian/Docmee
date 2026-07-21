@@ -13,12 +13,10 @@ export interface NodeTypeDef {
 
 export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
   // Triggers - what starts the workflow (exactly one per workflow).
-  { type: 'trigger.appointment_booked', kind: 'trigger', labelKey: 'wf.node.appointmentBooked', fields: [] },
-  { type: 'trigger.reminder_due', kind: 'trigger', labelKey: 'wf.node.reminderDue', fields: ['hoursBefore'] },
-  { type: 'trigger.no_show', kind: 'trigger', labelKey: 'wf.node.noShow', fields: [] },
+  // Only list events which the worker currently produces. Do not let a clinic
+  // activate a workflow that would remain inert.
   { type: 'trigger.message_keyword', kind: 'trigger', labelKey: 'wf.node.messageKeyword', fields: ['keywords'] },
   { type: 'trigger.patient_upset', kind: 'trigger', labelKey: 'wf.node.patientUpset', fields: [] },
-  { type: 'trigger.voice_message', kind: 'trigger', labelKey: 'wf.node.voiceMessage', fields: ['channel'] },
   // Logic - routing + timing.
   { type: 'logic.condition', kind: 'logic', labelKey: 'wf.node.condition', fields: ['field', 'op', 'value'] },
   { type: 'logic.delay', kind: 'logic', labelKey: 'wf.node.delay', fields: ['amount', 'unit'] },

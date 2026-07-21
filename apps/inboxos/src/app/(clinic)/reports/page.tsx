@@ -382,7 +382,7 @@ function ReportSettingsPanel({ clinicId }: { clinicId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-bold">Scheduled report settings</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Controls the worker cadence, recipients, and stored export format.</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Choose one exclusive cadence: daily sends daily only, weekly sends on Monday only, and monthly sends on the first local day only.</p>
         </div>
         <label className="inline-flex items-center gap-2 text-sm font-medium">
           <input
@@ -732,5 +732,4 @@ function formatRange(startIso: string, endIso: string): string {
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
   return `${start.toLocaleDateString(undefined, opts)} - ${end.toLocaleDateString(undefined, opts)}`
 }
-
 

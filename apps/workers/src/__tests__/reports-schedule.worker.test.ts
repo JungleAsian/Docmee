@@ -126,6 +126,26 @@ describe('processReportsJob — schedule gates (Gap #36)', () => {
     expect(captures.created.map((r) => r['type'])).toEqual(['weekly'])
   })
 
+  it('fires monthly only on the first clinic-local day', async () => {
+    captures.settings = { reports: { frequency: 'monthly', hourLocal: 8 } }
+    captures.clinics = [activeUtc('c-1')]
+    vi.setSystemTime(new Date('2026-07-01T08:00:00Z'))
+    await processReportsJob(job)
+    expect(captures.created.map((r) => r['type'])).toEqual(['monthly'])
+
+    captures.created = []
+    vi.setSystemTime(new Date('2026-07-02T08:00:00Z'))
+    await processReportsJob(job)
+    expect(captures.created).toHaveLength(0)
+  })
+
+  it('uses the clinic-local post-DST hour for an exclusive daily report', async () => {
+    captures.clinics = [{ id: 'ny', name: 'New York Clinic', status: 'active', timezone: 'America/New_York' }]
+    vi.setSystemTime(new Date('2026-03-08T12:00:00Z')) // 08:00 EDT after spring-forward
+    await processReportsJob(job)
+    expect(captures.created.map((r) => r['type'])).toEqual(['daily'])
+  })
+
   it('skips inactive clinics inside the daily window', async () => {
     captures.clinics = [{ id: 'c-1', name: 'Paused', status: 'inactive', timezone: 'UTC' }]
     vi.setSystemTime(new Date('2026-06-16T08:00:00Z'))

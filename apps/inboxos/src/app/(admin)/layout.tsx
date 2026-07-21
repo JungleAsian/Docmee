@@ -46,7 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         { href: '/studio/channels', label: t('nav.channels'), icon: <NavIcon name="channels" /> },
         { href: '/studio/quick-replies', label: t('nav.quickReplies'), icon: <NavIcon name="quickReplies" /> },
         { href: '/studio/templates', label: t('nav.templates'), icon: <NavIcon name="templates" /> },
-        { href: '/studio/automations', label: t('nav.automations'), icon: <NavIcon name="automations" /> },
+        { href: '/studio/automations', label: t('automations.center.nav'), icon: <NavIcon name="automations" /> },
         {
           href: '/studio/kb',
           label: t('nav.kb'),
@@ -54,8 +54,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           disabled: !isSuperuser,
           disabledReason: 'Clinic KB is managed by super users.',
         },
-        { href: '/studio/custom-flows', label: t('nav.customFlows'), icon: <NavIcon name="customFlows" /> },
-        { href: '/studio/workflows', label: t('nav.workflows'), icon: <NavIcon name="workflows" /> },
       ]
 
       const operationsItems = [

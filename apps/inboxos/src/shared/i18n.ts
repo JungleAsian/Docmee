@@ -1565,6 +1565,9 @@ const es: Dict = {
 
   // Screen 12 — Automation & follow-ups.
   'nav.automations': 'Automatizaciones',
+  'automations.center.nav': 'Centro de automatización',
+  'automations.center.desc': 'Configura automatizaciones programadas, flujos conversacionales y flujos de trabajo desde un solo lugar.',
+  'automations.center.workflowsDesc': 'Flujos visuales con disparadores, lógica y acciones para operaciones repetibles de la clínica.',
   'automations.title': 'Automatización y seguimientos',
   'aiAssistant.section.title': 'Asistente IA (J.zel)',
   'aiAssistant.section.desc':
@@ -3335,6 +3338,9 @@ const en: Dict = {
 
   // Screen 12 — Automation & follow-ups.
   'nav.automations': 'Automations',
+  'automations.center.nav': 'Automation Center',
+  'automations.center.desc': 'Configure scheduled automations, conversational flows, and operational workflows in one place.',
+  'automations.center.workflowsDesc': 'Visual trigger, logic, and action workflows for repeatable clinic operations.',
   'automations.title': 'Automation & follow-ups',
   'aiAssistant.section.title': 'AI Assistant (J.zel)',
   'aiAssistant.section.desc':
@@ -3624,4 +3630,3 @@ export function translate(
   }
   return out
 }
-

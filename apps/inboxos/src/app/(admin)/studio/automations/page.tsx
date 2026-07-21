@@ -31,7 +31,7 @@ import {
   type ScheduleOffset,
   type AutomationsConfig,
 } from '@/shared/automations'
-import type { Clinic, ClinicSettings, CustomFlow, FollowUpActivity, FollowUpStatus } from '@/shared/types'
+import type { Clinic, ClinicSettings, CustomFlow, FollowUpActivity, FollowUpStatus, Workflow } from '@/shared/types'
 import {
   CHAT_PROVIDERS,
   INTENT_PROVIDERS,
@@ -99,7 +99,10 @@ export default function AutomationsPage() {
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('automations.title')}</h1>
+        <div>
+          <h1 className="text-xl font-bold">{t('automations.center.nav')}</h1>
+          <p className="mt-1 text-sm text-gray-500">{t('automations.center.desc')}</p>
+        </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />
       </div>
 
@@ -260,6 +263,9 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
 
       {/* ── Section C: Custom flows (Req 28) ─────────────────────────────────── */}
       <CustomFlowsSummary clinicId={clinicId} />
+
+      {/* ── Section D: graph workflows ───────────────────────────────────────── */}
+      <WorkflowsSummary clinicId={clinicId} />
     </div>
   )
 }
@@ -647,6 +653,69 @@ function CustomFlowsSummary({ clinicId }: { clinicId: string }) {
                 }`}
               >
                 {flow.enabled ? t('automations.flows.on') : t('automations.flows.off')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function WorkflowsSummary({ clinicId }: { clinicId: string }) {
+  const { t } = useI18n()
+  const query = useQuery({
+    queryKey: ['workflows', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ workflows: Workflow[] }>(`/clinics/${clinicId}/workflows`),
+  })
+  const workflows = query.data?.workflows ?? []
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{t('wf.title')}</h2>
+        <Link
+          href="/studio/workflows"
+          className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400"
+        >
+          {t('automations.flows.manage')}
+        </Link>
+      </div>
+      <p className="mb-3 text-xs text-gray-500">{t('automations.center.workflowsDesc')}</p>
+
+      {query.isLoading ? (
+        <p className="text-sm text-gray-400">{t('common.loading')}</p>
+      ) : query.isError ? (
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          className="rounded-md border border-gray-300 px-3 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+        >
+          {t('common.retry')}
+        </button>
+      ) : workflows.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-gray-300 px-3 py-4 text-center text-sm text-gray-400 dark:border-gray-700">
+          {t('wf.empty')}
+        </p>
+      ) : (
+        <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
+          {workflows.map((workflow) => (
+            <li key={workflow.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{workflow.name}</p>
+                <p className="truncate text-[11px] text-gray-500">
+                  {workflow.nodes.filter((node) => node.kind === 'trigger').map((node) => node.type).join(', ') || '—'}
+                </p>
+              </div>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  workflow.status === 'active'
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                }`}
+              >
+                {workflow.status === 'active' ? t('wf.activeToggle') : t('automations.flows.off')}
               </span>
             </li>
           ))}

@@ -4,7 +4,9 @@ CREATE TABLE IF NOT EXISTS workflow_approvals (
   workflow_id UUID NOT NULL REFERENCES workflows(id) ON DELETE CASCADE, node_id TEXT NOT NULL, run_key TEXT NOT NULL,
   conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL, patient_id UUID REFERENCES patients(id) ON DELETE SET NULL,
   resume_node_id TEXT, context JSONB NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL,
-  decided_by UUID REFERENCES users(id) ON DELETE SET NULL, decided_at TIMESTAMPTZ, failure_reason TEXT,
+  -- Authentication uses externally-issued account UUIDs; there is no local `users`
+  -- table. Keep this attribution durable without a stale foreign-key dependency.
+  decided_by UUID, decided_at TIMESTAMPTZ, failure_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT workflow_approvals_status_check CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'resuming', 'resumed', 'failed', 'cancelled')),
   CONSTRAINT workflow_approvals_run_key_unique UNIQUE (clinic_id, workflow_id, node_id, run_key)

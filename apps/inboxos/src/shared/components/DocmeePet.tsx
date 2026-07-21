@@ -6,7 +6,6 @@ import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'
 import { ApiError, api } from '@/shared/api/client'
 import { JzelAvatar } from '@/shared/components/JzelAvatar'
-import { helpAsText } from '@/shared/help/content'
 import type { PanelLanguage, PanelRole } from '@/shared/types'
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
@@ -108,7 +107,6 @@ export function DocmeePet() {
   const loaded = useRef(false)
 
   const chips = chipsForRole(user?.role)
-  const helpContext = useMemo(() => helpAsText(language), [language])
   const avatarState = pending ? 'thinking' : 'idle'
   const chatStorageKey = user
     ? `${CHAT_STORAGE_PREFIX}:${user.id}:${user.clinicId}:${language}`
@@ -261,7 +259,7 @@ export function DocmeePet() {
       const res = await api.post<{ reply: string; name?: string }>('/assist/chat', {
         message: msg,
         history,
-        helpContext,
+        route: pathname,
       })
       setMessages((m) => [...m, { role: 'assistant', content: res.reply || t('pet.chat.empty') }])
     } catch (error) {

@@ -22,14 +22,15 @@ describe('health routes', () => {
   it('GET /health returns ok', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toEqual({ ok: true, service: 'docmee-api' })
+    expect(JSON.parse(res.body)).toEqual({ ok: true, service: 'docmee-api', buildId: 'unversioned' })
   })
 
   it('GET /heartbeat returns ok with timestamp', async () => {
     const res = await app.inject({ method: 'GET', url: '/heartbeat' })
     expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.body) as { ok: boolean; ts: string }
+    const body = JSON.parse(res.body) as { ok: boolean; ts: string; buildId: string }
     expect(body.ok).toBe(true)
     expect(typeof body.ts).toBe('string')
+    expect(body.buildId).toBe('unversioned')
   })
 })

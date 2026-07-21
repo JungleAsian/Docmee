@@ -1,14 +1,15 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { withDb } from '../lib/db.js'
 import { redisHealthy } from '../auth/token-store.js'
+import { releaseBuildId } from '@docmee/shared'
 
 const healthRoute: FastifyPluginAsync = async (app) => {
   app.get('/health', async () => {
-    return { ok: true, service: 'docmee-api' }
+    return { ok: true, service: 'docmee-api', buildId: releaseBuildId() }
   })
 
   app.get('/heartbeat', async () => {
-    return { ok: true, ts: new Date().toISOString() }
+    return { ok: true, ts: new Date().toISOString(), buildId: releaseBuildId() }
   })
 
   // CRE-58: deep health — probe the critical dependencies so a load balancer or
@@ -31,7 +32,7 @@ const healthRoute: FastifyPluginAsync = async (app) => {
     }
     const ok = Object.values(checks).every(Boolean)
     reply.code(ok ? 200 : 503)
-    return { ok, checks, ts: new Date().toISOString() }
+    return { ok, checks, ts: new Date().toISOString(), buildId: releaseBuildId() }
   })
 }
 

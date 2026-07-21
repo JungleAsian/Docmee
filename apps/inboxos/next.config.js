@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: {
+    // Must match DOCMEE_BUILD_ID injected into API and workers by the release pipeline.
+    NEXT_PUBLIC_DOCMEE_BUILD_ID: process.env.DOCMEE_BUILD_ID || 'unversioned',
+  },
   distDir: process.env.NEXT_DIST_DIR || '.next',
   poweredByHeader: false,
   productionBrowserSourceMaps: false,

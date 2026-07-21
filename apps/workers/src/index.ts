@@ -8,6 +8,7 @@ import {
   reviewRequestQueue,
 } from '@docmee/queue'
 import { RATE_LIMITS } from '@docmee/config'
+import { releaseBuildId } from '@docmee/shared'
 import { processConversationJob } from './conversation-processor.worker.js'
 import { processDeliveryStatusJob } from './delivery-status.worker.js'
 import { processTranscriptionJob } from './transcription-processor.worker.js'
@@ -110,7 +111,7 @@ export const phase3Scheduler = setInterval(() => {
 }, HOURLY_MS)
 if (typeof phase3Scheduler.unref === 'function') phase3Scheduler.unref()
 
-console.log('[workers] all 14 workers registered and listening')
+console.log(`[workers] all 14 workers registered and listening (build ${releaseBuildId()})`)
 
 // CRE-55: on PM2 reload/deploy, stop the schedulers and let BullMQ workers finish
 // their in-flight jobs (worker.close() waits for active jobs) before exit, so a

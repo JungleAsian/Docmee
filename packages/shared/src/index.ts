@@ -2,6 +2,11 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEq
 
 export type ID = string
 
+/** Safe immutable identifier injected once by the release pipeline. */
+export function releaseBuildId(): string {
+  return process.env['DOCMEE_BUILD_ID']?.trim() || 'unversioned'
+}
+
 export type Result<T, E = Error> =
   | { ok: true; value: T }
   | { ok: false; error: E }

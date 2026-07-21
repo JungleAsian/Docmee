@@ -28,7 +28,17 @@ pnpm test
 pnpm build
 
 # Start local services (Postgres + Redis)
+cp .env.example .env
+# Set the local-only placeholder values in .env, then start local dependencies.
 docker compose up -d
+pnpm preflight
+pnpm --filter @docmee/db db:migrate
+
+Before producing a deployable artifact, run `pnpm release:manifest` from a clean
+checkout. Deploy the generated `release-manifest.json` with one identical
+`DOCMEE_BUILD_ID` for API, workers, and InboxOS; verify it using API `/health`
+and the worker startup log. A manifest from a dirty checkout is intentionally not
+certified for deployment.
 ```
 
 Copy `.env.example` to `.env` and fill in values for your local environment.

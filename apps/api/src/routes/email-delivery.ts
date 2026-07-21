@@ -141,21 +141,32 @@ const emailDeliveryRoute: FastifyPluginAsync = async (app) => {
       const config = currentEmailSettings(clinic)
       const missing = missingForSend(config)
       if (missing.length) return { code: 400 as const, missing }
-      const password = decryptValue(config.smtpPasswordEnc!)
+      let password: string
+      try {
+        password = decryptValue(config.smtpPasswordEnc!)
+      } catch (error) {
+        request.log.warn({ clinicId, error }, 'email delivery test rejected malformed SMTP credentials')
+        return { code: 400 as const, missing: ['SMTP password or app password'] }
+      }
       const to = parsed.data.to || config.replyTo || request.user?.email || config.fromEmail!
-      await sendSmtpEmail({
-        host: config.smtpHost!,
-        port: config.smtpPort!,
-        secure: Boolean(config.smtpSecure),
-        username: config.smtpUser!,
-        password,
-        fromName: config.fromName || clinic.name || 'Docmee',
-        fromEmail: config.fromEmail!,
-        replyTo: config.replyTo || undefined,
-        to,
-        subject: 'Docmee email delivery test',
-        text: `Docmee email delivery is configured for ${clinic.name}.\n\nProvider: ${config.provider ?? 'google'}\nSent at: ${new Date().toISOString()}\n`,
-      })
+      try {
+        await sendSmtpEmail({
+          host: config.smtpHost!,
+          port: config.smtpPort!,
+          secure: Boolean(config.smtpSecure),
+          username: config.smtpUser!,
+          password,
+          fromName: config.fromName || clinic.name || 'Docmee',
+          fromEmail: config.fromEmail!,
+          replyTo: config.replyTo || undefined,
+          to,
+          subject: 'Docmee email delivery test',
+          text: `Docmee email delivery is configured for ${clinic.name}.\n\nProvider: ${config.provider ?? 'google'}\nSent at: ${new Date().toISOString()}\n`,
+        })
+      } catch (error) {
+        request.log.warn({ clinicId, error }, 'email delivery test failed')
+        return { code: 502 as const }
+      }
       const root = settingsRoot(clinic)
       const emailDelivery = { ...config, lastTestAt: new Date().toISOString(), lastTestTo: to }
       await repo.update(clinicId, { settings: { ...root, emailDelivery } })
@@ -163,6 +174,7 @@ const emailDeliveryRoute: FastifyPluginAsync = async (app) => {
     })
     if (result.code === 404) return reply.code(404).send({ error: 'Clinic not found' })
     if (result.code === 400) return reply.code(400).send({ error: 'Email delivery is not ready', missing: result.missing })
+    if (result.code === 502) return reply.code(502).send({ error: 'Email provider did not accept the test. Check the configured SMTP service and retry.' })
     return { ok: true, sentTo: result.to, emailDelivery: publicEmailSettings(result.emailDelivery) }
   })
 }

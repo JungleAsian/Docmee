@@ -142,13 +142,11 @@ describe('processTranscriptionJob', () => {
     expect(h.agentAdd.mock.calls[0][1].conversationId).toBe(CONVO)
   })
 
-  it('still enqueues the agent if persistence fails (never leaves the patient on read)', async () => {
+  it('fails for queue retry when persistence fails rather than enqueueing an unthreaded agent turn', async () => {
     h.findOpenByContact.mockRejectedValue(new Error('db down'))
-    await processTranscriptionJob(makeJob(base))
+    await expect(processTranscriptionJob(makeJob(base))).rejects.toThrow('db down')
 
-    expect(h.agentAdd).toHaveBeenCalledTimes(1)
-    expect(h.agentAdd.mock.calls[0][1].message).toBe('Hola quiero una cita.')
-    expect(h.agentAdd.mock.calls[0][1].conversationId).toBeUndefined()
+    expect(h.agentAdd).not.toHaveBeenCalled()
   })
 
   it('retries 3 times then logs an error review and sends an apology', async () => {

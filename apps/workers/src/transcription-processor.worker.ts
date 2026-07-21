@@ -148,8 +148,9 @@ export async function processTranscriptionJob(job: Job): Promise<void> {
   // 4. Persist the voice note + transcript (Req 8: transcript storage + inbox
   //    voice marker). This resolves/creates the patient's open conversation so the
   //    note shows up in the inbox as an `audio` message carrying its transcription.
-  //    Storage failures must not swallow the patient's message, so we fall back to
-  //    the previous behaviour (enqueue without a conversation id) if it fails.
+  //    Persistence is the ownership boundary. If it fails, fail this job so BullMQ
+  //    retries it; never send an unthreaded agent turn that can create a second
+  //    conversation or duplicate reply.
   const conversationId = await storeVoiceNote(payload, result)
 
   // 5. Re-enqueue to the agent as if the patient had typed the transcript, threaded
@@ -161,20 +162,21 @@ export async function processTranscriptionJob(job: Job): Promise<void> {
     phoneNumberId: payload.phoneNumberId,
     message: result.text,
     waMessageId: payload.messageId,
-    conversationId: conversationId ?? payload.conversationId,
+    conversationId,
     isVoiceNote: true,
-  })
+  }, { jobId: `agent-voice:${payload.clinicId}:${payload.messageId}` })
 }
 
 /**
  * Store the inbound voice note as an `audio` conversation message carrying the
  * built-in transcript, on the patient's open conversation (created if needed).
- * Returns the conversation id, or null if persistence failed (logged, non-fatal).
+ * Returns the canonical conversation id. Persistence errors propagate to the queue
+ * retry policy rather than allowing a second owner to recreate the thread.
  */
 async function storeVoiceNote(
   payload: TranscriptionJob,
   result: TranscriptionResult,
-): Promise<string | null> {
+): Promise<string> {
   const sql = createServiceDbClient({ url: process.env['DATABASE_URL'] ?? '' })
   try {
     const conversations = createConversationsRepository(sql)
@@ -212,9 +214,6 @@ async function storeVoiceNote(
     })
 
     return conversation.id
-  } catch (err) {
-    console.error('[transcription] failed to persist voice note:', err)
-    return null
   } finally {
     await sql.end()
   }

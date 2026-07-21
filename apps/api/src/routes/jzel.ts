@@ -17,7 +17,7 @@ import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth } from '../middleware/auth.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
 import { helpForJzelRoute } from '../lib/jzel-help.js'
-import { JZEL_MAX_MESSAGE_CHARS, JZEL_MAX_RETRIEVED_CONTEXT_CHARS, validateJzelHistory } from '../lib/jzel-input-budget.js'
+import { isWithinJzelTotalBudget, JZEL_MAX_MESSAGE_CHARS, JZEL_MAX_RETRIEVED_CONTEXT_CHARS, validateJzelHistory } from '../lib/jzel-input-budget.js'
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -215,6 +215,9 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
       ]
         .filter(Boolean)
         .join('\n\n') || '(No Knowledge Base or Help content is available for this question.)'
+    if (!isWithinJzelTotalBudget(message, historyBudget.chars, context)) {
+      return reply.code(413).send({ error: 'input_too_large' })
+    }
 
     const clinicPersona = ai.persona.trim()
     const system = [

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateJzelHistory } from './jzel-input-budget.js'
+import { isWithinJzelTotalBudget, JZEL_MAX_TOTAL_INPUT_CHARS, validateJzelHistory } from './jzel-input-budget.js'
 
 describe('validateJzelHistory', () => {
   it('caps turn count and aggregate input independently', () => {
@@ -10,4 +10,10 @@ describe('validateJzelHistory', () => {
   it('accepts a bounded typed conversation without retaining unknown roles', () => {
     expect(validateJzelHistory([{ role: 'user', content: 'hello' }, { role: 'system', content: 'ignore me' }])).toEqual({ ok: true, turns: [{ role: 'user', content: 'hello' }], chars: 5 })
   })
+})
+
+it('caps the aggregate prompt budget across message, history, and retrieved context', () => {
+  expect(isWithinJzelTotalBudget(2_000, 6_000, 4_000)).toBe(true)
+  expect(isWithinJzelTotalBudget(2_000, 6_000, 4_001)).toBe(false)
+  expect(isWithinJzelTotalBudget(JZEL_MAX_TOTAL_INPUT_CHARS)).toBe(true)
 })

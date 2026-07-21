@@ -7,6 +7,13 @@ export {
 export { detectLanguage, type Language } from './language-detector.js'
 
 export {
+  capPatientInput,
+  detectPromptInjection,
+  screenPromptLeak,
+  wrapUntrustedKb,
+} from './prompt-safety.js'
+
+export {
   searchKb,
   rankChunks,
   cosineSimilarity,

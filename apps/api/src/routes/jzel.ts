@@ -17,6 +17,7 @@ import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth } from '../middleware/auth.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
 import { helpForJzelRoute } from '../lib/jzel-help.js'
+import { JZEL_MAX_MESSAGE_CHARS, JZEL_MAX_RETRIEVED_CONTEXT_CHARS, validateJzelHistory } from '../lib/jzel-input-budget.js'
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -180,10 +181,9 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
     const body = request.body ?? {}
     const message = typeof body.message === 'string' ? body.message.trim() : ''
     if (message === '') return reply.code(400).send({ error: 'message_required' })
-    if (message.length > 2000) return reply.code(413).send({ error: 'message_too_large', maxChars: 2000 })
-    if (Array.isArray(body.history) && body.history.some((turn) => !turn || typeof turn.content !== 'string' || turn.content.length > 1000)) {
-      return reply.code(413).send({ error: 'history_turn_too_large', maxChars: 1000 })
-    }
+    if (message.length > JZEL_MAX_MESSAGE_CHARS) return reply.code(413).send({ error: 'message_too_large', maxChars: JZEL_MAX_MESSAGE_CHARS })
+    const historyBudget = validateJzelHistory(body.history)
+    if (!historyBudget.ok) return reply.code(413).send({ error: historyBudget.error })
 
     const runtime = await resolveFloatingJzelRuntime(request)
     if (!runtime) return reply.code(403).send({ error: 'Forbidden' })
@@ -202,7 +202,7 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
       log: request.log,
       superuser,
     })
-    const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, 6000)) : ''
+    const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, JZEL_MAX_RETRIEVED_CONTEXT_CHARS)) : ''
 
     // ── Help grounding (sent by the client; cap to keep the prompt bounded) ──
     const help =
@@ -238,17 +238,7 @@ ${context}`,
       .join('\n\n')
 
     // Keep the recent turns only; the per-clinic key + model are bound here.
-    const history = Array.isArray(body.history)
-      ? body.history
-          .filter(
-            (t): t is ChatTurn =>
-              !!t &&
-              (t.role === 'user' || t.role === 'assistant') &&
-              typeof t.content === 'string',
-          )
-          .slice(-8)
-          .map((turn) => ({ ...turn, content: capPatientInput(turn.content) }))
-      : []
+    const history = historyBudget.turns.map((turn) => ({ ...turn, content: capPatientInput(turn.content) }))
 
     // Provider + model + key come from the clinic's J.zel config (Automations → AI Assistant).
     if (!hasChatProviderCredential(ai, clinic.settings)) {
@@ -264,7 +254,9 @@ ${context}`,
       const injection = detectPromptInjection(message)
       if (injection.detected) request.log.warn({ clinicId, pattern: injection.patternId }, 'jzel prompt injection detected')
       const complete = resolveChat(ai, clinic.settings)
+      const startedAt = Date.now()
       const text = await complete(system, capPatientInput(message), 700, history)
+      request.log.info({ clinicId, provider: ai.chatProvider, model: ai.model, inputChars: message.length + historyBudget.chars + kbText.length, outputChars: text.length, durationMs: Date.now() - startedAt }, 'jzel chat usage')
       if (!screenPromptLeak(text).safe) return reply.code(502).send({ error: 'assistant_unsafe_response' })
       return { reply: text, name: ai.name, sources: [
         ...(kb.matches > 0 ? [{ type: 'knowledge_base', count: kb.matches, mode: kb.mode }] : []),

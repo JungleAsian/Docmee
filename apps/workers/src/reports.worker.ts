@@ -177,6 +177,20 @@ interface ReportPayload {
 }
 
 /**
+ * Persist actionable, non-sensitive failure categories only. Provider responses
+ * often echo recipient addresses, API keys, or SMTP credentials and must never
+ * be copied into a clinic report or worker log.
+ */
+function redactedDeliveryDiagnostic(error: unknown): string {
+  const message = error instanceof Error ? error.message.toLowerCase() : ''
+  if (/(auth|credential|password|api.?key|unauthori[sz]ed|forbidden)/.test(message)) return 'provider_authentication_failed'
+  if (/(recipient|address|mailbox|email)/.test(message)) return 'recipient_rejected'
+  if (/(rate|quota|too many|429)/.test(message)) return 'provider_rate_limited'
+  if (/(timeout|timed out|network|connect|econn)/.test(message)) return 'provider_unavailable'
+  return 'provider_rejected_delivery'
+}
+
+/**
  * Delivers a report through BOTH channels: email it to the clinic admin (when a
  * recipient is known) and persist it so it shows up in the clinic panel's reports
  * list. The email is best-effort — a delivery failure is recorded as emailed=false
@@ -210,7 +224,9 @@ async function deliverReport(
       await sendEmail({ to: recipient, subject: payload.subject, html: payload.html, idempotencyKey: scheduleKey })
       await reports.markEmailed(claimed.id, true)
     } catch (err) {
-      console.error(`[reports] email failed for clinic ${clinicId} (${payload.type}):`, err)
+      const diagnostic = redactedDeliveryDiagnostic(err)
+      await reports.markEmailed(claimed.id, false, diagnostic)
+      console.error(`[reports] email failed for clinic ${clinicId} (${payload.type}): ${diagnostic}`)
     }
   } catch (err) {
     console.error(`[reports] claim/persist failed for clinic ${clinicId} (${payload.type}):`, err)

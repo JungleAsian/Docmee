@@ -29,7 +29,8 @@ export interface ReportsRepository {
   claimScheduled(data: CreateGeneratedReportInput & { scheduleKey: string }): Promise<GeneratedReport | null>
   /** Atomically reserve one pending delivery attempt for an already claimed report. */
   claimEmailDelivery(id: string): Promise<boolean>
-  markEmailed(id: string, emailed: boolean): Promise<void>
+  /** Finish an email attempt without retaining provider responses or credentials. */
+  markEmailed(id: string, emailed: boolean, deliveryDiagnostic?: string | null): Promise<void>
 }
 
 const DEFAULT_LIMIT = 50
@@ -99,10 +100,12 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
       return rows[0] ?? null
     },
 
-    async markEmailed(id, emailed) {
+    async markEmailed(id, emailed, deliveryDiagnostic = null) {
       await sql`
         UPDATE generated_reports
-        SET emailed = ${emailed}, delivery_status = ${emailed ? 'sent' : 'failed'}
+        SET emailed = ${emailed},
+            delivery_status = ${emailed ? 'sent' : 'failed'},
+            delivery_diagnostic = ${emailed ? null : deliveryDiagnostic}
         WHERE id = ${id}
       `
     },

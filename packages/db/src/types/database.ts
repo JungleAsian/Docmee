@@ -687,6 +687,9 @@ export interface GeneratedReport {
   data: Record<string, unknown>
   recipientEmail: string | null
   emailed: boolean
+  deliveryStatus?: 'pending' | 'sending' | 'failed' | 'sent'
+  /** A bounded category, never a raw provider response, credential, or recipient. */
+  deliveryDiagnostic?: string | null
   createdAt: string
 }
 

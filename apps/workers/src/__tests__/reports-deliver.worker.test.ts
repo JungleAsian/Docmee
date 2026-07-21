@@ -45,9 +45,10 @@ vi.mock('@docmee/db', () => ({
       return { id: `gen-${captures.created.length}`, ...row }
     },
     claimEmailDelivery: async () => true,
-    markEmailed: async (id: string, emailed: boolean) => {
+    markEmailed: async (id: string, emailed: boolean, deliveryDiagnostic?: string | null) => {
       const index = Number(id.replace('gen-', '')) - 1
       captures.created[index]!['emailed'] = emailed
+      captures.created[index]!['deliveryDiagnostic'] = deliveryDiagnostic ?? null
     },
   }),
 }))
@@ -104,6 +105,7 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
 
     expect(captures.created).toHaveLength(1)
     expect(captures.created[0]!['emailed']).toBe(false)
+    expect(captures.created[0]!['deliveryDiagnostic']).toBe('provider_rejected_delivery')
   })
 
   it('persists a panel-only report (no email) when the clinic has no admin recipient', async () => {

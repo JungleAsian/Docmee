@@ -9,7 +9,8 @@ export const JZEL_MAX_TOTAL_INPUT_CHARS = 12_000
 
 /** Bound the entire model prompt, not merely one user-controlled segment. */
 export function isWithinJzelTotalBudget(...segments: Array<string | number>): boolean {
-  return segments.reduce((total, segment) => total + (typeof segment === 'string' ? segment.length : segment), 0) <= JZEL_MAX_TOTAL_INPUT_CHARS
+  const total = segments.reduce<number>((sum, segment) => sum + (typeof segment === 'string' ? segment.length : segment), 0)
+  return total <= JZEL_MAX_TOTAL_INPUT_CHARS
 }
 
 export function validateJzelHistory(history: unknown):

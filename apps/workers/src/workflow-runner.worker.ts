@@ -9,6 +9,7 @@
 import {
   createGoogleCalendarOps,
   runWorkflow,
+  validateWorkflowDefinition,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   type CalendarOps,
   type RefreshedTokens,
@@ -793,6 +794,11 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
     const workflow = await createWorkflowsRepository(sql).findById(data.clinicId, data.workflowId)
     if (!workflow || workflow.status !== 'active') {
       console.log(`[workflow] ${data.workflowId} not active; skipping run`)
+      return
+    }
+    const graphErrors = validateWorkflowDefinition(workflow.nodes, workflow.edges, { requireTrigger: true })
+    if (graphErrors.length > 0) {
+      console.error(`[workflow] ${data.workflowId} has an invalid persisted graph: ${graphErrors.join('; ')}`)
       return
     }
     const ctx: WorkflowContext = { ...(data.context ?? {}), ...data.trigger }

@@ -25,7 +25,8 @@ export interface WorkflowsRepository {
   listActiveByTrigger(clinicId: string, triggerType: string): Promise<Workflow[]>
   create(data: CreateWorkflowInput): Promise<Workflow>
   update(clinicId: string, id: string, data: UpdateWorkflowInput): Promise<Workflow | null>
-  delete(clinicId: string, id: string): Promise<void>
+  /** Returns false when no workflow exists in this clinic scope. */
+  delete(clinicId: string, id: string): Promise<boolean>
 }
 
 export function createWorkflowsRepository(sql: Sql): WorkflowsRepository {
@@ -82,7 +83,12 @@ export function createWorkflowsRepository(sql: Sql): WorkflowsRepository {
     },
 
     async delete(clinicId, id) {
-      await sql`DELETE FROM workflows WHERE clinic_id = ${clinicId} AND id = ${id}`
+      const rows = await sql<[{ id: string }]>`
+        DELETE FROM workflows
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+        RETURNING id
+      `
+      return rows.length > 0
     },
   }
 }

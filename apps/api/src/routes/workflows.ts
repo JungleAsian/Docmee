@@ -6,10 +6,11 @@
 //   POST   /clinics/:id/workflows               (clinic_admin, ia_studio_admin)
 //   PATCH  /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { createWorkflowsRepository } from '@docmee/db'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
+import { validateWorkflowDefinition } from '@docmee/agents'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -42,6 +43,13 @@ const patchSchema = z.object({
   edges: z.array(edgeSchema).optional(),
 })
 
+function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[], active: boolean, reply: FastifyReply): boolean {
+  const errors = validateWorkflowDefinition(nodes, edges, { requireTrigger: active })
+  if (errors.length === 0) return true
+  reply.code(400).send({ error: 'Invalid workflow graph', details: errors })
+  return false
+}
+
 const workflowsRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
 
@@ -71,13 +79,16 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       if (!parsed.ok) return
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const nodes = (parsed.data.nodes ?? []) as WorkflowNode[]
+      const edges = (parsed.data.edges ?? []) as WorkflowEdge[]
+      if (!validateGraph(nodes, edges, parsed.data.status === 'active', reply)) return
       const workflow = await withDb(async (sql) =>
         createWorkflowsRepository(sql).create({
           clinicId,
           name: parsed.data.name,
           status: parsed.data.status ?? 'draft',
-          nodes: (parsed.data.nodes ?? []) as WorkflowNode[],
-          edges: (parsed.data.edges ?? []) as WorkflowEdge[],
+          nodes,
+          edges,
         }),
       )
       return reply.code(201).send({ workflow })
@@ -92,12 +103,20 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       if (!parsed.ok) return
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const current = await withDb(async (sql) =>
+        createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId),
+      )
+      if (!current) return reply.code(404).send({ error: 'Workflow not found' })
+      const nodes = (parsed.data.nodes ?? current.nodes) as WorkflowNode[]
+      const edges = (parsed.data.edges ?? current.edges) as WorkflowEdge[]
+      const active = parsed.data.status === 'active' || (parsed.data.status === undefined && current.status === 'active')
+      if (!validateGraph(nodes, edges, active, reply)) return
       const workflow = await withDb(async (sql) =>
         createWorkflowsRepository(sql).update(clinicId, request.params.workflowId, {
           name: parsed.data.name,
           status: parsed.data.status,
-          nodes: parsed.data.nodes as WorkflowNode[] | undefined,
-          edges: parsed.data.edges as WorkflowEdge[] | undefined,
+          nodes,
+          edges,
         }),
       )
       if (!workflow) return reply.code(404).send({ error: 'Workflow not found' })
@@ -111,7 +130,10 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-      await withDb(async (sql) => createWorkflowsRepository(sql).delete(clinicId, request.params.workflowId))
+      const removed = await withDb(async (sql) =>
+        createWorkflowsRepository(sql).delete(clinicId, request.params.workflowId),
+      )
+      if (!removed) return reply.code(404).send({ error: 'Workflow not found' })
       return { deleted: true }
     },
   )

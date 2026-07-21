@@ -37,6 +37,15 @@ async function portOpen(host, port) {
   })
 }
 
+function endpointFromUrl(name, raw, defaultPort) {
+  try {
+    const url = new URL(raw)
+    return { name, host: url.hostname, port: Number(url.port || defaultPort) }
+  } catch {
+    return null
+  }
+}
+
 function report(ok, label, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`)
   return ok
@@ -77,9 +86,13 @@ if (!report(Boolean(access && refresh && access !== refresh), 'JWT secrets disti
 
 const docker = spawnSync(process.platform === 'win32' ? 'docker.exe' : 'docker', ['compose', 'version'], { cwd: root, encoding: 'utf8' })
 if (!report(docker.status === 0, 'Docker Compose', docker.status === 0 ? '' : 'install/start Docker Desktop')) failures += 1
-for (const [name, host, port] of [['PostgreSQL', '127.0.0.1', 5432], ['Redis', '127.0.0.1', 6379]]) {
-  const ok = await portOpen(host, port)
-  if (!report(ok, `${name} ${host}:${port}`, ok ? '' : 'run docker compose up -d postgres redis')) failures += 1
+for (const endpoint of [
+  endpointFromUrl('PostgreSQL', value('DATABASE_URL', env), 5432),
+  endpointFromUrl('Redis', value('REDIS_URL', env), 6379),
+]) {
+  const label = endpoint ? `${endpoint.name} ${endpoint.host}:${endpoint.port}` : 'configured service URL'
+  const ok = Boolean(endpoint) && await portOpen(endpoint.host, endpoint.port)
+  if (!report(ok, label, ok ? '' : 'set a valid reachable DATABASE_URL or REDIS_URL')) failures += 1
 }
 
 const migrations = path.join(root, 'packages', 'db', 'supabase', 'migrations')

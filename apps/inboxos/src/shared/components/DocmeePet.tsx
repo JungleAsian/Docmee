@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'

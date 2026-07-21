@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { JZEL_MAX_HISTORY_CHARS, validateJzelHistory } from './jzel-input-budget.js'
+import { validateJzelHistory } from './jzel-input-budget.js'
 
 describe('validateJzelHistory', () => {
   it('caps turn count and aggregate input independently', () => {

@@ -23,6 +23,7 @@ export default function WorkflowsPage() {
   const qc = useQueryClient()
   const { clinicId, switchClinic } = useActiveClinic()
   const [editing, setEditing] = useState<Workflow | 'new' | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   // CRE-69: confirm before the irreversible delete.
   const [pendingDelete, setPendingDelete] = useState<Workflow | null>(null)
 
@@ -34,7 +35,9 @@ export default function WorkflowsPage() {
   })
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.del(`/clinics/${clinicId}/workflows/${id}`),
+    onMutate: () => setDeleteError(null),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onError: (error: Error) => setDeleteError(error.message || t('common.error')),
   })
   const toggleMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: WorkflowStatus }) =>
@@ -78,6 +81,12 @@ export default function WorkflowsPage() {
         </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />
       </header>
+
+      {deleteError && (
+        <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {deleteError}
+        </p>
+      )}
 
       <NoCodeBuilderGuide active="workflows" />
 

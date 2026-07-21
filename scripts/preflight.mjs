@@ -45,6 +45,21 @@ function report(ok, label, detail = '') {
 const env = parseEnv(envPath)
 let failures = 0
 console.log(`Docmee preflight: ${root}`)
+if (process.argv.includes('--template')) {
+  const template = parseEnv(examplePath)
+  if (!existsSync(examplePath)) {
+    report(false, '.env.example', 'missing')
+    process.exitCode = 1
+  } else {
+    for (const name of required) {
+      const present = template.has(name) && template.get(name)?.trim().length > 0
+      if (!report(Boolean(present), `template:${name}`, present ? '' : 'missing or empty')) failures += 1
+    }
+    if (!failures) console.log('Environment template covers every preflight-required configuration key.')
+    else console.error(`Environment-template validation failed with ${failures} problem(s).`)
+    process.exitCode = failures ? 1 : 0
+  }
+} else {
 if (!existsSync(envPath)) {
   failures += 1
   report(false, '.env', 'missing; copy .env.example and set local values')
@@ -77,4 +92,5 @@ if (failures) {
   process.exitCode = 1
 } else {
   console.log('Preflight passed. Next: pnpm --filter @docmee/db db:migrate, then start API, workers, and InboxOS.')
+}
 }

@@ -46,6 +46,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Validate secret-free environment template
+        run: pnpm preflight -- --template
+
       - name: Migrate test database
         run: pnpm --filter @docmee/db db:migrate
 

@@ -30,7 +30,8 @@ export const INTENT_PROVIDERS: { id: IntentProvider; label: string; hint: string
 
 /** KB embedding providers offered in the panel. */
 export const EMBED_PROVIDERS: { id: EmbedProvider; label: string; hint: string }[] = [
-  { id: 'openai', label: 'OpenAI', hint: 'Default · text-embedding-3' },
+  { id: 'local', label: 'Local', hint: 'Default · hashed lexical embeddings; no provider key' },
+  { id: 'openai', label: 'OpenAI', hint: 'text-embedding-3' },
   { id: 'gemini', label: 'Google Gemini', hint: 'text-embedding-004' },
   { id: 'custom', label: 'Custom / OpenAI-compatible', hint: 'uses the Base URL above' },
 ]

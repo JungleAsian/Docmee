@@ -30,6 +30,16 @@ function makeExec(over: Partial<WorkflowExecutors> = {}): WorkflowExecutors {
 }
 
 describe('runWorkflow', () => {
+  it('routes each action through the worker-owned durable side-effect boundary', async () => {
+    const guarded = vi.fn(async (_node, _ctx, invoke) => invoke())
+    const exec = makeExec({ runSideEffect: guarded })
+    await runWorkflow({
+      nodes: [node('t', 'trigger', 'trigger.message_keyword'), node('send', 'action', 'action.send_message')],
+      edges: [edge('t', 'send')],
+    }, {}, exec)
+    expect(guarded).toHaveBeenCalledTimes(1)
+    expect(guarded.mock.calls[0]?.[0]).toMatchObject({ id: 'send', type: 'action.send_message' })
+  })
   it('walks a linear trigger → action → end and runs the action', async () => {
     const wf = {
       nodes: [

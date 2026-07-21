@@ -481,6 +481,7 @@ export async function processAgentJob(job: Job): Promise<void> {
     // never changes the reply path or existing behaviour.
     try {
       await enqueueWorkflowRuns(sql, data.clinicId, 'trigger.message_keyword', {
+        sourceEventId: data.waMessageId,
         message: data.message,
         ...(data.patientId ? { patientId: data.patientId } : {}),
         ...(data.conversationId ? { conversationId: data.conversationId } : {}),

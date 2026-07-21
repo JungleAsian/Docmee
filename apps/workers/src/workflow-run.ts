@@ -3,6 +3,7 @@
 // workflow-runner worker executes each via the engine. Delay nodes re-enqueue with
 // a startNodeId to resume.
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { createQueue } from '@docmee/queue'
 import { createConversationsRepository, createWorkflowsRepository, type Workflow } from '@docmee/db'
 import type { createServiceDbClient } from '@docmee/db'
@@ -19,6 +20,8 @@ function workflowQueue(): ReturnType<typeof createQueue> {
 export const WorkflowTriggerSchema = z
   .object({
     type: z.string(),
+    /** Stable, producer-owned identifier of the source event. Never synthesize this in a consumer. */
+    sourceEventId: z.string().min(1),
     patientId: z.string().optional(),
     appointmentId: z.string().optional(),
     conversationId: z.string().optional(),
@@ -34,11 +37,13 @@ export const WorkflowRunJobSchema = z.object({
   startNodeId: z.string().optional(),
   /** Mutable workflow context restored after a conversational wait. */
   context: z.record(z.string(), z.unknown()).optional(),
+  approvalId: z.string().uuid().optional(),
 })
 export type WorkflowRunJobData = z.infer<typeof WorkflowRunJobSchema>
 
 type Sql = ReturnType<typeof createServiceDbClient>
 export interface TriggerContext {
+  sourceEventId?: string
   message?: string
   patientId?: string
   appointmentId?: string
@@ -51,10 +56,22 @@ export interface TriggerContext {
   audioObjectKey?: string
 }
 
+/** Safe BullMQ ID and durable trace key derived from the producer's source event. */
+export function workflowRunKey(workflowId: string, sourceEventId: string): string {
+  const digest = createHash('sha256').update(sourceEventId).digest('hex').slice(0, 32)
+  return `workflow-run-${workflowId}-${digest}`
+}
+
+export function workflowResumeJobKey(workflowId: string, sourceEventId: string, nodeId: string): string {
+  const digest = createHash('sha256').update(`${sourceEventId}:${nodeId}`).digest('hex').slice(0, 24)
+  return `workflow-resume-${workflowId}-${digest}`
+}
+
 const PENDING_WORKFLOWS_KEY = 'pendingWorkflowRuns'
 
 export interface PendingWorkflowRun {
   workflowId: string
+  sourceEventId: string
   resumeNodeId: string
   context: Record<string, unknown>
   expiresAt: string
@@ -71,9 +88,10 @@ export function readPendingWorkflowRuns(metadata: Record<string, unknown>): Pend
     if (!isRecord(entry) || !isRecord(entry['context'])) return []
     const workflowId = entry['workflowId']
     const resumeNodeId = entry['resumeNodeId']
+    const sourceEventId = entry['sourceEventId']
     const expiresAt = entry['expiresAt']
-    if (typeof workflowId !== 'string' || typeof resumeNodeId !== 'string' || typeof expiresAt !== 'string') return []
-    return [{ workflowId, resumeNodeId, context: entry['context'], expiresAt }]
+    if (typeof workflowId !== 'string' || typeof sourceEventId !== 'string' || typeof resumeNodeId !== 'string' || typeof expiresAt !== 'string') return []
+    return [{ workflowId, sourceEventId, resumeNodeId, context: entry['context'], expiresAt }]
   })
 }
 
@@ -115,11 +133,11 @@ export async function resumePendingWorkflowRuns(
       {
         clinicId,
         workflowId: pending.workflowId,
-        trigger: { type: 'trigger.conversation_reply', ...ctx, conversationId },
+        trigger: { type: 'trigger.conversation_reply', sourceEventId: pending.sourceEventId, ...ctx, conversationId },
         startNodeId: pending.resumeNodeId,
         context: pending.context,
       } satisfies WorkflowRunJobData,
-      ctx.waMessageId ? { jobId: `workflow-reply:${pending.workflowId}:${ctx.waMessageId}` } : {},
+      { jobId: workflowResumeJobKey(pending.workflowId, pending.sourceEventId, pending.resumeNodeId) },
     )
   }
   const metadata = { ...conversation.metadata }
@@ -152,6 +170,11 @@ export async function enqueueWorkflowRuns(
   triggerType: string,
   ctx: TriggerContext = {},
 ): Promise<number> {
+  const sourceEventId = ctx.sourceEventId ?? ctx.waMessageId
+  if (!sourceEventId) {
+    console.error(`[workflow] refusing ${triggerType} without a stable source event ID`)
+    return 0
+  }
   const workflows = await createWorkflowsRepository(sql).listActiveByTrigger(clinicId, triggerType)
   let enqueued = 0
   for (const wf of workflows) {
@@ -159,8 +182,8 @@ export async function enqueueWorkflowRuns(
     await workflowQueue().add('run', {
       clinicId,
       workflowId: wf.id,
-      trigger: { type: triggerType, ...ctx },
-    } satisfies WorkflowRunJobData)
+      trigger: { type: triggerType, sourceEventId, ...ctx },
+    } satisfies WorkflowRunJobData, { jobId: workflowRunKey(wf.id, sourceEventId) })
     enqueued++
   }
   return enqueued
@@ -168,5 +191,8 @@ export async function enqueueWorkflowRuns(
 
 /** Re-enqueue a paused run to resume at `nodeId` after `ms` (delay node). */
 export async function scheduleWorkflowResume(data: WorkflowRunJobData, nodeId: string, ms: number): Promise<void> {
-  await workflowQueue().add('run', { ...data, startNodeId: nodeId }, { delay: Math.max(0, Math.round(ms)) })
+  await workflowQueue().add('run', { ...data, startNodeId: nodeId }, {
+    jobId: workflowResumeJobKey(data.workflowId, data.trigger.sourceEventId, nodeId),
+    delay: Math.max(0, Math.round(ms)),
+  })
 }

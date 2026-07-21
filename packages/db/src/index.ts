@@ -111,6 +111,8 @@ export {
   createReportsRepository,
   createPushSubscriptionsRepository,
   createWorkflowsRepository,
+  createWorkflowApprovalsRepository,
+  createWorkflowExecutionsRepository,
 } from './repositories/index.js'
 
 export type {
@@ -189,4 +191,14 @@ export type {
   WorkflowsRepository,
   CreateWorkflowInput,
   UpdateWorkflowInput,
+  WorkflowApprovalsRepository,
+  WorkflowApproval,
+  WorkflowAiDraft,
+  CreateWorkflowApprovalInput,
+  CreateWorkflowDraftInput,
+  WorkflowExecutionsRepository,
+  WorkflowRunRecord,
+  WorkflowEffectRecord,
+  WorkflowRunStatus,
+  WorkflowEffectStatus,
 } from './repositories/index.js'

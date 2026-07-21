@@ -19,8 +19,10 @@ import {
 } from '@docmee/agents'
 import { decryptValue, encryptValue } from '@docmee/shared'
 import { randomUUID } from 'node:crypto'
+import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
+import { resolveClinicAiKey } from './clinic-ai-key.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { type Job } from '@docmee/queue'
@@ -36,6 +38,8 @@ import {
   createMessageTemplatesRepository,
   createNotificationsRepository,
   createWorkflowsRepository,
+  createWorkflowExecutionsRepository,
+  createWorkflowApprovalsRepository,
   type Patient,
   type PatientContact,
   type MessageTemplateCategory,
@@ -319,7 +323,25 @@ function validCapturedReply(validation: string, raw: string): boolean {
   }
 }
 
-function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
+function workflowExecutionKey(data: WorkflowRunJobData, nodeId: string): string {
+  // The database unique constraint is the authority. This human-readable key is
+  // retained in trace records to connect source event, queue job, run and node.
+  return `${data.workflowId}/${data.trigger.sourceEventId}/${nodeId}`
+}
+
+function providerIdFromResult(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value
+  if (isRecord(value) && typeof value['providerId'] === 'string') return value['providerId']
+  return null
+}
+
+class WorkflowEffectReconciliationRequired extends Error {
+  constructor(readonly executionKey: string) {
+    super(`Workflow effect ${executionKey} has an uncertain prior provider outcome; manual reconciliation is required before retry.`)
+  }
+}
+
+function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: string): WorkflowExecutors {
   const { clinicId } = data
   const notify = async (content: string, ctx: WorkflowContext) =>
     void (await createNotificationsRepository(sql).create({
@@ -342,15 +364,16 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
     })
   }
 
-  const sendWorkflowMessage = async (text: string, ctx: WorkflowContext) => {
-    if (!text.trim()) return
+  const sendWorkflowMessage = async (text: string, ctx: WorkflowContext): Promise<string | null> => {
+    if (!text.trim()) return null
     const target = await resolveTarget(sql, clinicId, ctx.patientId)
     if (!target) {
       console.log(`[workflow] no sendable WhatsApp target for clinic ${clinicId}; skipping send`)
-      return
+      return null
     }
     const wamid = await target.send(text)
     await persistOutbound(sql, clinicId, ctx.conversationId, text, wamid)
+    return wamid
   }
 
   const persistVoiceBookingReview = async (
@@ -510,6 +533,39 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
   }
 
   return {
+    async runSideEffect(node, _ctx, invoke) {
+      const executions = createWorkflowExecutionsRepository(sql)
+      const executionKey = workflowExecutionKey(data, node.id)
+      const claimed = await executions.claimEffect({
+        workflowRunId,
+        nodeId: node.id,
+        nodeType: node.type,
+        executionKey,
+      })
+      if (!claimed) {
+        const existing = await executions.findEffect(executionKey)
+        if (existing?.status === 'succeeded') return undefined as Awaited<ReturnType<typeof invoke>>
+        if (existing?.status === 'in_progress' || existing?.status === 'uncertain') {
+          if (existing.status === 'in_progress') {
+            await executions.markEffectUncertain(existing.id, 'Worker retried after an interrupted side effect; provider outcome is unknown.')
+          }
+          throw new WorkflowEffectReconciliationRequired(executionKey)
+        }
+        // A prior failure may have occurred before reaching a provider. We do
+        // not automatically replay it: no provider idempotency contract exists.
+        throw new WorkflowEffectReconciliationRequired(executionKey)
+      }
+      try {
+        const result = await invoke()
+        await executions.succeedEffect(claimed.id, providerIdFromResult(result))
+        return result
+      } catch (error) {
+        // A throw from a provider is not proof that it did not perform the
+        // action. Preserve an uncertain terminal state and never auto-replay.
+        await executions.markEffectUncertain(claimed.id, error instanceof Error ? error.message : String(error))
+        throw error
+      }
+    },
     async sendMessage(text, ctx) {
       await sendWorkflowMessage(text, ctx)
     },
@@ -539,14 +595,21 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
     },
 
     async aiDraft(prompt, ctx) {
-      // v1: surface the draft instruction to a secretary. Phase 3 runs the bot to
-      // produce a draft reply and parks it for approval.
-      await notify(`Workflow requests an AI draft: ${prompt || '(no prompt)'}`, ctx)
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
+      const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
+      const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
+      const content = await chatComplete({ provider, model: ai.model?.trim() || defaultChatModel(provider), baseURL: ai.baseURL?.trim() || undefined, apiKey: resolveClinicAiKey(clinic.settings, provider), history: [], maxTokens: 500,
+        system: 'Write a staff-reviewable patient reply draft. Ground it only in the explicit workflow instruction and patient context. Never diagnose, prescribe, or claim unknown clinic facts. This is a draft only and must never be sent automatically.',
+        message: `Workflow instruction: ${prompt || '(none)'}\nPatient context: ${String(ctx.message ?? ctx.transcript ?? '(none)')}` })
+      await createWorkflowApprovalsRepository(sql).createDraft({ clinicId, workflowId: data.workflowId, nodeId: 'action.ai_draft', runKey: `${workflowRunId}:ai_draft:${prompt}`, conversationId: ctx.conversationId, patientId: ctx.patientId, prompt, content: content.trim() })
+      await notify('A workflow generated an AI draft for staff review. It was not sent.', ctx)
     },
 
-    async requestApproval(_node, ctx) {
-      // v1: alert a secretary. Phase 3 stores a resumable pending-approval row.
-      await notify('A workflow step requires your approval before continuing.', ctx)
+    async requestApproval(node, resumeNodeId, ctx) {
+      const expiryMinutes = boundedInteger(node.config?.['expiresMinutes'], 1_440, 5, 43_200)
+      const approval = await createWorkflowApprovalsRepository(sql).createPending({ clinicId, workflowId: data.workflowId, nodeId: node.id, runKey: workflowRunId, conversationId: ctx.conversationId, patientId: ctx.patientId, resumeNodeId, context: { ...ctx }, expiresAt: new Date(Date.now() + expiryMinutes * 60_000).toISOString() })
+      if (approval.status === 'pending') await notify('A workflow step requires your approval before continuing.', ctx)
     },
 
     async transcribeBookingVoice(node, ctx) {
@@ -655,6 +718,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
       const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
       const metadata = writePendingWorkflowRun(conversation.metadata, {
         workflowId: data.workflowId,
+        sourceEventId: data.trigger.sourceEventId,
         resumeNodeId: capture.nodeId,
         context: { ...ctx },
         expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
@@ -790,6 +854,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData): WorkflowExecutors {
 export async function processWorkflowRunJob(job: Job): Promise<void> {
   const data = WorkflowRunJobSchema.parse(job.data)
   const sql = createServiceDbClient({ url: process.env['DATABASE_URL'] ?? '' })
+  const executions = createWorkflowExecutionsRepository(sql)
+  let workflowRunId: string | null = null
   try {
     const workflow = await createWorkflowsRepository(sql).findById(data.clinicId, data.workflowId)
     if (!workflow || workflow.status !== 'active') {
@@ -801,10 +867,43 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
       console.error(`[workflow] ${data.workflowId} has an invalid persisted graph: ${graphErrors.join('; ')}`)
       return
     }
+    const sourceEventId = data.trigger.sourceEventId
+    const run = data.startNodeId
+      ? await executions.findRun(data.clinicId, data.workflowId, sourceEventId)
+      : await executions.claimRun({
+        clinicId: data.clinicId,
+        workflowId: data.workflowId,
+        sourceEventId,
+        queueJobId: String(job.id ?? ''),
+      })
+    if (!run) {
+      console.log(`[workflow] duplicate or terminal run ${data.workflowId}/${sourceEventId}; skipping`)
+      return
+    }
+    workflowRunId = run.id
+    await executions.setRunStatus(run.id, 'running', {
+      sourceEventId,
+      queueJobId: String(job.id ?? ''),
+      startNodeId: data.startNodeId ?? null,
+    })
+    const approvals = createWorkflowApprovalsRepository(sql)
+    if (data.approvalId && !(await approvals.claimResume(data.clinicId, data.approvalId))) return
     const ctx: WorkflowContext = { ...(data.context ?? {}), ...data.trigger }
-    const exec = buildExecutors(sql, data)
+    const exec = buildExecutors(sql, data, run.id)
     const trace = await runWorkflow(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
+    const terminal = trace[trace.length - 1]?.status === 'paused' ? 'paused' : 'completed'
+    if (data.approvalId) await approvals.markResumed(data.clinicId, data.approvalId)
+    await executions.setRunStatus(run.id, terminal, { trace, terminalState: terminal })
     console.log(`[workflow] ${workflow.name} ran ${trace.length} step(s) for clinic ${data.clinicId}`)
+  } catch (error) {
+    if (data.approvalId) await createWorkflowApprovalsRepository(sql).markFailed(data.clinicId, data.approvalId, error instanceof Error ? error.message : String(error)).catch(() => {})
+    if (workflowRunId) {
+      await executions.setRunStatus(workflowRunId, 'failed', {
+        error: error instanceof Error ? error.message : String(error),
+        terminalState: 'failed',
+      }).catch((statusError) => console.error('[workflow] failed to record terminal state', statusError))
+    }
+    throw error
   } finally {
     await sql.end()
   }

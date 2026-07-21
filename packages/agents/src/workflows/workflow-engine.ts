@@ -27,23 +27,29 @@ export interface WorkflowCaptureState {
 }
 
 export interface WorkflowExecutors {
-  sendMessage(text: string, ctx: WorkflowContext): Promise<void> | void
-  sendTemplate(category: string, ctx: WorkflowContext): Promise<void> | void
-  notifySecretary(ctx: WorkflowContext): Promise<void> | void
-  addTag(tag: string, ctx: WorkflowContext): Promise<void> | void
-  aiDraft(prompt: string, ctx: WorkflowContext): Promise<void> | void
-  requestApproval(node: WorkflowNode, ctx: WorkflowContext): Promise<void> | void
-  transcribeBookingVoice?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
-  checkAvailability?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
-  offerSlots?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
-  createOrRescheduleBooking?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
-  askAndCapture?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
-  extractBookingDetails?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<void> | void
+  sendMessage(text: string, ctx: WorkflowContext): Promise<unknown> | unknown
+  sendTemplate(category: string, ctx: WorkflowContext): Promise<unknown> | unknown
+  notifySecretary(ctx: WorkflowContext): Promise<unknown> | unknown
+  addTag(tag: string, ctx: WorkflowContext): Promise<unknown> | unknown
+  aiDraft(prompt: string, ctx: WorkflowContext): Promise<unknown> | unknown
+  requestApproval(node: WorkflowNode, nextNodeId: string | undefined, ctx: WorkflowContext): Promise<unknown> | unknown
+  transcribeBookingVoice?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  checkAvailability?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  offerSlots?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  createOrRescheduleBooking?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  askAndCapture?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  extractBookingDetails?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   classifyIntentConfidence?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<'high' | 'low' | 'error'> | 'high' | 'low' | 'error'
   /** Persist the context and pause until the conversation receives another reply. */
   waitForReply?: (node: WorkflowNode, nextNodeId: string, ctx: WorkflowContext) => Promise<boolean> | boolean
   /** Pause and resume the run at `nodeId` after `ms` (delay node). */
   scheduleResume(nodeId: string, ms: number, ctx: WorkflowContext): Promise<void> | void
+  /**
+   * Worker-owned durable boundary for every action node.  The pure engine does
+   * not decide persistence semantics; production workers use this hook to
+   * claim a deterministic effect key before invoking an external side effect.
+   */
+  runSideEffect?: <T>(node: WorkflowNode, ctx: WorkflowContext, invoke: () => Promise<T>) => Promise<T>
 }
 
 export type StepStatus = 'ran' | 'paused' | 'ended'
@@ -75,6 +81,8 @@ export async function runWorkflow(
     : nodes.find((n) => n.kind === 'trigger')
 
   const visited = new Set<string>()
+  const sideEffect = async <T>(node: WorkflowNode, invoke: () => Promise<T>): Promise<T> =>
+    exec.runSideEffect ? exec.runSideEffect(node, ctx, invoke) : invoke()
 
   while (current && trace.length < MAX_STEPS) {
     if (visited.has(current.id)) break // cycle guard
@@ -108,41 +116,41 @@ export async function runWorkflow(
         break
       }
       case 'action.send_message':
-        await exec.sendMessage(String(cfg['text'] ?? ''), ctx)
+        await sideEffect(node, () => Promise.resolve(exec.sendMessage(String(cfg['text'] ?? ''), ctx)))
         break
       case 'action.send_template':
-        await exec.sendTemplate(String(cfg['category'] ?? ''), ctx)
+        await sideEffect(node, () => Promise.resolve(exec.sendTemplate(String(cfg['category'] ?? ''), ctx)))
         break
       case 'action.notify_secretary':
-        await exec.notifySecretary(ctx)
+        await sideEffect(node, () => Promise.resolve(exec.notifySecretary(ctx)))
         break
       case 'action.add_tag':
-        await exec.addTag(String(cfg['tag'] ?? ''), ctx)
+        await sideEffect(node, () => Promise.resolve(exec.addTag(String(cfg['tag'] ?? ''), ctx)))
         break
       case 'action.ai_draft':
-        await exec.aiDraft(String(cfg['prompt'] ?? ''), ctx)
+        await sideEffect(node, () => Promise.resolve(exec.aiDraft(String(cfg['prompt'] ?? ''), ctx)))
         break
       case 'action.approval':
-        await exec.requestApproval(node, ctx)
+        await sideEffect(node, () => Promise.resolve(exec.requestApproval(node, nextNodeId(edges, node.id), ctx)))
         trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
         return trace
       case 'action.transcribe_booking_voice':
-        if (exec.transcribeBookingVoice) await exec.transcribeBookingVoice(node, ctx)
+        if (exec.transcribeBookingVoice) await sideEffect(node, () => Promise.resolve(exec.transcribeBookingVoice!(node, ctx)))
         break
       case 'action.check_availability':
-        if (exec.checkAvailability) await exec.checkAvailability(node, ctx)
+        if (exec.checkAvailability) await sideEffect(node, () => Promise.resolve(exec.checkAvailability!(node, ctx)))
         break
       case 'action.offer_slots':
-        if (exec.offerSlots) await exec.offerSlots(node, ctx)
+        if (exec.offerSlots) await sideEffect(node, () => Promise.resolve(exec.offerSlots!(node, ctx)))
         break
       case 'action.create_or_reschedule_booking':
-        if (exec.createOrRescheduleBooking) await exec.createOrRescheduleBooking(node, ctx)
+        if (exec.createOrRescheduleBooking) await sideEffect(node, () => Promise.resolve(exec.createOrRescheduleBooking!(node, ctx)))
         break
       case 'action.ask_capture':
-        if (exec.askAndCapture) await exec.askAndCapture(node, ctx)
+        if (exec.askAndCapture) await sideEffect(node, () => Promise.resolve(exec.askAndCapture!(node, ctx)))
         break
       case 'action.extract_booking_details':
-        if (exec.extractBookingDetails) await exec.extractBookingDetails(node, ctx)
+        if (exec.extractBookingDetails) await sideEffect(node, () => Promise.resolve(exec.extractBookingDetails!(node, ctx)))
         break
       case 'action.end':
         trace.push({ nodeId: node.id, type: node.type, status: 'ended' })

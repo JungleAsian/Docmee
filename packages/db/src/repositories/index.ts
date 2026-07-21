@@ -9,6 +9,8 @@ export { createDoctorServicesRepository } from './doctor-services.repository.js'
 export { createCustomFlowsRepository }   from './custom-flows.repository.js'
 export { createFollowUpsRepository }     from './follow-ups.repository.js'
 export { createWorkflowsRepository }     from './workflows.repository.js'
+export { createWorkflowApprovalsRepository } from './workflow-approvals.repository.js'
+export { createWorkflowExecutionsRepository } from './workflow-executions.repository.js'
 export { createKnowledgeRepository }     from './knowledge.repository.js'
 export { createErrorReviewsRepository }  from './error-reviews.repository.js'
 export { createAiUsageRepository }       from './ai-usage.repository.js'
@@ -39,6 +41,8 @@ export type { DoctorServicesRepository }                                        
 export type { CustomFlowsRepository, CreateCustomFlowInput, UpdateCustomFlowInput }               from './custom-flows.repository.js'
 export type { FollowUpsRepository, CreateFollowUpInput }                                          from './follow-ups.repository.js'
 export type { WorkflowsRepository, CreateWorkflowInput, UpdateWorkflowInput }                     from './workflows.repository.js'
+export type { WorkflowApprovalsRepository, WorkflowApproval, WorkflowAiDraft, CreateWorkflowApprovalInput, CreateWorkflowDraftInput } from './workflow-approvals.repository.js'
+export type { WorkflowExecutionsRepository, WorkflowRunRecord, WorkflowEffectRecord, WorkflowRunStatus, WorkflowEffectStatus } from './workflow-executions.repository.js'
 export type { KnowledgeRepository, CreateDocumentInput, CreateChunkInput,
               CreateIaProfileInput, UpdateIaProfileInput, CreateIaRuleInput,
               EmbeddedChunkRow }                                                                  from './knowledge.repository.js'

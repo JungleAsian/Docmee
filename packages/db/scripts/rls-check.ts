@@ -29,6 +29,18 @@ async function check() {
 
   const [clinicA, clinicB] = clinics as [{ id: string; slug: string }, { id: string; slug: string }]
 
+  // The migration/seed connection is the database owner and therefore bypasses
+  // RLS. Exercise policies as a deliberately restricted local checker role.
+  await sql.unsafe(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'docmee_rls_checker') THEN
+        CREATE ROLE docmee_rls_checker NOLOGIN;
+      END IF;
+    END $$;
+    GRANT USAGE ON SCHEMA public TO docmee_rls_checker;
+    GRANT SELECT ON patients TO docmee_rls_checker;
+  `)
+
   // Service-role read — should see all patients
   const allPatients = await sql<{ count: string }[]>`SELECT COUNT(*)::text AS count FROM patients`
   console.log(`Service-role patient count: ${allPatients[0]?.count} (expected ≥ 20)`)
@@ -37,6 +49,7 @@ async function check() {
 
   // Scoped read — clinic A context should NOT see clinic B patients
   const resultA = await sql.begin(async (tx) => {
+    await tx`SET LOCAL ROLE docmee_rls_checker`
     await tx`SELECT set_config('app.clinic_id', ${clinicA.id}, true)`
     return tx<{ count: string }[]>`SELECT COUNT(*)::text AS count FROM patients WHERE clinic_id = ${clinicB.id}`
   })
@@ -50,6 +63,7 @@ async function check() {
 
   // Scoped read — clinic B context should NOT see clinic A patients
   const resultB = await sql.begin(async (tx) => {
+    await tx`SET LOCAL ROLE docmee_rls_checker`
     await tx`SELECT set_config('app.clinic_id', ${clinicB.id}, true)`
     return tx<{ count: string }[]>`SELECT COUNT(*)::text AS count FROM patients WHERE clinic_id = ${clinicA.id}`
   })

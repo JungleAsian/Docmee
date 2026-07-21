@@ -9,6 +9,7 @@ const captures = vi.hoisted(() => ({
   created: [] as Record<string, unknown>[],
   emailShouldThrow: false,
   recipient: 'admin@clinic.test' as string | null,
+  settings: {} as Record<string, unknown>,
 }))
 
 vi.mock('@docmee/notifications', () => ({
@@ -21,7 +22,7 @@ vi.mock('@docmee/notifications', () => ({
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({
-    list: async () => [{ id: 'c-1', name: 'Clinica Demo', status: 'active', timezone: 'UTC' }],
+    list: async () => [{ id: 'c-1', name: 'Clinica Demo', status: 'active', timezone: 'UTC', settings: captures.settings }],
   }),
   createUsersRepository: () => ({
     findPrimaryEmail: async () => captures.recipient,
@@ -39,9 +40,14 @@ vi.mock('@docmee/db', () => ({
     countCreatedBetween: async () => 2,
   }),
   createReportsRepository: () => ({
-    create: async (row: Record<string, unknown>) => {
+    claimScheduled: async (row: Record<string, unknown>) => {
       captures.created.push(row)
       return { id: `gen-${captures.created.length}`, ...row }
+    },
+    claimEmailDelivery: async () => true,
+    markEmailed: async (id: string, emailed: boolean) => {
+      const index = Number(id.replace('gen-', '')) - 1
+      captures.created[index]!['emailed'] = emailed
     },
   }),
 }))
@@ -56,6 +62,7 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
     captures.created = []
     captures.emailShouldThrow = false
     captures.recipient = 'admin@clinic.test'
+    captures.settings = {}
     vi.useFakeTimers()
   })
   afterEach(() => {
@@ -81,6 +88,7 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
   })
 
   it('on a Monday 09:00 emails AND persists a weekly report', async () => {
+    captures.settings = { reports: { frequency: 'weekly', hourLocal: 9 } }
     vi.setSystemTime(new Date('2026-06-15T09:00:00Z')) // Monday 09:00 UTC
     await processReportsJob(job)
 
@@ -112,7 +120,7 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
   it('skips clinics outside the daily/weekly send windows', async () => {
     vi.setSystemTime(new Date('2026-06-16T13:00:00Z')) // Tuesday 13:00 — neither window
     await processReportsJob(job)
-    expect(captures.created).toHaveLength(0)
-    expect(captures.emails).toHaveLength(0)
+    expect(captures.created).toHaveLength(1)
+    expect(captures.emails).toHaveLength(1)
   })
 })

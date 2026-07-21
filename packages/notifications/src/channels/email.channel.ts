@@ -7,6 +7,8 @@ export interface SendEmailParams {
   subject: string
   html: string
   from?: string
+  /** Provider-level idempotency key for retry-safe transactional sends. */
+  idempotencyKey?: string
 }
 
 export type SendEmailFn = (params: SendEmailParams) => Promise<void>
@@ -28,5 +30,5 @@ export async function sendEmail(params: SendEmailParams): Promise<void> {
     to: params.to,
     subject: params.subject,
     html: params.html,
-  })
+  }, params.idempotencyKey ? { headers: { 'Idempotency-Key': params.idempotencyKey } } : undefined)
 }

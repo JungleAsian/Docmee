@@ -65,12 +65,61 @@ export function localTimeIn(timezone: string, now: Date): LocalTime {
     hour: '2-digit',
     hour12: false,
     weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).formatToParts(now)
   const hourRaw = parts.find((p) => p.type === 'hour')?.value ?? '0'
   const hour = Number(hourRaw) % 24
   const weekday = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun'
   const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
   return { hour, dayOfWeek: dowMap[weekday] ?? 0 }
+}
+
+interface LocalDate { year: number; month: number; day: number }
+
+function localDateIn(timezone: string, now: Date): LocalDate {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
+  return {
+    year: Number(parts.find((part) => part.type === 'year')?.value ?? '1970'),
+    month: Number(parts.find((part) => part.type === 'month')?.value ?? '1'),
+    day: Number(parts.find((part) => part.type === 'day')?.value ?? '1'),
+  }
+}
+
+function localDateKey(date: LocalDate): string {
+  return `${date.year.toString().padStart(4, '0')}-${date.month.toString().padStart(2, '0')}-${date.day.toString().padStart(2, '0')}`
+}
+
+function addLocalDays(date: LocalDate, days: number): LocalDate {
+  const shifted = new Date(Date.UTC(date.year, date.month - 1, date.day + days))
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() }
+}
+
+function startOfPreviousMonth(date: LocalDate): LocalDate {
+  const shifted = new Date(Date.UTC(date.year, date.month - 2, 1))
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: 1 }
+}
+
+/** Convert a clinic-local midnight to an instant without treating local dates as UTC. */
+function localMidnight(timezone: string, date: LocalDate): Date {
+  let guess = new Date(Date.UTC(date.year, date.month - 1, date.day))
+  const formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' })
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = formatter.formatToParts(guess)
+    const actual = {
+      year: Number(parts.find((part) => part.type === 'year')?.value ?? 0),
+      month: Number(parts.find((part) => part.type === 'month')?.value ?? 0),
+      day: Number(parts.find((part) => part.type === 'day')?.value ?? 0),
+      hour: Number(parts.find((part) => part.type === 'hour')?.value ?? 0) % 24,
+    }
+    const targetMinutes = Date.UTC(date.year, date.month - 1, date.day) / 60_000
+    const actualMinutes = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour) / 60_000
+    const correction = actualMinutes - targetMinutes
+    if (correction === 0) break
+    guess = new Date(guess.getTime() - correction * 60_000)
+  }
+  return guess
 }
 
 const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
@@ -140,18 +189,10 @@ async function deliverReport(
   clinicId: string,
   recipient: string | null,
   payload: ReportPayload,
+  scheduleKey: string,
 ): Promise<void> {
-  let emailed = false
-  if (recipient) {
-    try {
-      await sendEmail({ to: recipient, subject: payload.subject, html: payload.html })
-      emailed = true
-    } catch (err) {
-      console.error(`[reports] email failed for clinic ${clinicId} (${payload.type}):`, err)
-    }
-  }
   try {
-    await reports.create({
+    const claimed = await reports.claimScheduled({
       clinicId,
       type: payload.type,
       periodStart: payload.periodStart.toISOString(),
@@ -160,10 +201,19 @@ async function deliverReport(
       html: payload.html,
       data: payload.data,
       recipientEmail: recipient,
-      emailed,
+      emailed: false,
+      scheduleKey,
     })
+    if (!claimed || !recipient) return
+    if (!await reports.claimEmailDelivery(claimed.id)) return
+    try {
+      await sendEmail({ to: recipient, subject: payload.subject, html: payload.html, idempotencyKey: scheduleKey })
+      await reports.markEmailed(claimed.id, true)
+    } catch (err) {
+      console.error(`[reports] email failed for clinic ${clinicId} (${payload.type}):`, err)
+    }
   } catch (err) {
-    console.error(`[reports] persist failed for clinic ${clinicId} (${payload.type}):`, err)
+    console.error(`[reports] claim/persist failed for clinic ${clinicId} (${payload.type}):`, err)
   }
 }
 
@@ -183,22 +233,33 @@ export async function processReportsJob(_job: Job): Promise<void> {
       const reportConfig = readReportConfig(clinic.settings)
       if (!reportConfig.enabled) continue
       const local = localTimeIn(clinic.timezone, now)
-      const wantDaily = reportConfig.frequency === 'daily' && local.hour === reportConfig.hourLocal
-      const weeklyHour = reportConfig.frequency === 'weekly' ? reportConfig.hourLocal : WEEKLY_HOUR
-      const wantWeekly = (reportConfig.frequency === 'daily' || reportConfig.frequency === 'weekly') && local.dayOfWeek === MONDAY && local.hour === weeklyHour
-      const wantMonthly = reportConfig.frequency === 'monthly' && now.getUTCDate() === 1 && local.hour === reportConfig.hourLocal
-      if (!wantDaily && !wantWeekly && !wantMonthly) continue
+      // A single configured cadence is authoritative. `>=` lets the first tick
+      // after a skipped DST hour generate the period; the database claim below
+      // suppresses later ticks and the duplicated fall-back hour.
+      const currentDate = localDateIn(clinic.timezone, now)
+      const due = local.hour >= reportConfig.hourLocal
+      const reportType: ReportType | null = reportConfig.frequency === 'daily' && due
+        ? 'daily'
+        : reportConfig.frequency === 'weekly' && due && local.dayOfWeek === MONDAY
+          ? 'weekly'
+          : reportConfig.frequency === 'monthly' && due && currentDate.day === 1
+            ? 'monthly'
+            : null
+      if (!reportType) continue
 
       // A report is still generated + stored in the panel even with no admin email
       // on file; only the email half is skipped.
       const fallbackRecipient = await users.findPrimaryEmail(clinic.id)
       const recipients = reportConfig.recipients.length > 0 ? reportConfig.recipients : fallbackRecipient ? [fallbackRecipient] : []
-      const primaryRecipient = recipients[0] ?? null
+      const deliveryRecipients = recipients.length > 0 ? recipients : [null]
       const dashboard = await metrics.dashboard(clinic.id, clinic.timezone)
 
-      if (wantDaily) {
-        const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-        const bookings = await appointments.countCreatedBetween(clinic.id, dayAgo.toISOString(), now.toISOString())
+      if (reportType === 'daily') {
+        const periodEndDate = currentDate
+        const periodStartDate = addLocalDays(currentDate, -1)
+        const periodStart = localMidnight(clinic.timezone, periodStartDate)
+        const periodEnd = localMidnight(clinic.timezone, periodEndDate)
+        const bookings = await appointments.countCreatedBetween(clinic.id, periodStart.toISOString(), periodEnd.toISOString())
         const data: DailyData = {
           conversations: dashboard.conversationsToday,
           messages: dashboard.messagesToday,
@@ -206,24 +267,32 @@ export async function processReportsJob(_job: Job): Promise<void> {
           bookings,
           avgResponseSeconds: dashboard.avgResponseSeconds,
         }
-        await deliverReport(reports, clinic.id, primaryRecipient, {
+        const payload: ReportPayload = {
           type: 'daily',
-          periodStart: dayAgo,
-          periodEnd: now,
+          periodStart,
+          periodEnd,
           subject: `${clinic.name}: daily report`,
           html: dailyReportHtml(clinic, data),
           data: { ...data, configuredRecipients: recipients, configuredFormat: reportConfig.format },
-        })
+        }
+        await Promise.all(deliveryRecipients.map((recipient) => deliverReport(
+          reports, clinic.id, recipient, payload,
+          `${clinic.id}:daily:${localDateKey(periodStartDate)}:${recipient ?? 'panel'}`,
+        )))
       }
 
-      if (wantWeekly || wantMonthly) {
+      if (reportType === 'weekly' || reportType === 'monthly') {
         const perDay = dashboard.conversationsPerDay
         const last7 = perDay.slice(-7).reduce((s, d) => s + d.count, 0)
         const prev7 = perDay.slice(-14, -7).reduce((s, d) => s + d.count, 0)
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-        const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
-        const bookingsThisWeek = await appointments.countCreatedBetween(clinic.id, weekAgo.toISOString(), now.toISOString())
-        const bookingsLastWeek = await appointments.countCreatedBetween(clinic.id, twoWeeksAgo.toISOString(), weekAgo.toISOString())
+        const periodEndDate = currentDate
+        const periodStartDate = reportType === 'weekly' ? addLocalDays(currentDate, -7) : startOfPreviousMonth(currentDate)
+        const comparisonStartDate = reportType === 'weekly' ? addLocalDays(currentDate, -14) : startOfPreviousMonth(periodStartDate)
+        const periodStart = localMidnight(clinic.timezone, periodStartDate)
+        const periodEnd = localMidnight(clinic.timezone, periodEndDate)
+        const comparisonStart = localMidnight(clinic.timezone, comparisonStartDate)
+        const bookingsThisWeek = await appointments.countCreatedBetween(clinic.id, periodStart.toISOString(), periodEnd.toISOString())
+        const bookingsLastWeek = await appointments.countCreatedBetween(clinic.id, comparisonStart.toISOString(), periodStart.toISOString())
         const data: WeeklyData = {
           conversationsThisWeek: last7,
           conversationsLastWeek: prev7,
@@ -231,14 +300,18 @@ export async function processReportsJob(_job: Job): Promise<void> {
           bookingsLastWeek,
           botReplyRate: dashboard.botReplyRate,
         }
-        await deliverReport(reports, clinic.id, primaryRecipient, {
-          type: wantMonthly ? 'monthly' : 'weekly',
-          periodStart: weekAgo,
-          periodEnd: now,
-          subject: `${clinic.name}: ${wantMonthly ? 'monthly' : 'weekly'} report`,
+        const payload: ReportPayload = {
+          type: reportType,
+          periodStart,
+          periodEnd,
+          subject: `${clinic.name}: ${reportType} report`,
           html: weeklyReportHtml(clinic, data),
           data: { ...data, configuredRecipients: recipients, configuredFormat: reportConfig.format, configuredFrequency: reportConfig.frequency },
-        })
+        }
+        await Promise.all(deliveryRecipients.map((recipient) => deliverReport(
+          reports, clinic.id, recipient, payload,
+          `${clinic.id}:${reportType}:${localDateKey(periodStartDate)}:${recipient ?? 'panel'}`,
+        )))
       }
     }
   } finally {

@@ -8,7 +8,8 @@
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { createWorkflowsRepository } from '@docmee/db'
+import { createAuditRepository, createWorkflowApprovalsRepository, createWorkflowsRepository } from '@docmee/db'
+import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
 import { validateWorkflowDefinition } from '@docmee/agents'
 import { withDb } from '../lib/db.js'
@@ -135,6 +136,46 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       )
       if (!removed) return reply.code(404).send({ error: 'Workflow not found' })
       return { deleted: true }
+    },
+  )
+
+  app.get<{ Params: { id: string } }>('/clinics/:id/workflow-approvals', async (request, reply) => {
+    const clinicId = resolveClinicScope(request, request.params.id)
+    if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+    const approvals = await withDb(async (sql) => createWorkflowApprovalsRepository(sql).listPending(clinicId))
+    return { approvals }
+  })
+
+  app.get<{ Params: { id: string } }>('/clinics/:id/workflow-ai-drafts', async (request, reply) => {
+    const clinicId = resolveClinicScope(request, request.params.id)
+    if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+    const drafts = await withDb(async (sql) => createWorkflowApprovalsRepository(sql).listDrafts(clinicId))
+    return { drafts }
+  })
+
+  app.post<{ Params: { id: string; approvalId: string }; Body: { decision?: string } }>(
+    '/clinics/:id/workflow-approvals/:approvalId/decision',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const decision = request.body?.decision
+      if (decision !== 'approved' && decision !== 'rejected') return reply.code(400).send({ error: 'Decision must be approved or rejected' })
+      const approval = await withDb(async (sql) => {
+        const repo = createWorkflowApprovalsRepository(sql)
+        const row = await repo.decide(clinicId, request.params.approvalId, decision, request.user!.userId)
+        if (row) await createAuditRepository(sql).log({ clinicId, actorId: request.user!.userId, action: `workflow_approval_${decision}`, resourceType: 'workflow_approval', resourceId: row.id, metadata: { workflowId: row.workflowId, nodeId: row.nodeId } })
+        return row
+      })
+      if (!approval) return reply.code(409).send({ error: 'Approval is not pending or has expired' })
+      if (decision === 'approved') {
+        await createQueue('workflow-run').add('run', {
+          clinicId, workflowId: approval.workflowId,
+          trigger: { type: 'trigger.workflow_approval', conversationId: approval.conversationId ?? undefined, patientId: approval.patientId ?? undefined },
+          startNodeId: approval.resumeNodeId ?? undefined, context: approval.context, approvalId: approval.id,
+        }, { jobId: `workflow-approval:${approval.id}` })
+      }
+      return { approval }
     },
   )
 }

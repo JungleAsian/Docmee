@@ -23,6 +23,7 @@ import { processSheetsSyncJob } from './sheets-sync.worker.js'
 import { processReviewRequestJob } from './review-request.worker.js'
 import { processWorkflowRunJob } from './workflow-runner.worker.js'
 import { runTimeoutChecks } from './timeout-monitor.js'
+import { bootstrapReportsScheduler } from './reports.scheduler.js'
 
 export const conversationWorker = createWorker(
   'whatsapp.inbound',
@@ -100,12 +101,14 @@ export const licenseHeartbeatScheduler = setInterval(() => {
 }, LICENSE_HEARTBEAT_INTERVAL_MS)
 if (typeof licenseHeartbeatScheduler.unref === 'function') licenseHeartbeatScheduler.unref()
 
-// P18 — Phase 3 schedulers. An hourly tick drives the reports, Sheets sync and
+// P18 — Reports use a durable BullMQ scheduler. Sheets and review requests keep
+// their existing process-local cadence pending their own scheduler work.
+void bootstrapReportsScheduler(reportsQueue).catch((err) => console.error('[reports] durable scheduler bootstrap failed:', err))
+// An hourly tick drives Sheets sync and
 // review-request workers; each worker gates on the clinic's local time / state so
 // the hourly cadence yields exactly the intended per-clinic schedule.
 const HOURLY_MS = 60 * 60 * 1000
 export const phase3Scheduler = setInterval(() => {
-  void reportsQueue.add('tick', {}).catch((err) => console.error('[reports] enqueue failed:', err))
   void sheetsSyncQueue.add('tick', {}).catch((err) => console.error('[sheets-sync] enqueue failed:', err))
   void reviewRequestQueue.add('tick', {}).catch((err) => console.error('[review-request] enqueue failed:', err))
 }, HOURLY_MS)

@@ -15,6 +15,7 @@ const captures = vi.hoisted(() => ({
   // Mutable so each test can shape the clinic set (status, timezone, count).
   clinics: [] as { id: string; name: string; status: string; timezone: string }[],
   createShouldThrow: false,
+  settings: {} as Record<string, unknown>,
 }))
 
 vi.mock('@docmee/notifications', () => ({
@@ -46,18 +47,20 @@ vi.mock('@docmee/db', () => ({
   createReportsRepository: () => ({
     // Record the attempt FIRST so persist-failure tests can still assert the
     // worker reached every clinic, then optionally simulate a table hiccup.
-    create: async (row: Record<string, unknown>) => {
+    claimScheduled: async (row: Record<string, unknown>) => {
       captures.created.push(row)
       if (captures.createShouldThrow) throw new Error('reports table down')
       return { id: `gen-${captures.created.length}`, ...row }
     },
+    claimEmailDelivery: async () => true,
+    markEmailed: async () => {},
   }),
 }))
 
 import { localTimeIn, processReportsJob } from '../reports.worker.js'
 
 const job = {} as Parameters<typeof processReportsJob>[0]
-const activeUtc = (id: string) => ({ id, name: `Clinic ${id}`, status: 'active', timezone: 'UTC' })
+const activeUtc = (id: string) => ({ id, name: `Clinic ${id}`, status: 'active', timezone: 'UTC', settings: captures.settings })
 
 describe('localTimeIn — cross-timezone hour + weekday', () => {
   it('rolls the weekday back across the UTC day boundary (Mon UTC → Sun local)', () => {
@@ -81,6 +84,7 @@ describe('processReportsJob — schedule gates (Gap #36)', () => {
     captures.created = []
     captures.clinics = [activeUtc('c-1')]
     captures.createShouldThrow = false
+    captures.settings = {}
     vi.useFakeTimers()
   })
   afterEach(() => {
@@ -94,10 +98,10 @@ describe('processReportsJob — schedule gates (Gap #36)', () => {
     expect(captures.created).toHaveLength(0)
   })
 
-  it('does not fire the daily report one hour after the window (09:00, non-Monday)', async () => {
+  it('fires a missed daily period after the configured hour', async () => {
     vi.setSystemTime(new Date('2026-06-16T09:00:00Z')) // Tuesday 09:00 — daily hour passed, not Monday
     await processReportsJob(job)
-    expect(captures.created).toHaveLength(0)
+    expect(captures.created).toHaveLength(1)
   })
 
   it('fires only the daily report at 08:00 (never the weekly)', async () => {
@@ -107,12 +111,16 @@ describe('processReportsJob — schedule gates (Gap #36)', () => {
   })
 
   it('does not fire the weekly report at 09:00 on a non-Monday', async () => {
+    captures.settings = { reports: { frequency: 'weekly', hourLocal: 9 } }
+    captures.clinics = [activeUtc('c-1')]
     vi.setSystemTime(new Date('2026-06-16T09:00:00Z')) // Tuesday 09:00
     await processReportsJob(job)
     expect(captures.created).toHaveLength(0)
   })
 
   it('fires only the weekly report on Monday 09:00 (never the daily)', async () => {
+    captures.settings = { reports: { frequency: 'weekly', hourLocal: 9 } }
+    captures.clinics = [activeUtc('c-1')]
     vi.setSystemTime(new Date('2026-06-15T09:00:00Z')) // Monday 09:00
     await processReportsJob(job)
     expect(captures.created.map((r) => r['type'])).toEqual(['weekly'])

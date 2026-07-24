@@ -21,7 +21,12 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
+  enqueueWorkflowRuns: vi.fn(),
   end: vi.fn(),
+}))
+
+vi.mock('../workflow-run.js', () => ({
+  enqueueWorkflowRuns: h.enqueueWorkflowRuns,
 }))
 
 vi.mock('@docmee/llm', () => ({
@@ -112,6 +117,7 @@ describe('processAgentJob — bot interruption rule', () => {
     expect(h.runClinicBot).not.toHaveBeenCalled()
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
   })
 
   it('stays silent for an assigned conversation', async () => {
@@ -137,6 +143,7 @@ describe('processAgentJob — medical emergency (Req 20)', () => {
     expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
     expect(h.runClinicBot).not.toHaveBeenCalled()
     expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
 
     // Conversation paused (handoff) with the emergency reason + tagged.
     expect(h.updateConversation).toHaveBeenCalledWith(
@@ -279,6 +286,7 @@ describe('processAgentJob — explicit human request (#5)', () => {
     expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
     expect(h.runClinicBot).not.toHaveBeenCalled()
     expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
 
     // Conversation flipped to handoff with the pause metadata.
     expect(h.updateConversation).toHaveBeenCalledWith(

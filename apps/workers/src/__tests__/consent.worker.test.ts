@@ -23,7 +23,12 @@ const h = vi.hoisted(() => ({
   addTag: vi.fn(),
   createMessage: vi.fn(),
   createError: vi.fn(),
+  enqueueWorkflowRuns: vi.fn(),
   end: vi.fn(),
+}))
+
+vi.mock('../workflow-run.js', () => ({
+  enqueueWorkflowRuns: h.enqueueWorkflowRuns,
 }))
 
 vi.mock('@docmee/llm', () => ({
@@ -127,6 +132,7 @@ describe('processAgentJob — STOP opt-out (Req 19)', () => {
     expect(h.runClinicBot).not.toHaveBeenCalled()
     expect(h.classifyIntent).not.toHaveBeenCalled()
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
   })
 
   it('detects the Spanish BAJA opt-out command too', async () => {
@@ -146,6 +152,7 @@ describe('processAgentJob — already opted out', () => {
     expect(h.runClinicBot).not.toHaveBeenCalled()
     expect(h.classifyIntent).not.toHaveBeenCalled()
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
   })
 })
 

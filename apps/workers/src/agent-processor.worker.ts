@@ -475,21 +475,6 @@ export async function processAgentJob(job: Job): Promise<void> {
       return
     }
 
-    // Rev 3 ? fire any active "message keyword" automation workflows for this inbound.
-    // Awaited (so the lookup finishes before sql closes) but gated + best-effort: with
-    // no matching active workflow it's a single empty EXISTS query and a no-op, so this
-    // never changes the reply path or existing behaviour.
-    try {
-      await enqueueWorkflowRuns(sql, data.clinicId, 'trigger.message_keyword', {
-        sourceEventId: data.waMessageId,
-        message: data.message,
-        ...(data.patientId ? { patientId: data.patientId } : {}),
-        ...(data.conversationId ? { conversationId: data.conversationId } : {}),
-      })
-    } catch (err) {
-      console.error('[agent] workflow trigger enqueue failed:', err)
-    }
-
     const account = activeWhatsAppAccount(await channelAccounts.listByClinic(data.clinicId), data.phoneNumberId)
     const patient = data.patientId ? await patients.findById(data.clinicId, data.patientId) : null
 
@@ -657,6 +642,20 @@ export async function processAgentJob(job: Job): Promise<void> {
         reason: 'human_handoff',
       })
       return
+    }
+
+    // Fire non-exclusive inbound workflow side effects only after the safety and
+    // consent guards above. Workflows remain best-effort and do not own the reply
+    // turn; Custom Flows below remain the patient-facing booking authority.
+    try {
+      await enqueueWorkflowRuns(sql, data.clinicId, 'trigger.message_keyword', {
+        sourceEventId: data.waMessageId,
+        message: data.message,
+        ...(data.patientId ? { patientId: data.patientId } : {}),
+        ...(data.conversationId ? { conversationId: data.conversationId } : {}),
+      })
+    } catch (err) {
+      console.error('[agent] workflow trigger enqueue failed:', err)
     }
 
     // P18 (Gap #34): custom flows run BEFORE intent classification. A keyword match

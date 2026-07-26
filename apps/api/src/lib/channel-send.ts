@@ -70,7 +70,12 @@ export async function sendWhatsAppText(
   accessToken: string,
   toWaId: string,
   text: string,
-): Promise<string | null> {
+): Promise<string> {
+  const body = text.trim()
+  if (!body) {
+    throw new Error('WhatsApp text body must not be empty')
+  }
+
   const res = await fetch(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
     {
@@ -84,7 +89,7 @@ export async function sendWhatsAppText(
         recipient_type: 'individual',
         to: toWaId,
         type: 'text',
-        text: { body: text },
+        text: { body },
       }),
     },
   )
@@ -95,9 +100,11 @@ export async function sendWhatsAppText(
 
   try {
     const data = (await res.json()) as { messages?: Array<{ id?: string }> }
-    return data.messages?.[0]?.id ?? null
+    const wamid = data.messages?.[0]?.id?.trim()
+    if (!wamid) throw new Error('WhatsApp send response missing message id')
+    return wamid
   } catch {
-    return null
+    throw new Error('WhatsApp send response missing message id')
   }
 }
 

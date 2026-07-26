@@ -83,6 +83,7 @@ export async function runTimeoutChecks(): Promise<void> {
           type,
           data: { conversationId: conv.id, status: conv.status, lastMessageAt: conv.lastMessageAt },
           recipientEmail,
+          idempotencyKey: `${type}:${conv.id}:${conv.lastMessageAt ?? 'none'}`,
         },
         { store },
       )
@@ -175,6 +176,7 @@ export async function runEscalationPass(
           ageMinutes: Math.round(ageMinutes),
         },
         recipientEmail,
+        idempotencyKey: `${NOTIFICATION_TYPES.SECRETARY_ESCALATED}:${alert.id}`,
       },
       { store },
     )

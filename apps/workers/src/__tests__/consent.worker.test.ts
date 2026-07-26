@@ -22,6 +22,8 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
+  markDelivered: vi.fn(),
+  markSendFailed: vi.fn(),
   createError: vi.fn(),
   enqueueWorkflowRuns: vi.fn(),
   end: vi.fn(),
@@ -72,7 +74,11 @@ vi.mock('@docmee/db', () => ({
     createTag: h.createTag,
     addTag: h.addTag,
   }),
-  createMessagesRepository: () => ({ create: h.createMessage }),
+  createMessagesRepository: () => ({
+    create: h.createMessage,
+    markDelivered: h.markDelivered,
+    markSendFailed: h.markSendFailed,
+  }),
   createWorkflowsRepository: () => ({ listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
 }))
@@ -108,6 +114,9 @@ beforeEach(() => {
   h.classifyIntent.mockResolvedValue('general_question')
   h.createTag.mockResolvedValue({ id: 'tag1' })
   h.createMessage.mockResolvedValue({ id: 'm1' })
+  h.markDelivered.mockResolvedValue(undefined)
+  h.markSendFailed.mockResolvedValue(undefined)
+  h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   h.createError.mockResolvedValue({ id: 'e1' })
   h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
   h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: false, language: 'es' })
@@ -187,7 +196,13 @@ describe('processAgentJob — Meta send-error logging (Req 19/29)', () => {
     expect(h.createError).toHaveBeenCalledWith(
       expect.objectContaining({ errorType: 'meta_send_failure', clinicId: CLINIC }),
     )
-    // The failed reply is NOT persisted as a delivered message.
-    expect(h.createMessage).not.toHaveBeenCalled()
+    // The attempt is persisted before transport and correlated with the rejection.
+    expect(h.createMessage).toHaveBeenCalledTimes(1)
+    expect(h.markSendFailed).toHaveBeenCalledWith(
+      CLINIC,
+      'm1',
+      'WhatsApp send failed 401: token expired',
+    )
+    expect(h.markDelivered).not.toHaveBeenCalled()
   })
 })

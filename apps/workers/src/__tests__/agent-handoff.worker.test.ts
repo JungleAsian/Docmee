@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
+  markDelivered: vi.fn(),
+  markSendFailed: vi.fn(),
   enqueueWorkflowRuns: vi.fn(),
   end: vi.fn(),
 }))
@@ -73,7 +75,12 @@ vi.mock('@docmee/db', () => ({
     createTag: h.createTag,
     addTag: h.addTag,
   }),
-  createMessagesRepository: () => ({ create: h.createMessage, listByConversation: vi.fn().mockResolvedValue([]) }),
+  createMessagesRepository: () => ({
+    create: h.createMessage,
+    markDelivered: h.markDelivered,
+    markSendFailed: h.markSendFailed,
+    listByConversation: vi.fn().mockResolvedValue([]),
+  }),
   createWorkflowsRepository: () => ({ listEnabled: vi.fn().mockResolvedValue([]), listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
 }))
@@ -96,6 +103,9 @@ const baseJob = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.sendWhatsAppText.mockReset().mockResolvedValue('wamid.reply')
+  h.markDelivered.mockReset().mockResolvedValue(undefined)
+  h.markSendFailed.mockReset().mockResolvedValue(undefined)
   h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinica', settings: {}, timezone: 'America/Mexico_City' })
   h.listAccounts.mockResolvedValue([
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' },
@@ -214,6 +224,20 @@ describe('processAgentJob — outbound reply persistence (Req 4)', () => {
     const [msgInput] = h.createMessage.mock.calls[0]
     expect(msgInput).toMatchObject({ conversationId: CONVO, clinicId: CLINIC, role: 'assistant' })
     expect(typeof msgInput.content).toBe('string')
+    expect(h.markDelivered).toHaveBeenCalledWith(CLINIC, 'm1', 'wamid.reply')
+  })
+
+  it('records provider rejection against the persisted outbound attempt', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.sendWhatsAppText.mockRejectedValue(new Error('Meta rejected payload'))
+
+    await expect(
+      processAgentJob(makeJob({ ...baseJob, message: 'no puedo respirar, ayuda' })),
+    ).resolves.toBeUndefined()
+
+    expect(h.createMessage).toHaveBeenCalledTimes(1)
+    expect(h.markSendFailed).toHaveBeenCalledWith(CLINIC, 'm1', 'Meta rejected payload')
+    expect(h.markDelivered).not.toHaveBeenCalled()
   })
 
   it('does not persist a reply when the job carries no conversation id', async () => {

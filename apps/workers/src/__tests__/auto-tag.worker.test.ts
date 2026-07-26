@@ -15,6 +15,9 @@ const h = vi.hoisted(() => ({
   updateConversation: vi.fn(),
   notificationAdd: vi.fn(),
   sendWhatsAppText: vi.fn(),
+  createMessage: vi.fn(),
+  markDelivered: vi.fn(),
+  markSendFailed: vi.fn(),
   // agent worker
   classifyIntent: vi.fn(),
   runClinicBot: vi.fn(),
@@ -89,7 +92,12 @@ vi.mock('@docmee/db', () => ({
     createTag: h.createTag,
     addTag: h.addTag,
   }),
-  createMessagesRepository: () => ({ create: vi.fn(), listByConversation: vi.fn().mockResolvedValue([]) }),
+  createMessagesRepository: () => ({
+    create: h.createMessage,
+    markDelivered: h.markDelivered,
+    markSendFailed: h.markSendFailed,
+    listByConversation: vi.fn().mockResolvedValue([]),
+  }),
   createWorkflowsRepository: () => ({ listEnabled: vi.fn().mockResolvedValue([]), listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
   createAppointmentsRepository: () => ({
@@ -116,6 +124,10 @@ beforeEach(() => {
   h.createTag.mockResolvedValue({ id: 'tag1' })
   h.addTag.mockResolvedValue(undefined)
   h.updateConversation.mockResolvedValue({})
+  h.createMessage.mockResolvedValue({ id: 'm1' })
+  h.markDelivered.mockResolvedValue(undefined)
+  h.markSendFailed.mockResolvedValue(undefined)
+  h.sendWhatsAppText.mockResolvedValue('wamid.reply')
 })
 
 describe('agent worker — new_patient auto-tag (Req 11)', () => {

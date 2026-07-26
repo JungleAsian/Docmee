@@ -25,6 +25,8 @@ const h = vi.hoisted(() => ({
   addTag: vi.fn(),
   createError: vi.fn(),
   createMessage: vi.fn(),
+  markDelivered: vi.fn(),
+  markSendFailed: vi.fn(),
   appendRow: vi.fn(),
   createExporter: vi.fn(),
   end: vi.fn(),
@@ -84,7 +86,11 @@ vi.mock('@docmee/db', () => ({
     addEvent: h.addEvent,
   }),
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
-  createMessagesRepository: () => ({ create: h.createMessage }),
+  createMessagesRepository: () => ({
+    create: h.createMessage,
+    markDelivered: h.markDelivered,
+    markSendFailed: h.markSendFailed,
+  }),
   createDoctorsRepository: () => ({ listByClinic: h.listDoctors }),
   createErrorReviewsRepository: () => ({ create: h.createError }),
 }))
@@ -126,6 +132,10 @@ beforeEach(() => {
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → clinic calendar
   h.createAppt.mockResolvedValue({ id: 'appt-1' })
+  h.createMessage.mockResolvedValue({ id: 'm1' })
+  h.markDelivered.mockResolvedValue(undefined)
+  h.markSendFailed.mockResolvedValue(undefined)
+  h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   h.createTag.mockResolvedValue({ id: 'tag-1' })
   h.createError.mockResolvedValue(undefined)
   h.createExporter.mockReturnValue({ appendRow: h.appendRow })

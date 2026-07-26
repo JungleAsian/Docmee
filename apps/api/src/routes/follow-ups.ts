@@ -47,6 +47,78 @@ const followUpsRoute: FastifyPluginAsync = async (app) => {
     return { pending }
   })
 
+  app.get<{ Params: { id: string } }>('/clinics/:id/automation-health', async (request, reply) => {
+    const clinicId = resolveClinicScope(request, request.params.id)
+    if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+    const health = await withDb(async (sql) => {
+      const rows = await sql<Array<{
+        doctorsWithoutServices: number
+        unsentFollowUps: number
+        openMetaErrors: number
+        reviewEnabled: boolean
+        reviewLink: string
+      }>>`
+        SELECT
+          (
+            SELECT COUNT(*)::int
+            FROM doctors d
+            WHERE d.clinic_id = c.id
+              AND d.is_active = TRUE
+              AND NOT EXISTS (
+                SELECT 1
+                FROM doctor_services ds
+                JOIN services s ON s.id = ds.service_id
+                WHERE ds.clinic_id = c.id
+                  AND ds.doctor_id = d.id
+                  AND s.is_active = TRUE
+              )
+          ) AS doctors_without_services,
+          (
+            SELECT COUNT(*)::int
+            FROM follow_ups f
+            WHERE f.clinic_id = c.id
+              AND f.status IN ('pending', 'pending_approval')
+          ) AS unsent_follow_ups,
+          (
+            SELECT COUNT(*)::int
+            FROM error_reviews e
+            WHERE e.clinic_id = c.id
+              AND e.status IN ('open', 'reviewed')
+              AND (
+                e.error_type LIKE 'meta_%'
+                OR e.error_type LIKE 'whatsapp_%'
+              )
+          ) AS open_meta_errors,
+          COALESCE((c.settings #>> '{automations,reviewRequest,enabled}')::boolean, TRUE) AS review_enabled,
+          COALESCE(c.settings ->> 'reviewLink', '') AS review_link
+        FROM clinics c
+        WHERE c.id = ${clinicId}
+      `
+      return rows[0] ?? null
+    })
+    if (!health) return reply.code(404).send({ error: 'Clinic not found' })
+
+    const issues = [
+      ...(health.doctorsWithoutServices > 0
+        ? [{ code: 'doctor_services_disabled', count: health.doctorsWithoutServices, message: `${health.doctorsWithoutServices} active doctor(s) have no enabled services.` }]
+        : []),
+      ...(health.reviewEnabled && !health.reviewLink.trim()
+        ? [{ code: 'review_link_missing', count: 1, message: 'Review requests are configured but no review link is set.' }]
+        : []),
+      ...(health.unsentFollowUps > 0
+        ? [{ code: 'follow_ups_unsent', count: health.unsentFollowUps, message: `${health.unsentFollowUps} follow-up(s) are still unsent.` }]
+        : []),
+      ...(health.openMetaErrors > 0
+        ? [{ code: 'meta_sync_errors_open', count: health.openMetaErrors, message: `${health.openMetaErrors} unresolved Meta/WhatsApp error(s) remain.` }]
+        : []),
+    ]
+    return {
+      state: issues.length === 0 ? 'ready' : 'attention',
+      issues,
+      checkedAt: new Date().toISOString(),
+    }
+  })
+
   app.post<{ Params: { id: string; followUpId: string } }>(
     '/clinics/:id/follow-ups/:followUpId/approve',
     async (request, reply) => {

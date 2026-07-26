@@ -141,12 +141,21 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
   const settings = clinic.settings as ClinicSettings
   const config = readAutomations(settings)
   const ai = readAiAssistant(settings)
+  const health = useQuery({
+    queryKey: ['automation-health', clinicId],
+    queryFn: () => api.get<{
+      state: 'ready' | 'attention'
+      issues: Array<{ code: string; count: number; message: string }>
+      checkedAt: string
+    }>(`/clinics/${clinicId}/automation-health`),
+  })
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.patch(`/clinics/${clinicId}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['clinic', clinicId] })
       qc.invalidateQueries({ queryKey: ['clinics'] })
+      qc.invalidateQueries({ queryKey: ['automation-health', clinicId] })
     },
   })
 
@@ -165,6 +174,22 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
 
   return (
     <div className="space-y-8">
+      {health.data && (
+        <div className={`rounded-lg border px-4 py-3 text-sm ${
+          health.data.state === 'ready'
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200'
+            : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+        }`}>
+          <p className="font-semibold">
+            Automation status: {health.data.state === 'ready' ? 'Ready' : 'Needs attention'}
+          </p>
+          {health.data.issues.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+              {health.data.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
       {save.isError && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
           {t('automations.saveError')}
@@ -179,7 +204,7 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">{t('automations.section.followUps')}</h2>
           <span className="text-xs text-gray-400">
-            {t('automations.active', { active, total })}
+            {active}/{total} configured
             {save.isPending && <span className="ml-2">· {t('automations.saving')}</span>}
           </span>
         </div>

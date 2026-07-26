@@ -26,7 +26,10 @@ export interface MessagesRepository {
   listByConversation(clinicId: string, conversationId: string): Promise<ConversationMessage[]>
   listByConversationSince(clinicId: string, conversationId: string, since: string): Promise<ConversationMessage[]>
   create(data: CreateMessageInput): Promise<ConversationMessage>
-  markDelivered(clinicId: string, id: string, channelMessageId: string): Promise<void>
+  /** Record synchronous provider acceptance before asynchronous delivery receipts arrive. */
+  markDelivered(clinicId: string, id: string, channelMessageId?: string | null): Promise<void>
+  /** Record a locally blocked or provider-rejected outbound attempt. */
+  markSendFailed(clinicId: string, id: string, error: string): Promise<void>
   /**
    * Record a delivery-lifecycle event (Req 3) for the outbound message whose
    * channel_message_id (the WhatsApp wamid) matches `channelMessageId`. Meta posts
@@ -146,15 +149,24 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
       return msg
     },
 
-    async markDelivered(clinicId, id, channelMessageId) {
-      await sql`
-        UPDATE conversation_messages
-        SET channel_message_id = ${channelMessageId}
-        WHERE clinic_id = ${clinicId} AND id = ${id}
-      `
+    async markDelivered(clinicId, id, channelMessageId = null) {
+      if (channelMessageId) {
+        await sql`
+          UPDATE conversation_messages
+          SET channel_message_id = ${channelMessageId}
+          WHERE clinic_id = ${clinicId} AND id = ${id}
+        `
+      }
       await sql`
         INSERT INTO message_delivery_events (message_id, clinic_id, channel_message_id, status)
         VALUES (${id}, ${clinicId}, ${channelMessageId}, 'sent')
+      `
+    },
+
+    async markSendFailed(clinicId, id, error) {
+      await sql`
+        INSERT INTO message_delivery_events (message_id, clinic_id, channel_message_id, status, error)
+        VALUES (${id}, ${clinicId}, NULL, 'failed', ${error})
       `
     },
 

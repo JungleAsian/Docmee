@@ -424,7 +424,11 @@ async function emitFlowResult(
         'custom_flow_handoff',
       )
     }
-    await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
+    await notificationQueue.add('notify', {
+      ...data,
+      reason: 'human_handoff',
+      idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+    })
   }
 }
 
@@ -487,11 +491,27 @@ export async function processAgentJob(job: Job): Promise<void> {
     // transport captures ALL reply paths ? emergency reassurance, handoff ack,
     // custom-flow scripts, outside-hours collection and the botbase LLM answer ?
     // without threading persistence through each branch. Best-effort: a storage
-    // failure is logged but never blocks delivery, and we only record a reply that
-    // actually went out (persist after the send resolves).
+    // failure is logged but never blocks delivery. The attempt is persisted before
+    // transport so provider acceptance or rejection can be correlated to one row.
     const messages = createMessagesRepository(sql)
     const sendReply: ((text: string) => Promise<void>) | null = rawSendReply
       ? async (text: string) => {
+          const attempt = data.conversationId
+            ? await messages.create({
+                conversationId: data.conversationId,
+                clinicId: data.clinicId,
+                role: 'assistant',
+                content: text,
+                metadata: {
+                  outboundAttempt: true,
+                  sourceWaMessageId: data.waMessageId,
+                  providerAccepted: false,
+                },
+              }).catch((err) => {
+                console.error('[agent] failed to persist outbound attempt:', err)
+                return null
+              })
+            : null
           // Meta error logs (Req 19/29): a channel send failure (expired/invalid
           // token, rate limit, malformed request) is recorded to error_reviews as
           // `meta_send_failure` for the Error Review area, then swallowed so a
@@ -501,14 +521,23 @@ export async function processAgentJob(job: Job): Promise<void> {
           let channelMessageId: string | null = null
           try {
             channelMessageId = await rawSendReply(text)
+            if (attempt) {
+              await messages.markDelivered(data.clinicId, attempt.id, channelMessageId)
+            }
           } catch (err) {
             console.error('[agent] Meta send failed:', err)
+            const diagnostic = err instanceof Error ? err.message : String(err)
+            if (attempt) {
+              await messages.markSendFailed(data.clinicId, attempt.id, diagnostic)
+                .catch((logErr) => console.error('[agent] failed to record send failure:', logErr))
+            }
             await errorReviews
               .create({
                 clinicId: data.clinicId,
                 errorType: 'meta_send_failure',
-                errorMessage: err instanceof Error ? err.message : String(err),
+                errorMessage: diagnostic,
                 context: {
+                  outboundMessageId: attempt?.id,
                   conversationId: data.conversationId,
                   channel: data.channel,
                   recipient: data.patientWaId,
@@ -517,22 +546,6 @@ export async function processAgentJob(job: Job): Promise<void> {
               })
               .catch((logErr) => console.error('[agent] failed to log Meta send error:', logErr))
             return
-          }
-          if (data.conversationId) {
-            try {
-              // Store the outbound wamid as channel_message_id so the delivery-status
-              // worker can match Meta's sent/delivered/read/failed receipts back to
-              // this reply (Req 3). Undefined for channels without a returned id.
-              await messages.create({
-                conversationId: data.conversationId,
-                clinicId: data.clinicId,
-                role: 'assistant',
-                content: text,
-                channelMessageId: channelMessageId ?? undefined,
-              })
-            } catch (err) {
-              console.error('[agent] failed to persist outbound reply:', err)
-            }
           }
         }
       : null
@@ -640,6 +653,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         clinicId: data.clinicId,
         conversationId: data.conversationId,
         reason: 'human_handoff',
+        idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
       })
       return
     }
@@ -954,6 +968,7 @@ export async function processAgentJob(job: Job): Promise<void> {
             clinicId: data.clinicId,
             conversationId: data.conversationId,
             reason: 'human_handoff',
+            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
           })
           // ? Knowledge-gap handoff: the bot found no KB grounding for a real
           // question and deferred to a human. Log it for the Add-to-KB queue (Req 29)

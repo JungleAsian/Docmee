@@ -6,6 +6,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { createClinicsRepository, createReportsRepository } from '@docmee/db'
+import { reportsQueue } from '@docmee/queue'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
@@ -94,6 +95,28 @@ const reportsRoute: FastifyPluginAsync = async (app) => {
       )
       if (!report) return reply.code(404).send({ error: 'Report not found' })
       return { report }
+    },
+  )
+
+  app.post<{ Params: { id: string; reportId: string } }>(
+    '/clinics/:id/reports/:reportId/retry',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const report = await withDb((sql) =>
+        createReportsRepository(sql).findById(clinicId, request.params.reportId),
+      )
+      if (!report) return reply.code(404).send({ error: 'Report not found' })
+      if (!report.recipientEmail) return reply.code(409).send({ error: 'Report has no configured recipient' })
+      const jobId = `controlled-report-retry-${report.id}`
+      await reportsQueue.add('retry-report', {
+        action: 'retry-report',
+        clinicId,
+        reportId: report.id,
+        clearHistoricalFailures: true,
+      }, { jobId })
+      return reply.code(202).send({ queued: true, jobId })
     },
   )
 }

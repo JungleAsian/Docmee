@@ -15,11 +15,16 @@ export interface CreateNotificationInput {
   conversationId?: string | null
   status?: NotificationStatus
   metadata?: Record<string, unknown>
+  idempotencyKey?: string | null
 }
 
 export interface NotificationsRepository {
   /** Persist a notification (defaults to status 'pending'). */
   create(data: CreateNotificationInput): Promise<NotificationEvent>
+  createOnce(data: CreateNotificationInput & { idempotencyKey: string }): Promise<{
+    event: NotificationEvent
+    created: boolean
+  }>
   /** Most recent notifications for a clinic, newest first. */
   listByClinic(clinicId: string, limit?: number): Promise<NotificationEvent[]>
   /** Most recent platform-wide notifications, newest first. Superuser-only at route level. */
@@ -69,6 +74,39 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
         RETURNING *
       `
       return rows[0]!
+    },
+
+    async createOnce(data) {
+      const rows = await sql<NotificationEvent[]>`
+        INSERT INTO notification_events
+          (clinic_id, notification_type, alert_type, priority, recipient, subject, content,
+           conversation_id, status, metadata, idempotency_key)
+        VALUES (
+          ${data.clinicId ?? null},
+          ${data.notificationType ?? 'email'},
+          ${data.alertType},
+          ${data.priority ?? null},
+          ${data.recipient},
+          ${data.subject ?? null},
+          ${data.content},
+          ${data.conversationId ?? null},
+          ${data.status ?? 'pending'},
+          ${sql.json(toJson(data.metadata ?? {}))},
+          ${data.idempotencyKey}
+        )
+        ON CONFLICT (clinic_id, idempotency_key)
+          WHERE clinic_id IS NOT NULL AND idempotency_key IS NOT NULL
+        DO NOTHING
+        RETURNING *
+      `
+      if (rows[0]) return { event: rows[0], created: true }
+      const existing = await sql<NotificationEvent[]>`
+        SELECT * FROM notification_events
+        WHERE clinic_id = ${data.clinicId ?? null}
+          AND idempotency_key = ${data.idempotencyKey}
+        LIMIT 1
+      `
+      return { event: existing[0]!, created: false }
     },
 
     async listByClinic(clinicId, limit = 50) {

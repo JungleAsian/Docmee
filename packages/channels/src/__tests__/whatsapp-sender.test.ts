@@ -35,7 +35,7 @@ describe('sendWhatsAppText', () => {
     expect(wamid).toBe('wamid.OUT123')
   })
 
-  it('returns null when the Graph API response carries no message id', async () => {
+  it('rejects provider acceptance that cannot be correlated to a receipt', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: async () => '',
@@ -43,7 +43,9 @@ describe('sendWhatsAppText', () => {
     })
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
-    expect(await sendWhatsAppText('PHONE_ID', 'TOKEN', '521', 'hi')).toBeNull()
+    await expect(sendWhatsAppText('PHONE_ID', 'TOKEN', '521', 'hi')).rejects.toThrow(
+      'WhatsApp send response missing message id',
+    )
   })
 
   it('throws when the Graph API responds with an error', async () => {
@@ -51,5 +53,29 @@ describe('sendWhatsAppText', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch
 
     await expect(sendWhatsAppText('PHONE_ID', 'BAD', '521', 'hi')).rejects.toThrow(/401/)
+  })
+
+  it.each(['', '   ', '\n\t'])('rejects an empty text body before calling Meta', async (text) => {
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    await expect(sendWhatsAppText('PHONE_ID', 'TOKEN', '521', text)).rejects.toThrow(
+      'WhatsApp text body must not be empty',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('trims the text body before sending it to Meta', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ messages: [{ id: 'wamid.TRIMMED' }] }),
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    await sendWhatsAppText('PHONE_ID', 'TOKEN', '521', '  hello  ')
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(init.body as string) as { text: { body: string } }
+    expect(body.text.body).toBe('hello')
   })
 })

@@ -231,23 +231,34 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
     const messages = createMessagesRepository(sql)
     const reply = async (text: string): Promise<string | null> => {
-      const channelMessageId = await sendReply(text)
-      if (data.conversationId) {
-        try {
-          await messages.create({
+      const attempt = data.conversationId
+        ? await messages.create({
             conversationId: data.conversationId,
             clinicId: data.clinicId,
             role: 'assistant',
             content: text,
-            ...(channelMessageId ? { channelMessageId } : {}),
+            metadata: {
+              outboundAttempt: true,
+              sourceWaMessageId: data.waMessageId,
+              providerAccepted: false,
+            },
+          }).catch((error) => {
+            console.error('[scheduling] failed to persist outbound attempt', error)
+            return null
           })
-        } catch (error) {
-          // Delivery already succeeded. Preserve the patient-facing result and surface
-          // the observability failure for repair rather than retrying a duplicate send.
-          console.error('[scheduling] failed to persist outbound WhatsApp reply', error)
+        : null
+      try {
+        const channelMessageId = await sendReply(text)
+        if (attempt) await messages.markDelivered(data.clinicId, attempt.id, channelMessageId)
+        return channelMessageId
+      } catch (error) {
+        const diagnostic = error instanceof Error ? error.message : String(error)
+        if (attempt) {
+          await messages.markSendFailed(data.clinicId, attempt.id, diagnostic)
+            .catch((logError) => console.error('[scheduling] failed to record send failure', logError))
         }
+        throw error
       }
-      return channelMessageId
     }
 
     const patient = data.patientId ? await patients.findById(data.clinicId, data.patientId) : null
@@ -256,7 +267,11 @@ export async function processSchedulingJob(job: Job): Promise<void> {
 
     // Scheduling needs a known patient (to own the appointment row).
     if (!data.patientId) {
-      await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
+      await notificationQueue.add('notify', {
+        ...data,
+        reason: 'human_handoff',
+        idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+      })
       return
     }
     const patientId = data.patientId
@@ -372,7 +387,11 @@ export async function processSchedulingJob(job: Job): Promise<void> {
 
         if (!rescheduleCalendar) {
           await reply(calendarUnavailable(language))
-          await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
+          await notificationQueue.add('notify', {
+            ...data,
+            reason: 'human_handoff',
+            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+          })
           break
         }
 
@@ -424,7 +443,11 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         // before a doctor is picked it isn't touched, so we can proceed without one.
         if (!bookingCalendar && (state.providerId || !doctorMode)) {
           await reply(calendarUnavailable(language))
-          await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
+          await notificationQueue.add('notify', {
+            ...data,
+            reason: 'human_handoff',
+            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+          })
           break
         }
 
@@ -435,8 +458,8 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         const resourceList: ProviderRef[] = doctorMode
           ? await (async () => {
               const doctorServicesRepo = createDoctorServicesRepository(sql)
-              return Promise.all(
-                doctors.map(async (d) => ({
+              const configured = await Promise.all(
+                doctors.filter((d) => d.isActive).map(async (d) => ({
                   id: d.id,
                   fullName: d.name,
                   specialty: d.specialty,
@@ -448,6 +471,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
                   })),
                 })),
               )
+              return configured.filter((doctor) => (doctor.services?.length ?? 0) > 0)
             })()
           : providers.map(toProviderRef)
 
@@ -560,7 +584,13 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           },
         })
         await reply(result.reply)
-        if (result.handoff) await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
+        if (result.handoff) {
+          await notificationQueue.add('notify', {
+            ...data,
+            reason: 'human_handoff',
+            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+          })
+        }
         nextFlow = result.done ? null : { action: 'book', state: result.nextState }
         break
       }
@@ -589,7 +619,11 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       // Tell the patient a human will follow up and hand off; do not persist a
       // partially-advanced flow (we return without writing flow state).
       await reply(calendarUnavailable(language)).catch(() => {})
-      await notificationQueue.add('notify', { ...data, reason: 'human_handoff' })
+      await notificationQueue.add('notify', {
+        ...data,
+        reason: 'human_handoff',
+        idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+      })
       return
     }
 

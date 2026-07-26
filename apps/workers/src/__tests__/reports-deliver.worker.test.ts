@@ -5,17 +5,20 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 // the email actually went out (emailed flag).
 
 const captures = vi.hoisted(() => ({
-  emails: [] as { to: string; subject: string }[],
+  emails: [] as { to: string; subject: string; idempotencyKey?: string }[],
   created: [] as Record<string, unknown>[],
+  marked: [] as { id: string; emailed: boolean; diagnostic?: string | null }[],
+  cleared: [] as { clinicId: string; successfulReportId: string }[],
   emailShouldThrow: false,
   recipient: 'admin@clinic.test' as string | null,
   settings: {} as Record<string, unknown>,
+  controlledReport: null as Record<string, unknown> | null,
 }))
 
 vi.mock('@docmee/notifications', () => ({
-  sendEmail: vi.fn(async (p: { to: string; subject: string }) => {
+  sendEmail: vi.fn(async (p: { to: string; subject: string; idempotencyKey?: string }) => {
     if (captures.emailShouldThrow) throw new Error('resend down')
-    captures.emails.push({ to: p.to, subject: p.subject })
+    captures.emails.push({ to: p.to, subject: p.subject, idempotencyKey: p.idempotencyKey })
   }),
 }))
 
@@ -40,15 +43,23 @@ vi.mock('@docmee/db', () => ({
     countCreatedBetween: async () => 2,
   }),
   createReportsRepository: () => ({
+    findById: async () => captures.controlledReport,
     claimScheduled: async (row: Record<string, unknown>) => {
       captures.created.push(row)
       return { id: `gen-${captures.created.length}`, ...row }
     },
     claimEmailDelivery: async () => true,
     markEmailed: async (id: string, emailed: boolean, deliveryDiagnostic?: string | null) => {
+      captures.marked.push({ id, emailed, diagnostic: deliveryDiagnostic })
       const index = Number(id.replace('gen-', '')) - 1
-      captures.created[index]!['emailed'] = emailed
-      captures.created[index]!['deliveryDiagnostic'] = deliveryDiagnostic ?? null
+      if (Number.isInteger(index) && captures.created[index]) {
+        captures.created[index]!['emailed'] = emailed
+        captures.created[index]!['deliveryDiagnostic'] = deliveryDiagnostic ?? null
+      }
+    },
+    clearHistoricalFailures: async (clinicId: string, successfulReportId: string) => {
+      captures.cleared.push({ clinicId, successfulReportId })
+      return 31
     },
   }),
 }))
@@ -61,9 +72,12 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
   beforeEach(() => {
     captures.emails = []
     captures.created = []
+    captures.marked = []
+    captures.cleared = []
     captures.emailShouldThrow = false
     captures.recipient = 'admin@clinic.test'
     captures.settings = {}
+    captures.controlledReport = null
     vi.useFakeTimers()
   })
   afterEach(() => {
@@ -124,5 +138,63 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
     await processReportsJob(job)
     expect(captures.created).toHaveLength(1)
     expect(captures.emails).toHaveLength(1)
+  })
+
+  it('clears historical failures only after the controlled retry is accepted', async () => {
+    captures.controlledReport = {
+      id: 'report-32',
+      clinicId: 'c-1',
+      subject: 'Controlled report',
+      html: '<p>report</p>',
+      recipientEmail: 'admin@clinic.test',
+    }
+
+    await processReportsJob({
+      data: {
+        action: 'retry-report',
+        clinicId: 'c-1',
+        reportId: 'report-32',
+        clearHistoricalFailures: true,
+      },
+    } as never)
+
+    expect(captures.emails).toEqual([
+      {
+        to: 'admin@clinic.test',
+        subject: 'Controlled report',
+        idempotencyKey: 'controlled-report-retry:report-32',
+      },
+    ])
+    expect(captures.marked).toContainEqual({ id: 'report-32', emailed: true, diagnostic: undefined })
+    expect(captures.cleared).toEqual([{ clinicId: 'c-1', successfulReportId: 'report-32' }])
+  })
+
+  it('preserves historical failures when the controlled retry is rejected', async () => {
+    captures.controlledReport = {
+      id: 'report-32',
+      clinicId: 'c-1',
+      subject: 'Controlled report',
+      html: '<p>report</p>',
+      recipientEmail: 'admin@clinic.test',
+    }
+    captures.emailShouldThrow = true
+
+    await expect(
+      processReportsJob({
+        data: {
+          action: 'retry-report',
+          clinicId: 'c-1',
+          reportId: 'report-32',
+          clearHistoricalFailures: true,
+        },
+      } as never),
+    ).rejects.toThrow('Controlled report retry failed: provider_rejected_delivery')
+
+    expect(captures.marked).toContainEqual({
+      id: 'report-32',
+      emailed: false,
+      diagnostic: 'provider_rejected_delivery',
+    })
+    expect(captures.cleared).toHaveLength(0)
   })
 })

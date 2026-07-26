@@ -31,6 +31,8 @@ export interface ReportsRepository {
   claimEmailDelivery(id: string): Promise<boolean>
   /** Finish an email attempt without retaining provider responses or credentials. */
   markEmailed(id: string, emailed: boolean, deliveryDiagnostic?: string | null): Promise<void>
+  /** Archive older failed rows only after the caller has successfully delivered a controlled retry. */
+  clearHistoricalFailures(clinicId: string, successfulReportId: string): Promise<number>
 }
 
 const DEFAULT_LIMIT = 50
@@ -44,6 +46,7 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
                recipient_email, emailed, created_at
         FROM generated_reports
         WHERE clinic_id = ${clinicId}
+          AND cleared_at IS NULL
         ORDER BY created_at DESC
         LIMIT ${cap}
       `
@@ -118,6 +121,19 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
         RETURNING id
       `
       return rows.length === 1
+    },
+
+    async clearHistoricalFailures(clinicId, successfulReportId) {
+      const rows = await sql<{ id: string }[]>`
+        UPDATE generated_reports
+        SET cleared_at = NOW()
+        WHERE clinic_id = ${clinicId}
+          AND id <> ${successfulReportId}
+          AND delivery_status = 'failed'
+          AND cleared_at IS NULL
+        RETURNING id
+      `
+      return rows.length
     },
   }
 }

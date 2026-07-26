@@ -78,6 +78,40 @@ describe('dispatchNotification', () => {
     expect(statuses).toEqual([{ id: 'n1', status: 'failed', error: 'resend down' }])
   })
 
+  it('does not deliver a replay when the idempotency key already exists', async () => {
+    const store: NotificationStore = {
+      create: vi.fn(async () => ({ id: 'existing', created: false })),
+      updateStatus: vi.fn(async () => {}),
+    }
+    const sendEmail = vi.fn(async () => {})
+    const sendPush = vi.fn(async () => ({ ok: true, status: 201, expired: false }))
+
+    await dispatchNotification(
+      {
+        clinicId: 'c1',
+        type: NOTIFICATION_TYPES.EMERGENCY,
+        recipientEmail: 'a@b.com',
+        idempotencyKey: 'handoff:conv-1:wamid-1',
+      },
+      {
+        store,
+        sendEmail,
+        push: {
+          subscriptions: [{ endpoint: 'https://push.test/a', keys: { p256dh: 'x', auth: 'y' } }],
+          vapid: { publicKey: 'p', privateKey: 'q', subject: 'mailto:x' },
+          send: sendPush,
+        },
+      },
+    )
+
+    expect(store.create).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'handoff:conv-1:wamid-1' }),
+    )
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(sendPush).not.toHaveBeenCalled()
+    expect(store.updateStatus).not.toHaveBeenCalled()
+  })
+
   it('online recipient + standard alert → panel-only (no email), channel in_app, status sent', async () => {
     const { store, created, statuses } = makeStore()
     const sendEmail = vi.fn(async () => {})

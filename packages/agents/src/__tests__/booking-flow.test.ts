@@ -31,8 +31,14 @@ function makeDeps(calendar: CalendarOps): BookingDeps {
 const ctx: BookingContext = {
   language: 'es',
   clinic: { name: 'Clínica Demo', timezone: 'America/Guatemala' },
-  providers: [{ id: 'prov-1', fullName: 'Dra. García', specialty: 'Pediatría' }],
+  providers: [{
+    id: 'prov-1',
+    fullName: 'Dra. García',
+    specialty: 'Pediatría',
+    services: [{ id: 's1', name: 'Consulta general', durationMinutes: 30 }],
+  }],
   patientName: 'Ana',
+  now: new Date('2026-07-01T12:00:00Z'),
 }
 
 beforeEach(() => vi.clearAllMocks())
@@ -56,8 +62,12 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
 
     // The patient may choose by list number.
     r = await advanceBookingFlow(state, '1', ctx, deps)
-    expect(r.nextState.step).toBe('ask_reason')
+    expect(r.nextState.step).toBe('ask_service')
     expect(r.nextState.providerId).toBe('prov-1')
+    state = r.nextState
+
+    r = await advanceBookingFlow(state, '1', ctx, deps)
+    expect(r.nextState.step).toBe('ask_reason')
     state = r.nextState
 
     // ask_reason → ask_date
@@ -143,11 +153,11 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
       expect(r.reply).not.toContain('Which day do you prefer?')
       expect(calendar.listSlots).toHaveBeenCalledTimes(5)
       expect((calendar.listSlots as ReturnType<typeof vi.fn>).mock.calls.map(([date]) => date)).toEqual([
+        '2026-07-01',
         '2026-07-02',
         '2026-07-03',
         '2026-07-04',
         '2026-07-05',
-        '2026-07-06',
       ])
     } finally {
       vi.useRealTimers()
@@ -160,8 +170,8 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     const multi: BookingContext = {
       ...ctx,
       providers: [
-        { id: 'prov-1', fullName: 'Dra. García' },
-        { id: 'prov-2', fullName: 'Dr. López' },
+        { id: 'prov-1', fullName: 'Dra. García', services: [{ id: 's1', name: 'Consulta', durationMinutes: 30 }] },
+        { id: 'prov-2', fullName: 'Dr. López', services: [{ id: 's2', name: 'Consulta', durationMinutes: 30 }] },
       ],
     }
     let r = await advanceBookingFlow(initialBookingState(), 'hola', multi, deps)
@@ -170,7 +180,7 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     expect(r.reply).toContain('2. Dr. López')
 
     r = await advanceBookingFlow(r.nextState, '2', multi, deps)
-    expect(r.nextState.step).toBe('ask_reason')
+    expect(r.nextState.step).toBe('ask_service')
     expect(r.nextState.providerId).toBe('prov-2')
   })
 
@@ -190,6 +200,7 @@ describe('per-doctor working hours (Req 30)', () => {
     fullName: 'Dra. García',
     specialty: 'Pediatría',
     availability: { wed: [{ start: '09:00', end: '12:00' }] },
+    services: [{ id: 's1', name: 'Consulta', durationMinutes: 30 }],
   }
   const hoursCtx: BookingContext = { ...ctx, providers: [provider] }
 
@@ -364,12 +375,12 @@ describe('per-doctor services (Req 30)', () => {
     expect(r.reply).toContain('Consulta general')
   })
 
-  it('auto-picks a single service and skips the question', async () => {
+  it('presents a single enabled service and books it after selection', async () => {
     const oneCtx: BookingContext = {
       ...ctx,
       providers: [{ id: 'prov-1', fullName: 'Dra. García', services: [{ id: 's1', name: 'Consulta', durationMinutes: 20 }] }],
     }
-    const { result, calendar, deps } = await walkToBooking(oneCtx, null)
+    const { result, calendar, deps } = await walkToBooking(oneCtx, '1')
     expect(result.done).toBe(true)
     expect((calendar.createEvent as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
       durationMinutes: 20,
@@ -379,16 +390,17 @@ describe('per-doctor services (Req 30)', () => {
     })
   })
 
-  it('skips the service step and uses the default duration when the doctor offers none', async () => {
-    // ctx providers have no `services`; the flow must go straight to ask_reason.
-    const { result, calendar, deps } = await walkToBooking(ctx, null)
+  it('hands off when the selected doctor has no enabled services', async () => {
+    const noneCtx: BookingContext = {
+      ...ctx,
+      providers: [{ id: 'prov-1', fullName: 'Dra. García', services: [] }],
+    }
+    const deps = makeDeps(makeCalendar())
+    const prompted = await advanceBookingFlow(initialBookingState(), 'cita', noneCtx, deps)
+    const result = await advanceBookingFlow(prompted.nextState, '1', noneCtx, deps)
     expect(result.done).toBe(true)
-    expect((calendar.createEvent as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
-      durationMinutes: 30,
-    })
-    expect((deps.saveAppointment as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
-      serviceId: null,
-    })
+    expect(result.handoff).toBe(true)
+    expect(result.reply).toContain('no tiene servicios habilitados')
   })
 })
 

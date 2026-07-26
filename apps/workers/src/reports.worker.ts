@@ -243,6 +243,37 @@ export async function processReportsJob(_job: Job): Promise<void> {
     const metrics = createMetricsRepository(sql)
     const appointments = createAppointmentsRepository(sql)
     const reports = createReportsRepository(sql)
+    const control = (_job.data ?? {}) as {
+      action?: string
+      clinicId?: string
+      reportId?: string
+      clearHistoricalFailures?: boolean
+    }
+    if (control.action === 'retry-report') {
+      if (!control.clinicId || !control.reportId) throw new Error('Controlled report retry requires clinicId and reportId')
+      const report = await reports.findById(control.clinicId, control.reportId)
+      if (!report) throw new Error('Controlled report retry target not found')
+      if (!report.recipientEmail) throw new Error('Controlled report retry target has no configured recipient')
+      if (!await reports.claimEmailDelivery(report.id)) return
+      try {
+        await sendEmail({
+          to: report.recipientEmail,
+          subject: report.subject,
+          html: report.html,
+          idempotencyKey: `controlled-report-retry:${report.id}`,
+        })
+        await reports.markEmailed(report.id, true)
+        if (control.clearHistoricalFailures) {
+          const cleared = await reports.clearHistoricalFailures(control.clinicId, report.id)
+          console.log(`[reports] controlled retry accepted; archived ${cleared} historical failure(s)`)
+        }
+      } catch (error) {
+        const diagnostic = redactedDeliveryDiagnostic(error)
+        await reports.markEmailed(report.id, false, diagnostic)
+        throw new Error(`Controlled report retry failed: ${diagnostic}`)
+      }
+      return
+    }
 
     for (const clinic of await clinics.list()) {
       if (clinic.status !== 'active') continue

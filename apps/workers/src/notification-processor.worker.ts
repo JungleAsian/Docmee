@@ -28,6 +28,7 @@ interface NotificationJobData {
   type?: string
   reason?: string
   recipientEmail?: string
+  idempotencyKey?: string
   [key: string]: unknown
 }
 
@@ -120,6 +121,7 @@ export async function processNotificationJob(job: Job): Promise<void> {
         recipientEmail,
         recipientOnline,
         emailAllowed,
+        idempotencyKey: data.idempotencyKey,
       },
       { store: buildNotificationStore(notifications), ...(push ? { push } : {}) },
     )

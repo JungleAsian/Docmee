@@ -25,6 +25,8 @@ export interface DispatchNotificationParams {
    * alerts always email. Defaults to true (no preference set).
    */
   emailAllowed?: boolean
+  /** Stable source-event key. Replays with the same clinic/key are not delivered twice. */
+  idempotencyKey?: string
 }
 
 /** Persistence the dispatcher needs — supplied by the worker (backed by @docmee/db). */
@@ -40,7 +42,8 @@ export interface NotificationStore {
     subject: string
     content: string
     status: 'pending'
-  }): Promise<{ id: string }>
+    idempotencyKey?: string
+  }): Promise<{ id: string; created?: boolean }>
   updateStatus(id: string, status: 'sent' | 'failed', error?: string | null): Promise<void>
 }
 
@@ -126,7 +129,9 @@ export async function dispatchNotification(
     subject,
     content: html,
     status: 'pending',
+    ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
   })
+  if (saved.created === false) return
 
   // Mobile push (Req 39) fires on every alert, independent of email-vs-panel
   // routing, so an away secretary is reached on their phone. Best-effort.

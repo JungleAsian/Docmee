@@ -63,6 +63,10 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     r = await advanceBookingFlow(state, `el ${DATE}`, ctx, deps)
     expect(r.nextState.step).toBe('ask_time')
     expect(r.nextState.preferredDate).toBe(DATE)
+    expect(r.reply).toContain('09:00')
+    expect(r.reply).toContain('10:00')
+    expect(r.reply).not.toContain('¿A qué hora le gustaría?')
+    expect(calendar.listSlots).toHaveBeenCalledWith(DATE)
     state = r.nextState
 
     // ask_time → check availability → confirm_details
@@ -117,6 +121,24 @@ describe('per-doctor working hours (Req 30)', () => {
     availability: { wed: [{ start: '09:00', end: '12:00' }] },
   }
   const hoursCtx: BookingContext = { ...ctx, providers: [provider] }
+
+  it('offers only the doctor in-hours slots as soon as the date is chosen', async () => {
+    const calendar = makeCalendar({ listSlots: vi.fn().mockResolvedValue(slotsFor(['09:00', '11:00', '14:00'])) })
+    const deps = makeDeps(calendar)
+    const state: BookingState = {
+      step: 'ask_date',
+      providerId: 'prov-1',
+      doctorName: 'Doctor',
+      reason: 'control',
+    }
+    const r = await advanceBookingFlow(state, DATE, hoursCtx, deps)
+    expect(r.nextState.step).toBe('ask_time')
+    expect(r.nextState.preferredDate).toBe(DATE)
+    expect(r.reply).toContain('09:00')
+    expect(r.reply).toContain('11:00')
+    expect(r.reply).not.toContain('14:00')
+    expect(calendar.listSlots).toHaveBeenCalledWith(DATE)
+  })
 
   it('rejects a time outside the doctor hours and offers in-hours alternatives', async () => {
     // The clinic calendar reports 10:00 booked, but 09:00, 11:00 and 14:00 free.

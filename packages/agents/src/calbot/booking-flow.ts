@@ -290,9 +290,74 @@ export async function advanceBookingFlow(
           done: false,
         }
       }
+
+      const provider = ctx.providers.find((p) => p.id === state.providerId)
+      const availability = provider?.availability
+
+      // A selected date is enough to query the chosen doctor's calendar. Present
+      // only live, in-hours options instead of asking the patient to guess a time
+      // and waiting for a rejection before showing availability.
+      if (availability && hasAvailability(availability) && !worksOnDay(availability, date)) {
+        const upcoming = await findUpcomingSlots(deps, date, availability, { days: 14, max: 3 })
+        if (upcoming.length) {
+          const opts = upcoming.map((slot) => `${slot.start.slice(0, 10)} ${slot.start.slice(11, 16)}`).join(', ')
+          return {
+            nextState: { ...state, step: 'ask_date', preferredDate: undefined, preferredTime: undefined },
+            reply: pick(
+              L,
+              `${state.doctorName ?? 'El doctor'} no atiende ese día. Próximos horarios: ${opts}. ¿Qué día prefiere?`,
+              `${state.doctorName ?? 'The doctor'} doesn't work that day. Next available: ${opts}. Which day works for you?`,
+            ),
+            done: false,
+          }
+        }
+        return {
+          nextState: { ...state, step: 'ask_date', preferredDate: undefined, preferredTime: undefined },
+          reply: pick(
+            L,
+            `${state.doctorName ?? 'El doctor'} no atiende ese día. ¿Qué otro día prefiere?`,
+            `${state.doctorName ?? 'The doctor'} doesn't work that day. Which other day do you prefer?`,
+          ),
+          done: false,
+        }
+      }
+
+      const freeSlots = await deps.calendar.listSlots(date)
+      const slots = availability ? filterSlotsByAvailability(freeSlots, date, availability) : freeSlots
+      const sameDay = slots.slice(0, 6).map((slot) => slot.start.slice(11, 16))
+      if (sameDay.length === 0) {
+        const upcoming = await findUpcomingSlots(deps, addDays(date, 1), availability, { days: 14, max: 4 })
+        if (upcoming.length) {
+          const opts = upcoming.map((slot) => `${slot.start.slice(0, 10)} ${slot.start.slice(11, 16)}`).join(', ')
+          return {
+            nextState: { ...state, step: 'ask_date', preferredDate: undefined, preferredTime: undefined },
+            reply: pick(
+              L,
+              `No hay horarios libres el ${date}. Próximos disponibles: ${opts}. ¿Qué día prefiere?`,
+              `No free times on ${date}. Next available: ${opts}. Which day works for you?`,
+            ),
+            done: false,
+          }
+        }
+        return {
+          nextState: { ...state, step: 'ask_date', preferredDate: undefined, preferredTime: undefined },
+          reply: pick(
+            L,
+            `No encontré horarios con ${state.doctorName ?? 'ese doctor'} en las próximas dos semanas. Un miembro del equipo le ayudará.`,
+            `I couldn't find any openings with ${state.doctorName ?? 'that doctor'} in the next two weeks. A team member will help you.`,
+          ),
+          done: true,
+          handoff: true,
+        }
+      }
+
       return {
         nextState: { ...state, step: 'ask_time', preferredDate: date },
-        reply: pick(L, '¿A qué hora le gustaría? (por ejemplo 10:00)', 'What time would you like? (e.g. 10:00)'),
+        reply: pick(
+          L,
+          `Horarios disponibles con ${state.doctorName ?? 'el doctor'} el ${date}: ${sameDay.join(', ')}. ¿Cuál prefiere?`,
+          `Available times with ${state.doctorName ?? 'the doctor'} on ${date}: ${sameDay.join(', ')}. Which works for you?`,
+        ),
         done: false,
       }
     }

@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createError: vi.fn(),
+  createMessage: vi.fn(),
   appendRow: vi.fn(),
   createExporter: vi.fn(),
   end: vi.fn(),
@@ -83,6 +84,7 @@ vi.mock('@docmee/db', () => ({
     addEvent: h.addEvent,
   }),
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
+  createMessagesRepository: () => ({ create: h.createMessage }),
   createDoctorsRepository: () => ({ listByClinic: h.listDoctors }),
   createErrorReviewsRepository: () => ({ create: h.createError }),
 }))

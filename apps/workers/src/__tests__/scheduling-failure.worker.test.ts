@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
   listByPatient: vi.fn(),
   listDoctors: vi.fn(),
   createError: vi.fn(),
+  createMessage: vi.fn(),
   end: vi.fn(),
 }))
 
@@ -65,6 +66,7 @@ vi.mock('@docmee/db', () => ({
     addEvent: vi.fn(),
   }),
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
+  createMessagesRepository: () => ({ create: h.createMessage }),
   createDoctorsRepository: () => ({ listByClinic: h.listDoctors }),
   createErrorReviewsRepository: () => ({ create: h.createError }),
 }))
@@ -104,7 +106,8 @@ beforeEach(() => {
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → uses clinic calendar
   h.createError.mockResolvedValue(undefined)
-  h.sendWhatsAppText.mockResolvedValue({ messageId: 'wamid.reply' })
+  h.createMessage.mockResolvedValue({})
+  h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   h.createGoogleCalendarOps.mockReturnValue({
     listSlots: vi.fn(),
     createEvent: vi.fn(),
@@ -129,6 +132,14 @@ describe('processSchedulingJob — calendar failure (Req 29)', () => {
     )
     // Patient gets the "human will follow up" fallback.
     expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: CONVO,
+        clinicId: CLINIC,
+        role: 'assistant',
+        channelMessageId: 'wamid.reply',
+      }),
+    )
     // And the conversation is handed off to a human.
     expect(h.notificationAdd).toHaveBeenCalledWith(
       'notify',

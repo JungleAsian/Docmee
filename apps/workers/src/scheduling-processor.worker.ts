@@ -42,6 +42,7 @@ import {
   createClinicsRepository,
   createPatientsRepository,
   createConversationsRepository,
+  createMessagesRepository,
   createAppointmentsRepository,
   createChannelAccountsRepository,
   createDoctorsRepository,
@@ -223,10 +224,30 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
 
     const account = activeWhatsAppAccount(await channelAccounts.listByClinic(data.clinicId), data.phoneNumberId)
-    const reply = resolveWhatsAppSender(account, data.patientWaId)
-    if (!account || !reply) {
+    const sendReply = resolveWhatsAppSender(account, data.patientWaId)
+    if (!account || !sendReply) {
       console.warn(`[scheduling] no active WhatsApp account for clinic ${data.clinicId}; cannot reply`)
       return
+    }
+    const messages = createMessagesRepository(sql)
+    const reply = async (text: string): Promise<string | null> => {
+      const channelMessageId = await sendReply(text)
+      if (data.conversationId) {
+        try {
+          await messages.create({
+            conversationId: data.conversationId,
+            clinicId: data.clinicId,
+            role: 'assistant',
+            content: text,
+            ...(channelMessageId ? { channelMessageId } : {}),
+          })
+        } catch (error) {
+          // Delivery already succeeded. Preserve the patient-facing result and surface
+          // the observability failure for repair rather than retrying a duplicate send.
+          console.error('[scheduling] failed to persist outbound WhatsApp reply', error)
+        }
+      }
+      return channelMessageId
     }
 
     const patient = data.patientId ? await patients.findById(data.clinicId, data.patientId) : null

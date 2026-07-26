@@ -14,7 +14,7 @@ import {
 import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { enqueueWorkflowRuns } from './workflow-run.js'
 import {
-  routeIntent,
+  orchestrateConversation,
   runClinicBot,
   searchKb,
   scopeKbToMessage,
@@ -699,15 +699,28 @@ export async function processAgentJob(job: Job): Promise<void> {
       apiKey: intentProvider === 'deepseek' ? undefined : resolveClinicAiKey(clinic.settings, intentProvider),
       baseURL: typeof intentCfg.baseURL === 'string' ? intentCfg.baseURL.trim() : undefined,
     })
-    const route = routeIntent(intent, { isInsideBusinessHours: insideHours, patientOptedOut })
+    const orchestration = orchestrateConversation(intent, {
+      isInsideBusinessHours: insideHours,
+      patientOptedOut,
+    })
+    const route = orchestration.route
 
-    // Sentiment detection + intent persistence (Gap #30 / Gap #27 metrics). Both
-    // hang off the conversation row, so they only run when we know which one.
+    // Sentiment + bounded orchestration audit (Gap #30 / Gap #27 metrics). The
+    // three patient-facing workflows are booking, human handoff and inquiry.
+    // Policy-suppressed turns remain explicit rather than being mislabeled.
+    let routedMetadata = conversation?.metadata
     if (data.conversationId && conversation) {
       const upset = detectUpsetTone(data.message)
+      routedMetadata = {
+        ...conversation.metadata,
+        lastIntent: intent,
+        lastOrchestrationRoute: orchestration.workflow ?? 'policy_suppressed',
+        lastOrchestrationAt: new Date().toISOString(),
+        lastUpset: upset,
+      }
 
       await conversations.update(data.clinicId, data.conversationId, {
-        metadata: { ...conversation.metadata, lastIntent: intent, lastUpset: upset },
+        metadata: routedMetadata,
       })
 
       if (upset) {
@@ -743,9 +756,19 @@ export async function processAgentJob(job: Job): Promise<void> {
         // (the keyword check only fires on a fixed phrase list).
         if (route.reason === 'emergency') {
           if (sendReply) await sendReply(emergencyNotice(patientLanguage))
-          if (conversation) {
-            await pauseBotForHandoff(conversations, data, conversation.metadata, 'emergency')
-          }
+        } else if (sendReply) {
+          // The AI classifier can recognize a natural handoff request that does
+          // not match the high-precision phrase guard. Treat it exactly like an
+          // explicit request: acknowledge it and stop all future bot replies.
+          await sendReply(handoffNotice(patientLanguage))
+        }
+        if (conversation) {
+          await pauseBotForHandoff(
+            conversations,
+            data,
+            routedMetadata,
+            route.reason === 'emergency' ? 'emergency' : 'patient_request',
+          )
         }
         await notificationQueue.add('notify', { ...data, reason: route.reason })
         break

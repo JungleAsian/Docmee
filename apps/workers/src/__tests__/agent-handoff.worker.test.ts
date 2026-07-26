@@ -305,3 +305,138 @@ describe('processAgentJob — explicit human request (#5)', () => {
     )
   })
 })
+
+describe('processAgentJob — AI conversation orchestration', () => {
+  it('routes a booking intent to the deterministic scheduling workflow', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.classifyIntent.mockResolvedValueOnce('booking_request')
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'I would like an appointment' }))
+
+    expect(h.schedulingAdd).toHaveBeenCalledWith(
+      'schedule',
+      expect.objectContaining({ action: 'book', conversationId: CONVO }),
+    )
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    expect(h.updateConversation).toHaveBeenCalledWith(
+      CLINIC,
+      CONVO,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ lastOrchestrationRoute: 'booking' }),
+      }),
+    )
+  })
+
+  it('turns an AI-detected handoff into a patient acknowledgement and bot pause', async () => {
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { retainedAuditValue: 'keep-me' },
+    })
+    h.classifyIntent.mockResolvedValueOnce('human_handoff_request')
+
+    await processAgentJob(
+      makeJob({ ...baseJob, message: 'Could someone from the clinic call me?' }),
+    )
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    const handoffUpdate = h.updateConversation.mock.calls.find(
+      ([, , update]) => update?.status === 'handoff',
+    )
+    expect(handoffUpdate).toBeDefined()
+    expect(handoffUpdate![2].metadata).toMatchObject({
+      lastOrchestrationRoute: 'human_handoff',
+      handoffReason: 'patient_request',
+      retainedAuditValue: 'keep-me',
+    })
+    expect(h.notificationAdd).toHaveBeenCalledWith(
+      'notify',
+      expect.objectContaining({ reason: 'human_handoff', conversationId: CONVO }),
+    )
+  })
+
+  it('keeps an AI-detected handoff active outside business hours', async () => {
+    const { isInsideBusinessHours } = await import('@docmee/agents')
+    const hoursMock = isInsideBusinessHours as ReturnType<typeof vi.fn>
+    hoursMock.mockReturnValue(false)
+    try {
+      h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+      h.classifyIntent.mockResolvedValueOnce('human_handoff_request')
+
+      await processAgentJob(
+        makeJob({ ...baseJob, message: 'Could somebody on the team get back to me?' }),
+      )
+
+      expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+      expect(
+        h.updateConversation.mock.calls.some(([, , update]) => update?.status === 'handoff'),
+      ).toBe(true)
+      expect(h.notificationAdd).toHaveBeenCalledWith(
+        'notify',
+        expect.objectContaining({ reason: 'human_handoff' }),
+      )
+    } finally {
+      hoursMock.mockReturnValue(true)
+    }
+  })
+
+  it('keeps an AI-detected emergency active outside business hours', async () => {
+    const { isInsideBusinessHours } = await import('@docmee/agents')
+    const hoursMock = isInsideBusinessHours as ReturnType<typeof vi.fn>
+    hoursMock.mockReturnValue(false)
+    try {
+      h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+      h.classifyIntent.mockResolvedValueOnce('emergency')
+
+      await processAgentJob(
+        makeJob({ ...baseJob, message: 'I feel severely unwell and need urgent help' }),
+      )
+
+      expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+      expect(
+        h.updateConversation.mock.calls.some(([, , update]) => update?.status === 'handoff'),
+      ).toBe(true)
+      expect(h.notificationAdd).toHaveBeenCalledWith(
+        'notify',
+        expect.objectContaining({ reason: 'emergency' }),
+      )
+    } finally {
+      hoursMock.mockReturnValue(true)
+    }
+  })
+
+  it('keeps an active booking sticky and bypasses AI reclassification', async () => {
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { scheduling: { action: 'book', step: 'awaiting_time' } },
+    })
+
+    await processAgentJob(makeJob({ ...baseJob, message: '10:30' }))
+
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    expect(h.schedulingAdd).toHaveBeenCalledWith(
+      'schedule',
+      expect.objectContaining({ action: 'book', message: '10:30' }),
+    )
+  })
+
+  it('routes a general question to the grounded inquiry agent', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.classifyIntent.mockResolvedValueOnce('general_question')
+
+    await processAgentJob(makeJob(baseJob))
+
+    expect(h.runClinicBot).toHaveBeenCalledTimes(1)
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
+    expect(h.updateConversation).toHaveBeenCalledWith(
+      CLINIC,
+      CONVO,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ lastOrchestrationRoute: 'inquiry' }),
+      }),
+    )
+  })
+})

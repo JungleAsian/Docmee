@@ -1,7 +1,12 @@
 import type { AgentRoute } from './router.js'
 
-export type { AgentRoute, RouteContext } from './router.js'
-export { routeIntent } from './router.js'
+export type {
+  AgentRoute,
+  ConversationWorkflow,
+  OrchestrationDecision,
+  RouteContext,
+} from './router.js'
+export { orchestrateConversation, routeIntent } from './router.js'
 
 export type { HandoffStatus } from './handoff.js'
 export {

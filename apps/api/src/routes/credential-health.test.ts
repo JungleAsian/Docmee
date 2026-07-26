@@ -14,11 +14,11 @@ vi.mock('../lib/db.js', () => ({
       if (text === 'SELECT 1') return [{ ok: 1 }]
       if (text.includes('FROM channel_accounts')) {
         return [{
-          account_id: 'phone-1',
-          display_name: 'Clinic WhatsApp',
-          access_token_enc: 'encrypted-whatsapp-token',
-          webhook_verify_token: 'stored-verify-token',
-          updated_at: '2026-07-26T12:00:00.000Z',
+          accountId: 'phone-1',
+          displayName: 'Clinic WhatsApp',
+          accessTokenEnc: 'encrypted-whatsapp-token',
+          webhookVerifyToken: 'stored-verify-token',
+          updatedAt: '2026-07-26T12:00:00.000Z',
         }]
       }
       if (text.includes('FROM doctors')) return [{ total: '1', connected: '1' }]
@@ -99,7 +99,8 @@ describe('credential health clinic scope', () => {
       expect.objectContaining({
         key: 'meta-whatsapp',
         configured: true,
-        validation: expect.stringContaining('Access token stored.'),
+        lastObservedAt: '2026-07-26T12:00:00.000Z',
+        validation: 'Clinic WhatsApp (phone-1). Access token stored. Webhook verify token stored.',
       }),
       expect.objectContaining({
         key: 'google-calendar',

@@ -98,11 +98,11 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
           await sql`SELECT 1`
           dbReachable = true
           const whatsappRows = await sql<Array<{
-            account_id: string
-            display_name: string | null
-            access_token_enc: string | null
-            webhook_verify_token: string | null
-            updated_at: string
+            accountId: string
+            displayName: string | null
+            accessTokenEnc: string | null
+            webhookVerifyToken: string | null
+            updatedAt: string
           }>>`
             SELECT account_id, display_name, access_token_enc, webhook_verify_token, updated_at
             FROM channel_accounts
@@ -112,10 +112,10 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
           `
           const active = whatsappRows[0]
           if (active) {
-            activeWhatsAppUpdatedAt = active.updated_at
-            hasActiveWhatsAppToken = Boolean(active.access_token_enc)
-            hasActiveWhatsAppVerifyToken = Boolean(active.webhook_verify_token)
-            activeWhatsAppDisplay = `${active.display_name ?? 'WhatsApp'} (${active.account_id})`
+            activeWhatsAppUpdatedAt = active.updatedAt
+            hasActiveWhatsAppToken = Boolean(active.accessTokenEnc)
+            hasActiveWhatsAppVerifyToken = Boolean(active.webhookVerifyToken)
+            activeWhatsAppDisplay = `${active.displayName ?? 'WhatsApp'} (${active.accountId})`
           }
 
           try {

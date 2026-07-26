@@ -42,6 +42,8 @@ export type BookingStep =
 
 export interface BookingState {
   step: BookingStep
+  /** True after the patient has been shown the clinic's doctor picker. */
+  doctorPrompted?: boolean
   providerId?: string
   doctorName?: string
   specialty?: string | null
@@ -102,8 +104,29 @@ function slotStart(date: string, time: string): string {
   return `${date}T${time}:00`
 }
 
-function listProviderNames(providers: ProviderRef[]): string {
-  return providers.map((p) => p.fullName).join(', ')
+function listProviderOptions(providers: ProviderRef[]): string {
+  return providers
+    .map((provider, index) => {
+      const specialty = provider.specialty ? ` — ${provider.specialty}` : ''
+      return `${index + 1}. ${provider.fullName}${specialty}`
+    })
+    .join('\n')
+}
+
+function doctorPrompt(providers: ProviderRef[], L: Language, retry = false): string {
+  const options = listProviderOptions(providers)
+  if (retry) {
+    return pick(
+      L,
+      `No pude identificar esa opción. Elija un doctor disponible:\n${options}\nResponda con el número o el nombre del doctor.`,
+      `I couldn't match that option. Choose an available doctor:\n${options}\nReply with the number or the doctor's name.`,
+    )
+  }
+  return pick(
+    L,
+    `¿Con cuál de los doctores disponibles desea agendar?\n${options}\nResponda con el número o el nombre del doctor.`,
+    `Which available doctor would you like to see?\n${options}\nReply with the number or the doctor's name.`,
+  )
 }
 
 function listServiceNames(services: ServiceRef[]): string {
@@ -211,18 +234,22 @@ export async function advanceBookingFlow(
           handoff: true,
         }
       }
-      let provider: ProviderRef | null =
-        ctx.providers.find((p) => p.id === state.providerId) ?? matchProvider(message, ctx.providers)
-      if (!provider && ctx.providers.length === 1) provider = ctx.providers[0]!
+      const configuredProvider = ctx.providers.find((p) => p.id === state.providerId)
+      if (configuredProvider) return afterDoctorSelected(configuredProvider, state, L)
 
+      if (!state.doctorPrompted) {
+        return {
+          nextState: { ...state, step: 'confirm_doctor', doctorPrompted: true },
+          reply: doctorPrompt(ctx.providers, L),
+          done: false,
+        }
+      }
+
+      const provider = matchProvider(message, ctx.providers)
       if (!provider) {
         return {
-          nextState: { ...state, step: 'confirm_doctor' },
-          reply: pick(
-            L,
-            `¿Con qué doctor desea agendar? Disponibles: ${listProviderNames(ctx.providers)}.`,
-            `Which doctor would you like to see? Available: ${listProviderNames(ctx.providers)}.`,
-          ),
+          nextState: { ...state, step: 'confirm_doctor', doctorPrompted: true },
+          reply: doctorPrompt(ctx.providers, L, true),
           done: false,
         }
       }

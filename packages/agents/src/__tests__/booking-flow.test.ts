@@ -47,8 +47,15 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     const deps = makeDeps(calendar)
     let state: BookingState = initialBookingState()
 
-    // confirm_doctor (single provider auto-picked) → asks reason
+    // confirm_doctor presents the available-doctor picker.
     let r = await advanceBookingFlow(state, 'quiero una cita', ctx, deps)
+    expect(r.nextState.step).toBe('confirm_doctor')
+    expect(r.reply).toContain('1. Dra. García')
+    expect(r.reply).toContain('Pediatría')
+    state = r.nextState
+
+    // The patient may choose by list number.
+    r = await advanceBookingFlow(state, '1', ctx, deps)
     expect(r.nextState.step).toBe('ask_reason')
     expect(r.nextState.providerId).toBe('prov-1')
     state = r.nextState
@@ -147,7 +154,7 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     }
   })
 
-  it('prompts to choose when multiple providers and none named', async () => {
+  it('lists multiple providers and accepts a numbered doctor choice', async () => {
     const calendar = makeCalendar()
     const deps = makeDeps(calendar)
     const multi: BookingContext = {
@@ -157,10 +164,22 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
         { id: 'prov-2', fullName: 'Dr. López' },
       ],
     }
-    const r = await advanceBookingFlow(initialBookingState(), 'hola', multi, deps)
+    let r = await advanceBookingFlow(initialBookingState(), 'hola', multi, deps)
     expect(r.nextState.step).toBe('confirm_doctor')
-    expect(r.reply).toContain('García')
-    expect(r.reply).toContain('López')
+    expect(r.reply).toContain('1. Dra. García')
+    expect(r.reply).toContain('2. Dr. López')
+
+    r = await advanceBookingFlow(r.nextState, '2', multi, deps)
+    expect(r.nextState.step).toBe('ask_reason')
+    expect(r.nextState.providerId).toBe('prov-2')
+  })
+
+  it('re-prompts when the doctor choice is not recognised', async () => {
+    const deps = makeDeps(makeCalendar())
+    const prompted = await advanceBookingFlow(initialBookingState(), 'hola', ctx, deps)
+    const r = await advanceBookingFlow(prompted.nextState, 'doctor desconocido', ctx, deps)
+    expect(r.nextState.step).toBe('confirm_doctor')
+    expect(r.reply).toContain('1. Dra. García')
   })
 })
 
@@ -282,8 +301,9 @@ describe('per-doctor services (Req 30)', () => {
     const deps = makeDeps(calendar)
     let state: BookingState = initialBookingState()
 
-    // confirm_doctor (single provider auto-picked)
+    // Choose the available doctor before continuing to service/reason.
     let r = await advanceBookingFlow(state, 'quiero una cita', servicesCtx, deps)
+    r = await advanceBookingFlow(r.nextState, '1', servicesCtx, deps)
     state = r.nextState
 
     if (serviceReply !== null) {
@@ -338,6 +358,7 @@ describe('per-doctor services (Req 30)', () => {
     }
     const deps = makeDeps(makeCalendar())
     let r = await advanceBookingFlow(initialBookingState(), 'cita', multiCtx, deps)
+    r = await advanceBookingFlow(r.nextState, '1', multiCtx, deps)
     r = await advanceBookingFlow(r.nextState, 'algo que no existe', multiCtx, deps)
     expect(r.nextState.step).toBe('ask_service')
     expect(r.reply).toContain('Consulta general')

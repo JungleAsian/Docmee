@@ -45,7 +45,7 @@ describe('flow-templates', () => {
     const start = startFlow(def)
     expect(start.awaitingInput).toBe(false)
     expect(start.action).toBe('book')
-    expect(start.messages.join(' ')).toMatch(/profesional.*motivo.*fecha.*hora/i)
+    expect(start.messages.join(' ')).toMatch(/elegir.*doctores disponibles.*motivo.*fecha.*hora/i)
   })
 
   it('review template hands off an unhappy patient and ends a happy one', () => {

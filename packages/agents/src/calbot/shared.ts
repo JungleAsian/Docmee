@@ -185,9 +185,17 @@ export function isNegative(text: string): boolean {
   return words(text).some((w) => NEGATIVE_WORDS.has(w))
 }
 
-/** Match a provider by a (case-insensitive, partial) name mention. */
+/**
+ * Match a provider from a numbered/named menu. The patient may reply with the
+ * list position ("2") or a (partial, case-insensitive) name.
+ */
 export function matchProvider(text: string, providers: ProviderRef[]): ProviderRef | null {
-  const lower = text.toLowerCase()
+  const lower = text.toLowerCase().trim()
+  const num = lower.match(/\b(\d{1,2})\b/)
+  if (num) {
+    const idx = Number(num[1]) - 1
+    if (idx >= 0 && idx < providers.length) return providers[idx]!
+  }
   for (const p of providers) {
     const name = p.fullName.toLowerCase()
     if (lower.includes(name)) return p

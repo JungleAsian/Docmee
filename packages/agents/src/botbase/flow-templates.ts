@@ -29,14 +29,14 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
     name: 'Agendar cita',
     triggerKeywords: ['agendar', 'agenda', 'reservar', 'cita', 'turno', 'appointment', 'book'],
     language: 'both',
-    // The canonical booking state machine owns doctor, reason, date/time,
+    // The canonical booking state machine owns the dynamic doctor picker, reason, date/time,
     // availability, confirmation, appointment creation, and calendar sync. Do not
     // collect a partial intake here: custom-flow variables are not booking state.
     startStepId: 'start_booking',
     steps: [
       {
         id: 'start_booking',
-        messages: ['¡Con gusto te ayudo a agendar una cita! Primero confirmaremos el profesional, el motivo, la fecha y la hora.'],
+        messages: ['¡Con gusto te ayudo a agendar una cita! Primero podrás elegir entre los doctores disponibles; luego confirmaremos el motivo, la fecha y la hora.'],
         next: 'book',
       },
     ],

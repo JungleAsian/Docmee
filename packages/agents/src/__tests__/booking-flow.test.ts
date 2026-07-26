@@ -57,6 +57,8 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     r = await advanceBookingFlow(state, 'control general', ctx, deps)
     expect(r.nextState.step).toBe('ask_date')
     expect(r.nextState.reason).toBe('control general')
+    expect(r.reply).toContain('próximos 5 días')
+    expect(r.reply).not.toContain('¿Qué día prefiere?')
     state = r.nextState
 
     // ask_date → ask_time
@@ -93,6 +95,56 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
       startTime: `${DATE}T10:00:00`,
       googleEventId: 'evt_123',
     })
+  })
+
+  it('shows calendar-derived options for each of the next five days after the reason', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-07-01T12:00:00Z'))
+      const calendar = makeCalendar({
+        listSlots: vi.fn().mockImplementation(async (date: string) => {
+          if (date === '2026-07-02') {
+            return [
+              { start: `${date}T09:00:00`, end: `${date}T09:30:00` },
+              { start: `${date}T09:30:00`, end: `${date}T10:00:00` },
+            ]
+          }
+          if (date === '2026-07-04') {
+            return [{ start: `${date}T11:00:00`, end: `${date}T11:30:00` }]
+          }
+          return []
+        }),
+      })
+      const deps = makeDeps(calendar)
+      const state: BookingState = {
+        step: 'ask_reason',
+        providerId: 'prov-1',
+        doctorName: 'Doctor',
+      }
+      const englishCtx: BookingContext = {
+        ...ctx,
+        language: 'en',
+        clinic: { ...ctx.clinic, timezone: 'UTC' },
+      }
+
+      const r = await advanceBookingFlow(state, 'Routine consultation', englishCtx, deps)
+
+      expect(r.nextState.step).toBe('ask_date')
+      expect(r.reply).toContain('Available options with Doctor during the next 5 days')
+      expect(r.reply).toContain('2026-07-02: 09:00, 09:30')
+      expect(r.reply).toContain('2026-07-04: 11:00')
+      expect(r.reply).not.toContain('Which day do you prefer?')
+      expect(calendar.listSlots).toHaveBeenCalledTimes(5)
+      expect((calendar.listSlots as ReturnType<typeof vi.fn>).mock.calls.map(([date]) => date)).toEqual([
+        '2026-07-02',
+        '2026-07-03',
+        '2026-07-04',
+        '2026-07-05',
+        '2026-07-06',
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('prompts to choose when multiple providers and none named', async () => {

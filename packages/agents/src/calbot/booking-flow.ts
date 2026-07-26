@@ -270,9 +270,41 @@ export async function advanceBookingFlow(
           done: false,
         }
       }
+
+      const provider = ctx.providers.find((p) => p.id === state.providerId)
+      const availability = provider?.availability
+      // Start tomorrow so a late-day request never advertises already-past slots.
+      const startDate = addDays(clinicToday(ctx.clinic.timezone), 1)
+      const availableDays: string[] = []
+
+      for (let i = 0; i < 5; i++) {
+        const date = addDays(startDate, i)
+        if (availability && hasAvailability(availability) && !worksOnDay(availability, date)) continue
+        const freeSlots = await deps.calendar.listSlots(date)
+        const slots = availability ? filterSlotsByAvailability(freeSlots, date, availability) : freeSlots
+        const times = slots.slice(0, 3).map((slot) => slot.start.slice(11, 16))
+        if (times.length > 0) availableDays.push(`${date}: ${times.join(', ')}`)
+      }
+
+      if (availableDays.length === 0) {
+        return {
+          nextState: { ...state, step: 'ask_date', reason },
+          reply: pick(
+            L,
+            `No encontré horarios disponibles con ${state.doctorName ?? 'el doctor'} durante los próximos 5 días. Puede indicar una fecha posterior.`,
+            `I couldn't find any openings with ${state.doctorName ?? 'the doctor'} during the next 5 days. You can enter a later date.`,
+          ),
+          done: false,
+        }
+      }
+
       return {
         nextState: { ...state, step: 'ask_date', reason },
-        reply: pick(L, '¿Qué día prefiere? (ej.: mañana, el lunes o 2026-07-01)', 'Which day do you prefer? (e.g. tomorrow, next Monday, or 2026-07-01)'),
+        reply: pick(
+          L,
+          `Horarios disponibles con ${state.doctorName ?? 'el doctor'} durante los próximos 5 días:\n${availableDays.join('\n')}\nResponda con la fecha que prefiere.`,
+          `Available options with ${state.doctorName ?? 'the doctor'} during the next 5 days:\n${availableDays.join('\n')}\nReply with your preferred date.`,
+        ),
         done: false,
       }
     }

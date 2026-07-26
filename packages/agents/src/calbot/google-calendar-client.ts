@@ -20,6 +20,57 @@ const DAY_END_HOUR = 18 // 18:00
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
+function localParts(value: string): [number, number, number, number, number, number] {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value)
+  if (!match) throw new Error(`Invalid clinic-local date-time: ${value}`)
+  return [
+    Number(match[1]), Number(match[2]), Number(match[3]),
+    Number(match[4]), Number(match[5]), Number(match[6] ?? 0),
+  ]
+}
+
+function formattedParts(instant: Date, timezone: string): [number, number, number, number, number, number] {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value)
+  return [get('year'), get('month'), get('day'), get('hour'), get('minute'), get('second')]
+}
+
+/** Convert a clinic-local wall time to its real instant, rejecting DST gaps. */
+export function zonedDateTimeToInstant(value: string, timezone: string): Date | null {
+  const desired = localParts(value)
+  const desiredWallMs = Date.UTC(
+    desired[0], desired[1] - 1, desired[2], desired[3], desired[4], desired[5],
+  )
+  let instantMs = desiredWallMs
+  for (let pass = 0; pass < 3; pass += 1) {
+    const actual = formattedParts(new Date(instantMs), timezone)
+    const actualWallMs = Date.UTC(
+      actual[0], actual[1] - 1, actual[2], actual[3], actual[4], actual[5],
+    )
+    instantMs += desiredWallMs - actualWallMs
+  }
+  const instant = new Date(instantMs)
+  return formattedParts(instant, timezone).every((part, index) => part === desired[index])
+    ? instant
+    : null
+}
+
+function nextDate(date: string): string {
+  const value = new Date(`${date}T00:00:00Z`)
+  value.setUTCDate(value.getUTCDate() + 1)
+  return value.toISOString().slice(0, 10)
+}
+
 function addLocalMinutes(date: string, time: string, durationMinutes: number): { start: string; end: string } {
   const startMinutes = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))
   const endMinutes = startMinutes + durationMinutes
@@ -118,8 +169,9 @@ async function slotsFromClient(
   timezone: string,
   grid?: BookingGrid,
 ): Promise<TimeSlot[]> {
-  const dayStart = new Date(`${date}T00:00:00`)
-  const dayEnd = new Date(`${date}T23:59:59`)
+  const dayStart = zonedDateTimeToInstant(`${date}T00:00:00`, timezone)
+  const dayEnd = zonedDateTimeToInstant(`${nextDate(date)}T00:00:00`, timezone)
+  if (!dayStart || !dayEnd) throw new Error('Unable to resolve clinic-local calendar day')
   const { data } = await calendar.events.list({
     calendarId,
     timeMin: dayStart.toISOString(),
@@ -140,8 +192,9 @@ export async function listAvailableSlots(
   grid?: BookingGrid,
 ): Promise<TimeSlot[]> {
   const calendar = await authedCalendar(accessToken, refreshToken)
-  const dayStart = new Date(`${date}T00:00:00`)
-  const dayEnd = new Date(`${date}T23:59:59`)
+  const dayStart = zonedDateTimeToInstant(`${date}T00:00:00`, timezone)
+  const dayEnd = zonedDateTimeToInstant(`${nextDate(date)}T00:00:00`, timezone)
+  if (!dayStart || !dayEnd) throw new Error('Unable to resolve clinic-local calendar day')
 
   const { data } = await calendar.events.list({
     calendarId,
@@ -223,7 +276,7 @@ export const DEFAULT_BOOKING_GRID: BookingGrid = {
 export function computeFreeSlots(
   events: RawEvent[],
   date: string,
-  _timezone: string,
+  timezone: string,
   grid: BookingGrid = DEFAULT_BOOKING_GRID,
 ): TimeSlot[] {
   const slots: TimeSlot[] = []
@@ -238,11 +291,15 @@ export function computeFreeSlots(
     const start = `${date}T${pad(Math.floor(startMin / 60))}:${pad(startMin % 60)}:00`
     const end = `${date}T${pad(Math.floor(endMin / 60))}:${pad(endMin % 60)}:00`
 
+    const slotStart = zonedDateTimeToInstant(start, timezone)
+    const slotEnd = zonedDateTimeToInstant(end, timezone)
+    if (!slotStart || !slotEnd) continue
+
     const conflict = events.some((ev) => {
       const evStart = ev.start?.dateTime
       const evEnd = ev.end?.dateTime
       if (!evStart || !evEnd) return false
-      return new Date(evStart) < new Date(end) && new Date(evEnd) > new Date(start)
+      return new Date(evStart) < slotEnd && new Date(evEnd) > slotStart
     })
 
     if (!conflict) slots.push({ start, end })

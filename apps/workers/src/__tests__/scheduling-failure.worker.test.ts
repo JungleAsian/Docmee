@@ -21,7 +21,7 @@ const h = vi.hoisted(() => ({
   listDoctors: vi.fn(),
   createError: vi.fn(),
   createMessage: vi.fn(),
-  markDelivered: vi.fn(),
+  markProviderAccepted: vi.fn(),
   markSendFailed: vi.fn(),
   end: vi.fn(),
 }))
@@ -70,7 +70,7 @@ vi.mock('@docmee/db', () => ({
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
   createMessagesRepository: () => ({
     create: h.createMessage,
-    markDelivered: h.markDelivered,
+    markProviderAccepted: h.markProviderAccepted,
     markSendFailed: h.markSendFailed,
   }),
   createDoctorsRepository: () => ({ listByClinic: h.listDoctors }),
@@ -146,7 +146,7 @@ describe('processSchedulingJob — calendar failure (Req 29)', () => {
         metadata: expect.objectContaining({ outboundAttempt: true }),
       }),
     )
-    expect(h.markDelivered).toHaveBeenCalledWith(CLINIC, 'm1', 'wamid.reply')
+    expect(h.markProviderAccepted).toHaveBeenCalledWith(CLINIC, 'm1', 'wamid.reply')
     // And the conversation is handed off to a human.
     expect(h.notificationAdd).toHaveBeenCalledWith(
       'notify',

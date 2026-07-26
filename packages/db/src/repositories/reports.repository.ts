@@ -108,7 +108,8 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
         UPDATE generated_reports
         SET emailed = ${emailed},
             delivery_status = ${emailed ? 'sent' : 'failed'},
-            delivery_diagnostic = ${emailed ? null : deliveryDiagnostic}
+            delivery_diagnostic = ${emailed ? null : deliveryDiagnostic},
+            delivery_claimed_at = NULL
         WHERE id = ${id}
       `
     },
@@ -116,8 +117,20 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
     async claimEmailDelivery(id) {
       const rows = await sql<{ id: string }[]>`
         UPDATE generated_reports
-        SET delivery_status = 'sending'
-        WHERE id = ${id} AND delivery_status IN ('pending', 'failed')
+        SET delivery_status = 'sending',
+            delivery_claimed_at = NOW(),
+            delivery_attempts = delivery_attempts + 1
+        WHERE id = ${id}
+          AND (
+            delivery_status IN ('pending', 'failed')
+            OR (
+              delivery_status = 'sending'
+              AND (
+                delivery_claimed_at IS NULL
+                OR delivery_claimed_at < NOW() - INTERVAL '5 minutes'
+              )
+            )
+          )
         RETURNING id
       `
       return rows.length === 1

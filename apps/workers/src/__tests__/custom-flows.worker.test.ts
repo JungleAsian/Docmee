@@ -24,7 +24,7 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
-  markDelivered: vi.fn(),
+  markProviderAccepted: vi.fn(),
   markSendFailed: vi.fn(),
   listMessages: vi.fn(),
   end: vi.fn(),
@@ -75,7 +75,7 @@ vi.mock('@docmee/db', () => ({
   }),
   createMessagesRepository: () => ({
     create: h.createMessage,
-    markDelivered: h.markDelivered,
+    markProviderAccepted: h.markProviderAccepted,
     markSendFailed: h.markSendFailed,
     listByConversation: h.listMessages,
   }),
@@ -127,7 +127,7 @@ beforeEach(() => {
   h.chatComplete.mockResolvedValue('{"option":"option_0","confidence":0.95}')
   h.createTag.mockResolvedValue({ id: 'tag1' })
   h.createMessage.mockResolvedValue({ id: 'm1' })
-  h.markDelivered.mockResolvedValue(undefined)
+  h.markProviderAccepted.mockResolvedValue(undefined)
   h.markSendFailed.mockResolvedValue(undefined)
   h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   h.listMessages.mockResolvedValue([])

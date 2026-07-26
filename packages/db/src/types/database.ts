@@ -529,6 +529,9 @@ export interface NotificationEvent {
   alertType: string | null
   priority: string | null
   acknowledgedAt: string | null
+  idempotencyKey?: string | null
+  deliveryClaimedAt?: string | null
+  deliveryAttempts?: number
   metadata: Record<string, unknown>
   createdAt: string
 }
@@ -690,6 +693,8 @@ export interface GeneratedReport {
   deliveryStatus?: 'pending' | 'sending' | 'failed' | 'sent'
   /** A bounded category, never a raw provider response, credential, or recipient. */
   deliveryDiagnostic?: string | null
+  deliveryClaimedAt?: string | null
+  deliveryAttempts?: number
   createdAt: string
 }
 

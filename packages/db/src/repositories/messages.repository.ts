@@ -26,8 +26,8 @@ export interface MessagesRepository {
   listByConversation(clinicId: string, conversationId: string): Promise<ConversationMessage[]>
   listByConversationSince(clinicId: string, conversationId: string, since: string): Promise<ConversationMessage[]>
   create(data: CreateMessageInput): Promise<ConversationMessage>
-  /** Record synchronous provider acceptance before asynchronous delivery receipts arrive. */
-  markDelivered(clinicId: string, id: string, channelMessageId?: string | null): Promise<void>
+  /** Persist synchronous provider acceptance without manufacturing an asynchronous receipt. */
+  markProviderAccepted(clinicId: string, id: string, channelMessageId: string): Promise<void>
   /** Record a locally blocked or provider-rejected outbound attempt. */
   markSendFailed(clinicId: string, id: string, error: string): Promise<void>
   /**
@@ -149,18 +149,18 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
       return msg
     },
 
-    async markDelivered(clinicId, id, channelMessageId = null) {
-      if (channelMessageId) {
-        await sql`
-          UPDATE conversation_messages
-          SET channel_message_id = ${channelMessageId}
-          WHERE clinic_id = ${clinicId} AND id = ${id}
-        `
-      }
-      await sql`
-        INSERT INTO message_delivery_events (message_id, clinic_id, channel_message_id, status)
-        VALUES (${id}, ${clinicId}, ${channelMessageId}, 'sent')
+    async markProviderAccepted(clinicId, id, channelMessageId) {
+      const rows = await sql<{ id: string }[]>`
+        UPDATE conversation_messages
+        SET channel_message_id = ${channelMessageId},
+            metadata = COALESCE(metadata, '{}'::jsonb) || ${sql.json(toJson({
+              providerAccepted: true,
+              providerAcceptedAt: new Date().toISOString(),
+        }))}
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+        RETURNING id
       `
+      if (rows.length !== 1) throw new Error('Outbound attempt not found')
     },
 
     async markSendFailed(clinicId, id, error) {

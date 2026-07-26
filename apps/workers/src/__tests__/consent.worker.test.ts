@@ -22,7 +22,7 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
-  markDelivered: vi.fn(),
+  markProviderAccepted: vi.fn(),
   markSendFailed: vi.fn(),
   createError: vi.fn(),
   enqueueWorkflowRuns: vi.fn(),
@@ -76,7 +76,7 @@ vi.mock('@docmee/db', () => ({
   }),
   createMessagesRepository: () => ({
     create: h.createMessage,
-    markDelivered: h.markDelivered,
+    markProviderAccepted: h.markProviderAccepted,
     markSendFailed: h.markSendFailed,
   }),
   createWorkflowsRepository: () => ({ listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
@@ -114,7 +114,7 @@ beforeEach(() => {
   h.classifyIntent.mockResolvedValue('general_question')
   h.createTag.mockResolvedValue({ id: 'tag1' })
   h.createMessage.mockResolvedValue({ id: 'm1' })
-  h.markDelivered.mockResolvedValue(undefined)
+  h.markProviderAccepted.mockResolvedValue(undefined)
   h.markSendFailed.mockResolvedValue(undefined)
   h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   h.createError.mockResolvedValue({ id: 'e1' })
@@ -203,6 +203,6 @@ describe('processAgentJob — Meta send-error logging (Req 19/29)', () => {
       'm1',
       'WhatsApp send failed 401: token expired',
     )
-    expect(h.markDelivered).not.toHaveBeenCalled()
+    expect(h.markProviderAccepted).not.toHaveBeenCalled()
   })
 })

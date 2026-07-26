@@ -21,8 +21,9 @@ const h = vi.hoisted(() => ({
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
-  markDelivered: vi.fn(),
+  markProviderAccepted: vi.fn(),
   markSendFailed: vi.fn(),
+  createErrorReview: vi.fn(),
   enqueueWorkflowRuns: vi.fn(),
   end: vi.fn(),
 }))
@@ -68,7 +69,7 @@ vi.mock('@docmee/db', () => ({
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
   createPatientsRepository: () => ({ findById: h.findPatient }),
   createKnowledgeRepository: () => ({ listEmbeddedChunks: h.listEmbeddedChunks }),
-  createErrorReviewsRepository: () => ({ create: vi.fn().mockResolvedValue(undefined) }),
+  createErrorReviewsRepository: () => ({ create: h.createErrorReview }),
   createConversationsRepository: () => ({
     findById: h.findConversation,
     update: h.updateConversation,
@@ -77,7 +78,7 @@ vi.mock('@docmee/db', () => ({
   }),
   createMessagesRepository: () => ({
     create: h.createMessage,
-    markDelivered: h.markDelivered,
+    markProviderAccepted: h.markProviderAccepted,
     markSendFailed: h.markSendFailed,
     listByConversation: vi.fn().mockResolvedValue([]),
   }),
@@ -104,8 +105,9 @@ const baseJob = {
 beforeEach(() => {
   vi.clearAllMocks()
   h.sendWhatsAppText.mockReset().mockResolvedValue('wamid.reply')
-  h.markDelivered.mockReset().mockResolvedValue(undefined)
+  h.markProviderAccepted.mockReset().mockResolvedValue(undefined)
   h.markSendFailed.mockReset().mockResolvedValue(undefined)
+  h.createErrorReview.mockReset().mockResolvedValue(undefined)
   h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinica', settings: {}, timezone: 'America/Mexico_City' })
   h.listAccounts.mockResolvedValue([
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' },
@@ -224,7 +226,7 @@ describe('processAgentJob — outbound reply persistence (Req 4)', () => {
     const [msgInput] = h.createMessage.mock.calls[0]
     expect(msgInput).toMatchObject({ conversationId: CONVO, clinicId: CLINIC, role: 'assistant' })
     expect(typeof msgInput.content).toBe('string')
-    expect(h.markDelivered).toHaveBeenCalledWith(CLINIC, 'm1', 'wamid.reply')
+    expect(h.markProviderAccepted).toHaveBeenCalledWith(CLINIC, 'm1', 'wamid.reply')
   })
 
   it('records provider rejection against the persisted outbound attempt', async () => {
@@ -237,22 +239,43 @@ describe('processAgentJob — outbound reply persistence (Req 4)', () => {
 
     expect(h.createMessage).toHaveBeenCalledTimes(1)
     expect(h.markSendFailed).toHaveBeenCalledWith(CLINIC, 'm1', 'Meta rejected payload')
-    expect(h.markDelivered).not.toHaveBeenCalled()
+    expect(h.markProviderAccepted).not.toHaveBeenCalled()
   })
 
-  it('does not persist a reply when the job carries no conversation id', async () => {
-    h.findConversation.mockResolvedValue(null)
-    await processAgentJob(
-      makeJob({
-        clinicId: CLINIC,
-        channel: 'whatsapp' as const,
-        patientWaId: '5215555555555',
-        message: 'no puedo respirar, ayuda',
-        waMessageId: 'wamid.ABC',
-      }),
-    )
+  it('never resends when Meta accepted but provider acceptance persistence fails', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.markProviderAccepted.mockRejectedValue(new Error('database unavailable'))
+
+    await expect(
+      processAgentJob(makeJob({ ...baseJob, message: 'no puedo respirar, ayuda' })),
+    ).resolves.toBeUndefined()
 
     expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.markProviderAccepted).toHaveBeenCalledTimes(3)
+    expect(h.markSendFailed).not.toHaveBeenCalled()
+    expect(h.createErrorReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorType: 'provider_acceptance_persistence_failure',
+        context: expect.objectContaining({ providerMessageId: 'wamid.reply' }),
+      }),
+    )
+  })
+
+  it('fails closed before transport when the job carries no durable conversation id', async () => {
+    h.findConversation.mockResolvedValue(null)
+    await expect(
+      processAgentJob(
+        makeJob({
+          clinicId: CLINIC,
+          channel: 'whatsapp' as const,
+          patientWaId: '5215555555555',
+          message: 'no puedo respirar, ayuda',
+          waMessageId: 'wamid.ABC',
+        }),
+      ),
+    ).rejects.toThrow('conversation is not durable')
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.createMessage).not.toHaveBeenCalled()
   })
 })

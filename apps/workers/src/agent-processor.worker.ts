@@ -490,28 +490,25 @@ export async function processAgentJob(job: Job): Promise<void> {
     // message so the inbox thread shows the bot's side. Wrapping the single send
     // transport captures ALL reply paths ? emergency reassurance, handoff ack,
     // custom-flow scripts, outside-hours collection and the botbase LLM answer ?
-    // without threading persistence through each branch. Best-effort: a storage
-    // failure is logged but never blocks delivery. The attempt is persisted before
+    // without threading persistence through each branch. The attempt is persisted before
     // transport so provider acceptance or rejection can be correlated to one row.
     const messages = createMessagesRepository(sql)
     const sendReply: ((text: string) => Promise<void>) | null = rawSendReply
       ? async (text: string) => {
-          const attempt = data.conversationId
-            ? await messages.create({
-                conversationId: data.conversationId,
-                clinicId: data.clinicId,
-                role: 'assistant',
-                content: text,
-                metadata: {
-                  outboundAttempt: true,
-                  sourceWaMessageId: data.waMessageId,
-                  providerAccepted: false,
-                },
-              }).catch((err) => {
-                console.error('[agent] failed to persist outbound attempt:', err)
-                return null
-              })
-            : null
+          if (!data.conversationId) {
+            throw new Error('Outbound delivery blocked: conversation is not durable')
+          }
+          const attempt = await messages.create({
+            conversationId: data.conversationId,
+            clinicId: data.clinicId,
+            role: 'assistant',
+            content: text,
+            metadata: {
+              outboundAttempt: true,
+              sourceWaMessageId: data.waMessageId,
+              providerAccepted: false,
+            },
+          })
           // Meta error logs (Req 19/29): a channel send failure (expired/invalid
           // token, rate limit, malformed request) is recorded to error_reviews as
           // `meta_send_failure` for the Error Review area, then swallowed so a
@@ -521,23 +518,19 @@ export async function processAgentJob(job: Job): Promise<void> {
           let channelMessageId: string | null = null
           try {
             channelMessageId = await rawSendReply(text)
-            if (attempt) {
-              await messages.markDelivered(data.clinicId, attempt.id, channelMessageId)
-            }
+            if (!channelMessageId) throw new Error('Provider accepted no message identifier')
           } catch (err) {
             console.error('[agent] Meta send failed:', err)
             const diagnostic = err instanceof Error ? err.message : String(err)
-            if (attempt) {
-              await messages.markSendFailed(data.clinicId, attempt.id, diagnostic)
-                .catch((logErr) => console.error('[agent] failed to record send failure:', logErr))
-            }
+            await messages.markSendFailed(data.clinicId, attempt.id, diagnostic)
+              .catch((logErr) => console.error('[agent] failed to record send failure:', logErr))
             await errorReviews
               .create({
                 clinicId: data.clinicId,
                 errorType: 'meta_send_failure',
                 errorMessage: diagnostic,
                 context: {
-                  outboundMessageId: attempt?.id,
+                  outboundMessageId: attempt.id,
                   conversationId: data.conversationId,
                   channel: data.channel,
                   recipient: data.patientWaId,
@@ -546,6 +539,31 @@ export async function processAgentJob(job: Job): Promise<void> {
               })
               .catch((logErr) => console.error('[agent] failed to log Meta send error:', logErr))
             return
+          }
+          let acceptanceError: unknown
+          for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
+            try {
+              await messages.markProviderAccepted(data.clinicId, attempt.id, channelMessageId)
+              acceptanceError = undefined
+              break
+            } catch (err) {
+              acceptanceError = err
+              console.error(`[agent] provider acceptance persistence failed (${attemptNumber}/3):`, err)
+            }
+          }
+          if (acceptanceError) {
+            const diagnostic = acceptanceError instanceof Error ? acceptanceError.message : String(acceptanceError)
+            await errorReviews.create({
+              clinicId: data.clinicId,
+              errorType: 'provider_acceptance_persistence_failure',
+              errorMessage: diagnostic,
+              context: {
+                outboundMessageId: attempt.id,
+                conversationId: data.conversationId,
+                channel: data.channel,
+                providerMessageId: channelMessageId,
+              },
+            }).catch((logErr) => console.error('[agent] failed to log acceptance persistence error:', logErr))
           }
         }
       : null
@@ -608,6 +626,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         clinicId: data.clinicId,
         conversationId: data.conversationId,
         reason: 'emergency',
+        idempotencyKey: `emergency:${data.conversationId ?? 'none'}:${data.waMessageId}`,
       })
       return
     }
@@ -784,7 +803,11 @@ export async function processAgentJob(job: Job): Promise<void> {
             route.reason === 'emergency' ? 'emergency' : 'patient_request',
           )
         }
-        await notificationQueue.add('notify', { ...data, reason: route.reason })
+        await notificationQueue.add('notify', {
+          ...data,
+          reason: route.reason,
+          idempotencyKey: `${route.reason}:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+        })
         break
 
       case 'silence':

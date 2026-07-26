@@ -13,6 +13,13 @@ export interface SendEmailParams {
 
 export type SendEmailFn = (params: SendEmailParams) => Promise<void>
 
+export class EmailProviderRejectedError extends Error {
+  constructor() {
+    super('Email provider rejected delivery')
+    this.name = 'EmailProviderRejectedError'
+  }
+}
+
 let client: Resend | null = null
 
 function getClient(): Resend {
@@ -25,10 +32,11 @@ function getClient(): Resend {
 export async function sendEmail(params: SendEmailParams): Promise<void> {
   if (process.env['LLM_STUB'] === 'true') return // skip real delivery in tests
 
-  await getClient().emails.send({
+  const result = await getClient().emails.send({
     from: params.from ?? process.env['EMAIL_FROM'] ?? 'notifications@docmee.app',
     to: params.to,
     subject: params.subject,
     html: params.html,
   }, params.idempotencyKey ? { headers: { 'Idempotency-Key': params.idempotencyKey } } : undefined)
+  if (result.error || !result.data?.id) throw new EmailProviderRejectedError()
 }

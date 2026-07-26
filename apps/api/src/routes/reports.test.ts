@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 
 // buildApp wires every route; stub the workspace deps so no real Redis/DB/Google loads.
+const reportsAdd = vi.hoisted(() => vi.fn())
 vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
+  reportsQueue: { add: reportsAdd },
 }))
 vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
 vi.mock('@docmee/shared', () => ({
@@ -94,5 +96,25 @@ describe('Automatic reports routes (Req 37)', () => {
       headers: { authorization: `Bearer ${studioToken}` },
     })
     expect(res.statusCode).toBe(404)
+  })
+  it('gives each controlled retry a unique queue job while keeping the report stable', async () => {
+    reportsAdd.mockClear()
+    const request = { method: 'POST' as const, url: '/clinics/c-1/reports/r-1/retry', headers: adminAuth }
+    const first = await app.inject(request)
+    const second = await app.inject(request)
+
+    expect(first.statusCode).toBe(202)
+    expect(second.statusCode).toBe(202)
+    const firstJobId = JSON.parse(first.body).jobId as string
+    const secondJobId = JSON.parse(second.body).jobId as string
+    expect(firstJobId).toMatch(/^controlled-report-retry-r-1-/)
+    expect(secondJobId).toMatch(/^controlled-report-retry-r-1-/)
+    expect(secondJobId).not.toBe(firstJobId)
+    expect(reportsAdd).toHaveBeenNthCalledWith(
+      1,
+      'retry-report',
+      expect.objectContaining({ reportId: 'r-1', clearHistoricalFailures: true }),
+      { jobId: firstJobId },
+    )
   })
 })

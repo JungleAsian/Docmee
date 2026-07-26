@@ -402,6 +402,33 @@ describe('per-doctor services (Req 30)', () => {
     expect(result.handoff).toBe(true)
     expect(result.reply).toContain('no tiene servicios habilitados')
   })
+
+  it('revalidates the doctor and enabled service immediately before confirmation', async () => {
+    const calendar = makeCalendar()
+    const deps = makeDeps(calendar)
+    const state: BookingState = {
+      step: 'confirm_details',
+      providerId: 'prov-1',
+      doctorName: 'Dra. García',
+      serviceId: 's1',
+      serviceName: 'Consulta general',
+      serviceDurationMinutes: 30,
+      preferredDate: DATE,
+      preferredTime: '10:00',
+      confirmedSlot: {
+        start: `${DATE}T10:00:00`,
+        end: `${DATE}T10:30:00`,
+      },
+    }
+    const disabledCtx: BookingContext = { ...ctx, providers: [] }
+    const result = await advanceBookingFlow(state, 'sí', disabledCtx, deps)
+
+    expect(result.done).toBe(false)
+    expect(result.nextState.step).toBe('confirm_doctor')
+    expect(result.reply).toContain('ya no está disponible')
+    expect(calendar.createEvent).not.toHaveBeenCalled()
+    expect(deps.saveAppointment).not.toHaveBeenCalled()
+  })
 })
 
 describe('double-booking protection', () => {

@@ -5,7 +5,7 @@ import type { NotificationsRepository } from '@docmee/db'
 
 export function buildNotificationStore(notifications: NotificationsRepository): NotificationStore {
   return {
-    create: async (input) => {
+    claim: async (input) => {
       const data = {
         clinicId: input.clinicId,
         conversationId: input.conversationId ?? null,
@@ -18,14 +18,14 @@ export function buildNotificationStore(notifications: NotificationsRepository): 
         status: input.status,
       }
       if (input.idempotencyKey) {
-        const result = await notifications.createOnce({
+        const result = await notifications.claimOnce({
           ...data,
           idempotencyKey: input.idempotencyKey,
         })
-        return { id: result.event.id, created: result.created }
+        return { id: result.event.id, claimed: result.claimed }
       }
       const row = await notifications.create(data)
-      return { id: row.id, created: true }
+      return { id: row.id, claimed: true }
     },
     updateStatus: (id, status, error) => notifications.updateStatus(id, status, error),
   }

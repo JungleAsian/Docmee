@@ -31,7 +31,7 @@ export interface DispatchNotificationParams {
 
 /** Persistence the dispatcher needs — supplied by the worker (backed by @docmee/db). */
 export interface NotificationStore {
-  create(input: {
+  claim(input: {
     clinicId: string
     conversationId?: string | null
     alertType: NotificationType
@@ -43,7 +43,7 @@ export interface NotificationStore {
     content: string
     status: 'pending'
     idempotencyKey?: string
-  }): Promise<{ id: string; created?: boolean }>
+  }): Promise<{ id: string; claimed: boolean }>
   updateStatus(id: string, status: 'sent' | 'failed', error?: string | null): Promise<void>
 }
 
@@ -119,7 +119,7 @@ export async function dispatchNotification(
   const route = routeNotification(priority, params.recipientOnline, params.emailAllowed ?? true)
   const { subject, html } = buildNotificationEmail(params.type, params.data ?? {})
 
-  const saved = await deps.store.create({
+  const saved = await deps.store.claim({
     clinicId: params.clinicId,
     conversationId: params.conversationId ?? null,
     alertType: params.type,
@@ -131,7 +131,7 @@ export async function dispatchNotification(
     status: 'pending',
     ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
   })
-  if (saved.created === false) return
+  if (!saved.claimed) return
 
   // Mobile push (Req 39) fires on every alert, independent of email-vs-panel
   // routing, so an away secretary is reached on their phone. Best-effort.
@@ -146,7 +146,12 @@ export async function dispatchNotification(
   }
 
   try {
-    await send({ to: params.recipientEmail, subject, html })
+    await send({
+      to: params.recipientEmail,
+      subject,
+      html,
+      ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+    })
     await deps.store.updateStatus(saved.id, 'sent')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

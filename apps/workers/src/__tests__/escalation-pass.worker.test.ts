@@ -28,9 +28,9 @@ function staleP1Alert(overrides: Partial<NotificationEvent> = {}): NotificationE
 function makeStore(): { store: NotificationStore; created: Array<Record<string, unknown>> } {
   const created: Array<Record<string, unknown>> = []
   const store: NotificationStore = {
-    create: vi.fn(async (input) => {
+    claim: vi.fn(async (input) => {
       created.push(input)
-      return { id: `n${created.length}` }
+      return { id: `n${created.length}`, claimed: true }
     }),
     updateStatus: vi.fn(async () => {}),
   }

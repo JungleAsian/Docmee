@@ -5,6 +5,7 @@
 // clinic_admin / ia_studio_admin, own clinic only.
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { createClinicsRepository, createReportsRepository } from '@docmee/db'
 import { reportsQueue } from '@docmee/queue'
 import { withDb } from '../lib/db.js'
@@ -109,7 +110,7 @@ const reportsRoute: FastifyPluginAsync = async (app) => {
       )
       if (!report) return reply.code(404).send({ error: 'Report not found' })
       if (!report.recipientEmail) return reply.code(409).send({ error: 'Report has no configured recipient' })
-      const jobId = `controlled-report-retry-${report.id}`
+      const jobId = `controlled-report-retry-${report.id}-${randomUUID()}`
       await reportsQueue.add('retry-report', {
         action: 'retry-report',
         clinicId,

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { computeFreeSlots, DEFAULT_BOOKING_GRID } from '../calbot/google-calendar-client.js'
+import {
+  computeFreeSlots,
+  DEFAULT_BOOKING_GRID,
+  zonedDateTimeToInstant,
+} from '../calbot/google-calendar-client.js'
 
 const TZ = 'America/Guatemala'
 
@@ -19,10 +23,25 @@ describe('computeFreeSlots — configurable grid (CRE-47)', () => {
   })
 
   it('excludes slots overlapping an existing event', () => {
-    const events = [{ start: { dateTime: '2026-07-01T09:00:00' }, end: { dateTime: '2026-07-01T09:30:00' } }]
+    const events = [{ start: { dateTime: '2026-07-01T09:00:00-06:00' }, end: { dateTime: '2026-07-01T09:30:00-06:00' } }]
     const slots = computeFreeSlots(events, '2026-07-01', TZ)
     expect(slots.find((s) => s.start === '2026-07-01T09:00:00')).toBeUndefined()
     expect(slots.length).toBe(17)
+  })
+
+  it('compares provider events as instants when the worker and clinic zones differ', () => {
+    const events = [{
+      start: { dateTime: '2026-07-01T13:00:00Z' },
+      end: { dateTime: '2026-07-01T13:30:00Z' },
+    }]
+    const slots = computeFreeSlots(events, '2026-07-01', 'America/New_York')
+    expect(slots.find((slot) => slot.start === '2026-07-01T09:00:00')).toBeUndefined()
+  })
+
+  it('rejects clinic-local wall times that do not exist across a DST jump', () => {
+    expect(zonedDateTimeToInstant('2026-03-08T02:30:00', 'America/New_York')).toBeNull()
+    expect(zonedDateTimeToInstant('2026-03-08T03:30:00', 'America/New_York')?.toISOString())
+      .toBe('2026-03-08T07:30:00.000Z')
   })
 
   it('DEFAULT_BOOKING_GRID matches the legacy 9–18/30 grid', () => {

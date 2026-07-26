@@ -231,32 +231,62 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
     const messages = createMessagesRepository(sql)
     const reply = async (text: string): Promise<string | null> => {
-      const attempt = data.conversationId
-        ? await messages.create({
-            conversationId: data.conversationId,
-            clinicId: data.clinicId,
-            role: 'assistant',
-            content: text,
-            metadata: {
-              outboundAttempt: true,
-              sourceWaMessageId: data.waMessageId,
-              providerAccepted: false,
-            },
-          }).catch((error) => {
-            console.error('[scheduling] failed to persist outbound attempt', error)
-            return null
-          })
-        : null
+      if (!data.conversationId) {
+        throw new Error('Outbound delivery blocked: conversation is not durable')
+      }
+      const attempt = await messages.create({
+        conversationId: data.conversationId,
+        clinicId: data.clinicId,
+        role: 'assistant',
+        content: text,
+        metadata: {
+          outboundAttempt: true,
+          sourceWaMessageId: data.waMessageId,
+          providerAccepted: false,
+        },
+      })
       try {
         const channelMessageId = await sendReply(text)
-        if (attempt) await messages.markDelivered(data.clinicId, attempt.id, channelMessageId)
+        if (!channelMessageId) throw new Error('Provider accepted no message identifier')
+        let acceptanceError: unknown
+        for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
+          try {
+            await messages.markProviderAccepted(data.clinicId, attempt.id, channelMessageId)
+            acceptanceError = undefined
+            break
+          } catch (error) {
+            acceptanceError = error
+            console.error(`[scheduling] provider acceptance persistence failed (${attemptNumber}/3)`, error)
+          }
+        }
+        if (acceptanceError) {
+          console.error('[scheduling] provider accepted send but acceptance could not be persisted', {
+            clinicId: data.clinicId,
+            conversationId: data.conversationId,
+            outboundMessageId: attempt.id,
+            providerMessageId: channelMessageId,
+          })
+          const diagnostic = acceptanceError instanceof Error
+            ? acceptanceError.message
+            : String(acceptanceError)
+          await createErrorReviewsRepository(sql).create({
+            clinicId: data.clinicId,
+            errorType: 'provider_acceptance_persistence_failure',
+            errorMessage: diagnostic,
+            context: {
+              outboundMessageId: attempt.id,
+              conversationId: data.conversationId,
+              providerMessageId: channelMessageId,
+            },
+          }).catch((logError) => {
+            console.error('[scheduling] failed to log acceptance persistence error', logError)
+          })
+        }
         return channelMessageId
       } catch (error) {
         const diagnostic = error instanceof Error ? error.message : String(error)
-        if (attempt) {
-          await messages.markSendFailed(data.clinicId, attempt.id, diagnostic)
-            .catch((logError) => console.error('[scheduling] failed to record send failure', logError))
-        }
+        await messages.markSendFailed(data.clinicId, attempt.id, diagnostic)
+          .catch((logError) => console.error('[scheduling] failed to record send failure', logError))
         throw error
       }
     }
@@ -425,32 +455,6 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         const doctors = await createDoctorsRepository(sql).listByClinic(data.clinicId)
         const doctorMode = doctors.length > 0
 
-        let bookingCalendar: CalendarOps | null = calendar
-        if (doctorMode && state.providerId) {
-          const doctor = doctors.find((d) => d.id === state.providerId)
-          const docCal = doctor ? getDoctorCalendarConfig(doctor) : null
-          bookingCalendar = docCal && doctor
-            ? createGoogleCalendarOps({
-                ...docCal,
-                timezone: clinic.timezone,
-                grid: parseBookingGrid(clinic.settings),
-                onTokensRefreshed: persistDoctorTokens(sql, data.clinicId, doctor.id),
-              })
-            : calendar
-        }
-
-        // A calendar is required once we have a selection (or in legacy provider mode);
-        // before a doctor is picked it isn't touched, so we can proceed without one.
-        if (!bookingCalendar && (state.providerId || !doctorMode)) {
-          await reply(calendarUnavailable(language))
-          await notificationQueue.add('notify', {
-            ...data,
-            reason: 'human_handoff',
-            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
-          })
-          break
-        }
-
         // Req 30: each doctor carries their own working hours AND the services they
         // offer; the chosen service's duration sets the appointment slot length. The
         // doctor-services repo is only touched in doctor mode (legacy providers have
@@ -474,6 +478,37 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               return configured.filter((doctor) => (doctor.services?.length ?? 0) > 0)
             })()
           : providers.map(toProviderRef)
+
+        const selectedResource = state.providerId
+          ? resourceList.find((provider) => provider.id === state.providerId)
+          : null
+        let bookingCalendar: CalendarOps | null = calendar
+        if (doctorMode && state.providerId) {
+          const doctor = selectedResource
+            ? doctors.find((candidate) => candidate.id === selectedResource.id)
+            : null
+          const docCal = doctor ? getDoctorCalendarConfig(doctor) : null
+          bookingCalendar = docCal && doctor
+            ? createGoogleCalendarOps({
+                ...docCal,
+                timezone: clinic.timezone,
+                grid: parseBookingGrid(clinic.settings),
+                onTokensRefreshed: persistDoctorTokens(sql, data.clinicId, doctor.id),
+              })
+            : null
+        }
+
+        // A selected doctor must still be active, have enabled services, and own
+        // a usable calendar. Never silently fall back to another calendar.
+        if ((!selectedResource && state.providerId) || (!bookingCalendar && (state.providerId || !doctorMode))) {
+          await reply(calendarUnavailable(language))
+          await notificationQueue.add('notify', {
+            ...data,
+            reason: 'human_handoff',
+            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+          })
+          break
+        }
 
         const result = await advanceBookingFlow(state, data.message, {
           language,

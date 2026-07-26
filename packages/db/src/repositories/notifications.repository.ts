@@ -25,6 +25,10 @@ export interface NotificationsRepository {
     event: NotificationEvent
     created: boolean
   }>
+  claimOnce(data: CreateNotificationInput & { idempotencyKey: string }): Promise<{
+    event: NotificationEvent
+    claimed: boolean
+  }>
   /** Most recent notifications for a clinic, newest first. */
   listByClinic(clinicId: string, limit?: number): Promise<NotificationEvent[]>
   /** Most recent platform-wide notifications, newest first. Superuser-only at route level. */
@@ -109,6 +113,53 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
       return { event: existing[0]!, created: false }
     },
 
+    async claimOnce(data) {
+      const rows = await sql<NotificationEvent[]>`
+        INSERT INTO notification_events
+          (clinic_id, notification_type, alert_type, priority, recipient, subject, content,
+           conversation_id, status, metadata, idempotency_key, delivery_claimed_at, delivery_attempts)
+        VALUES (
+          ${data.clinicId ?? null},
+          ${data.notificationType ?? 'email'},
+          ${data.alertType},
+          ${data.priority ?? null},
+          ${data.recipient},
+          ${data.subject ?? null},
+          ${data.content},
+          ${data.conversationId ?? null},
+          'pending',
+          ${sql.json(toJson(data.metadata ?? {}))},
+          ${data.idempotencyKey},
+          NOW(),
+          1
+        )
+        ON CONFLICT (clinic_id, idempotency_key)
+          WHERE clinic_id IS NOT NULL AND idempotency_key IS NOT NULL
+        DO UPDATE SET
+          delivery_claimed_at = NOW(),
+          delivery_attempts = notification_events.delivery_attempts + 1,
+          status = 'pending',
+          error = NULL
+        WHERE notification_events.status = 'failed'
+           OR (
+             notification_events.status = 'pending'
+             AND (
+               notification_events.delivery_claimed_at IS NULL
+               OR notification_events.delivery_claimed_at < NOW() - INTERVAL '5 minutes'
+             )
+           )
+        RETURNING *
+      `
+      if (rows[0]) return { event: rows[0], claimed: true }
+      const existing = await sql<NotificationEvent[]>`
+        SELECT * FROM notification_events
+        WHERE clinic_id = ${data.clinicId ?? null}
+          AND idempotency_key = ${data.idempotencyKey}
+        LIMIT 1
+      `
+      return { event: existing[0]!, claimed: false }
+    },
+
     async listByClinic(clinicId, limit = 50) {
       return sql<NotificationEvent[]>`
         SELECT * FROM notification_events
@@ -151,7 +202,8 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
         UPDATE notification_events
         SET status  = ${status},
             sent_at = CASE WHEN ${status} = 'sent' THEN NOW() ELSE sent_at END,
-            error   = ${error ?? null}
+            error   = ${error ?? null},
+            delivery_claimed_at = NULL
         WHERE id = ${id}
       `
     },

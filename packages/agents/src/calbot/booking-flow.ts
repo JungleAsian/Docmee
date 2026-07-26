@@ -595,6 +595,29 @@ export async function advanceBookingFlow(
       }
 
       const provider = ctx.providers.find((candidate) => candidate.id === state.providerId)
+      const service = provider?.services?.find((candidate) => candidate.id === state.serviceId)
+      if (!provider || !service) {
+        return {
+          nextState: {
+            ...state,
+            step: 'confirm_doctor',
+            providerId: undefined,
+            doctorName: undefined,
+            specialty: undefined,
+            serviceId: undefined,
+            serviceName: undefined,
+            preferredDate: undefined,
+            preferredTime: undefined,
+            confirmedSlot: undefined,
+          },
+          reply: pick(
+            L,
+            'El doctor o servicio seleccionado ya no está disponible. Elija otra opción.',
+            'The selected doctor or service is no longer available. Choose another option.',
+          ),
+          done: false,
+        }
+      }
       const availability = provider?.availability
       const latest = await deps.calendar.listSlots(state.preferredDate)
       const inHours = availability

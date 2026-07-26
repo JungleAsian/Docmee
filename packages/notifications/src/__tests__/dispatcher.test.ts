@@ -8,9 +8,9 @@ function makeStore() {
   const created: Array<Record<string, unknown>> = []
   const statuses: Array<{ id: string; status: string; error?: string | null }> = []
   const store: NotificationStore = {
-    create: vi.fn(async (input) => {
+    claim: vi.fn(async (input) => {
       created.push(input)
-      return { id: `n${created.length}` }
+      return { id: `n${created.length}`, claimed: true }
     }),
     updateStatus: vi.fn(async (id, status, error) => {
       statuses.push({ id, status, error })
@@ -64,6 +64,23 @@ describe('dispatchNotification', () => {
     expect(sent[0]!.subject).toContain('Appointment confirmed')
   })
 
+  it('passes the durable notification key through to the email provider', async () => {
+    const { store } = makeStore()
+    const sendEmail = vi.fn(async (_params: SendEmailParams) => {})
+    await dispatchNotification(
+      {
+        clinicId: 'c1',
+        type: NOTIFICATION_TYPES.EMERGENCY,
+        recipientEmail: 'a@b.com',
+        idempotencyKey: 'handoff:conv-1:wamid-1',
+      },
+      { store, sendEmail },
+    )
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'handoff:conv-1:wamid-1' }),
+    )
+  })
+
   it('delivery failure → status failed, but never throws', async () => {
     const { store, statuses } = makeStore()
     const sendEmail = vi.fn(async () => {
@@ -80,7 +97,7 @@ describe('dispatchNotification', () => {
 
   it('does not deliver a replay when the idempotency key already exists', async () => {
     const store: NotificationStore = {
-      create: vi.fn(async () => ({ id: 'existing', created: false })),
+      claim: vi.fn(async () => ({ id: 'existing', claimed: false })),
       updateStatus: vi.fn(async () => {}),
     }
     const sendEmail = vi.fn(async () => {})
@@ -104,7 +121,7 @@ describe('dispatchNotification', () => {
       },
     )
 
-    expect(store.create).toHaveBeenCalledWith(
+    expect(store.claim).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: 'handoff:conv-1:wamid-1' }),
     )
     expect(sendEmail).not.toHaveBeenCalled()

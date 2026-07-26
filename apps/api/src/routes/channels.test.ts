@@ -3,13 +3,22 @@ import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from 'vitest
 
 const channelStore = vi.hoisted(() => ({
   accounts: [] as Array<Record<string, unknown>>,
+  created: null as Record<string, unknown> | null,
 }))
 
 vi.mock('@docmee/db', () => ({
   createChannelAccountsRepository: () => ({
     listByClinic: async (clinicId: string) =>
       channelStore.accounts.filter((account) => account.clinicId === clinicId),
-    create: vi.fn(),
+    create: async (input: Record<string, unknown>) => {
+      channelStore.created = input
+      return {
+        id: 'acc-saved',
+        ...input,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }
+    },
     delete: vi.fn(),
   }),
 }))
@@ -88,6 +97,7 @@ describe('Meta phone registration', () => {
 
   afterEach(() => {
     channelStore.accounts = []
+    channelStore.created = null
     vi.unstubAllGlobals()
   })
 
@@ -98,6 +108,33 @@ describe('Meta phone registration', () => {
       settings: { ...baseAccount.settings, wabaId: 'waba-1' },
     }]
   }
+
+  it('clears stale token expiry metadata for a non-expiring system-user token', async () => {
+    addMetaAccount()
+    channelStore.accounts[0]!.accountId = '1220622364468433'
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/clinics/c-1/channels/whatsapp',
+      headers: clinicAdminAuth,
+      payload: {
+        accountId: '1220622364468433',
+        tokenExpiresAt: null,
+        status: 'active',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(channelStore.created).toMatchObject({
+      clinicId: 'c-1',
+      accountId: '1220622364468433',
+      settings: {
+        provider: 'meta_whatsapp',
+        tokenExpiresAt: null,
+      },
+    })
+    expect(response.json().account.tokenExpiresAt).toBeNull()
+  })
 
   it('rejects malformed PINs before any Meta request', async () => {
     addMetaAccount()

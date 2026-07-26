@@ -24,6 +24,7 @@ jobs:
           script: |
             cd /var/www/docmee
             git pull origin main
+            export DOCMEE_BUILD_ID="git-$(git rev-parse --short=12 HEAD)"
             pnpm install --frozen-lockfile
             pnpm build
             pm2 reload ecosystem.config.cjs --update-env

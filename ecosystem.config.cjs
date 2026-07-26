@@ -16,6 +16,7 @@
 // Production binds app servers to loopback; Caddy is the only public HTTP entry.
 const fs = require('node:fs')
 const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 
 function loadEnvFile(file) {
   const out = {}
@@ -45,8 +46,42 @@ function loadEnvFile(file) {
 }
 
 const fileEnv = loadEnvFile(path.join(__dirname, '.env.production'))
-// File values are the base; NODE_ENV is always production on the VPS.
-const baseEnv = { ...fileEnv, NODE_ENV: 'production' }
+
+function gitBuildId() {
+  try {
+    const commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+      cwd: __dirname,
+      encoding: 'utf8',
+    }).trim()
+    return commit ? `git-${commit}` : ''
+  } catch {
+    return ''
+  }
+}
+
+function manifestBuildId() {
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(__dirname, 'release-manifest.json'), 'utf8'),
+    )
+    return typeof manifest.buildId === 'string' ? manifest.buildId.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+// The deploy shell supplies the exact commit before building. Keep a git-derived
+// fallback for repository checkouts and a release-manifest fallback for certified
+// archive deployments that intentionally contain no .git directory. Never let an
+// old .env value override the release that was just checked out or unpacked.
+const buildId =
+  process.env.DOCMEE_BUILD_ID?.trim() ||
+  gitBuildId() ||
+  manifestBuildId() ||
+  fileEnv.DOCMEE_BUILD_ID?.trim() ||
+  'unversioned'
+// File values are the base; release identity and NODE_ENV are authoritative.
+const baseEnv = { ...fileEnv, DOCMEE_BUILD_ID: buildId, NODE_ENV: 'production' }
 
 module.exports = {
   apps: [

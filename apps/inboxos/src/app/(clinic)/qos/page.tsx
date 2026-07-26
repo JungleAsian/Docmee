@@ -11,12 +11,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
-import { useAuthStore } from '@/shared/store/auth'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
+import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { useOnline } from '@/shared/hooks/useOnline'
 import { rolesWith } from '@/shared/permissions'
 import { useI18n } from '@/shared/hooks/useI18n'
-import type { Clinic, ClinicQos, QosAttentionItem } from '@/shared/types'
+import type { ClinicQos, QosAttentionItem } from '@/shared/types'
 
 const STALE_OPTIONS = [6, 12, 24, 48, 72]
 
@@ -37,20 +37,11 @@ const CHANNEL_LABEL: Record<string, string> = {
 export default function QosPage() {
   const { t } = useI18n()
   // Req 2: mirror the API's clinic_admin/ia_studio_admin gate at the page level.
-  const { ready } = useAuthGuard(rolesWith('qos'))
-  const user = useAuthStore((s) => s.user)
+  const { ready, user } = useAuthGuard(rolesWith('qos'))
+  const { clinicId } = useActiveClinic()
   const online = useOnline()
   const isAdmin = user?.role === 'ia_studio_admin'
-  // Studio admins start on the "select a clinic" state (they operate many tenants);
-  // a clinic_admin is scoped to their own clinic, so it loads straight away.
-  const [clinicId, setClinicId] = useState<string>(isAdmin ? '' : (user?.clinicId ?? ''))
   const [staleHours, setStaleHours] = useState<number>(24)
-
-  const clinicsQuery = useQuery({
-    queryKey: ['clinics'],
-    enabled: isAdmin,
-    queryFn: () => api.get<{ clinics: Clinic[] }>('/clinics'),
-  })
 
   const qosQuery = useQuery({
     queryKey: ['qos', clinicId, staleHours],
@@ -99,25 +90,8 @@ export default function QosPage() {
           </div>
         </div>
 
-        {/* Filters: clinic (admin) + aging window */}
+        {/* Clinic scope is controlled by the shared header switcher. */}
         <div className="clinic-toolbar">
-          {isAdmin && (
-            <label className="flex flex-col gap-1 text-xs">
-              <span className="font-semibold uppercase tracking-wide text-gray-400">{t('qos.selectClinic')}</span>
-              <select
-                value={clinicId}
-                onChange={(e) => setClinicId(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-800"
-              >
-                <option value="">—</option>
-                {(clinicsQuery.data?.clinics ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-semibold uppercase tracking-wide text-gray-400">{t('qos.agingWindow')}</span>
             <select
@@ -141,7 +115,7 @@ export default function QosPage() {
         )}
 
         {/* States: select-clinic / loading / error / data */}
-        {isAdmin && !clinicId ? (
+        {!clinicId ? (
           <PickClinicState title={t('qos.pick.title')} body={t('qos.pick.body')} />
         ) : qosQuery.isLoading ? (
           <LoadingState />

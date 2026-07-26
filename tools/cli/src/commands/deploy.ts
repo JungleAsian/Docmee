@@ -292,6 +292,7 @@ deployCmd.command('vps').option('--skip-preflight', 'Skip the env/Redis prefligh
     // pm2 --update-env then inherits the same env, and ecosystem.config.cjs also
     // loads the file directly — belt and suspenders. No-op if the file is absent.
     'set -a; . ./.env.production 2>/dev/null || true; set +a',
+    'export DOCMEE_BUILD_ID="git-$(git rev-parse --short=12 HEAD)"',
     buildCmd,
     migrateCmd,
     `pm2 startOrReload ${ecosystem} --update-env`,

@@ -1460,7 +1460,7 @@ function WhatsAppCard({
         displayName: displayName.trim() || undefined,
         accessToken: accessToken.trim() || undefined,
         webhookVerifyToken: webhookVerifyToken.trim() || undefined,
-        tokenExpiresAt: tokenExpiresAt || undefined,
+        tokenExpiresAt: tokenExpiresAt || null,
         setupMode: setupMode ?? 'existing-cloud-api',
         status: 'active',
       }),

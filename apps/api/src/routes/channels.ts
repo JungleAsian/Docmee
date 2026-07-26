@@ -22,7 +22,7 @@ const whatsappSchema = z.object({
   webhookVerifyToken: z.string().optional(),
   setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
   status: z.enum(['active', 'inactive', 'error']).optional(),
-  tokenExpiresAt: z.string().optional(),
+  tokenExpiresAt: z.string().nullable().optional(),
 })
 
 const embeddedSignupSchema = z.object({
@@ -648,7 +648,9 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
             provider,
             setupMode: parsed.data.setupMode ?? existing?.settings?.setupMode ?? 'existing-cloud-api',
             ...(provider === 'meta_whatsapp' && parsed.data.wabaId ? { wabaId: parsed.data.wabaId } : {}),
-            ...(parsed.data.tokenExpiresAt ? { tokenExpiresAt: parsed.data.tokenExpiresAt } : {}),
+            ...(parsed.data.tokenExpiresAt !== undefined
+              ? { tokenExpiresAt: parsed.data.tokenExpiresAt }
+              : {}),
           }
           return repo.create({
             clinicId,

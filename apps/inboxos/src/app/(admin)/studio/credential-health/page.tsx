@@ -3,7 +3,9 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
+import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { NavIcon } from '@/shared/components/NavIcon'
+import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 
 type CredentialState = 'pass' | 'warning' | 'fail' | 'manual'
 type RotationMode = 'monitor' | 'guide' | 'validate' | 'audit'
@@ -25,6 +27,10 @@ interface CredentialItem {
 
 interface CredentialHealthResponse {
   checkedAt: string
+  clinic: {
+    id: string
+    name: string
+  }
   visibility: 'superuser_only'
   summary: {
     pass: number
@@ -70,8 +76,10 @@ function formatDate(value: string | null) {
 }
 
 export default function CredentialHealthPage() {
+  const { clinicId, switchClinic } = useActiveClinic()
   const query = useQuery({
-    queryKey: ['credential-health'],
+    queryKey: ['credential-health', clinicId],
+    enabled: Boolean(clinicId),
     queryFn: () => api.get<CredentialHealthResponse>('/credential-health'),
   })
   const grouped = useMemo(() => {
@@ -92,16 +100,22 @@ export default function CredentialHealthPage() {
             Monitor, guide, validate, and audit credential readiness. Critical infrastructure rotation stays outside the web app.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void query.refetch()}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-        >
-          Refresh checks
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <ClinicSelect value={clinicId} onChange={switchClinic} label="Clinic" />
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            disabled={!clinicId}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+          >
+            Refresh checks
+          </button>
+        </div>
       </div>
 
-      {query.isLoading ? (
+      {!clinicId ? (
+        <Empty text="Select a clinic to review its credential health." />
+      ) : query.isLoading ? (
         <Empty text="Loading credential health..." />
       ) : query.isError || !query.data ? (
         <Empty text="Could not load credential health. Confirm you are logged in as a superuser." />
@@ -119,6 +133,9 @@ export default function CredentialHealthPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold">Operating model</h2>
+                <p className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+                  Clinic: {query.data.clinic.name}
+                </p>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{query.data.audit.principle}</p>
               </div>
               <span className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { hasDatabaseUrl, withDb } from '../lib/db.js'
+import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 type CredentialState = 'pass' | 'warning' | 'fail' | 'manual'
@@ -29,6 +30,28 @@ function envGroup(names: string[]): { configured: boolean; missing: string[] } {
   return { configured: missing.length === 0, missing }
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+function selectedAiProvider(settings: unknown): string {
+  const configured = asRecord(asRecord(settings)['aiAssistant'])['chatProvider']
+  return typeof configured === 'string' && configured.trim() ? configured.trim() : 'claude'
+}
+
+function hasStoredAiCredential(settings: unknown, provider: string): boolean {
+  const integrations = asRecord(asRecord(settings)['integrations'])
+  const entry = asRecord(integrations[provider])
+  return typeof entry['apiKeyEnc'] === 'string' && entry['apiKeyEnc'].length > 0
+}
+
+function hasServerAiCredential(provider: string): boolean {
+  if (provider === 'claude') return hasEnv('ANTHROPIC_API_KEY')
+  if (provider === 'openai') return hasEnv('OPENAI_API_KEY')
+  if (provider === 'gemini') return hasEnv('GEMINI_API_KEY')
+  return false
+}
+
 function item(input: Omit<CredentialItem, 'state'> & { state?: CredentialState }): CredentialItem {
   return {
     ...input,
@@ -41,13 +64,15 @@ function item(input: Omit<CredentialItem, 'state'> & { state?: CredentialState }
 const credentialHealthRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
 
-  app.get('/credential-health', { preHandler: requireRole('ia_studio_admin') }, async () => {
+  app.get('/credential-health', { preHandler: requireRole('ia_studio_admin') }, async (request, reply) => {
+    const clinicId = resolveClinicScope(request)
+    if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
     const checkedAt = new Date().toISOString()
     const metaEnv = envGroup(['META_APP_ID', 'META_EMBEDDED_SIGNUP_CONFIG_ID', 'META_APP_SECRET'])
     const googleEnv = envGroup(['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'])
     const kbEnv = envGroup(['DOCMEE_KB_GIT_REPO', 'DOCMEE_KB_WORKDIR', 'DOCMEE_KB_WEBHOOK_SECRET'])
     const kbDeployKeyConfigured = hasEnv('DOCMEE_KB_DEPLOY_KEY_PATH') || hasEnv('DOCMEE_KB_DEPLOY_KEY')
-    const llmConfigured = hasEnv('OPENAI_API_KEY') || hasEnv('ANTHROPIC_API_KEY')
     const jwtEnv = envGroup(['JWT_SECRET', 'JWT_REFRESH_SECRET'])
     const weakJwt =
       process.env['JWT_SECRET'] === 'dev-access-secret-change-me' ||
@@ -60,6 +85,10 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
     let activeWhatsAppDisplay = 'No active WhatsApp account was found.'
     let googleConnectedDoctors = 0
     let googleDoctorCount = 0
+    let clinicName = clinicId
+    let clinicAiProvider = 'claude'
+    let clinicAiConfigured = false
+    let clinicAiSource = 'not configured'
     let dbReachable = false
     let dbError: string | null = null
 
@@ -77,7 +106,7 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
           }>>`
             SELECT account_id, display_name, access_token_enc, webhook_verify_token, updated_at
             FROM channel_accounts
-            WHERE channel = 'whatsapp' AND status = 'active'
+            WHERE clinic_id = ${clinicId} AND channel = 'whatsapp' AND status = 'active'
             ORDER BY updated_at DESC
             LIMIT 1
           `
@@ -93,15 +122,37 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
             const doctorRows = await sql<Array<{ total: string; connected: string }>>`
               SELECT
                 count(*)::text AS total,
-                count(*) FILTER (WHERE google_refresh_token_enc IS NOT NULL)::text AS connected
+                count(*) FILTER (
+                  WHERE google_calendar_id IS NOT NULL
+                    AND google_calendar_refresh_token_encrypted IS NOT NULL
+                )::text AS connected
               FROM doctors
-              WHERE status = 'active'
+              WHERE clinic_id = ${clinicId} AND is_active = TRUE
             `
             googleDoctorCount = Number(doctorRows[0]?.total ?? 0)
             googleConnectedDoctors = Number(doctorRows[0]?.connected ?? 0)
           } catch {
             googleDoctorCount = 0
             googleConnectedDoctors = 0
+          }
+
+          const clinicRows = await sql<Array<{ name: string; settings: unknown }>>`
+            SELECT name, settings
+            FROM clinics
+            WHERE id = ${clinicId}
+            LIMIT 1
+          `
+          const clinic = clinicRows[0]
+          if (clinic) {
+            clinicName = clinic.name
+            clinicAiProvider = selectedAiProvider(clinic.settings)
+            if (hasStoredAiCredential(clinic.settings, clinicAiProvider)) {
+              clinicAiConfigured = true
+              clinicAiSource = 'clinic credential'
+            } else if (hasServerAiCredential(clinicAiProvider)) {
+              clinicAiConfigured = true
+              clinicAiSource = 'server fallback'
+            }
           }
         })
       } catch (error) {
@@ -201,13 +252,15 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
         key: 'ai-provider',
         label: 'AI provider keys',
         category: 'AI services',
-        configured: llmConfigured,
-        state: llmConfigured ? 'pass' : 'warning',
+        configured: clinicAiConfigured,
+        state: clinicAiConfigured ? 'pass' : 'warning',
         lastObservedAt: checkedAt,
         recommendedFrequency: 'Every 90 days for manually managed provider keys, or immediately after exposure.',
         owner: 'Superuser / clinic AI admin',
-        validation: llmConfigured ? 'At least one server-level AI provider key is configured.' : 'No server-level OpenAI or Anthropic key was detected.',
-        guidance: 'Prefer per-clinic provider credentials where possible. Re-enter rotated keys, then run the J.zel provider/KB readiness test.',
+        validation: clinicAiConfigured
+          ? `${clinicName} uses ${clinicAiProvider} via ${clinicAiSource}.`
+          : `${clinicName} selects ${clinicAiProvider}, but neither a clinic credential nor its supported server fallback is configured.`,
+        guidance: 'Connect the selected provider for this clinic, then run the J.zel provider/KB readiness test.',
         rotationMode: ['monitor', 'guide', 'validate', 'audit'],
       }),
       item({
@@ -236,6 +289,7 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
 
     return {
       checkedAt,
+      clinic: { id: clinicId, name: clinicName },
       visibility: 'superuser_only',
       summary,
       credentials,

@@ -16,10 +16,10 @@ const whatsappSchema = z.object({
   // Meta Graph phone-number IDs are numeric identifiers, never phone numbers or
   // email addresses. Reject invalid values before they can be persisted.
   accountId: z.string().regex(/^\d{8,25}$/, 'Meta phone-number ID must contain 8 to 25 digits'),
-  displayName: z.string().optional(),
-  wabaId: z.string().trim().min(1).optional(),
-  accessToken: z.string().min(1).optional(),
-  webhookVerifyToken: z.string().optional(),
+  displayName: z.string().trim().max(120).optional(),
+  wabaId: z.string().regex(/^\d{8,25}$/, 'Meta WABA ID must contain 8 to 25 digits').optional(),
+  accessToken: z.string().trim().min(1).max(8192).optional(),
+  webhookVerifyToken: z.string().trim().max(256).optional(),
   setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
   status: z.enum(['active', 'inactive', 'error']).optional(),
   tokenExpiresAt: z.string().nullable().optional(),
@@ -28,10 +28,16 @@ const whatsappSchema = z.object({
 const embeddedSignupSchema = z.object({
   code: z.string().min(1),
   phoneNumberId: z.string().regex(/^\d{8,25}$/, 'Meta phone-number ID must contain 8 to 25 digits'),
-  wabaId: z.string().min(1).optional(),
+  wabaId: z.string().regex(/^\d{8,25}$/, 'Meta WABA ID must contain 8 to 25 digits'),
   setupMode: z.enum(['new-number', 'migrate-business-app', 'existing-cloud-api']).optional(),
   displayName: z.string().optional(),
   webhookVerifyToken: z.string().optional(),
+})
+
+const whatsappValidationSchema = z.object({
+  accountId: z.string().regex(/^\d{8,25}$/, 'Meta phone-number ID must contain 8 to 25 digits'),
+  wabaId: z.string().regex(/^\d{8,25}$/, 'Meta WABA ID must contain 8 to 25 digits'),
+  accessToken: z.string().trim().min(1).max(8192).optional(),
 })
 
 const phoneRegistrationSchema = z.object({
@@ -260,6 +266,50 @@ async function fetchWabaPhoneNumbers(wabaId: string | undefined, accessToken: st
   return { phones: result.data.data ?? [], error: undefined }
 }
 
+async function validateWhatsAppCredentials(phoneNumberId: string, wabaId: string, accessToken: string) {
+  const [phoneLookup, wabaLookup] = await Promise.all([
+    fetchPhoneNumberInfo(phoneNumberId, accessToken),
+    fetchWabaPhoneNumbers(wabaId, accessToken),
+  ])
+  const belongsToWaba = wabaLookup.phones.some((phone) => phone.id === phoneNumberId)
+  const checks = [
+    {
+      key: 'access',
+      state: phoneLookup.phoneInfoError || wabaLookup.error ? 'fail' : 'pass',
+      label: 'Meta API access',
+      detail: phoneLookup.phoneInfoError ?? wabaLookup.error ?? 'The token can read the phone and WABA.',
+    },
+    {
+      key: 'membership',
+      state: belongsToWaba ? 'pass' : 'fail',
+      label: 'WABA ownership',
+      detail: belongsToWaba
+        ? 'The phone number belongs to the selected WABA.'
+        : 'The phone number was not found under the selected WABA.',
+    },
+  ] as const
+  return {
+    valid: checks.every((check) => check.state === 'pass'),
+    phone: phoneLookup.phoneInfo
+      ? {
+          id: phoneNumberId,
+          displayPhoneNumber: phoneLookup.phoneInfo.display_phone_number ?? null,
+          verifiedName: phoneLookup.phoneInfo.verified_name ?? null,
+          platform: phoneLookup.phoneInfo.platform_type ?? null,
+          status: phoneLookup.phoneInfo.status ?? null,
+          codeVerification: phoneLookup.phoneInfo.code_verification_status ?? null,
+          quality: phoneLookup.phoneInfo.quality_rating ?? null,
+        }
+      : null,
+    waba: {
+      id: wabaId,
+      phoneCount: wabaLookup.phones.length,
+      containsPhone: belongsToWaba,
+    },
+    checks,
+  }
+}
+
 function readMetaToken(stored: string | null | undefined): string | null {
   if (!stored) return null
   if (stored.split(':').length !== 3) return stored
@@ -434,12 +484,15 @@ function buildWhatsAppHealth(accounts: RedactedChannelAccount[]) {
   }
 }
 
-async function buildWhatsAppCoexistenceReadiness(accounts: ChannelAccountRecord[]) {
+async function buildWhatsAppCoexistenceReadiness(accounts: ChannelAccountRecord[], selectedAccountId?: string) {
   const config = metaEmbeddedSignupConfig()
   const metaAccounts = accounts
     .filter((account) => account.channel === 'whatsapp')
     .filter((account) => account.settings?.provider === 'meta_whatsapp' || !account.settings?.provider)
-  const active = metaAccounts.find((account) => account.status === 'active') ?? metaAccounts[0] ?? null
+  const selected = selectedAccountId
+    ? metaAccounts.find((account) => account.id === selectedAccountId)
+    : null
+  const active = selected ?? metaAccounts.find((account) => account.status === 'active') ?? metaAccounts[0] ?? null
   const token = readMetaToken(active?.accessTokenEnc)
   const wabaId = typeof active?.settings?.wabaId === 'string' ? active.settings.wabaId : undefined
   const setupMode = typeof active?.settings?.setupMode === 'string' ? active.settings.setupMode : null
@@ -613,14 +666,46 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
     },
   )
 
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { accountId?: string } }>(
     '/clinics/:id/channels/whatsapp/coexistence-readiness',
     { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
     async (request, reply) => {
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
       const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
-      return buildWhatsAppCoexistenceReadiness(accounts)
+      return buildWhatsAppCoexistenceReadiness(accounts, request.query.accountId)
+    },
+  )
+
+  app.post<{ Params: { id: string } }>(
+    '/clinics/:id/channels/whatsapp/validate',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(whatsappValidationSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      const existing = await withDb(async (sql) => {
+        const accounts = await createChannelAccountsRepository(sql).listByClinic(clinicId)
+        return accounts.find(
+          (item) => item.channel === 'whatsapp' && item.accountId === parsed.data.accountId,
+        ) ?? null
+      })
+      const accessToken = parsed.data.accessToken || readMetaToken(existing?.accessTokenEnc)
+      if (!accessToken) {
+        return reply.code(409).send({
+          error: 'A Meta access token is required to validate this WABA.',
+          action: 'Paste a token with WhatsApp Business Management access and retry.',
+        })
+      }
+
+      const validation = await validateWhatsAppCredentials(
+        parsed.data.accountId,
+        parsed.data.wabaId,
+        accessToken,
+      )
+      return validation
     },
   )
 
@@ -643,6 +728,29 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
           const existing = (await repo.listByClinic(clinicId)).find(
             (item) => item.channel === 'whatsapp' && item.accountId === parsed.data.accountId,
           )
+          const wabaId =
+            parsed.data.wabaId ??
+            (typeof existing?.settings?.wabaId === 'string' ? existing.settings.wabaId : undefined)
+          const accessToken = parsed.data.accessToken || readMetaToken(existing?.accessTokenEnc)
+          if (!existing && (!wabaId || !accessToken || !parsed.data.webhookVerifyToken)) {
+            throw new Error(
+              'A new WABA requires its WABA ID, Meta access token, and webhook verify token.',
+            )
+          }
+          if ((parsed.data.accessToken || parsed.data.wabaId || !existing) && wabaId && accessToken) {
+            const validation = await validateWhatsAppCredentials(
+              parsed.data.accountId,
+              wabaId,
+              accessToken,
+            )
+            if (!validation.valid) {
+              const detail = validation.checks
+                .filter((check) => check.state === 'fail')
+                .map((check) => check.detail)
+                .join(' ')
+              throw new Error(`Meta validation failed. ${detail}`)
+            }
+          }
           const settings = {
             ...(existing?.settings ?? {}),
             provider,
@@ -669,6 +777,13 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
         return { account: redactAccount(account) }
       } catch (error) {
         if (isEncryptionConfigError(error)) return reply.code(500).send({ error: (error as Error).message })
+        if (
+          error instanceof Error &&
+          (error.message.startsWith('A new WABA requires') ||
+            error.message.startsWith('Meta validation failed'))
+        ) {
+          return reply.code(400).send({ error: error.message })
+        }
         throw error
       }
     },
@@ -775,6 +890,14 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
         const accessToken = await exchangeEmbeddedSignupCode(parsed.data.code)
         const subscription = await subscribeWabaToApp(parsed.data.wabaId, accessToken)
         const phoneLookup = await fetchPhoneNumberInfo(parsed.data.phoneNumberId, accessToken)
+        const validation = await validateWhatsAppCredentials(
+          parsed.data.phoneNumberId,
+          parsed.data.wabaId,
+          accessToken,
+        )
+        if (!validation.valid) {
+          throw new Error('Meta returned a phone number that does not belong to the selected WABA.')
+        }
         const account = await withDb(async (sql) => {
           const repo = createChannelAccountsRepository(sql)
           const existing = (await repo.listByClinic(clinicId)).find(

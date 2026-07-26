@@ -53,13 +53,16 @@ const baseAccount = {
 describe('Meta phone registration', () => {
   let app = Fastify()
   let previousJwtSecret: string | undefined
+  let previousEncryptionKey: string | undefined
   let clinicAdminAuth: { authorization: string }
   let foreignClinicAdminAuth: { authorization: string }
   let secretaryAuth: { authorization: string }
 
   beforeAll(async () => {
     previousJwtSecret = process.env['JWT_SECRET']
+    previousEncryptionKey = process.env['ENCRYPTION_KEY']
     process.env['JWT_SECRET'] = 'channels-registration-test-secret'
+    process.env['ENCRYPTION_KEY'] = 'channels-registration-encryption-test-secret'
     clinicAdminAuth = {
       authorization: `Bearer ${signAccessToken({
         userId: 'admin-1',
@@ -93,6 +96,8 @@ describe('Meta phone registration', () => {
     await app.close()
     if (previousJwtSecret === undefined) delete process.env['JWT_SECRET']
     else process.env['JWT_SECRET'] = previousJwtSecret
+    if (previousEncryptionKey === undefined) delete process.env['ENCRYPTION_KEY']
+    else process.env['ENCRYPTION_KEY'] = previousEncryptionKey
   })
 
   afterEach(() => {
@@ -134,6 +139,135 @@ describe('Meta phone registration', () => {
       },
     })
     expect(response.json().account.tokenExpiresAt).toBeNull()
+  })
+
+  it('validates a phone and WABA pair without persisting credentials', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: '1220622364468433',
+          display_phone_number: '+1 202 555-0199',
+          verified_name: 'Docmee',
+          platform_type: 'CLOUD_API',
+          status: 'CONNECTED',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: '1220622364468433' }] }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/channels/whatsapp/validate',
+      headers: clinicAdminAuth,
+      payload: {
+        accountId: '1220622364468433',
+        wabaId: '1485673640028042',
+        accessToken: 'meta-token',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      valid: true,
+      phone: {
+        displayPhoneNumber: '+1 202 555-0199',
+        verifiedName: 'Docmee',
+        platform: 'CLOUD_API',
+        status: 'CONNECTED',
+      },
+      waba: { id: '1485673640028042', containsPhone: true },
+    })
+    expect(channelStore.created).toBeNull()
+    expect(response.body).not.toContain('meta-token')
+  })
+
+  it('rejects a new manual account when the phone is not in the selected WABA', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: '1220622364468433' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: '1110868878787660' }] }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/clinics/c-1/channels/whatsapp',
+      headers: clinicAdminAuth,
+      payload: {
+        accountId: '1220622364468433',
+        wabaId: '1485673640028042',
+        accessToken: 'meta-token',
+        webhookVerifyToken: 'docmee-test-verify-token',
+        status: 'active',
+      },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toContain('phone number was not found')
+    expect(channelStore.created).toBeNull()
+    expect(response.body).not.toContain('meta-token')
+  })
+
+  it('persists a new manual WABA only after Meta validates ownership', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: '1220622364468433',
+          display_phone_number: '+1 202 555-0199',
+          verified_name: 'Docmee',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: '1220622364468433' }] }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/clinics/c-1/channels/whatsapp',
+      headers: clinicAdminAuth,
+      payload: {
+        accountId: '1220622364468433',
+        wabaId: '1485673640028042',
+        displayName: 'Second clinic WABA',
+        accessToken: 'meta-token',
+        webhookVerifyToken: 'docmee-test-verify-token',
+        status: 'active',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(channelStore.created).toMatchObject({
+      clinicId: 'c-1',
+      accountId: '1220622364468433',
+      displayName: 'Second clinic WABA',
+      accessTokenEnc: 'enc:meta-token',
+      webhookVerifyToken: 'docmee-test-verify-token',
+      settings: {
+        provider: 'meta_whatsapp',
+        wabaId: '1485673640028042',
+      },
+    })
+    expect(response.body).not.toContain('meta-token')
   })
 
   it('rejects malformed PINs before any Meta request', async () => {

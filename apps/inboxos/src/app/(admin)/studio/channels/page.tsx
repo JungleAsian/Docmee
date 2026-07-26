@@ -102,6 +102,30 @@ interface WhatsAppCoexistenceReadinessResponse {
   requiredActions: string[]
 }
 
+interface WhatsAppValidationResponse {
+  valid: boolean
+  phone: {
+    id: string
+    displayPhoneNumber: string | null
+    verifiedName: string | null
+    platform: string | null
+    status: string | null
+    codeVerification: string | null
+    quality: string | null
+  } | null
+  waba: {
+    id: string
+    phoneCount: number
+    containsPhone: boolean
+  }
+  checks: Array<{
+    key: string
+    state: 'pass' | 'fail'
+    label: string
+    detail: string
+  }>
+}
+
 interface ProviderReadiness {
   key: 'meta' | 'google' | 'email' | 'openai' | 'anthropic'
   state: 'ready' | 'missing' | 'fallback'
@@ -186,6 +210,7 @@ export default function ChannelsPage() {
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
   const isSuperuser = user?.role === 'ia_studio_admin'
+  const [selectedWhatsAppAccountId, setSelectedWhatsAppAccountId] = useState<string | 'new' | null>(null)
 
   const query = useQuery({
     queryKey: ['clinic', clinicId],
@@ -199,11 +224,20 @@ export default function ChannelsPage() {
     queryFn: () => api.get<{ accounts: ChannelAccount[] }>(`/clinics/${clinicId}/channels`),
   })
   const whatsappAccounts = channelQuery.data?.accounts.filter((account) => account.channel === 'whatsapp') ?? []
-  const whatsappAccount =
+  const defaultWhatsAppAccount =
+    whatsappAccounts.find((account) => account.status === 'active' && account.provider === 'meta_whatsapp') ??
     whatsappAccounts.find((account) => account.provider === 'meta_whatsapp') ??
-    whatsappAccounts.find((account) => account.status === 'active') ??
     whatsappAccounts[0] ??
     null
+  const whatsappAccount =
+    selectedWhatsAppAccountId === 'new'
+      ? null
+      : whatsappAccounts.find((account) => account.id === selectedWhatsAppAccountId) ??
+        defaultWhatsAppAccount
+
+  useEffect(() => {
+    setSelectedWhatsAppAccountId(null)
+  }, [clinicId])
 
   // Date.now() is read once per render; channelStatus stays pure (now is passed in).
   const cards = useMemo<ServiceCard[]>(
@@ -256,7 +290,17 @@ export default function ChannelsPage() {
             {cards.map((card) => (
               <ServiceCardView key={card.key} card={card} clinic={clinic} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic', clinicId] })} />
             ))}
-            <WhatsAppCard clinicId={clinicId} account={whatsappAccount} webhookUrl={`${API_BASE}/webhook/whatsapp`} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic-channels', clinicId] })} />
+            <WhatsAppCard
+              clinicId={clinicId}
+              accounts={whatsappAccounts}
+              account={whatsappAccount}
+              webhookUrl={`${API_BASE}/webhook/whatsapp`}
+              onSelectAccount={setSelectedWhatsAppAccountId}
+              onSaved={(savedAccount) => {
+                setSelectedWhatsAppAccountId(savedAccount.id)
+                queryClient.invalidateQueries({ queryKey: ['clinic-channels', clinicId] })
+              }}
+            />
           </div>
           <section className="space-y-3">
             <div>
@@ -1423,14 +1467,18 @@ function WebhookRow({ url }: { url: string }) {
 
 function WhatsAppCard({
   clinicId,
+  accounts,
   account,
   webhookUrl,
+  onSelectAccount,
   onSaved,
 }: {
   clinicId: string
+  accounts: ChannelAccount[]
   account: ChannelAccount | null
   webhookUrl: string
-  onSaved: () => void
+  onSelectAccount: (accountId: string | 'new') => void
+  onSaved: (account: ChannelAccount) => void
 }) {
   const { t } = useI18n()
   const [step, setStep] = useState<'start' | 'prerequisites' | 'number' | 'prepare' | 'credentials'>(
@@ -1455,6 +1503,7 @@ function WhatsAppCard({
   const [tokenExpiresAt, setTokenExpiresAt] = useState(account?.tokenExpiresAt?.slice(0, 10) ?? '')
   const [registrationPin, setRegistrationPin] = useState('')
   const [message, setMessage] = useState<string | null>(null)
+  const [validation, setValidation] = useState<WhatsAppValidationResponse | null>(null)
 
   useEffect(() => {
     setAccountId(account?.accountId ?? '')
@@ -1463,6 +1512,7 @@ function WhatsAppCard({
     setTokenExpiresAt(account?.tokenExpiresAt?.slice(0, 10) ?? '')
     setSetupMode(account?.setupMode ?? (account ? 'existing-cloud-api' : null))
     setRegistrationPin('')
+    setValidation(null)
   }, [account?.id, account?.accountId, account?.wabaId, account?.displayName, account?.tokenExpiresAt, account?.setupMode])
   const metaConfigQuery = useQuery({
     queryKey: ['meta-embedded-signup-config'],
@@ -1470,16 +1520,49 @@ function WhatsAppCard({
   })
   const coexistenceReadinessQuery = useQuery({
     queryKey: ['whatsapp-coexistence-readiness', clinicId, account?.id, account?.updatedAt],
-    enabled: Boolean(clinicId),
+    enabled: Boolean(clinicId && account?.id),
     queryFn: () =>
       api.get<WhatsAppCoexistenceReadinessResponse>(
-        `/clinics/${clinicId}/channels/whatsapp/coexistence-readiness`,
+        `/clinics/${clinicId}/channels/whatsapp/coexistence-readiness?accountId=${encodeURIComponent(account?.id ?? '')}`,
       ),
   })
 
-  const mutation = useMutation({
+  const validateConnection = useMutation({
     mutationFn: () =>
-      api.put<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp`, {
+      api.post<WhatsAppValidationResponse>(`/clinics/${clinicId}/channels/whatsapp/validate`, {
+        accountId: accountId.trim(),
+        wabaId: wabaId.trim(),
+        accessToken: accessToken.trim() || undefined,
+      }),
+    onSuccess: (data) => {
+      setValidation(data)
+      setMessage(
+        data.valid
+          ? `Verified ${data.phone?.displayPhoneNumber ?? accountId.trim()} with Meta.`
+          : 'Meta could not verify this phone and WABA pair. Review the failed checks below.',
+      )
+    },
+    onError: (error) => {
+      setValidation(null)
+      setMessage(error instanceof Error ? error.message : 'Could not validate the Meta connection.')
+    },
+  })
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const validationResult = await api.post<WhatsAppValidationResponse>(
+        `/clinics/${clinicId}/channels/whatsapp/validate`,
+        {
+          accountId: accountId.trim(),
+          wabaId: wabaId.trim(),
+          accessToken: accessToken.trim() || undefined,
+        },
+      )
+      setValidation(validationResult)
+      if (!validationResult.valid) {
+        throw new Error('Meta could not verify that this phone number belongs to the selected WABA.')
+      }
+      return api.put<{ account: ChannelAccount }>(`/clinics/${clinicId}/channels/whatsapp`, {
         accountId: accountId.trim(),
         wabaId: wabaId.trim() || undefined,
         displayName: displayName.trim() || undefined,
@@ -1488,7 +1571,8 @@ function WhatsAppCard({
         tokenExpiresAt: tokenExpiresAt || null,
         setupMode: setupMode ?? 'existing-cloud-api',
         status: 'active',
-      }),
+      })
+    },
     onSuccess: (data) => {
       setAccessToken('')
       setWebhookVerifyToken('')
@@ -1499,7 +1583,7 @@ function WhatsAppCard({
       setSetupMode(data.account.setupMode ?? 'existing-cloud-api')
       setMessage('WhatsApp account saved.')
       setStep('credentials')
-      onSaved()
+      onSaved(data.account)
     },
     onError: (error) => {
       setMessage(error instanceof Error ? error.message : 'Could not save WhatsApp account.')
@@ -1522,7 +1606,7 @@ function WhatsAppCard({
       setSetupMode(data.account.setupMode ?? 'existing-cloud-api')
       setMessage('WhatsApp number linked through Facebook.')
       setStep('credentials')
-      onSaved()
+      onSaved(data.account)
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not finish Facebook signup.'),
   })
@@ -1542,7 +1626,7 @@ function WhatsAppCard({
       setMessage('WhatsApp account disconnected. You can connect another account now.')
       setStep('start')
       setConfigOpen(true)
-      onSaved()
+      onSaved(account!)
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not disconnect WhatsApp.'),
   })
@@ -1557,7 +1641,7 @@ function WhatsAppCard({
     onSuccess: (data) => {
       setMessage(data.message)
       coexistenceReadinessQuery.refetch()
-      onSaved()
+      onSaved(account!)
     },
     onError: (error) => {
       const base = error instanceof Error ? error.message : 'Meta could not register the phone number.'
@@ -1572,6 +1656,12 @@ function WhatsAppCard({
   })
 
   const status: ServiceStatus = account?.status === 'active' ? 'connected' : account ? 'pending' : 'disconnected'
+  const isNewAccount = !account
+  const hasRequiredCredentials =
+    /^\d{8,25}$/.test(accountId.trim()) &&
+    /^\d{8,25}$/.test(wabaId.trim()) &&
+    Boolean(accessToken.trim() || account?.hasAccessToken) &&
+    Boolean(webhookVerifyToken.trim() || account?.hasWebhookVerifyToken)
   const canContinue = Boolean(setupMode)
   const needsPrep = setupMode === 'new-number' || setupMode === 'migrate-business-app'
   const prereqItems = [
@@ -1584,6 +1674,80 @@ function WhatsAppCard({
   const allPrereqsReady = prereqItems.every(([id]) => prereqs[id])
   const setAllPrereqs = (checked: boolean) =>
     setPrereqs(Object.fromEntries(prereqItems.map(([id]) => [id, checked])) as Record<string, boolean>)
+  function startNewAccount() {
+    onSelectAccount('new')
+    setAccountId('')
+    setWabaId('')
+    setDisplayName('')
+    setAccessToken('')
+    setWebhookVerifyToken('')
+    setTokenExpiresAt('')
+    setSetupMode(null)
+    setValidation(null)
+    setMessage(null)
+    setStep('start')
+    setConfigOpen(true)
+  }
+  const accountPicker = (
+    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/50">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-gray-900 dark:text-gray-50">WhatsApp Business accounts</p>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+            Select one WABA to review, or add another. Existing accounts stay unchanged unless you explicitly update them.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={startNewAccount}
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+        >
+          Add another WABA
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2" role="list" aria-label="Connected WhatsApp Business accounts">
+        {accounts.length === 0 ? (
+          <span className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 dark:border-gray-700">
+            No WABA connected for this clinic.
+          </span>
+        ) : (
+          accounts.map((item) => {
+            const selected = account?.id === item.id
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="listitem"
+                aria-pressed={selected}
+                onClick={() => {
+                  onSelectAccount(item.id)
+                  setStep('credentials')
+                  setConfigOpen(true)
+                  setMessage(null)
+                }}
+                className={
+                  selected
+                    ? 'rounded-md border border-emerald-500 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100'
+                    : 'rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'
+                }
+              >
+                <span className="block font-semibold">{item.displayName || 'WhatsApp Business'}</span>
+                <span className="block text-[10px] opacity-75">Phone ID {item.accountId}</span>
+                <span className="block text-[10px] opacity-75">
+                  {item.status === 'active' ? 'Active' : item.status} · WABA {item.wabaId || 'not saved'}
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+      {isNewAccount && accounts.length > 0 && (
+        <p className="mt-2 rounded-md bg-blue-50 px-2 py-1.5 text-[11px] text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+          Adding a separate WABA. No connected account will be replaced or disconnected.
+        </p>
+      )}
+    </div>
+  )
   async function continueWithFacebook(modeOverride?: WhatsAppSetupMode) {
     const selectedSetupMode = modeOverride ?? setupMode ?? 'migrate-business-app'
     setSetupMode(selectedSetupMode)
@@ -1663,6 +1827,11 @@ function WhatsAppCard({
             setStep('prepare')
             return
           }
+          if (!returnedAssets.wabaId) {
+            setMessage('Facebook returned a phone number but no WABA ID. Reopen setup and select the WhatsApp Business Account.')
+            setStep('prepare')
+            return
+          }
           embeddedSignup.mutate({
             code,
             phoneNumberId: returnedAssets.phoneNumberId,
@@ -1707,6 +1876,7 @@ function WhatsAppCard({
             {configOpen ? 'Hide configuration' : 'Show configuration'}
           </button>
         </div>
+        {accountPicker}
         {configOpen && (
         <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
           <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-950">
@@ -1814,6 +1984,7 @@ function WhatsAppCard({
           {configOpen ? 'Hide configuration' : 'Show configuration'}
         </button>
       </div>
+      {accountPicker}
 
       {configOpen && (
       <>
@@ -2086,6 +2257,48 @@ function WhatsAppCard({
               <li>Optional token expiry date so Docmee can warn you before renewal.</li>
             </ol>
           </div>
+          <div className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-semibold text-gray-900 dark:text-gray-50">Verify before saving</p>
+                <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  Docmee checks that the token can read Meta and that this phone belongs to this WABA. Tokens are never shown after saving.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMessage(null)
+                  validateConnection.mutate()
+                }}
+                disabled={!hasRequiredCredentials || validateConnection.isPending}
+                className="rounded-md border border-emerald-500 px-3 py-1.5 text-xs font-medium text-emerald-700 disabled:opacity-50 dark:text-emerald-300"
+              >
+                {validateConnection.isPending ? 'Checking Meta...' : 'Validate connection'}
+              </button>
+            </div>
+            {validation && (
+              <div className="mt-2 space-y-1" aria-live="polite">
+                {validation.phone && (
+                  <p className="rounded bg-gray-50 px-2 py-1 text-[11px] text-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                    {validation.phone.verifiedName || 'WhatsApp Business'} · {validation.phone.displayPhoneNumber || validation.phone.id} · {validation.phone.platform || 'platform unknown'} / {validation.phone.status || 'status unknown'}
+                  </p>
+                )}
+                {validation.checks.map((check) => (
+                  <p
+                    key={check.key}
+                    className={
+                      check.state === 'pass'
+                        ? 'text-[11px] text-emerald-700 dark:text-emerald-300'
+                        : 'text-[11px] text-red-600 dark:text-red-300'
+                    }
+                  >
+                    {check.state === 'pass' ? 'Pass' : 'Fix'} · {check.label}: {check.detail}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
           <WebhookRow url={webhookUrl} />
           <WhatsAppLiveCoexistencePanel
             readiness={coexistenceReadinessQuery.data}
@@ -2135,7 +2348,10 @@ function WhatsAppCard({
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Meta WhatsApp Phone Number ID</span>
             <input
               value={accountId}
-              onChange={(event) => setAccountId(event.target.value)}
+              onChange={(event) => {
+                setAccountId(event.target.value.replace(/\D/g, '').slice(0, 25))
+                setValidation(null)
+              }}
               className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
               placeholder="1234567890"
               required
@@ -2146,7 +2362,10 @@ function WhatsAppCard({
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Meta WABA ID</span>
             <input
               value={wabaId}
-              onChange={(event) => setWabaId(event.target.value)}
+              onChange={(event) => {
+                setWabaId(event.target.value.replace(/\D/g, '').slice(0, 25))
+                setValidation(null)
+              }}
               className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
               placeholder="1757229692360293"
             />
@@ -2168,7 +2387,10 @@ function WhatsAppCard({
             </span>
             <input
               value={accessToken}
-              onChange={(event) => setAccessToken(event.target.value)}
+              onChange={(event) => {
+                setAccessToken(event.target.value)
+                setValidation(null)
+              }}
               className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
               placeholder="EAAB..."
               type="password"
@@ -2236,10 +2458,10 @@ function WhatsAppCard({
             <p className={mutation.isError || disconnectWhatsApp.isError || registerPhone.isError ? 'text-xs text-red-500' : 'text-xs text-emerald-500'}>{message}</p>
             <button
               type="submit"
-              disabled={mutation.isPending || disconnectWhatsApp.isPending}
+              disabled={!hasRequiredCredentials || mutation.isPending || disconnectWhatsApp.isPending}
               className="shrink-0 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
             >
-              {mutation.isPending ? 'Saving...' : account ? 'Update' : 'Connect'}
+              {mutation.isPending ? 'Verifying and saving...' : account ? 'Verify and update' : 'Verify and connect'}
             </button>
           </div>
         </div>

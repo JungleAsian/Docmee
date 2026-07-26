@@ -13,6 +13,10 @@ import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { StudioIntegrationsPanel } from '@/shared/components/StudioIntegrationsPanel'
 import { AUTOMATION_DEFS } from '@/shared/automations'
+import {
+  summarizeAiProviderReadiness,
+  type ClinicAiProviderStatus,
+} from '@/shared/aiProviderStatus'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { useAuthStore } from '@/shared/store/auth'
@@ -600,12 +604,31 @@ function ProviderStatusPanel({
     queryKey: ['provider-status'],
     queryFn: () => api.get<{ providers: ProviderReadiness[] }>('/provider-status'),
   })
+  const clinicAiQuery = useQuery({
+    queryKey: ['ai-status', clinic.id],
+    queryFn: () =>
+      api.get<{ providers: ClinicAiProviderStatus[] }>(`/clinic/${clinic.id}/ai/status`),
+  })
   const providerMap = new Map((providerQuery.data?.providers ?? []).map((provider) => [provider.key, provider]))
   const email = providerMap.get('email')
   const openai = providerMap.get('openai')
   const anthropic = providerMap.get('anthropic')
-  const llmFallback = openai?.state === 'fallback' || anthropic?.state === 'fallback'
-  const llmReady = Boolean(openai?.configured || anthropic?.configured)
+  const llmSummary = summarizeAiProviderReadiness(
+    clinicAiQuery.data?.providers ?? [],
+    [
+      {
+        provider: 'openai',
+        configured: Boolean(openai?.configured),
+        fallback: openai?.state === 'fallback',
+      },
+      {
+        provider: 'anthropic',
+        configured: Boolean(anthropic?.configured),
+        fallback: anthropic?.state === 'fallback',
+      },
+    ],
+  )
+  const llmLoading = providerQuery.isLoading || clinicAiQuery.isLoading
 
   return (
     <section className="clinic-card mb-3 p-3">
@@ -641,13 +664,15 @@ function ProviderStatusPanel({
           }
         />
         <ProviderTile
-          icon={openai?.configured ? 'openai' : anthropic?.configured ? 'anthropic' : 'openai'}
+          icon={llmSummary.icon}
           label={t('studio.channels.providerStatus.llm')}
-          state={llmFallback ? 'fallback' : llmReady ? 'ready' : 'missing'}
+          state={llmLoading ? 'unknown' : llmSummary.state}
           detail={
-            llmFallback
+            llmLoading
+              ? 'Checking AI provider readiness...'
+              : llmSummary.state === 'fallback'
               ? t('studio.channels.providerStatus.llmFallback')
-              : llmReady
+              : llmSummary.state === 'ready'
                 ? t('studio.channels.providerStatus.llmReady')
                 : 'AI response provider needs admin setup.'
           }

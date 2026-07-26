@@ -161,6 +161,29 @@ describe('processAgentJob — custom flow engine', () => {
     expect(h.classifyIntent).not.toHaveBeenCalled()
   })
 
+  it('routes replies for an active booking directly back to scheduling', async () => {
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: {
+        scheduling: {
+          action: 'book',
+          state: { step: 'ask_date', reason: 'control de rutina' },
+        },
+      },
+    })
+
+    await processAgentJob(makeJob({ ...baseJob, message: '2026-07-27' }))
+
+    expect(h.schedulingAdd).toHaveBeenCalledWith(
+      'schedule',
+      expect.objectContaining({ action: 'book', message: '2026-07-27' }),
+    )
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    expect(h.listEnabledFlows).not.toHaveBeenCalled()
+  })
+
   it('clears a stale cursor and falls through to the LLM when the flow is disabled', async () => {
     h.findConversation.mockResolvedValue({
       id: CONVO,

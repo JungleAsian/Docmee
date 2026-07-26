@@ -644,6 +644,23 @@ export async function processAgentJob(job: Job): Promise<void> {
       return
     }
 
+    // Keep replies inside an active scheduling conversation deterministic. A date
+    // or time such as "2026-07-27" / "10:00" is not a fresh intent and must not
+    // be reclassified by the general assistant. Safety, consent and explicit
+    // human-handoff guards intentionally remain above this resume point.
+    const activeScheduling = conversation?.metadata?.scheduling
+    const activeSchedulingAction =
+      activeScheduling &&
+      typeof activeScheduling === 'object' &&
+      'action' in activeScheduling &&
+      ['book', 'reschedule', 'cancel', 'status'].includes(String(activeScheduling.action))
+        ? (activeScheduling.action as 'book' | 'reschedule' | 'cancel' | 'status')
+        : null
+    if (activeSchedulingAction) {
+      await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
+      return
+    }
+
     // Fire non-exclusive inbound workflow side effects only after the safety and
     // consent guards above. Workflows remain best-effort and do not own the reply
     // turn; Custom Flows below remain the patient-facing booking authority.

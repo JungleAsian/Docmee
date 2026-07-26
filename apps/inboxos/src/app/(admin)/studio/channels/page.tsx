@@ -2164,12 +2164,22 @@ function WhatsAppCard({
           </label>
           <label className="block">
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Token expires on</span>
-            <input
-              value={tokenExpiresAt}
-              onChange={(event) => setTokenExpiresAt(event.target.value)}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
-              type="date"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                value={tokenExpiresAt}
+                onChange={(event) => setTokenExpiresAt(event.target.value)}
+                className="min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                type="date"
+              />
+              <button
+                type="button"
+                onClick={() => setTokenExpiresAt('')}
+                disabled={!tokenExpiresAt}
+                className="shrink-0 rounded-md border border-gray-300 px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700"
+              >
+                Clear expiry
+              </button>
+            </div>
             <span className="mt-1 block text-[11px] text-gray-400">Optional, but recommended. It helps Docmee warn before a token must be rotated.</span>
           </label>
 

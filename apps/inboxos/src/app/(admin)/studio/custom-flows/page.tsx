@@ -152,7 +152,6 @@ function editableToPayload(e: EditableFlow): Record<string, unknown> | null {
     language: e.language,
     steps,
     startStepId,
-    messages: [],
   }
 }
 

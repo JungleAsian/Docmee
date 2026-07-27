@@ -13,6 +13,7 @@ const captures = vi.hoisted(() => ({
   recipient: 'admin@clinic.test' as string | null,
   settings: {} as Record<string, unknown>,
   controlledReport: null as Record<string, unknown> | null,
+  claimOwners: [] as Array<string | null | undefined>,
 }))
 
 vi.mock('@docmee/notifications', () => ({
@@ -48,7 +49,10 @@ vi.mock('@docmee/db', () => ({
       captures.created.push(row)
       return { id: `gen-${captures.created.length}`, ...row }
     },
-    claimEmailDelivery: async () => true,
+    claimEmailDelivery: async (_id: string, claimOwner?: string | null) => {
+      captures.claimOwners.push(claimOwner)
+      return true
+    },
     markEmailed: async (id: string, emailed: boolean, deliveryDiagnostic?: string | null) => {
       captures.marked.push({ id, emailed, diagnostic: deliveryDiagnostic })
       const index = Number(id.replace('gen-', '')) - 1
@@ -78,6 +82,7 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
     captures.recipient = 'admin@clinic.test'
     captures.settings = {}
     captures.controlledReport = null
+    captures.claimOwners = []
     vi.useFakeTimers()
   })
   afterEach(() => {
@@ -102,6 +107,13 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
     expect((row['data'] as { bookings: number }).bookings).toBe(2)
   })
 
+  it('uses the stable queue job id as the report delivery lease owner', async () => {
+    vi.setSystemTime(new Date('2026-06-16T08:00:00Z'))
+    await processReportsJob({ id: 'report-job-42' } as never)
+
+    expect(captures.claimOwners).toEqual(['report-job-42'])
+  })
+
   it('on a Monday 09:00 emails AND persists a weekly report', async () => {
     captures.settings = { reports: { frequency: 'weekly', hourLocal: 9 } }
     vi.setSystemTime(new Date('2026-06-15T09:00:00Z')) // Monday 09:00 UTC
@@ -112,10 +124,10 @@ describe('processReportsJob — panel + email delivery (Req 37)', () => {
     expect(captures.emails[0]!.subject).toBe('Clinica Demo: weekly report')
   })
 
-  it('still persists the report (emailed=false) when the email send fails', async () => {
+  it('persists the failure and rejects so the durable queue retries it', async () => {
     vi.setSystemTime(new Date('2026-06-16T08:00:00Z'))
     captures.emailShouldThrow = true
-    await processReportsJob(job)
+    await expect(processReportsJob(job)).rejects.toThrow('resend down')
 
     expect(captures.created).toHaveLength(1)
     expect(captures.created[0]!['emailed']).toBe(false)

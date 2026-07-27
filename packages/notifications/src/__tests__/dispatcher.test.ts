@@ -65,7 +65,7 @@ describe('dispatchNotification', () => {
   })
 
   it('passes the durable notification key through to the email provider', async () => {
-    const { store } = makeStore()
+    const { store, created } = makeStore()
     const sendEmail = vi.fn(async (_params: SendEmailParams) => {})
     await dispatchNotification(
       {
@@ -73,15 +73,17 @@ describe('dispatchNotification', () => {
         type: NOTIFICATION_TYPES.EMERGENCY,
         recipientEmail: 'a@b.com',
         idempotencyKey: 'handoff:conv-1:wamid-1',
+        claimOwner: 'notification-job-42',
       },
       { store, sendEmail },
     )
     expect(sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: 'handoff:conv-1:wamid-1' }),
     )
+    expect(created[0]).toMatchObject({ claimOwner: 'notification-job-42' })
   })
 
-  it('delivery failure → status failed, but never throws', async () => {
+  it('delivery failure → status failed and throws so the durable consumer retries', async () => {
     const { store, statuses } = makeStore()
     const sendEmail = vi.fn(async () => {
       throw new Error('resend down')
@@ -91,7 +93,7 @@ describe('dispatchNotification', () => {
         { clinicId: 'c1', type: NOTIFICATION_TYPES.EMERGENCY, recipientEmail: 'a@b.com' },
         { store, sendEmail },
       ),
-    ).resolves.toBeUndefined()
+    ).rejects.toThrow('resend down')
     expect(statuses).toEqual([{ id: 'n1', status: 'failed', error: 'resend down' }])
   })
 

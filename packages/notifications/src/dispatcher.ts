@@ -27,6 +27,8 @@ export interface DispatchNotificationParams {
   emailAllowed?: boolean
   /** Stable source-event key. Replays with the same clinic/key are not delivered twice. */
   idempotencyKey?: string
+  /** Stable queue job id. The same failed job may reclaim its lease immediately. */
+  claimOwner?: string
 }
 
 /** Persistence the dispatcher needs — supplied by the worker (backed by @docmee/db). */
@@ -43,6 +45,7 @@ export interface NotificationStore {
     content: string
     status: 'pending'
     idempotencyKey?: string
+    claimOwner?: string
   }): Promise<{ id: string; claimed: boolean }>
   updateStatus(id: string, status: 'sent' | 'failed', error?: string | null): Promise<void>
 }
@@ -107,8 +110,9 @@ async function deliverPush(
  * always recorded for the in-panel feed; an email is additionally sent when
  * routing says so (p1 always, p2/standard only when the recipient is offline —
  * see ./routing.ts). Panel-only alerts are marked 'sent' on creation (delivered
- * to the feed). Email failures are recorded (status='failed') but never thrown —
- * a failed alert email must not crash the worker processing the job.
+ * to the feed). Email failures are recorded (status='failed') and rethrown so
+ * durable queue consumers retry them. The persisted idempotency lease and the
+ * provider idempotency key make that retry safe.
  */
 export async function dispatchNotification(
   params: DispatchNotificationParams,
@@ -130,6 +134,7 @@ export async function dispatchNotification(
     content: html,
     status: 'pending',
     ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+    ...(params.claimOwner ? { claimOwner: params.claimOwner } : {}),
   })
   if (!saved.claimed) return
 
@@ -156,5 +161,6 @@ export async function dispatchNotification(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     await deps.store.updateStatus(saved.id, 'failed', message)
+    throw err
   }
 }

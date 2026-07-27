@@ -11,7 +11,11 @@ import type { CalendarOps, TimeSlot } from '../calbot/google-calendar-client.js'
 const DATE = '2026-07-01'
 
 function slotsFor(times: string[]): TimeSlot[] {
-  return times.map((t) => ({ start: `${DATE}T${t}:00`, end: `${DATE}T${t}:30` }))
+  return times.map((t) => {
+    const start = new Date(`${DATE}T${t}:00Z`)
+    const end = new Date(start.getTime() + 30 * 60_000).toISOString().slice(0, 19)
+    return { start: `${DATE}T${t}:00`, end }
+  })
 }
 
 function makeCalendar(over: Partial<CalendarOps> = {}): CalendarOps {
@@ -109,7 +113,8 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
       reason: 'control general',
       preferredDate: DATE,
       preferredTime: '10:00',
-      startTime: `${DATE}T10:00:00`,
+      startTime: '2026-07-01T16:00:00.000Z',
+      endTime: '2026-07-01T16:30:00.000Z',
       googleEventId: 'evt_123',
     })
   })
@@ -348,7 +353,43 @@ describe('per-doctor services (Req 30)', () => {
     })
     expect((deps.saveAppointment as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
       serviceId: 's2',
+      startTime: '2026-07-01T16:00:00.000Z',
+      endTime: '2026-07-01T16:45:00.000Z',
     })
+  })
+
+  it('does not offer a service start unless consecutive free cells cover its full duration', async () => {
+    const calendar = makeCalendar({
+      listSlots: vi.fn().mockImplementation(async (date: string) => (
+        date === DATE ? slotsFor(['10:00']) : []
+      )),
+    })
+    const deps = makeDeps(calendar)
+    const serviceCtx: BookingContext = {
+      ...ctx,
+      providers: [{
+        id: 'prov-1',
+        fullName: 'Dra. GarcÃ­a',
+        services: [{ id: 's2', name: 'Limpieza dental', durationMinutes: 45 }],
+      }],
+    }
+    const state: BookingState = {
+      step: 'ask_time',
+      providerId: 'prov-1',
+      doctorName: 'Dra. GarcÃ­a',
+      serviceId: 's2',
+      serviceName: 'Limpieza dental',
+      serviceDurationMinutes: 45,
+      preferredDate: DATE,
+    }
+
+    const result = await advanceBookingFlow(state, '10:00', serviceCtx, deps)
+
+    expect(result.done).toBe(true)
+    expect(result.handoff).toBe(true)
+    expect(result.reply).not.toContain(`${DATE} 10:00`)
+    expect(calendar.createEvent).not.toHaveBeenCalled()
+    expect(deps.saveAppointment).not.toHaveBeenCalled()
   })
 
   it('matches the service by its list number', async () => {

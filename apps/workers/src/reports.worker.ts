@@ -204,9 +204,11 @@ async function deliverReport(
   recipient: string | null,
   payload: ReportPayload,
   scheduleKey: string,
+  claimOwner?: string,
 ): Promise<void> {
+  let claimed
   try {
-    const claimed = await reports.claimScheduled({
+    claimed = await reports.claimScheduled({
       clinicId,
       type: payload.type,
       periodStart: payload.periodStart.toISOString(),
@@ -218,18 +220,20 @@ async function deliverReport(
       emailed: false,
       scheduleKey,
     })
-    if (!claimed || !recipient) return
-    if (!await reports.claimEmailDelivery(claimed.id)) return
-    try {
-      await sendEmail({ to: recipient, subject: payload.subject, html: payload.html, idempotencyKey: scheduleKey })
-      await reports.markEmailed(claimed.id, true)
-    } catch (err) {
-      const diagnostic = redactedDeliveryDiagnostic(err)
-      await reports.markEmailed(claimed.id, false, diagnostic)
-      console.error(`[reports] email failed for clinic ${clinicId} (${payload.type}): ${diagnostic}`)
-    }
   } catch (err) {
     console.error(`[reports] claim/persist failed for clinic ${clinicId} (${payload.type}):`, err)
+    return
+  }
+  if (!claimed || !recipient) return
+  if (!await reports.claimEmailDelivery(claimed.id, claimOwner)) return
+  try {
+    await sendEmail({ to: recipient, subject: payload.subject, html: payload.html, idempotencyKey: scheduleKey })
+    await reports.markEmailed(claimed.id, true)
+  } catch (err) {
+    const diagnostic = redactedDeliveryDiagnostic(err)
+    await reports.markEmailed(claimed.id, false, diagnostic)
+    console.error(`[reports] email failed for clinic ${clinicId} (${payload.type}): ${diagnostic}`)
+    throw err
   }
 }
 
@@ -254,7 +258,7 @@ export async function processReportsJob(_job: Job): Promise<void> {
       const report = await reports.findById(control.clinicId, control.reportId)
       if (!report) throw new Error('Controlled report retry target not found')
       if (!report.recipientEmail) throw new Error('Controlled report retry target has no configured recipient')
-      if (!await reports.claimEmailDelivery(report.id)) return
+      if (!await reports.claimEmailDelivery(report.id, _job.id == null ? null : String(_job.id))) return
       try {
         await sendEmail({
           to: report.recipientEmail,
@@ -325,6 +329,7 @@ export async function processReportsJob(_job: Job): Promise<void> {
         await Promise.all(deliveryRecipients.map((recipient) => deliverReport(
           reports, clinic.id, recipient, payload,
           `${clinic.id}:daily:${localDateKey(periodStartDate)}:${recipient ?? 'panel'}`,
+          _job.id == null ? undefined : String(_job.id),
         )))
       }
 
@@ -358,6 +363,7 @@ export async function processReportsJob(_job: Job): Promise<void> {
         await Promise.all(deliveryRecipients.map((recipient) => deliverReport(
           reports, clinic.id, recipient, payload,
           `${clinic.id}:${reportType}:${localDateKey(periodStartDate)}:${recipient ?? 'panel'}`,
+          _job.id == null ? undefined : String(_job.id),
         )))
       }
     }

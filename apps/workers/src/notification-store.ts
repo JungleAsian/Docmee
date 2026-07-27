@@ -21,6 +21,7 @@ export function buildNotificationStore(notifications: NotificationsRepository): 
         const result = await notifications.claimOnce({
           ...data,
           idempotencyKey: input.idempotencyKey,
+          claimOwner: input.claimOwner ?? null,
         })
         return { id: result.event.id, claimed: result.claimed }
       }

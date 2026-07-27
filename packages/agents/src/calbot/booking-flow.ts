@@ -6,7 +6,11 @@
 // the appointments table — are injected, so the whole flow is pure logic and is
 // tested without a network or a database (and without an LLM: parsing is
 // deterministic, see ./shared).
-import type { CalendarOps, TimeSlot } from './google-calendar-client.js'
+import {
+  zonedDateTimeToInstant,
+  type CalendarOps,
+  type TimeSlot,
+} from './google-calendar-client.js'
 import {
   type Language,
   type ClinicInfo,
@@ -203,6 +207,32 @@ function futureSlots(slots: TimeSlot[], timezone: string, now: Date): TimeSlot[]
   })
 }
 
+function addLocalMinutes(value: string, durationMinutes: number): string {
+  const instant = new Date(`${value}Z`)
+  instant.setUTCMinutes(instant.getUTCMinutes() + durationMinutes)
+  return instant.toISOString().slice(0, 19)
+}
+
+/**
+ * Return candidate starts whose consecutive free grid cells cover the complete
+ * service duration. The returned end is the exact service end, not merely the
+ * first grid cell end, so calendar and database persistence stay consistent.
+ */
+function slotsSupportingDuration(slots: TimeSlot[], durationMinutes: number): TimeSlot[] {
+  const ordered = [...slots].sort((a, b) => a.start.localeCompare(b.start))
+  const byStart = new Map(ordered.map((slot) => [slot.start, slot]))
+  return ordered.flatMap((candidate) => {
+    const requiredEnd = addLocalMinutes(candidate.start, durationMinutes)
+    let coveredUntil = candidate.end
+    while (coveredUntil < requiredEnd) {
+      const next = byStart.get(coveredUntil)
+      if (!next || next.end <= coveredUntil) return []
+      coveredUntil = next.end
+    }
+    return [{ start: candidate.start, end: requiredEnd }]
+  })
+}
+
 /**
  * CRE-49: scan forward from `startDate` for up to `days`, collecting the first
  * `max` free slots that fall inside the doctor's working hours. Stops early once
@@ -215,6 +245,7 @@ async function findUpcomingSlots(
   opts: { days: number; max: number },
   timezone: string,
   now: Date,
+  durationMinutes: number,
 ): Promise<TimeSlot[]> {
   const out: TimeSlot[] = []
   for (let i = 0; i < opts.days && out.length < opts.max; i++) {
@@ -222,7 +253,7 @@ async function findUpcomingSlots(
     if (availability && hasAvailability(availability) && !worksOnDay(availability, date)) continue
     const free = await deps.calendar.listSlots(date)
     const inHours = availability ? filterSlotsByAvailability(free, date, availability) : free
-    const slots = futureSlots(inHours, timezone, now)
+    const slots = slotsSupportingDuration(futureSlots(inHours, timezone, now), durationMinutes)
     out.push(...slots)
   }
   return out.slice(0, opts.max)
@@ -332,7 +363,10 @@ export async function advanceBookingFlow(
         if (availability && hasAvailability(availability) && !worksOnDay(availability, date)) continue
         const freeSlots = await deps.calendar.listSlots(date)
         const inHours = availability ? filterSlotsByAvailability(freeSlots, date, availability) : freeSlots
-        const slots = futureSlots(inHours, ctx.clinic.timezone, now)
+        const slots = slotsSupportingDuration(
+          futureSlots(inHours, ctx.clinic.timezone, now),
+          duration,
+        )
         const times = slots.slice(0, 3).map((slot) => slot.start.slice(11, 16))
         if (times.length > 0) availableDays.push(`${date}: ${times.join(', ')}`)
       }
@@ -393,7 +427,7 @@ export async function advanceBookingFlow(
       // and waiting for a rejection before showing availability.
       if (availability && hasAvailability(availability) && !worksOnDay(availability, date)) {
         const upcoming = await findUpcomingSlots(
-          deps, date, availability, { days: 14, max: 3 }, ctx.clinic.timezone, now,
+          deps, date, availability, { days: 14, max: 3 }, ctx.clinic.timezone, now, duration,
         )
         if (upcoming.length) {
           const opts = upcoming.map((slot) => `${slot.start.slice(0, 10)} ${slot.start.slice(11, 16)}`).join(', ')
@@ -420,11 +454,14 @@ export async function advanceBookingFlow(
 
       const freeSlots = await deps.calendar.listSlots(date)
       const inHours = availability ? filterSlotsByAvailability(freeSlots, date, availability) : freeSlots
-      const slots = futureSlots(inHours, ctx.clinic.timezone, now)
+      const slots = slotsSupportingDuration(
+        futureSlots(inHours, ctx.clinic.timezone, now),
+        duration,
+      )
       const sameDay = slots.slice(0, 6).map((slot) => slot.start.slice(11, 16))
       if (sameDay.length === 0) {
         const upcoming = await findUpcomingSlots(
-          deps, addDays(date, 1), availability, { days: 14, max: 4 }, ctx.clinic.timezone, now,
+          deps, addDays(date, 1), availability, { days: 14, max: 4 }, ctx.clinic.timezone, now, duration,
         )
         if (upcoming.length) {
           const opts = upcoming.map((slot) => `${slot.start.slice(0, 10)} ${slot.start.slice(11, 16)}`).join(', ')
@@ -481,7 +518,7 @@ export async function advanceBookingFlow(
       if (availability && hasAvailability(availability) && !worksOnDay(availability, date)) {
         // CRE-49: don't dead-end — surface this doctor's next working slots.
         const upcoming = await findUpcomingSlots(
-          deps, date, availability, { days: 14, max: 3 }, ctx.clinic.timezone, now,
+          deps, date, availability, { days: 14, max: 3 }, ctx.clinic.timezone, now, duration,
         )
         if (upcoming.length) {
           const opts = upcoming.map((slot) => `${slot.start.slice(0, 10)} ${slot.start.slice(11, 16)}`).join(', ')
@@ -510,7 +547,10 @@ export async function advanceBookingFlow(
       // Then keep only slots inside the doctor's working hours (Req 30).
       const freeSlots = await deps.calendar.listSlots(date)
       const inHours = availability ? filterSlotsByAvailability(freeSlots, date, availability) : freeSlots
-      const slots = futureSlots(inHours, ctx.clinic.timezone, now)
+      const slots = slotsSupportingDuration(
+        futureSlots(inHours, ctx.clinic.timezone, now),
+        duration,
+      )
       const wantStart = slotStart(date, time)
       const match = slots.find((s) => s.start === wantStart)
 
@@ -529,7 +569,7 @@ export async function advanceBookingFlow(
         }
         // CRE-49: this day is fully booked — proactively offer the next open days.
         const upcoming = await findUpcomingSlots(
-          deps, addDays(date, 1), availability, { days: 14, max: 4 }, ctx.clinic.timezone, now,
+          deps, addDays(date, 1), availability, { days: 14, max: 4 }, ctx.clinic.timezone, now, duration,
         )
         if (upcoming.length) {
           const opts = upcoming.map((slot) => `${slot.start.slice(0, 10)} ${slot.start.slice(11, 16)}`).join(', ')
@@ -623,7 +663,10 @@ export async function advanceBookingFlow(
       const inHours = availability
         ? filterSlotsByAvailability(latest, state.preferredDate, availability)
         : latest
-      const stillAvailable = futureSlots(inHours, ctx.clinic.timezone, now)
+      const stillAvailable = slotsSupportingDuration(
+        futureSlots(inHours, ctx.clinic.timezone, now),
+        duration,
+      )
         .some((candidate) => candidate.start === slot.start && candidate.end === slot.end)
       if (!stillAvailable) {
         return {
@@ -648,6 +691,25 @@ export async function advanceBookingFlow(
         `Cita: ${ctx.patientName ?? 'Paciente'} con ${state.doctorName}`,
         `Appointment: ${ctx.patientName ?? 'Patient'} with ${state.doctorName}`,
       )
+      const appointmentStart = zonedDateTimeToInstant(slot.start, ctx.clinic.timezone)
+      const appointmentEnd = zonedDateTimeToInstant(slot.end, ctx.clinic.timezone)
+      if (!appointmentStart || !appointmentEnd || appointmentEnd <= appointmentStart) {
+        return {
+          nextState: {
+            ...state,
+            step: 'ask_date',
+            preferredDate: undefined,
+            preferredTime: undefined,
+            confirmedSlot: undefined,
+          },
+          reply: pick(
+            L,
+            'Ese horario no es vÃ¡lido en la zona horaria de la clÃ­nica. Elija otro horario.',
+            'That time is not valid in the clinic timezone. Choose another time.',
+          ),
+          done: false,
+        }
+      }
       const eventId = await deps.calendar.createEvent({
         title,
         date: state.preferredDate,
@@ -660,8 +722,8 @@ export async function advanceBookingFlow(
         doctorName: state.doctorName ?? null,
         specialty: state.specialty ?? null,
         serviceId: state.serviceId ?? null,
-        startTime: slot.start,
-        endTime: slot.end,
+        startTime: appointmentStart.toISOString(),
+        endTime: appointmentEnd.toISOString(),
         reason: state.reason ?? '',
         preferredDate: state.preferredDate,
         preferredTime: state.preferredTime,

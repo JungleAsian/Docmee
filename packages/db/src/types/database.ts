@@ -531,6 +531,7 @@ export interface NotificationEvent {
   acknowledgedAt: string | null
   idempotencyKey?: string | null
   deliveryClaimedAt?: string | null
+  deliveryClaimOwner?: string | null
   deliveryAttempts?: number
   metadata: Record<string, unknown>
   createdAt: string
@@ -694,6 +695,7 @@ export interface GeneratedReport {
   /** A bounded category, never a raw provider response, credential, or recipient. */
   deliveryDiagnostic?: string | null
   deliveryClaimedAt?: string | null
+  deliveryClaimOwner?: string | null
   deliveryAttempts?: number
   createdAt: string
 }

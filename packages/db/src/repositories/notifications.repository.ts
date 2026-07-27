@@ -25,7 +25,7 @@ export interface NotificationsRepository {
     event: NotificationEvent
     created: boolean
   }>
-  claimOnce(data: CreateNotificationInput & { idempotencyKey: string }): Promise<{
+  claimOnce(data: CreateNotificationInput & { idempotencyKey: string; claimOwner?: string | null }): Promise<{
     event: NotificationEvent
     claimed: boolean
   }>
@@ -117,7 +117,8 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
       const rows = await sql<NotificationEvent[]>`
         INSERT INTO notification_events
           (clinic_id, notification_type, alert_type, priority, recipient, subject, content,
-           conversation_id, status, metadata, idempotency_key, delivery_claimed_at, delivery_attempts)
+           conversation_id, status, metadata, idempotency_key, delivery_claimed_at,
+           delivery_claim_owner, delivery_attempts)
         VALUES (
           ${data.clinicId ?? null},
           ${data.notificationType ?? 'email'},
@@ -131,16 +132,22 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
           ${sql.json(toJson(data.metadata ?? {}))},
           ${data.idempotencyKey},
           NOW(),
+          ${data.claimOwner ?? null},
           1
         )
         ON CONFLICT (clinic_id, idempotency_key)
           WHERE clinic_id IS NOT NULL AND idempotency_key IS NOT NULL
         DO UPDATE SET
           delivery_claimed_at = NOW(),
+          delivery_claim_owner = EXCLUDED.delivery_claim_owner,
           delivery_attempts = notification_events.delivery_attempts + 1,
           status = 'pending',
           error = NULL
-        WHERE notification_events.status = 'failed'
+        WHERE (
+             EXCLUDED.delivery_claim_owner IS NOT NULL
+             AND notification_events.delivery_claim_owner = EXCLUDED.delivery_claim_owner
+           )
+           OR notification_events.status = 'failed'
            OR (
              notification_events.status = 'pending'
              AND (
@@ -203,7 +210,8 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
         SET status  = ${status},
             sent_at = CASE WHEN ${status} = 'sent' THEN NOW() ELSE sent_at END,
             error   = ${error ?? null},
-            delivery_claimed_at = NULL
+            delivery_claimed_at = NULL,
+            delivery_claim_owner = NULL
         WHERE id = ${id}
       `
     },
@@ -215,6 +223,13 @@ export function createNotificationsRepository(sql: Sql): NotificationsRepository
           WHERE clinic_id       = ${clinicId}
             AND conversation_id = ${conversationId}
             AND alert_type      = ${alertType}
+            AND (
+              status IN ('sent', 'acknowledged', 'skipped')
+              OR (
+                status = 'pending'
+                AND delivery_claimed_at > NOW() - INTERVAL '5 minutes'
+              )
+            )
             AND created_at      > NOW() - ${`${withinMinutes} minutes`}::interval
         ) AS exists
       `

@@ -25,10 +25,10 @@ export interface ReportsRepository {
   /** Single report (with html), clinic-scoped. Null when absent or foreign. */
   findById(clinicId: string, id: string): Promise<GeneratedReport | null>
   create(data: CreateGeneratedReportInput): Promise<GeneratedReport>
-  /** Atomically claim a scheduled delivery. Null means this period was already claimed. */
+  /** Create or retrieve the one durable row for a scheduled clinic/period/recipient delivery. */
   claimScheduled(data: CreateGeneratedReportInput & { scheduleKey: string }): Promise<GeneratedReport | null>
   /** Atomically reserve one pending delivery attempt for an already claimed report. */
-  claimEmailDelivery(id: string): Promise<boolean>
+  claimEmailDelivery(id: string, claimOwner?: string | null): Promise<boolean>
   /** Finish an email attempt without retaining provider responses or credentials. */
   markEmailed(id: string, emailed: boolean, deliveryDiagnostic?: string | null): Promise<void>
   /** Archive older failed rows only after the caller has successfully delivered a controlled retry. */
@@ -100,7 +100,13 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
         ON CONFLICT (schedule_key) WHERE schedule_key IS NOT NULL DO NOTHING
         RETURNING *
       `
-      return rows[0] ?? null
+      if (rows[0]) return rows[0]
+      const existing = await sql<GeneratedReport[]>`
+        SELECT * FROM generated_reports
+        WHERE schedule_key = ${data.scheduleKey}
+        LIMIT 1
+      `
+      return existing[0] ?? null
     },
 
     async markEmailed(id, emailed, deliveryDiagnostic = null) {
@@ -109,20 +115,26 @@ export function createReportsRepository(sql: Sql): ReportsRepository {
         SET emailed = ${emailed},
             delivery_status = ${emailed ? 'sent' : 'failed'},
             delivery_diagnostic = ${emailed ? null : deliveryDiagnostic},
-            delivery_claimed_at = NULL
+            delivery_claimed_at = NULL,
+            delivery_claim_owner = NULL
         WHERE id = ${id}
       `
     },
 
-    async claimEmailDelivery(id) {
+    async claimEmailDelivery(id, claimOwner = null) {
       const rows = await sql<{ id: string }[]>`
         UPDATE generated_reports
         SET delivery_status = 'sending',
             delivery_claimed_at = NOW(),
+            delivery_claim_owner = ${claimOwner},
             delivery_attempts = delivery_attempts + 1
         WHERE id = ${id}
           AND (
-            delivery_status IN ('pending', 'failed')
+            (
+              ${claimOwner}::text IS NOT NULL
+              AND delivery_claim_owner = ${claimOwner}
+            )
+            OR delivery_status IN ('pending', 'failed')
             OR (
               delivery_status = 'sending'
               AND (

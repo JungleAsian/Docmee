@@ -53,6 +53,7 @@ const followUpsRoute: FastifyPluginAsync = async (app) => {
     const health = await withDb(async (sql) => {
       const rows = await sql<Array<{
         doctorsWithoutServices: number
+        doctorsWithoutCalendar: number
         unsentFollowUps: number
         openMetaErrors: number
         reviewEnabled: boolean
@@ -75,6 +76,30 @@ const followUpsRoute: FastifyPluginAsync = async (app) => {
           ) AS doctors_without_services,
           (
             SELECT COUNT(*)::int
+            FROM doctors d
+            WHERE d.clinic_id = c.id
+              AND d.is_active = TRUE
+              AND EXISTS (
+                SELECT 1
+                FROM doctor_services ds
+                JOIN services s ON s.id = ds.service_id
+                WHERE ds.clinic_id = c.id
+                  AND ds.doctor_id = d.id
+                  AND s.is_active = TRUE
+              )
+              AND NOT (
+                (
+                  NULLIF(d.google_calendar_access_token_encrypted, '') IS NOT NULL
+                  AND NULLIF(d.google_calendar_refresh_token_encrypted, '') IS NOT NULL
+                )
+                OR (
+                  NULLIF(c.settings #>> '{googleCalendar,accessToken}', '') IS NOT NULL
+                  AND NULLIF(c.settings #>> '{googleCalendar,refreshToken}', '') IS NOT NULL
+                )
+              )
+          ) AS doctors_without_calendar,
+          (
+            SELECT COUNT(*)::int
             FROM follow_ups f
             WHERE f.clinic_id = c.id
               AND f.status IN ('pending', 'pending_approval')
@@ -87,6 +112,7 @@ const followUpsRoute: FastifyPluginAsync = async (app) => {
               AND (
                 e.error_type LIKE 'meta_%'
                 OR e.error_type LIKE 'whatsapp_%'
+                OR e.error_type = 'provider_acceptance_persistence_failure'
               )
           ) AS open_meta_errors,
           COALESCE((c.settings #>> '{automations,reviewRequest,enabled}')::boolean, TRUE) AS review_enabled,
@@ -101,6 +127,9 @@ const followUpsRoute: FastifyPluginAsync = async (app) => {
     const issues = [
       ...(health.doctorsWithoutServices > 0
         ? [{ code: 'doctor_services_disabled', count: health.doctorsWithoutServices, message: `${health.doctorsWithoutServices} active doctor(s) have no enabled services.` }]
+        : []),
+      ...(health.doctorsWithoutCalendar > 0
+        ? [{ code: 'doctor_calendar_missing', count: health.doctorsWithoutCalendar, message: `${health.doctorsWithoutCalendar} bookable doctor(s) have no usable doctor or clinic calendar connection.` }]
         : []),
       ...(health.reviewEnabled && !health.reviewLink.trim()
         ? [{ code: 'review_link_missing', count: 1, message: 'Review requests are configured but no review link is set.' }]

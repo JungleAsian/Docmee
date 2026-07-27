@@ -177,8 +177,45 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
         ORDER BY created_at DESC
         LIMIT 1
       `
-      const message = rows[0]
-      if (!message) return false
+      let message = rows[0]
+      if (!message) {
+        // Meta may accept a send while the primary wamid update is temporarily
+        // unavailable. The send path durably records both ids in error_reviews;
+        // use that correlation on the first receipt instead of discarding it.
+        const recoverable = await sql<{ id: string; reviewId: string }[]>`
+          SELECT m.id, e.id AS review_id
+          FROM error_reviews e
+          JOIN conversation_messages m
+            ON m.id = e.context ->> 'outboundMessageId'
+           AND m.clinic_id = e.clinic_id
+          WHERE e.clinic_id = ${clinicId}
+            AND e.error_type = 'provider_acceptance_persistence_failure'
+            AND e.status IN ('open', 'reviewed')
+            AND e.context ->> 'providerMessageId' = ${channelMessageId}
+          ORDER BY e.created_at DESC
+          LIMIT 1
+        `
+        const recovered = recoverable[0]
+        if (!recovered) return false
+        const reconciled = await sql<{ id: string }[]>`
+          UPDATE conversation_messages
+          SET channel_message_id = ${channelMessageId},
+              metadata = COALESCE(metadata, '{}'::jsonb) || ${sql.json(toJson({
+                providerAccepted: true,
+                providerAcceptanceReconciled: true,
+                providerAcceptanceReconciledAt: new Date().toISOString(),
+              }))}
+          WHERE clinic_id = ${clinicId} AND id = ${recovered.id}
+          RETURNING id
+        `
+        message = reconciled[0]
+        if (!message) return false
+        await sql`
+          UPDATE error_reviews
+          SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
+          WHERE clinic_id = ${clinicId} AND id = ${recovered.reviewId}
+        `
+      }
 
       await sql`
         INSERT INTO message_delivery_events (message_id, clinic_id, channel_message_id, status, error)

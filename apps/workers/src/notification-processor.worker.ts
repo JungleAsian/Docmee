@@ -122,6 +122,7 @@ export async function processNotificationJob(job: Job): Promise<void> {
         recipientOnline,
         emailAllowed,
         idempotencyKey: data.idempotencyKey,
+        ...(job.id != null ? { claimOwner: String(job.id) } : {}),
       },
       { store: buildNotificationStore(notifications), ...(push ? { push } : {}) },
     )

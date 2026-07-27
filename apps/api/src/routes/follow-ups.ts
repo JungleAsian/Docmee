@@ -88,14 +88,8 @@ const followUpsRoute: FastifyPluginAsync = async (app) => {
                   AND s.is_active = TRUE
               )
               AND NOT (
-                (
-                  NULLIF(d.google_calendar_access_token_encrypted, '') IS NOT NULL
-                  AND NULLIF(d.google_calendar_refresh_token_encrypted, '') IS NOT NULL
-                )
-                OR (
-                  NULLIF(c.settings #>> '{googleCalendar,accessToken}', '') IS NOT NULL
-                  AND NULLIF(c.settings #>> '{googleCalendar,refreshToken}', '') IS NOT NULL
-                )
+                NULLIF(d.google_calendar_access_token_encrypted, '') IS NOT NULL
+                AND NULLIF(d.google_calendar_refresh_token_encrypted, '') IS NOT NULL
               )
           ) AS doctors_without_calendar,
           (

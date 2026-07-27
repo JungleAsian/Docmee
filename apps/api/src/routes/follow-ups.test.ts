@@ -76,5 +76,7 @@ describe('automation health', () => {
     })
     expect(dbState.queries).toHaveLength(1)
     expect(dbState.queries[0]).toContain("e.error_type = 'provider_acceptance_persistence_failure'")
+    expect(dbState.queries[0]).toContain("NULLIF(d.google_calendar_access_token_encrypted, '') IS NOT NULL")
+    expect(dbState.queries[0]).not.toContain("c.settings #>> '{googleCalendar,accessToken}'")
   })
 })

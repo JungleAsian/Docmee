@@ -30,6 +30,9 @@ export {
   sendWhatsAppInteractiveButtons,
   sendWhatsAppInteractiveList,
   type WhatsAppInteractiveOption,
+  sendWhatsAppInteractive,
+  sendWhatsAppList,
+  type WhatsAppListSection,
 } from './whatsapp-sender.js'
 export { sendTwilioWhatsAppText, type TwilioWhatsAppTextConfig } from './twilio-whatsapp-sender.js'
 export { sendMessengerText } from './messenger-sender.js'

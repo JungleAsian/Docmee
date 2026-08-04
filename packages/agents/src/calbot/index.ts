@@ -55,6 +55,7 @@ export {
   type BookingContext,
   type BookingDeps,
   type FlowResult,
+  type BookingInteractive,
 } from './booking-flow.js'
 
 export {

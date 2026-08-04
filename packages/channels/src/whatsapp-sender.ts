@@ -16,6 +16,19 @@ function providerMessage(body: string): string {
   return text.slice(0, 500) || 'no error details returned'
 }
 
+function validateInteractiveBody(bodyText: string): string {
+  const body = bodyText.trim()
+  if (!body) throw new Error('WhatsApp interactive body must not be empty')
+  if (body.length > 1024) throw new Error('WhatsApp interactive body exceeds 1024 characters')
+  return body
+}
+
+function messageIdFromResponse(data: unknown): string {
+  const wamid = (data as { messages?: Array<{ id?: string }> }).messages?.[0]?.id?.trim()
+  if (!wamid) throw new Error('WhatsApp send response missing message id')
+  return wamid
+}
+
 /**
  * Send a text message via the WhatsApp Cloud API.
  *
@@ -98,6 +111,10 @@ export async function sendWhatsAppInteractiveButtons(
   toWaId: string,
   prompt: { body: string; header?: string; footer?: string; options: WhatsAppInteractiveOption[] },
 ): Promise<string | null> {
+  const body = validateInteractiveBody(prompt.body)
+  if (prompt.options.length < 1 || prompt.options.length > 3 || prompt.options.some((option) => !option.id.trim() || !option.title.trim() || option.title.length > 20)) {
+    throw new Error('WhatsApp interactive buttons require 1-3 non-empty identifiers and titles of at most 20 characters')
+  }
   const response = await fetch(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
     {
@@ -114,7 +131,7 @@ export async function sendWhatsAppInteractiveButtons(
         interactive: {
           type: 'button',
           ...(prompt.header ? { header: { type: 'text', text: prompt.header } } : {}),
-          body: { text: prompt.body },
+          body: { text: body },
           ...(prompt.footer ? { footer: { text: prompt.footer } } : {}),
           action: {
             buttons: prompt.options.map((o) => ({ type: 'reply', reply: { id: o.id, title: o.title } })),
@@ -129,10 +146,9 @@ export async function sendWhatsAppInteractiveButtons(
   }
 
   try {
-    const data = (await response.json()) as { messages?: Array<{ id?: string }> }
-    return data.messages?.[0]?.id ?? null
+    return messageIdFromResponse(await response.json())
   } catch {
-    return null
+    throw new Error('WhatsApp send response missing message id')
   }
 }
 
@@ -150,6 +166,10 @@ export async function sendWhatsAppInteractiveList(
   toWaId: string,
   prompt: { body: string; header?: string; footer?: string; buttonLabel: string; options: WhatsAppInteractiveOption[] },
 ): Promise<string | null> {
+  const body = validateInteractiveBody(prompt.body)
+  if (!prompt.buttonLabel.trim() || prompt.buttonLabel.length > 20 || prompt.options.length < 1 || prompt.options.length > 10 || prompt.options.some((option) => !option.id.trim() || !option.title.trim() || option.title.length > 24 || (option.description?.length ?? 0) > 72)) {
+    throw new Error('WhatsApp list requires a button label, 1-10 total rows, and labels within Meta limits')
+  }
   const response = await fetch(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
     {
@@ -166,7 +186,7 @@ export async function sendWhatsAppInteractiveList(
         interactive: {
           type: 'list',
           ...(prompt.header ? { header: { type: 'text', text: prompt.header } } : {}),
-          body: { text: prompt.body },
+          body: { text: body },
           ...(prompt.footer ? { footer: { text: prompt.footer } } : {}),
           action: {
             button: prompt.buttonLabel,
@@ -190,9 +210,50 @@ export async function sendWhatsAppInteractiveList(
   }
 
   try {
-    const data = (await response.json()) as { messages?: Array<{ id?: string }> }
-    return data.messages?.[0]?.id ?? null
+    return messageIdFromResponse(await response.json())
   } catch {
-    return null
+    throw new Error('WhatsApp send response missing message id')
   }
+}
+
+export interface WhatsAppListSection {
+  title?: string
+  rows: Array<{ title: string; description?: string }>
+}
+
+/** Booking-flow convenience wrapper using deterministic, provider-safe button ids. */
+export async function sendWhatsAppInteractive(
+  phoneNumberId: string,
+  accessToken: string,
+  toWaId: string,
+  bodyText: string,
+  buttons: string[],
+): Promise<string> {
+  return sendWhatsAppInteractiveButtons(phoneNumberId, accessToken, toWaId, {
+    body: bodyText,
+    options: buttons.map((title, index) => ({ id: `booking_btn_${index}`, title })),
+  }).then((wamid) => {
+    if (!wamid) throw new Error('WhatsApp send response missing message id')
+    return wamid
+  })
+}
+
+/** Booking-flow convenience wrapper using deterministic, provider-safe list ids. */
+export async function sendWhatsAppList(
+  phoneNumberId: string,
+  accessToken: string,
+  toWaId: string,
+  bodyText: string,
+  buttonLabel: string,
+  sections: WhatsAppListSection[],
+): Promise<string> {
+  if (sections.length !== 1) throw new Error('WhatsApp booking list supports exactly one section')
+  return sendWhatsAppInteractiveList(phoneNumberId, accessToken, toWaId, {
+    body: bodyText,
+    buttonLabel,
+    options: sections[0]?.rows.map((row, index) => ({ id: `booking_row_0_${index}`, ...row })) ?? [],
+  }).then((wamid) => {
+    if (!wamid) throw new Error('WhatsApp send response missing message id')
+    return wamid
+  })
 }

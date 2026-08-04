@@ -1,10 +1,37 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { sendWhatsAppText } from '../whatsapp-sender.js'
+import { sendWhatsAppInteractive, sendWhatsAppList, sendWhatsAppText } from '../whatsapp-sender.js'
 
 const originalFetch = globalThis.fetch
 
 beforeEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('official booking menus', () => {
+  it('sends a reply-button payload with a non-empty body and correlated wamid', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [{ id: 'wamid.BUTTON' }] }) })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    await expect(sendWhatsAppInteractive('PHONE_ID', 'TOKEN', '521', 'Confirm your appointment', ['Yes', 'No']))
+      .resolves.toBe('wamid.BUTTON')
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(init.body as string) as { type: string; interactive: { type: string; body: { text: string } } }
+    expect(body.type).toBe('interactive')
+    expect(body.interactive.type).toBe('button')
+    expect(body.interactive.body.text).toBe('Confirm your appointment')
+  })
+
+  it('rejects invalid list payloads before calling Meta', async () => {
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    await expect(sendWhatsAppList('PHONE_ID', 'TOKEN', '521', ' ', 'View doctors', [{ rows: [{ title: 'Doctor' }] }]))
+      .rejects.toThrow('WhatsApp interactive body must not be empty')
+    await expect(sendWhatsAppList('PHONE_ID', 'TOKEN', '521', 'Choose a doctor', 'View doctors', [{ rows: [] }]))
+      .rejects.toThrow('1-10 total rows')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 afterEach(() => {

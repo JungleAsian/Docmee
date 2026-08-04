@@ -28,13 +28,15 @@ import {
   type ProviderRef,
   type UpcomingAppointment,
   type BookingState,
+  type BookingInteractive,
   type RescheduleState,
   type CancelState,
   type RefreshedTokens,
 } from '@docmee/agents'
+import { sendWhatsAppInteractive, sendWhatsAppList } from '@docmee/channels'
 import { notificationQueue, type Job } from '@docmee/queue'
 import { patientSource, mergePatientIntake, type BookingIntake } from './intake.js'
-import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
+import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender } from './meta-token.js'
 import { scheduleAppointmentFollowUps, scheduleNoResponseFollowUp } from './follow-up.js'
 import { createClinicCrmExporter, patientPhone } from './crm.js'
 import {
@@ -230,7 +232,15 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       return
     }
     const messages = createMessagesRepository(sql)
-    const reply = async (text: string): Promise<string | null> => {
+    const sendBookingInteractive = async (body: string, interactive: BookingInteractive): Promise<string> => {
+      const accessToken = readMetaToken(account.accessTokenEnc)
+      if (!accessToken) throw new Error('Outbound interactive delivery blocked: Meta token is unavailable')
+      if (interactive.type === 'button') {
+        return sendWhatsAppInteractive(account.accountId, accessToken, data.patientWaId, body, interactive.buttons)
+      }
+      return sendWhatsAppList(account.accountId, accessToken, data.patientWaId, body, interactive.button, interactive.sections)
+    }
+    const reply = async (text: string, interactive?: BookingInteractive): Promise<string | null> => {
       if (!data.conversationId) {
         throw new Error('Outbound delivery blocked: conversation is not durable')
       }
@@ -239,14 +249,18 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         clinicId: data.clinicId,
         role: 'assistant',
         content: text,
+        ...(interactive ? { contentType: 'interactive' as const } : {}),
         metadata: {
           outboundAttempt: true,
           sourceWaMessageId: data.waMessageId,
           providerAccepted: false,
+          ...(interactive ? { interactive } : {}),
         },
       })
       try {
-        const channelMessageId = await sendReply(text)
+        const channelMessageId = interactive
+          ? await sendBookingInteractive(text, interactive)
+          : await sendReply(text)
         if (!channelMessageId) throw new Error('Provider accepted no message identifier')
         let acceptanceError: unknown
         for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
@@ -618,7 +632,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
             }
           },
         })
-        await reply(result.reply)
+        await reply(result.reply, result.interactive)
         if (result.handoff) {
           await notificationQueue.add('notify', {
             ...data,

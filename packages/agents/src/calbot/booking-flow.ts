@@ -96,10 +96,36 @@ export interface BookingDeps {
 export interface FlowResult {
   nextState: BookingState
   reply: string
+  /** Optional official-WhatsApp presentation for a deterministic booking choice. */
+  interactive?: BookingInteractive
   /** Terminal: the appointment was created (or the flow handed off). */
   done: boolean
   /** Escalate to a human (e.g. no providers configured). */
   handoff?: boolean
+}
+
+export type BookingInteractive =
+  | { type: 'button'; buttons: string[] }
+  | {
+      type: 'list'
+      button: string
+      sections: Array<{ title?: string; rows: Array<{ title: string; description?: string }> }>
+    }
+
+function listMenu(
+  button: string,
+  rows: Array<{ title: string; description?: string }>,
+): BookingInteractive {
+  return { type: 'list', button, sections: [{ rows }] }
+}
+
+function numberedRows(values: Array<{ name: string; description?: string }>) {
+  return values.slice(0, 10).map((value, index) => ({
+    // The stable ordinal lets the existing deterministic parser resolve a choice
+    // even when Meta's visible-title limit truncates a long doctor/service name.
+    title: `${index + 1}. ${value.name}`.slice(0, 24),
+    ...(value.description ? { description: value.description.slice(0, 72) } : {}),
+  }))
 }
 
 export function initialBookingState(): BookingState {
@@ -164,6 +190,15 @@ function afterDoctorSelected(provider: ProviderRef, state: BookingState, L: Lang
         `Perfecto, ${provider.fullName}. ¿Qué servicio necesita?  ${listServiceNames(services)}`,
         `Great, ${provider.fullName}. Which service do you need?  ${listServiceNames(services)}`,
       ),
+      interactive: services.length <= 10
+        ? listMenu(
+            pick(L, 'Ver servicios', 'View services'),
+            numberedRows(services.map((service) => ({
+              name: service.name,
+              description: `${service.durationMinutes} min`,
+            }))),
+          )
+        : undefined,
       done: false,
     }
   }
@@ -288,6 +323,15 @@ export async function advanceBookingFlow(
         return {
           nextState: { ...state, step: 'confirm_doctor', doctorPrompted: true },
           reply: doctorPrompt(ctx.providers, L),
+          interactive: ctx.providers.length <= 10
+            ? listMenu(
+                pick(L, 'Ver doctores', 'View doctors'),
+                numberedRows(ctx.providers.map((provider) => ({
+                  name: provider.fullName,
+                  ...(provider.specialty ? { description: provider.specialty } : {}),
+                }))),
+              )
+            : undefined,
           done: false,
         }
       }
@@ -297,6 +341,15 @@ export async function advanceBookingFlow(
         return {
           nextState: { ...state, step: 'confirm_doctor', doctorPrompted: true },
           reply: doctorPrompt(ctx.providers, L, true),
+          interactive: ctx.providers.length <= 10
+            ? listMenu(
+                pick(L, 'Ver doctores', 'View doctors'),
+                numberedRows(ctx.providers.map((candidate) => ({
+                  name: candidate.fullName,
+                  ...(candidate.specialty ? { description: candidate.specialty } : {}),
+                }))),
+              )
+            : undefined,
           done: false,
         }
       }
@@ -327,6 +380,15 @@ export async function advanceBookingFlow(
             `No identifiqué el servicio. ¿Qué servicio necesita?  ${listServiceNames(services)}`,
             `I didn't catch the service. Which service do you need?  ${listServiceNames(services)}`,
           ),
+          interactive: services.length <= 10
+            ? listMenu(
+                pick(L, 'Ver servicios', 'View services'),
+                numberedRows(services.map((service) => ({
+                  name: service.name,
+                  description: `${service.durationMinutes} min`,
+                }))),
+              )
+            : undefined,
           done: false,
         }
       }
@@ -389,6 +451,13 @@ export async function advanceBookingFlow(
           L,
           `Horarios disponibles con ${state.doctorName ?? 'el doctor'} durante los próximos 5 días:\n${availableDays.join('\n')}\nResponda con la fecha que prefiere.`,
           `Available options with ${state.doctorName ?? 'the doctor'} during the next 5 days:\n${availableDays.join('\n')}\nReply with your preferred date.`,
+        ),
+        interactive: listMenu(
+          pick(L, 'Ver fechas', 'View days'),
+          availableDays.map((day) => {
+            const [date, ...times] = day.split(': ')
+            return { title: date ?? day, description: times.join(': ') }
+          }),
         ),
         done: false,
       }
@@ -493,6 +562,10 @@ export async function advanceBookingFlow(
           L,
           `Horarios disponibles con ${state.doctorName ?? 'el doctor'} el ${date}: ${sameDay.join(', ')}. ¿Cuál prefiere?`,
           `Available times with ${state.doctorName ?? 'the doctor'} on ${date}: ${sameDay.join(', ')}. Which works for you?`,
+        ),
+        interactive: listMenu(
+          pick(L, 'Ver horarios', 'View times'),
+          sameDay.map((time) => ({ title: time })),
         ),
         done: false,
       }
@@ -602,6 +675,7 @@ export async function advanceBookingFlow(
           `Confirmo: ${state.doctorName} el ${date} a las ${time}. ¿Está correcto? (sí/no)`,
           `To confirm: ${state.doctorName} on ${date} at ${time}. Is that correct? (yes/no)`,
         ),
+        interactive: { type: 'button', buttons: [pick(L, 'Confirmar', 'Yes'), 'No'] },
         done: false,
       }
     }

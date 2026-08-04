@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   advanceBookingFlow: vi.fn(),
   createGoogleCalendarOps: vi.fn(),
   sendWhatsAppText: vi.fn(),
+  sendWhatsAppInteractive: vi.fn(),
   notificationAdd: vi.fn(),
   findClinic: vi.fn(),
   listAccounts: vi.fn(),
@@ -45,10 +46,15 @@ vi.mock('@docmee/agents', () => ({
 
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
+  sendWhatsAppInteractive: h.sendWhatsAppInteractive,
+  sendWhatsAppList: vi.fn(),
   sendZernioWhatsAppText: h.sendWhatsAppText,
 }))
 
-vi.mock('@docmee/queue', () => ({ notificationQueue: { add: h.notificationAdd } }))
+vi.mock('@docmee/queue', () => ({
+  notificationQueue: { add: h.notificationAdd },
+  followUpQueue: { add: h.notificationAdd },
+}))
 
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: h.end }),
@@ -114,6 +120,7 @@ beforeEach(() => {
   h.createError.mockResolvedValue(undefined)
   h.createMessage.mockResolvedValue({ id: 'm1' })
   h.sendWhatsAppText.mockResolvedValue('wamid.reply')
+  h.sendWhatsAppInteractive.mockResolvedValue('wamid.interactive')
   h.createGoogleCalendarOps.mockReturnValue({
     listSlots: vi.fn(),
     createEvent: vi.fn(),
@@ -123,6 +130,25 @@ beforeEach(() => {
 })
 
 describe('processSchedulingJob — calendar failure (Req 29)', () => {
+  it('persists and correlates provider acceptance for an interactive booking reply', async () => {
+    h.advanceBookingFlow.mockResolvedValue({
+      nextState: { step: 'confirm_doctor', doctorPrompted: true },
+      reply: 'Choose a doctor',
+      interactive: { type: 'button', buttons: ['Yes', 'No'] },
+      done: false,
+    })
+
+    await processSchedulingJob(makeJob(job))
+
+    expect(h.sendWhatsAppInteractive).toHaveBeenCalledWith('PHONE', 'tok', job.patientWaId, 'Choose a doctor', ['Yes', 'No'])
+    expect(h.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'Choose a doctor',
+      contentType: 'interactive',
+      metadata: expect.objectContaining({ outboundAttempt: true, providerAccepted: false }),
+    }))
+    expect(h.markProviderAccepted).toHaveBeenCalledWith(CLINIC, 'm1', 'wamid.interactive')
+  })
+
   it('logs calendar_failure, replies the fallback, and hands off when a flow throws', async () => {
     h.advanceBookingFlow.mockRejectedValue(new Error('invalid_grant: token expired'))
 

@@ -52,6 +52,33 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     process.env['LLM_STUB'] = 'true'
   })
 
+  it('returns official booking menus for doctors, services, live days, times, and confirmation', async () => {
+    const calendar = makeCalendar()
+    const deps = makeDeps(calendar)
+    const englishCtx: BookingContext = {
+      ...ctx,
+      language: 'en',
+      clinic: { ...ctx.clinic, timezone: 'UTC' },
+      now: new Date('2026-07-01T08:00:00Z'),
+    }
+
+    let result = await advanceBookingFlow(initialBookingState(), 'book', englishCtx, deps)
+    expect(result.interactive).toMatchObject({ type: 'list', button: 'View doctors' })
+
+    result = await advanceBookingFlow(result.nextState, '1', englishCtx, deps)
+    expect(result.interactive).toMatchObject({ type: 'list', button: 'View services' })
+
+    result = await advanceBookingFlow(result.nextState, '1', englishCtx, deps)
+    result = await advanceBookingFlow(result.nextState, 'Consultation', englishCtx, deps)
+    expect(result.interactive).toMatchObject({ type: 'list', button: 'View days' })
+
+    result = await advanceBookingFlow(result.nextState, DATE, englishCtx, deps)
+    expect(result.interactive).toMatchObject({ type: 'list', button: 'View times' })
+
+    result = await advanceBookingFlow(result.nextState, '10:00', englishCtx, deps)
+    expect(result.interactive).toEqual({ type: 'button', buttons: ['Yes', 'No'] })
+  })
+
   it('advances through all 8 steps and books the appointment', async () => {
     const calendar = makeCalendar()
     const deps = makeDeps(calendar)
@@ -96,10 +123,11 @@ describe('advanceBookingFlow (LLM_STUB)', () => {
     r = await advanceBookingFlow(state, '10:00', ctx, deps)
     expect(r.nextState.step).toBe('confirm_details')
     expect(r.nextState.confirmedSlot?.start).toBe(`${DATE}T10:00:00`)
+    expect(r.interactive).toEqual({ type: 'button', buttons: ['Confirmar', 'No'] })
     state = r.nextState
 
     // confirm_details → creates event + persists + confirmation
-    r = await advanceBookingFlow(state, 'sí, confirmo', ctx, deps)
+    r = await advanceBookingFlow(state, 'Confirmar', ctx, deps)
     expect(r.done).toBe(true)
     expect(r.nextState.googleEventId).toBe('evt_123')
     expect(calendar.createEvent).toHaveBeenCalledTimes(1)

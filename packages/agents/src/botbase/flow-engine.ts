@@ -16,15 +16,48 @@ import type { Language } from './language-detector.js'
 export type CustomFlowAction = 'book' | 'handoff' | 'end'
 
 /** How a branch tests the patient's reply to a waiting step. */
-export type FlowBranchOp = 'contains' | 'equals' | 'yes' | 'no' | 'any'
+export type FlowBranchOp = 'contains' | 'equals' | 'yes' | 'no' | 'any' | 'starts_with' | 'regex'
 
 /** A conditional transition out of a waiting step. */
 export interface FlowBranch {
   op: FlowBranchOp
-  /** Keywords for `contains` / `equals` (ignored for yes/no/any). */
+  /** Keywords for `contains` / `equals` / `starts_with` (ignored otherwise). */
   keywords?: string[]
+  /** Match text for `op: 'regex'` (ignored otherwise). */
+  pattern?: string
   /** Target step id, or a terminal token: 'book' | 'handoff' | 'end'. */
   next: string
+}
+
+/** Single Choice node type discriminator (Punchlist Aug 3 parity spec). */
+export type FlowStepType = 'single_choice'
+export type FlowRenderMode = 'buttons' | 'list'
+export type FlowStoreAs = 'optionId' | 'title' | 'saveValue'
+
+/** A tappable option on a `single_choice` step. */
+export interface FlowChoiceOption {
+  /** Unique within the node; sent as the WhatsApp interactive reply id. */
+  optionId: string
+  /** Tappable label (WhatsApp limit: 24 chars). */
+  title: string
+  /** Row subtitle; `renderMode: 'list'` only (WhatsApp limit: 72 chars). */
+  description?: string
+  /** Branch target: a stepId in this flow, or a terminal token. */
+  goToNext: string
+  /** Literal value written to the step's `collect` variable when chosen. */
+  saveValue?: string
+}
+
+/** What the caller should render as a real WhatsApp interactive message (a
+ *  richer alternative to the plain-text `messages` rendering, WhatsApp only). */
+export interface FlowInteractivePrompt {
+  kind: FlowRenderMode
+  body: string
+  header?: string
+  footer?: string
+  /** Tap-to-open button label; `kind: 'list'` only. */
+  buttonLabel?: string
+  options: Array<{ id: string; title: string; description?: string }>
 }
 
 /** One node of a flow. */
@@ -34,7 +67,8 @@ export interface FlowStep {
   messages: string[]
   /**
    * When present and non-empty, the step WAITS for the patient's reply and routes
-   * it through these branches. When absent/empty the step auto-advances to `next`.
+   * it through these branches. When absent/empty the step auto-advances to `next`
+   * (unless `type: 'single_choice'`, which always waits — see below).
    */
   branches?: FlowBranch[]
   /** Store the patient's reply to this (waiting) step under this variable name. */
@@ -44,6 +78,22 @@ export interface FlowStep {
   next?: string | null
   /** Terminal action when this non-waiting step ends the flow. */
   action?: CustomFlowAction | null
+  // Single Choice — a tappable WhatsApp buttons/list menu that branches per
+  // option. Absent `type` = today's legacy step; fields below are additive.
+  type?: FlowStepType
+  header?: string
+  footer?: string
+  renderMode?: FlowRenderMode
+  listButtonLabel?: string
+  options?: FlowChoiceOption[]
+  /** What `collect` stores when an option is chosen (default 'optionId'). */
+  storeAs?: FlowStoreAs
+  /** Sent on an unmatched reply when `next` (the default transition) is null. */
+  retryMessage?: string
+  /** Unmatched-reply attempts allowed before routing to `onFailNext` (default 2). */
+  maxRetries?: number
+  /** Terminal/step after `maxRetries` exceeded (default 'handoff'). */
+  onFailNext?: string
 }
 
 /** The executable shape of a flow (worker maps the DB row to this). */
@@ -60,6 +110,8 @@ export interface FlowState {
   variables: Record<string, string>
   /** Consecutive hybrid-routing clarification attempts at this waiting step. */
   clarificationCount?: number
+  /** Unmatched-reply attempts so far at a `single_choice` step (default 0). */
+  retryCount?: number
 }
 
 /** A configured non-catch-all edge an LLM may classify an off-script reply into. */
@@ -79,7 +131,9 @@ export interface FlowReplyRouting {
 
 /** What the worker must emit after a start/advance. */
 export interface FlowRunResult {
-  /** Messages to send, in order, already interpolated. */
+  /** Messages to send, in order, already interpolated. Always the plain-text
+   *  rendering — used as-is for non-WhatsApp channels, and as the fallback when
+   *  an `interactivePrompt` send fails. */
   messages: string[]
   /** Variables captured so far (persist alongside the cursor). */
   variables: Record<string, string>
@@ -89,6 +143,11 @@ export interface FlowRunResult {
   action: CustomFlowAction | null
   /** True when the flow is paused waiting for the patient's reply at nextStepId. */
   awaitingInput: boolean
+  /** Present when the paused step is a `single_choice` menu: send this as a real
+   *  WhatsApp interactive message instead of `messages` (WhatsApp channel only). */
+  interactivePrompt?: FlowInteractivePrompt
+  /** Unmatched-reply attempts so far at the paused step (persist into FlowState). */
+  retryCount?: number
 }
 
 const TERMINALS = new Set<string>(['book', 'handoff', 'end'])
@@ -156,6 +215,20 @@ function selectBranch(branches: FlowBranch[], message: string): FlowBranch | und
       case 'equals':
         if ((branch.keywords ?? []).some((kw) => deaccent(kw).trim() === normalized)) return branch
         break
+      case 'starts_with':
+        if ((branch.keywords ?? []).some((kw) => normalized.startsWith(deaccent(kw).trim()))) return branch
+        break
+      case 'regex':
+        // A misconfigured pattern is a no-match, not a crash — the flow just
+        // falls through to the next branch / default transition.
+        if (branch.pattern) {
+          try {
+            if (new RegExp(branch.pattern, 'iu').test(message)) return branch
+          } catch {
+            // invalid pattern — treat as no match
+          }
+        }
+        break
       case 'contains':
       default:
         if ((branch.keywords ?? []).some((kw) => phraseInTokens(tokens, kw))) return branch
@@ -163,6 +236,42 @@ function selectBranch(branches: FlowBranch[], message: string): FlowBranch | und
     }
   }
   return undefined
+}
+
+function numberedOptions(options: FlowChoiceOption[]): string {
+  return options.map((o, i) => `${i + 1}. ${o.title}`).join('\n')
+}
+
+/** Render a `single_choice` step's prompt: plain-text fallback lines (used for
+ *  non-WhatsApp channels, or when a real interactive send fails) plus the
+ *  structured payload for a WhatsApp interactive buttons/list send. */
+function buildChoicePrompt(
+  step: FlowStep,
+  variables: Record<string, string>,
+): { messages: string[]; interactivePrompt: FlowInteractivePrompt } {
+  const options = step.options ?? []
+  const body = step.messages.map((m) => interpolate(m, variables)).join('\n')
+  const messages: string[] = []
+  if (step.header) messages.push(step.header)
+  if (body) messages.push(body)
+  if (options.length > 0) messages.push(numberedOptions(options))
+  if (step.footer) messages.push(step.footer)
+
+  return {
+    messages,
+    interactivePrompt: {
+      kind: step.renderMode ?? 'buttons',
+      body,
+      ...(step.header ? { header: step.header } : {}),
+      ...(step.footer ? { footer: step.footer } : {}),
+      buttonLabel: step.listButtonLabel ?? 'Select',
+      options: options.map((o) => ({
+        id: o.optionId,
+        title: o.title,
+        ...(o.description ? { description: o.description } : {}),
+      })),
+    },
+  }
 }
 
 /**
@@ -216,6 +325,20 @@ function runFrom(flow: FlowDef, stepId: string, variables: Record<string, string
     }
     visited.add(step.id)
 
+    // Single Choice: always waits (even with zero keyword branches) and renders
+    // as a tappable menu rather than plain step.messages.
+    if (step.type === 'single_choice') {
+      const prompt = buildChoicePrompt(step, variables)
+      return {
+        messages: [...messages, ...prompt.messages],
+        variables,
+        nextStepId: step.id,
+        action: null,
+        awaitingInput: true,
+        interactivePrompt: prompt.interactivePrompt,
+      }
+    }
+
     for (const m of step.messages) messages.push(interpolate(m, variables))
 
     // Waiting step: pause here for the patient's reply.
@@ -254,19 +377,75 @@ export function startFlow(flow: FlowDef, variables: Record<string, string> = {})
   return runFrom(flow, start, { ...variables })
 }
 
+const DEFAULT_MAX_RETRIES = 2
+const DEFAULT_ON_FAIL_NEXT = 'handoff'
+
 /**
  * Resume a flow at its waiting step with the patient's reply. Returns null when
  * the cursor no longer points at a waiting step or the reply routes nowhere — the
  * caller should then clear the cursor and let normal processing handle the turn.
+ *
+ * `interactiveReplyId` is the stable id of a tapped WhatsApp button/list row
+ * (Single Choice). When it matches the current step's `options`, it wins
+ * immediately — bypassing keyword branches — so routing never depends on the
+ * patient's device locale or a retyped label.
  */
-export function advanceFlow(flow: FlowDef, state: FlowState, message: string): FlowRunResult | null {
+export function advanceFlow(
+  flow: FlowDef,
+  state: FlowState,
+  message: string,
+  interactiveReplyId?: string,
+): FlowRunResult | null {
   const step = findStep(flow, state.stepId)
-  if (!step || !step.branches || step.branches.length === 0) return null
+  if (!step) return null
+  const isWaiting = (step.branches && step.branches.length > 0) || step.type === 'single_choice'
+  if (!isWaiting) return null
+
+  const variables = { ...state.variables }
+
+  // Single Choice: a tapped option's stable id is deterministic ground truth —
+  // resolve it immediately, bypassing keyword branches and the hybrid LLM
+  // clarifier entirely (a button tap is never ambiguous).
+  if (step.type === 'single_choice' && interactiveReplyId) {
+    const option = (step.options ?? []).find((o) => o.optionId === interactiveReplyId)
+    if (option) {
+      if (step.collect) {
+        variables[step.collect] =
+          step.storeAs === 'title' ? option.title : step.storeAs === 'saveValue' ? (option.saveValue ?? option.title) : option.optionId
+      }
+      return runFrom(flow, option.goToNext, variables)
+    }
+    // Stale/unknown id (flow edited after the message was sent) — fall through
+    // to ordinary text matching below, same as a typed reply.
+  }
 
   const routing = inspectFlowReply(flow, state, message)
   const target = routing?.matchedNext ?? routing?.fallbackNext ?? null
-  if (target == null) return null
-  return advanceFlowTo(flow, state, message, target)
+  if (target != null) return advanceFlowTo(flow, state, message, target)
+
+  // Single Choice with no match at all (no keyword branch, no fallback): re-prompt
+  // up to maxRetries, then route to onFailNext. Legacy steps keep today's exact
+  // behavior — routing nowhere simply clears the cursor (return null) for the
+  // caller to handle.
+  if (step.type === 'single_choice') {
+    const attempts = (state.retryCount ?? 0) + 1
+    const max = step.maxRetries ?? DEFAULT_MAX_RETRIES
+    if (attempts <= max) {
+      const prompt = buildChoicePrompt(step, variables)
+      return {
+        messages: step.retryMessage ? [step.retryMessage] : prompt.messages,
+        variables,
+        nextStepId: step.id,
+        action: null,
+        awaitingInput: true,
+        interactivePrompt: prompt.interactivePrompt,
+        retryCount: attempts,
+      }
+    }
+    return runFrom(flow, step.onFailNext ?? DEFAULT_ON_FAIL_NEXT, variables)
+  }
+
+  return null
 }
 
 /**

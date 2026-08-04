@@ -90,6 +90,11 @@ export {
   type FlowRunResult,
   type FlowReplyRouting,
   type FlowSemanticCandidate,
+  type FlowStepType,
+  type FlowRenderMode,
+  type FlowStoreAs,
+  type FlowChoiceOption,
+  type FlowInteractivePrompt,
 } from './flow-engine.js'
 
 export {

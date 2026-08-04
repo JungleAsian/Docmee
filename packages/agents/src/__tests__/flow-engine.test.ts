@@ -180,6 +180,157 @@ describe('flow-engine — advanceFlow', () => {
   })
 })
 
+describe('flow-engine — branch ops (starts_with / regex)', () => {
+  const flow: FlowDef = {
+    id: 'f',
+    startStepId: 'q',
+    steps: [
+      {
+        id: 'q',
+        messages: ['?'],
+        branches: [
+          { op: 'starts_with', keywords: ['hola'], next: 'greet' },
+          { op: 'regex', pattern: '^\\d{4}-\\d{2}-\\d{2}$', next: 'date' },
+          { op: 'any', next: 'other' },
+        ],
+      },
+      { id: 'greet', messages: ['Hola!'], next: 'end' },
+      { id: 'date', messages: ['Fecha recibida.'], next: 'end' },
+      { id: 'other', messages: ['?'], next: 'handoff' },
+    ],
+  }
+
+  it('matches starts_with accent/case-insensitively', () => {
+    const r = advanceFlow(flow, { flowId: 'f', stepId: 'q', variables: {} }, 'HOLA buenas tardes')!
+    expect(r.messages).toEqual(['Hola!'])
+  })
+
+  it('matches regex against the raw message', () => {
+    const r = advanceFlow(flow, { flowId: 'f', stepId: 'q', variables: {} }, '2026-08-03')!
+    expect(r.messages).toEqual(['Fecha recibida.'])
+  })
+
+  it('treats an invalid regex pattern as a non-match rather than throwing', () => {
+    const bad: FlowDef = {
+      id: 'f',
+      startStepId: 'q',
+      steps: [
+        { id: 'q', messages: ['?'], branches: [{ op: 'regex', pattern: '(', next: 'x' }, { op: 'any', next: 'other' }] },
+        { id: 'other', messages: ['fallback'], next: 'end' },
+      ],
+    }
+    const r = advanceFlow(bad, { flowId: 'f', stepId: 'q', variables: {} }, 'anything')!
+    expect(r.messages).toEqual(['fallback'])
+  })
+})
+
+describe('flow-engine — single_choice', () => {
+  const choiceFlow: FlowDef = {
+    id: 'cf1',
+    startStepId: 'menu',
+    steps: [
+      {
+        id: 'menu',
+        type: 'single_choice',
+        messages: ['¿Cómo podemos ayudarte?'],
+        header: 'Menú',
+        footer: 'Clínica Demo',
+        renderMode: 'buttons',
+        collect: 'reason',
+        storeAs: 'optionId',
+        options: [
+          { optionId: 'book_appt', title: 'Agendar cita', goToNext: 'book' },
+          { optionId: 'reschedule', title: 'Reprogramar', goToNext: 'reschedule_step' },
+          { optionId: 'talk_staff', title: 'Hablar con el equipo', goToNext: 'handoff', saveValue: 'staff' },
+        ],
+        branches: [{ op: 'contains', keywords: ['precio', 'costo'], next: 'pricing' }],
+        maxRetries: 1,
+        onFailNext: 'handoff',
+        retryMessage: 'No entendí, por favor elige una opción.',
+      },
+      { id: 'reschedule_step', messages: ['Vamos a reprogramar.'], next: 'end' },
+      { id: 'pricing', messages: ['Nuestros precios...'], next: 'end' },
+    ],
+  }
+
+  it('pauses at the menu with a rendered plain-text prompt and a structured interactivePrompt', () => {
+    const r = startFlow(choiceFlow)
+    expect(r.awaitingInput).toBe(true)
+    expect(r.nextStepId).toBe('menu')
+    expect(r.messages).toEqual([
+      'Menú',
+      '¿Cómo podemos ayudarte?',
+      '1. Agendar cita\n2. Reprogramar\n3. Hablar con el equipo',
+      'Clínica Demo',
+    ])
+    expect(r.interactivePrompt).toEqual({
+      kind: 'buttons',
+      body: '¿Cómo podemos ayudarte?',
+      header: 'Menú',
+      footer: 'Clínica Demo',
+      buttonLabel: 'Select',
+      options: [
+        { id: 'book_appt', title: 'Agendar cita' },
+        { id: 'reschedule', title: 'Reprogramar' },
+        { id: 'talk_staff', title: 'Hablar con el equipo' },
+      ],
+    })
+  })
+
+  it('routes a tapped option by its stable id, bypassing keywords, and stores per storeAs', () => {
+    const r = advanceFlow(choiceFlow, { flowId: 'cf1', stepId: 'menu', variables: {} }, 'Agendar cita', 'book_appt')!
+    expect(r.action).toBe('book')
+    expect(r.variables.reason).toBe('book_appt') // storeAs: 'optionId'
+  })
+
+  it('stores saveValue when storeAs is saveValue', () => {
+    const flow: FlowDef = {
+      id: 'f',
+      startStepId: 'menu',
+      steps: [
+        {
+          id: 'menu',
+          type: 'single_choice',
+          messages: ['?'],
+          options: [{ optionId: 'a', title: 'A', goToNext: 'end', saveValue: 'chose_a' }],
+          collect: 'choice',
+          storeAs: 'saveValue',
+        },
+      ],
+    }
+    const r = advanceFlow(flow, { flowId: 'f', stepId: 'menu', variables: {} }, 'A', 'a')!
+    expect(r.variables.choice).toBe('chose_a')
+  })
+
+  it('falls back to keyword conditions when no interactiveReplyId is given (typed reply)', () => {
+    const r = advanceFlow(choiceFlow, { flowId: 'cf1', stepId: 'menu', variables: {} }, 'cuál es el costo')!
+    expect(r.messages).toEqual(['Nuestros precios...'])
+  })
+
+  it('falls back to keyword conditions when interactiveReplyId is stale/unknown', () => {
+    const r = advanceFlow(choiceFlow, { flowId: 'cf1', stepId: 'menu', variables: {} }, 'precio por favor', 'no_such_option')!
+    expect(r.messages).toEqual(['Nuestros precios...'])
+  })
+
+  it('re-prompts (retry) on an unmatched reply, up to maxRetries, then routes to onFailNext', () => {
+    const first = advanceFlow(choiceFlow, { flowId: 'cf1', stepId: 'menu', variables: {} }, 'no entiendo')!
+    expect(first.awaitingInput).toBe(true)
+    expect(first.nextStepId).toBe('menu')
+    expect(first.retryCount).toBe(1)
+    expect(first.messages).toEqual(['No entendí, por favor elige una opción.'])
+
+    const second = advanceFlow(choiceFlow, { flowId: 'cf1', stepId: 'menu', variables: {}, retryCount: first.retryCount }, 'sigo sin entender')!
+    expect(second.awaitingInput).toBe(false)
+    expect(second.action).toBe('handoff')
+  })
+
+  it('legacy (non-single_choice) steps keep exact current no-match behavior', () => {
+    expect(advanceFlow(bookingFlow, { flowId: 'f1', stepId: 'ask', variables: {} }, 'x')).not.toBeNull()
+    const noBranchStep: FlowDef = { id: 'f', startStepId: 'a', steps: [{ id: 'a', messages: ['x'] }] }
+    expect(advanceFlow(noBranchStep, { flowId: 'f', stepId: 'a', variables: {} }, 'hola')).toBeNull()
+  })
+})
+
 describe('flow-engine — safety guards', () => {
   it('ends gracefully on a dangling step reference', () => {
     const flow: FlowDef = { id: 'f', startStepId: 's0', steps: [{ id: 's0', messages: ['x'], next: 'missing' }] }

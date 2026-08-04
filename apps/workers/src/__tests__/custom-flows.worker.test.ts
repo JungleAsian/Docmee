@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   classifyIntent: vi.fn(),
   chatComplete: vi.fn(),
   sendWhatsAppText: vi.fn(),
+  sendWhatsAppInteractiveButtons: vi.fn(),
+  sendWhatsAppInteractiveList: vi.fn(),
   schedulingAdd: vi.fn(),
   notificationAdd: vi.fn(),
   findClinic: vi.fn(),
@@ -51,6 +53,8 @@ vi.mock('@docmee/agents', async () => {
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
   sendZernioWhatsAppText: h.sendWhatsAppText,
+  sendWhatsAppInteractiveButtons: h.sendWhatsAppInteractiveButtons,
+  sendWhatsAppInteractiveList: h.sendWhatsAppInteractiveList,
   sendMessengerText: vi.fn(),
   sendInstagramText: vi.fn(),
 }))
@@ -132,7 +136,37 @@ beforeEach(() => {
   h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   h.listMessages.mockResolvedValue([])
   h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: false, language: 'es' })
+  h.sendWhatsAppInteractiveButtons.mockResolvedValue('wamid.interactive')
+  h.sendWhatsAppInteractiveList.mockResolvedValue('wamid.interactive')
 })
+
+// A single_choice menu: two tappable options plus a keyword fallback, matching
+// the flow-engine's own fixture (packages/agents/src/__tests__/flow-engine.test.ts).
+const choiceFlow = {
+  id: 'flow2',
+  clinicId: CLINIC,
+  name: 'Menú',
+  triggerKeywords: ['menu'],
+  messages: [] as string[],
+  action: null as 'book' | 'handoff' | 'end' | null,
+  language: 'both' as const,
+  enabled: true,
+  startStepId: 'menu',
+  steps: [
+    {
+      id: 'menu',
+      type: 'single_choice' as const,
+      messages: ['¿Cómo podemos ayudarte?'],
+      renderMode: 'buttons' as const,
+      options: [
+        { optionId: 'book_appt', title: 'Agendar cita', goToNext: 'book' },
+        { optionId: 'talk_staff', title: 'Hablar con el equipo', goToNext: 'handoff' },
+      ],
+      branches: [{ op: 'contains' as const, keywords: ['precio'], next: 'pricing' }],
+    },
+    { id: 'pricing', messages: ['Nuestros precios...'], next: 'end' },
+  ],
+}
 
 describe('processAgentJob — custom flow engine', () => {
   it('starts a multi-step flow on a trigger and persists the cursor', async () => {
@@ -297,5 +331,65 @@ describe('processAgentJob — custom flow engine', () => {
       }),
     )
     expect(h.schedulingAdd).not.toHaveBeenCalled()
+  })
+})
+
+describe('processAgentJob — single_choice (Punchlist Aug 3 parity spec)', () => {
+  it('starts the menu with a real WhatsApp interactive send, not plain text', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.listEnabledFlows.mockResolvedValue([choiceFlow])
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'menu' }))
+
+    expect(h.sendWhatsAppInteractiveButtons).toHaveBeenCalledTimes(1)
+    const prompt = h.sendWhatsAppInteractiveButtons.mock.calls[0]![3]
+    expect(prompt.body).toBe('¿Cómo podemos ayudarte?')
+    expect(prompt.options).toEqual([
+      { id: 'book_appt', title: 'Agendar cita' },
+      { id: 'talk_staff', title: 'Hablar con el equipo' },
+    ])
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it('routes a tapped option by its stable id and fires the terminal action', async () => {
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { customFlowState: { flowId: 'flow2', stepId: 'menu', variables: {} } },
+    })
+    h.findFlowById.mockResolvedValue(choiceFlow)
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'Agendar cita', interactiveReplyId: 'book_appt' }))
+
+    expect(h.schedulingAdd).toHaveBeenCalledWith('schedule', expect.objectContaining({ action: 'book' }))
+    const meta = h.updateConversation.mock.calls.at(-1)![2].metadata
+    expect(meta.customFlowState).toBeUndefined()
+  })
+
+  it('falls back to keyword conditions when no interactiveReplyId is given (typed reply)', async () => {
+    h.findConversation.mockResolvedValue({
+      id: CONVO,
+      status: 'open',
+      metadata: { customFlowState: { flowId: 'flow2', stepId: 'menu', variables: {} } },
+    })
+    h.findFlowById.mockResolvedValue(choiceFlow)
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'cuál es el precio' }))
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText.mock.calls[0]![3]).toBe('Nuestros precios...')
+  })
+
+  it('falls back to plain text when the interactive send fails', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.listEnabledFlows.mockResolvedValue([choiceFlow])
+    h.sendWhatsAppInteractiveButtons.mockRejectedValueOnce(new Error('Meta transient error'))
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'menu' }))
+
+    expect(h.sendWhatsAppInteractiveButtons).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(2)
+    expect(h.sendWhatsAppText.mock.calls[0]![3]).toBe('¿Cómo podemos ayudarte?')
+    expect(h.sendWhatsAppText.mock.calls[1]![3]).toBe('1. Agendar cita\n2. Hablar con el equipo')
   })
 })

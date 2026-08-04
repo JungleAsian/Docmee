@@ -12,6 +12,7 @@ import { FlowCanvas } from '@/shared/components/FlowCanvas'
 import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
+import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import type {
   CustomFlow,
   CustomFlowAction,
@@ -39,6 +40,10 @@ interface EditableStep {
   branches: EditableBranch[]
   x?: number
   y?: number
+  /** The original step, kept so Single Choice-only fields (options, header,
+   *  renderMode, etc. — the Form view has no inputs for these; Canvas view
+   *  does) survive a save made from this view instead of being stripped. */
+  raw?: CustomFlowStep
 }
 interface EditableFlow {
   name: string
@@ -66,6 +71,7 @@ function stepToEditable(s: CustomFlowStep): EditableStep {
     })),
     x: s.x,
     y: s.y,
+    raw: s,
   }
 }
 
@@ -115,7 +121,7 @@ function editableStepsToCustom(steps: EditableStep[]): CustomFlowStep[] {
         ...(b.op === 'contains' || b.op === 'equals' ? { keywords: splitCsv(b.keywords) } : {}),
         next: b.next.trim(),
       }))
-    return {
+    const base = {
       id: s.id.trim() || `step${i + 1}`,
       messages: splitLines(s.messages),
       ...(s.collect.trim() ? { collect: s.collect.trim() } : {}),
@@ -124,7 +130,14 @@ function editableStepsToCustom(steps: EditableStep[]): CustomFlowStep[] {
       ...(branches.length ? { branches } : {}),
       ...(typeof s.x === 'number' ? { x: s.x } : {}),
       ...(typeof s.y === 'number' ? { y: s.y } : {}),
-    } as CustomFlowStep
+    }
+    // Single Choice fields (type/header/footer/renderMode/listButtonLabel/
+    // options/storeAs/retryMessage/maxRetries/onFailNext) have no Form-view
+    // inputs — carry them through from the original step so a save made from
+    // this view doesn't silently drop them. `base`'s fields win on overlap.
+    const { id: _id, messages: _messages, collect: _collect, next: _next, action: _action, branches: _branches, x: _x, y: _y, ...extra } =
+      (s.raw ?? {}) as Partial<CustomFlowStep>
+    return { ...extra, ...base } as CustomFlowStep
   })
 }
 
@@ -142,7 +155,8 @@ function editableToPayload(e: EditableFlow): Record<string, unknown> | null {
       Boolean(s.collect) ||
       Boolean(s.next) ||
       Boolean(s.action) ||
-      (s.branches?.length ?? 0) > 0,
+      (s.branches?.length ?? 0) > 0 ||
+      (s.options?.length ?? 0) > 0,
   )
   if (steps.length === 0) return null
   const startStepId = e.startStepId && steps.some((s) => s.id === e.startStepId) ? e.startStepId : steps[0]!.id
@@ -161,6 +175,8 @@ export default function CustomFlowsPage() {
   const { clinicId, switchClinic } = useActiveClinic()
   // null = closed; flow = editing; initial = a template-backed unsaved draft.
   const [editor, setEditor] = useState<{ flow?: CustomFlow; initial?: EditableFlow } | null>(null)
+  // CRE-69: confirm before the irreversible delete.
+  const [pendingDelete, setPendingDelete] = useState<CustomFlow | null>(null)
 
   const key = ['custom-flows', clinicId]
   const query = useQuery({
@@ -321,9 +337,7 @@ export default function CustomFlowsPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm(t('studio.customFlows.deleteConfirm'))) deleteMutation.mutate(flow.id)
-                          }}
+                          onClick={() => setPendingDelete(flow)}
                           className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
                         >
                           {t('common.delete')}
@@ -337,6 +351,18 @@ export default function CustomFlowsPage() {
           )}
         </>
       )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={t('common.delete')}
+        message={t('studio.customFlows.deleteConfirm')}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        onConfirm={() => {
+          if (pendingDelete) deleteMutation.mutate(pendingDelete.id)
+          setPendingDelete(null)
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   )
 }
@@ -455,6 +481,11 @@ function FlowEditor({
               {si === 0 && (
                 <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-[10px] text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
                   {t('studio.customFlows.startStep')}
+                </span>
+              )}
+              {step.raw?.type === 'single_choice' && (
+                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                  {t('flows.canvas.singleChoiceFormNote', { count: step.raw.options?.length ?? 0 })}
                 </span>
               )}
               {model.steps.length > 1 && (

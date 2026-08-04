@@ -32,6 +32,9 @@ export const InboundMessageSchema = z.object({
   content: z.string().optional(), // text messages
   mediaId: z.string().optional(), // audio/image/document
   mimeType: z.string().optional(),
+  // Single Choice (Punchlist Aug 3 parity spec): the stable id of a tapped
+  // WhatsApp button/list row (interactive.button_reply.id / list_reply.id).
+  interactiveReplyId: z.string().optional(),
   waMessageId: z.string(),
   timestamp: z.number(),
 })
@@ -378,6 +381,7 @@ export async function processConversationJob(job: Job): Promise<void> {
           patientId,
           patientWaId: msg.patientWaId,
           message: msg.content ?? '',
+          interactiveReplyId: msg.interactiveReplyId,
           waMessageId: msg.waMessageId,
           isNewPatient,
           conversationId: conversationId ?? undefined,

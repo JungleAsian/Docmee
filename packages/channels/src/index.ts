@@ -25,7 +25,12 @@ export interface TranscriptionProvider {
   transcribe(audioUrl: string): Promise<string>
 }
 
-export { sendWhatsAppText } from './whatsapp-sender.js'
+export {
+  sendWhatsAppText,
+  sendWhatsAppInteractiveButtons,
+  sendWhatsAppInteractiveList,
+  type WhatsAppInteractiveOption,
+} from './whatsapp-sender.js'
 export { sendTwilioWhatsAppText, type TwilioWhatsAppTextConfig } from './twilio-whatsapp-sender.js'
 export { sendMessengerText } from './messenger-sender.js'
 export { sendInstagramText } from './instagram-sender.js'

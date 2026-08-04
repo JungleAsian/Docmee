@@ -42,10 +42,11 @@ import {
   type ClinicBotConfig,
   type Language,
   type FlowState,
+  type FlowInteractivePrompt,
 } from '@docmee/agents'
 import { hybridClarificationMessage, resolveHybridFlowBranch } from './custom-flow-hybrid.js'
 import { sendMessengerText, sendInstagramText } from '@docmee/channels'
-import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender } from './meta-token.js'
+import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender, resolveWhatsAppInteractiveSender } from './meta-token.js'
 import { schedulingQueue, notificationQueue, type Job } from '@docmee/queue'
 import {
   createServiceDbClient,
@@ -75,6 +76,10 @@ const AgentJobSchema = z.object({
   patientId: z.string().uuid().optional(),
   isNewPatient: z.boolean().optional(),
   conversationId: z.string().uuid().optional(),
+  // Single Choice (Punchlist Aug 3 parity spec): the stable id of a tapped
+  // WhatsApp button/list row, when this turn is an interactive reply — lets the
+  // flow engine route on the id instead of fuzzy-matching the tapped title.
+  interactiveReplyId: z.string().optional(),
 })
 
 export type AgentJobData = z.infer<typeof AgentJobSchema>
@@ -243,7 +248,10 @@ function readFlowState(metadata: Record<string, unknown> | undefined): FlowState
     typeof s.clarificationCount === 'number' && Number.isInteger(s.clarificationCount)
       ? Math.max(0, s.clarificationCount)
       : 0
-  return { flowId: s.flowId, stepId: s.stepId, variables, clarificationCount }
+  // Single Choice (Punchlist Aug 3 parity spec) — unmatched-reply attempts so
+  // far at that step; omitted for every other step (see emitFlowResult).
+  const retryCount = typeof s.retryCount === 'number' ? s.retryCount : undefined
+  return { flowId: s.flowId, stepId: s.stepId, variables, clarificationCount, ...(retryCount !== undefined ? { retryCount } : {}) }
 }
 
 function flowBranchCompletion(clinic: Clinic) {
@@ -291,6 +299,7 @@ async function runMatchingCustomFlow(
   patient: Patient | null,
   conversation: Conversation | null,
   sendReply: (text: string) => Promise<void>,
+  sendInteractive: ((prompt: FlowInteractivePrompt) => Promise<void>) | null,
   clinic: Clinic,
 ): Promise<boolean> {
   const flowsRepo = createCustomFlowsRepository(sql)
@@ -302,43 +311,54 @@ async function runMatchingCustomFlow(
     let result: ReturnType<typeof advanceFlow> = null
     if (flowRow?.enabled) {
       const flow = toFlowDef(flowRow)
-      const routing = inspectFlowReply(flow, activeState, data.message)
-      if (routing?.matchedNext) {
-        result = advanceFlowTo(flow, activeState, data.message, routing.matchedNext)
-      } else if (routing && routing.candidates.length > 0) {
-        const decision = await resolveHybridFlowBranch({
-          message: data.message,
-          candidates: routing.candidates,
-          complete: flowBranchCompletion(clinic),
-        })
-        if (decision.kind === 'route') {
-          result = advanceFlowTo(flow, activeState, data.message, decision.next)
-        } else {
-          const language = data.isNewPatient ? detectLanguage(data.message) : getPatientLanguage(patient)
-          if ((activeState.clarificationCount ?? 0) >= 1) {
-            await sendReply(handoffNotice(language))
-            await emitFlowResult(sql, data, conversation, activeState.flowId, sendReply, {
-              messages: [],
-              variables: activeState.variables,
-              nextStepId: null,
-              awaitingInput: false,
-              action: 'handoff',
-            })
-          } else {
-            await sendReply(hybridClarificationMessage(routing.candidates, language))
-            await persistFlowState(sql, data, conversation, {
-              ...activeState,
-              clarificationCount: 1,
-            })
-          }
-          return true
-        }
+      const activeStep = flow.steps.find((s) => s.id === activeState.stepId)
+
+      if (activeStep?.type === 'single_choice') {
+        // Single Choice (Punchlist Aug 3 parity spec) owns its own deterministic
+        // routing — tapped option id -> keyword fallback -> retry/onFailNext (see
+        // flow-engine.ts). It never needs the hybrid LLM clarifier below: a tap is
+        // unambiguous, and the spec's "conditions" fallback is a plain keyword
+        // match, not free-form disambiguation.
+        result = advanceFlow(flow, activeState, data.message, data.interactiveReplyId)
       } else {
-        result = advanceFlow(flow, activeState, data.message)
+        const routing = inspectFlowReply(flow, activeState, data.message)
+        if (routing?.matchedNext) {
+          result = advanceFlowTo(flow, activeState, data.message, routing.matchedNext)
+        } else if (routing && routing.candidates.length > 0) {
+          const decision = await resolveHybridFlowBranch({
+            message: data.message,
+            candidates: routing.candidates,
+            complete: flowBranchCompletion(clinic),
+          })
+          if (decision.kind === 'route') {
+            result = advanceFlowTo(flow, activeState, data.message, decision.next)
+          } else {
+            const language = data.isNewPatient ? detectLanguage(data.message) : getPatientLanguage(patient)
+            if ((activeState.clarificationCount ?? 0) >= 1) {
+              await sendReply(handoffNotice(language))
+              await emitFlowResult(sql, data, conversation, activeState.flowId, sendReply, sendInteractive, {
+                messages: [],
+                variables: activeState.variables,
+                nextStepId: null,
+                awaitingInput: false,
+                action: 'handoff',
+              })
+            } else {
+              await sendReply(hybridClarificationMessage(routing.candidates, language))
+              await persistFlowState(sql, data, conversation, {
+                ...activeState,
+                clarificationCount: 1,
+              })
+            }
+            return true
+          }
+        } else {
+          result = advanceFlow(flow, activeState, data.message)
+        }
       }
     }
     if (result) {
-      await emitFlowResult(sql, data, conversation, activeState.flowId, sendReply, result)
+      await emitFlowResult(sql, data, conversation, activeState.flowId, sendReply, sendInteractive, result)
       return true
     }
     // Flow gone/disabled, or the reply routed nowhere: clear the stale cursor and
@@ -366,7 +386,7 @@ async function runMatchingCustomFlow(
 
   const flowRow = flows.find((f) => f.id === matched.id)!
   const result = startFlow(toFlowDef(flowRow))
-  await emitFlowResult(sql, data, conversation, matched.id, sendReply, result)
+  await emitFlowResult(sql, data, conversation, matched.id, sendReply, sendInteractive, result)
   return true
 }
 
@@ -393,9 +413,30 @@ async function emitFlowResult(
   conversation: Conversation | null,
   flowId: string,
   sendReply: (text: string) => Promise<void>,
-  result: { messages: string[]; variables: Record<string, string>; nextStepId: string | null; awaitingInput: boolean; action: 'book' | 'handoff' | 'end' | null },
+  sendInteractive: ((prompt: FlowInteractivePrompt) => Promise<void>) | null,
+  result: {
+    messages: string[]
+    variables: Record<string, string>
+    nextStepId: string | null
+    awaitingInput: boolean
+    action: 'book' | 'handoff' | 'end' | null
+    interactivePrompt?: FlowInteractivePrompt
+    retryCount?: number
+  },
 ): Promise<void> {
-  for (const text of result.messages) await sendReply(text)
+  // Single Choice: prefer a real tappable WhatsApp interactive send. A failure
+  // (transient Meta error, no interactive transport for this channel) falls
+  // back to the plain-text rendering so the patient is never left with nothing.
+  if (result.interactivePrompt && sendInteractive) {
+    try {
+      await sendInteractive(result.interactivePrompt)
+    } catch (err) {
+      console.error('[agent] interactive send failed, falling back to plain text:', err)
+      for (const text of result.messages) await sendReply(text)
+    }
+  } else {
+    for (const text of result.messages) await sendReply(text)
+  }
 
   let persistedMetadata = conversation?.metadata
   if (data.conversationId && conversation) {
@@ -405,7 +446,15 @@ async function emitFlowResult(
       customFlowId: flowId,
     }
     if (result.awaitingInput && result.nextStepId) {
-      metadata[FLOW_STATE] = { flowId, stepId: result.nextStepId, variables: result.variables }
+      metadata[FLOW_STATE] = {
+        flowId,
+        stepId: result.nextStepId,
+        variables: result.variables,
+        // Only single_choice retries ever set this — omit it entirely for
+        // every other step so legacy flow cursors persist byte-identical to
+        // before this field existed.
+        ...(result.retryCount !== undefined ? { retryCount: result.retryCount } : {}),
+      }
     } else {
       delete metadata[FLOW_STATE]
     }
@@ -568,6 +617,32 @@ export async function processAgentJob(job: Job): Promise<void> {
         }
       : null
 
+    // Single Choice (Punchlist Aug 3 parity spec): a real tappable WhatsApp
+    // interactive send, WhatsApp-only — Messenger/Instagram fall back to the
+    // plain-text rendering in `sendReply` (see emitFlowResult). Unlike
+    // `sendReply`, a failed send here is NOT swallowed: it propagates so the
+    // caller can fall back to plain text rather than silently dropping the menu.
+    const rawSendInteractive =
+      data.channel === 'whatsapp' ? resolveWhatsAppInteractiveSender(account, data.patientWaId) : null
+    const sendInteractive: ((prompt: FlowInteractivePrompt) => Promise<void>) | null = rawSendInteractive
+      ? async (prompt) => {
+          const channelMessageId = await rawSendInteractive(prompt)
+          if (data.conversationId) {
+            try {
+              await messages.create({
+                conversationId: data.conversationId,
+                clinicId: data.clinicId,
+                role: 'assistant',
+                content: prompt.body,
+                channelMessageId: channelMessageId ?? undefined,
+              })
+            } catch (err) {
+              console.error('[agent] failed to persist outbound interactive reply:', err)
+            }
+          }
+        }
+      : null
+
     const conversations = createConversationsRepository(sql)
     const conversation = data.conversationId
       ? await conversations.findById(data.clinicId, data.conversationId)
@@ -711,7 +786,7 @@ export async function processAgentJob(job: Job): Promise<void> {
     // P18 (Gap #34): custom flows run BEFORE intent classification. A keyword match
     // runs the clinic's scripted message sequence (and optional terminal action)
     // and skips the LLM entirely.
-    if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply, clinic))) {
+    if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply, sendInteractive, clinic))) {
       return
     }
 

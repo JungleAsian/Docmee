@@ -77,6 +77,10 @@ export type {
   CustomFlowBranchOp,
   CustomFlowBranch,
   CustomFlowStep,
+  CustomFlowStepType,
+  CustomFlowRenderMode,
+  CustomFlowStoreAs,
+  CustomFlowChoiceOption,
   // Follow-ups (P18)
   FollowUp,
   FollowUpStatus,

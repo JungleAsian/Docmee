@@ -24,7 +24,14 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
-import type { CustomFlowStep, CustomFlowAction, CustomFlowBranchOp } from '../types'
+import type {
+  CustomFlowStep,
+  CustomFlowAction,
+  CustomFlowBranchOp,
+  CustomFlowChoiceOption,
+  CustomFlowRenderMode,
+  CustomFlowStoreAs,
+} from '../types'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -38,17 +45,25 @@ const isTerminal = (id: string): id is Terminal => (TERMINALS as readonly string
 type LibraryNode =
   | { kind: 'message'; labelKey: string; descriptionKey: string }
   | { kind: 'collect'; labelKey: string; descriptionKey: string }
+  | { kind: 'single_choice'; labelKey: string; descriptionKey: string }
   | { kind: 'action'; action: Terminal; labelKey: string; descriptionKey: string }
 
 const FLOW_NODE_LIBRARY: LibraryNode[] = [
   { kind: 'message', labelKey: 'flows.canvas.nodeMessage', descriptionKey: 'flows.canvas.nodeMessageDesc' },
   { kind: 'collect', labelKey: 'flows.canvas.nodeCollect', descriptionKey: 'flows.canvas.nodeCollectDesc' },
+  { kind: 'single_choice', labelKey: 'flows.canvas.nodeSingleChoice', descriptionKey: 'flows.canvas.nodeSingleChoiceDesc' },
   { kind: 'action', action: 'book', labelKey: 'flows.canvas.nodeBook', descriptionKey: 'flows.canvas.nodeBookDesc' },
   { kind: 'action', action: 'handoff', labelKey: 'flows.canvas.nodeHandoff', descriptionKey: 'flows.canvas.nodeHandoffDesc' },
   { kind: 'action', action: 'end', labelKey: 'flows.canvas.nodeEnd', descriptionKey: 'flows.canvas.nodeEndDesc' },
 ]
 
 type TranslateKey = Parameters<ReturnType<typeof useI18n>['t']>[0]
+
+function nextOptionId(existing: CustomFlowChoiceOption[]): string {
+  let n = existing.length + 1
+  while (existing.some((o) => o.optionId === `option_${n}`)) n++
+  return `option_${n}`
+}
 
 type StepNodeData = { step: CustomFlowStep; isStart: boolean }
 type TermNodeData = { kind: Terminal }
@@ -76,6 +91,11 @@ function StepNode({ data, selected }: NodeProps<Node<StepNodeData>>) {
         {isStart && <span className="rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-bold uppercase text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">start</span>}
       </div>
       <p className="line-clamp-2 text-gray-500 dark:text-gray-400">{first || <em className="opacity-60">no message</em>}</p>
+      {step.type === 'single_choice' && (
+        <span className="mt-1 inline-block rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 dark:bg-violet-900 dark:text-violet-200">
+          single_choice · {step.options?.length ?? 0} options
+        </span>
+      )}
       {step.action && <span className="mt-1 inline-block rounded bg-teal-100 px-1.5 py-0.5 text-[9px] font-medium text-teal-700 dark:bg-teal-900 dark:text-teal-200">{step.action}</span>}
       {step.collect && <span className="mt-1 ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-200">collect: {step.collect}</span>}
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />
@@ -107,6 +127,20 @@ function toGraph(steps: CustomFlowStep[], startStepId: string | null): { nodes: 
   const edges: Edge[] = []
   const usedTerminals = new Set<Terminal>()
   for (const s of steps) {
+    // Single Choice: one labeled outgoing edge per option (Punchlist Aug 3
+    // parity spec). Independent of branches/next below — a choice node can
+    // also carry a keyword fallback and a defaultNext/onFailNext.
+    if (s.options?.length) {
+      s.options.forEach((o, oi) => {
+        if (isTerminal(o.goToNext)) usedTerminals.add(o.goToNext)
+        edges.push({
+          id: `${s.id}-opt${oi}`,
+          source: s.id,
+          target: isTerminal(o.goToNext) ? `__${o.goToNext}` : o.goToNext,
+          label: o.title || o.optionId,
+        })
+      })
+    }
     if (s.branches?.length) {
       s.branches.forEach((b, bi) => {
         if (isTerminal(b.next)) usedTerminals.add(b.next)
@@ -114,7 +148,23 @@ function toGraph(steps: CustomFlowStep[], startStepId: string | null): { nodes: 
       })
     } else if (s.next) {
       if (isTerminal(s.next)) usedTerminals.add(s.next)
-      edges.push({ id: `${s.id}-next`, source: s.id, target: isTerminal(s.next) ? `__${s.next}` : s.next, label: 'next' })
+      edges.push({
+        id: `${s.id}-next`,
+        source: s.id,
+        target: isTerminal(s.next) ? `__${s.next}` : s.next,
+        label: s.type === 'single_choice' ? 'defaultNext' : 'next',
+        ...(s.type === 'single_choice' ? { style: { strokeDasharray: '4 2' } } : {}),
+      })
+    }
+    if (s.type === 'single_choice' && s.onFailNext) {
+      if (isTerminal(s.onFailNext)) usedTerminals.add(s.onFailNext)
+      edges.push({
+        id: `${s.id}-onfail`,
+        source: s.id,
+        target: isTerminal(s.onFailNext) ? `__${s.onFailNext}` : s.onFailNext,
+        label: 'onFailNext',
+        style: { strokeDasharray: '4 2' },
+      })
     }
   }
   let ti = 0
@@ -190,9 +240,21 @@ export function FlowCanvas({
           ? ['']
           : item.kind === 'collect'
             ? ['']
-            : [`${label}.`],
+            : item.kind === 'single_choice'
+              ? ['']
+              : [`${label}.`],
       ...(item.kind === 'collect' ? { collect: 'answer' } : {}),
       ...(item.kind === 'action' ? { action: item.action } : {}),
+      ...(item.kind === 'single_choice'
+        ? {
+            type: 'single_choice' as const,
+            renderMode: 'buttons' as const,
+            options: [
+              { optionId: 'option_1', title: '', goToNext: '' },
+              { optionId: 'option_2', title: '', goToNext: '' },
+            ],
+          }
+        : {}),
       x: 80 + (steps.length % 3) * 60,
       y: 70 + (steps.length % 6) * 45,
     }
@@ -214,6 +276,29 @@ export function FlowCanvas({
     update(remaining, startStepId === selected.id ? remaining[0]?.id ?? null : startStepId)
     setSelectedId(null)
   }, [selected, steps, startStepId, update])
+
+  const patchOption = useCallback(
+    (index: number, patch: Partial<CustomFlowChoiceOption>) => {
+      if (!selected) return
+      const options = (selected.options ?? []).map((o, i) => (i === index ? { ...o, ...patch } : o))
+      patchSelected({ options })
+    },
+    [selected, patchSelected],
+  )
+
+  const addOption = useCallback(() => {
+    if (!selected) return
+    const options = selected.options ?? []
+    patchSelected({ options: [...options, { optionId: nextOptionId(options), title: '', goToNext: '' }] })
+  }, [selected, patchSelected])
+
+  const removeOption = useCallback(
+    (index: number) => {
+      if (!selected) return
+      patchSelected({ options: (selected.options ?? []).filter((_, i) => i !== index) })
+    },
+    [selected, patchSelected],
+  )
 
   return (
     <div className="flex h-[42rem] min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
@@ -281,6 +366,133 @@ export function FlowCanvas({
             className="mb-2 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
             placeholder="name / phone / …"
           />
+
+          {selected.type === 'single_choice' && (
+            <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
+              <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.header')}</label>
+              <input
+                value={selected.header ?? ''}
+                onChange={(e) => patchSelected({ header: e.target.value || undefined })}
+                maxLength={60}
+                className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              />
+              <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.footer')}</label>
+              <input
+                value={selected.footer ?? ''}
+                onChange={(e) => patchSelected({ footer: e.target.value || undefined })}
+                maxLength={60}
+                className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              />
+              <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.renderMode')}</label>
+              <select
+                value={selected.renderMode ?? 'buttons'}
+                onChange={(e) => patchSelected({ renderMode: e.target.value as CustomFlowRenderMode })}
+                className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              >
+                <option value="buttons">buttons (max 3)</option>
+                <option value="list">list (max 10)</option>
+              </select>
+              {selected.renderMode === 'list' && (
+                <>
+                  <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.listButtonLabel')}</label>
+                  <input
+                    value={selected.listButtonLabel ?? ''}
+                    onChange={(e) => patchSelected({ listButtonLabel: e.target.value || undefined })}
+                    maxLength={20}
+                    placeholder="Select"
+                    className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  />
+                </>
+              )}
+
+              <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.storeAs')}</label>
+              <select
+                value={selected.storeAs ?? 'optionId'}
+                onChange={(e) => patchSelected({ storeAs: e.target.value as CustomFlowStoreAs })}
+                className="mb-2 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              >
+                <option value="optionId">optionId</option>
+                <option value="title">title</option>
+                <option value="saveValue">saveValue</option>
+              </select>
+
+              <p className="mb-1 font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.options')}</p>
+              <div className="space-y-2">
+                {(selected.options ?? []).map((opt, oi) => (
+                  <div key={oi} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
+                    <input
+                      value={opt.title}
+                      onChange={(e) => patchOption(oi, { title: e.target.value })}
+                      maxLength={24}
+                      placeholder={t('flows.canvas.optionTitle')}
+                      className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                    />
+                    {selected.renderMode === 'list' && (
+                      <input
+                        value={opt.description ?? ''}
+                        onChange={(e) => patchOption(oi, { description: e.target.value || undefined })}
+                        maxLength={72}
+                        placeholder={t('flows.canvas.optionDescription')}
+                        className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                      />
+                    )}
+                    <input
+                      value={opt.goToNext}
+                      onChange={(e) => patchOption(oi, { goToNext: e.target.value })}
+                      placeholder={t('flows.canvas.goToNext')}
+                      className="w-full rounded border border-gray-300 p-1 text-xs font-mono dark:border-gray-700 dark:bg-gray-800"
+                    />
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={opt.optionId}
+                        onChange={(e) => patchOption(oi, { optionId: e.target.value })}
+                        placeholder="optionId"
+                        className="w-full rounded border border-gray-300 p-1 text-[10px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-800"
+                      />
+                      <button type="button" onClick={() => removeOption(oi)} className="shrink-0 text-[10px] text-red-600 hover:underline">
+                        {t('common.delete')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={addOption} className="text-xs text-violet-700 hover:underline dark:text-violet-300">
+                + {t('flows.canvas.addOption')}
+              </button>
+
+              <label className="mb-1 mt-2 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.retryMessage')}</label>
+              <textarea
+                value={selected.retryMessage ?? ''}
+                onChange={(e) => patchSelected({ retryMessage: e.target.value || undefined })}
+                rows={2}
+                maxLength={1024}
+                className="mb-1 w-full resize-none rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              />
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.maxRetries')}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    value={selected.maxRetries ?? 2}
+                    onChange={(e) => patchSelected({ maxRetries: Number(e.target.value) })}
+                    className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.onFailNext')}</label>
+                  <input
+                    value={selected.onFailNext ?? ''}
+                    onChange={(e) => patchSelected({ onFailNext: e.target.value || undefined })}
+                    placeholder="handoff"
+                    className="w-full rounded border border-gray-300 p-1.5 text-xs font-mono dark:border-gray-700 dark:bg-gray-800"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.action')}</label>
           <select
             value={selected.action ?? ''}

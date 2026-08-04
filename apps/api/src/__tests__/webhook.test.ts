@@ -212,6 +212,9 @@ describe('webhook routes', () => {
     const [, job] = add.mock.calls[0] as [string, Record<string, unknown>]
     expect(job['messageType']).toBe('interactive')
     expect(job['content']).toBe('Sí, confirmar')
+    // Single Choice (Punchlist Aug 3 parity spec): the stable button id is
+    // threaded alongside the title so a Custom Flow can route on it directly.
+    expect(job['interactiveReplyId']).toBe('confirm_yes')
     expect(statusAdd).not.toHaveBeenCalled()
   })
 
@@ -264,6 +267,7 @@ describe('webhook routes', () => {
     const [, job] = add.mock.calls[0] as [string, Record<string, unknown>]
     expect(job['messageType']).toBe('interactive')
     expect(job['content']).toBe('09:00')
+    expect(job['interactiveReplyId']).toBe('slot_0900')
     expect(statusAdd).not.toHaveBeenCalled()
   })
 
@@ -309,6 +313,8 @@ describe('webhook routes', () => {
     const [, job] = add.mock.calls[0] as [string, Record<string, unknown>]
     expect(job['messageType']).toBe('button')
     expect(job['content']).toBe('Cancelar cita')
+    // Legacy template quick-reply buttons carry no interactive.button_reply.id.
+    expect(job['interactiveReplyId']).toBeUndefined()
     expect(statusAdd).not.toHaveBeenCalled()
   })
 

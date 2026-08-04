@@ -121,6 +121,16 @@ function interactiveText(msg: {
   )
 }
 
+// Single Choice (Punchlist Aug 3 parity spec): the stable id of a tapped
+// button/list row, so a Custom Flow can route on the id instead of fuzzy-
+// matching `interactiveText()`'s (possibly retranslated) title. undefined for
+// a legacy template quick-reply button, which carries no id.
+function interactiveReplyId(msg: {
+  interactive?: { button_reply?: { id: string }; list_reply?: { id: string } }
+}): string | undefined {
+  return msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id
+}
+
 const webhookRoute: FastifyPluginAsync = async (app) => {
   // Capture the raw body so HMAC validation sees exactly what Meta signed.
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
@@ -179,6 +189,7 @@ const webhookRoute: FastifyPluginAsync = async (app) => {
                 msg.image?.caption ??
                 msg.document?.caption ??
                 interactiveText(msg),
+              interactiveReplyId: interactiveReplyId(msg),
               mediaId: msg.audio?.id ?? msg.image?.id ?? msg.document?.id,
               mimeType: msg.audio?.mime_type ?? msg.image?.mime_type ?? msg.document?.mime_type,
               waMessageId: msg.id,

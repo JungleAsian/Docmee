@@ -575,14 +575,33 @@ export interface DevSeedRun {
 
 export type CustomFlowAction   = 'book' | 'handoff' | 'end'
 export type CustomFlowLanguage = 'es' | 'en' | 'both'
-export type CustomFlowBranchOp = 'contains' | 'equals' | 'yes' | 'no' | 'any'
+export type CustomFlowBranchOp = 'contains' | 'equals' | 'yes' | 'no' | 'any' | 'starts_with' | 'regex'
+export type CustomFlowStepType = 'single_choice'
+export type CustomFlowRenderMode = 'buttons' | 'list'
+export type CustomFlowStoreAs = 'optionId' | 'title' | 'saveValue'
 
 /** A conditional transition out of a waiting flow step. */
 export interface CustomFlowBranch {
   op: CustomFlowBranchOp
   keywords?: string[]
+  /** Match text for `op: 'regex'` (ignored otherwise). */
+  pattern?: string
   /** Target step id, or a terminal token: 'book' | 'handoff' | 'end'. */
   next: string
+}
+
+/** A tappable option on a `single_choice` step (Punchlist Aug 3 parity spec). */
+export interface CustomFlowChoiceOption {
+  /** Unique within the node; sent as the WhatsApp interactive reply id. */
+  optionId: string
+  /** Tappable label (WhatsApp limit: 24 chars). */
+  title: string
+  /** Row subtitle; `renderMode: 'list'` only (WhatsApp limit: 72 chars). */
+  description?: string
+  /** Branch target: a stepId in this flow, or a terminal token. */
+  goToNext: string
+  /** Literal value written to the step's `collect` variable when chosen. */
+  saveValue?: string
 }
 
 /** One node of a multi-step custom flow (Rev1 #28). */
@@ -593,6 +612,23 @@ export interface CustomFlowStep {
   collect?: string | null
   next?: string | null
   action?: CustomFlowAction | null
+  // Single Choice (Punchlist Aug 3 parity spec) — a tappable WhatsApp
+  // buttons/list menu that branches per option. Absent `type` = today's
+  // legacy step; every field below is additive and optional.
+  type?: CustomFlowStepType
+  header?: string
+  footer?: string
+  renderMode?: CustomFlowRenderMode
+  listButtonLabel?: string
+  options?: CustomFlowChoiceOption[]
+  /** What `collect` stores when an option is chosen (default 'optionId'). */
+  storeAs?: CustomFlowStoreAs
+  /** Sent on an unmatched reply when `defaultNext` (`next`) is null. */
+  retryMessage?: string
+  /** Unmatched-reply attempts allowed before routing to `onFailNext` (default 2). */
+  maxRetries?: number
+  /** Terminal/step after `maxRetries` exceeded (default 'handoff'). */
+  onFailNext?: string
   // Visual-canvas node position (Rev 2). Stored in the steps JSONB; ignored by the
   // flow engine. Absent for legacy/form-built flows — the canvas auto-lays-out then.
   x?: number

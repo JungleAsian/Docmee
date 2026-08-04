@@ -366,14 +366,6 @@ export async function processConversationJob(job: Job): Promise<void> {
             interactiveReplyId: msg.interactiveReplyId,
           })
         : 0
-        ? await resumePendingWorkflowRuns(sql, clinicId, conversationId, {
-            patientId,
-            conversationId,
-            channel,
-            message: msg.content ?? '',
-            waMessageId: msg.waMessageId,
-          })
-        : 0
       // A pending Ask & Capture owns this turn. Its workflow runner validates the
       // reply and either advances, re-asks, or hands off; avoid a competing agent
       // answer for the same patient message.

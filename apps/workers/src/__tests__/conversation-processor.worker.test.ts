@@ -102,6 +102,20 @@ describe('processConversationJob', () => {
     expect(job.isNewPatient).toBe(false)
   })
 
+  it('unsupported WhatsApp interaction → records the type and queues a human handoff', async () => {
+    await processConversationJob(
+      makeJob({ ...base, messageType: 'unsupported', unsupportedMessageType: 'sticker' }),
+    )
+
+    const [message] = h.createMessage.mock.calls[0]
+    expect(message).toMatchObject({
+      content: 'Unsupported WhatsApp message type: sticker',
+      metadata: expect.objectContaining({ unsupportedMessageType: 'sticker' }),
+    })
+    const [, job] = h.agentAdd.mock.calls[0]
+    expect(job).toMatchObject({ message: '', unsupportedMessageType: 'sticker' })
+  })
+
   it('text message → persists an inbound user message and threads the conversation (Req 4)', async () => {
     await processConversationJob(makeJob({ ...base, messageType: 'text', content: 'hola' }))
 

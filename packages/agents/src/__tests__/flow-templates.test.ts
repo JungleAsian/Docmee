@@ -9,9 +9,9 @@ function asDef(t: (typeof FLOW_TEMPLATES)[number]): FlowDef {
 }
 
 describe('flow-templates', () => {
-  it('ships the five required templates', () => {
+  it('ships the required templates', () => {
     expect(FLOW_TEMPLATES.map((t) => t.key).sort()).toEqual(
-      ['price', 'reschedule', 'review', 'schedule', 'surgery'],
+      ['nephrology_booking', 'price', 'reschedule', 'review', 'schedule', 'surgery'],
     )
   })
 
@@ -62,5 +62,39 @@ describe('flow-templates', () => {
     const start = startFlow(def)
     const r = advanceFlow(def, { flowId: 'surgery', stepId: start.nextStepId!, variables: {} }, 'sí')!
     expect(r.action).toBe('handoff')
+  })
+
+  it('nephrology booking template collects intake then hands scheduling to the booking worker', () => {
+    const def = asDef(findFlowTemplate('nephrology_booking')!)
+    const greeting = startFlow(def)
+    expect(greeting.awaitingInput).toBe(true)
+    expect(greeting.messages[0]).toMatch(/Nefrologia Integral/)
+
+    const name = advanceFlow(def, { flowId: 'nephrology_booking', stepId: greeting.nextStepId!, variables: {} }, 'quiero agendar')!
+    expect(name.nextStepId).toBe('ask_patient_name')
+
+    const reason = advanceFlow(def, { flowId: 'nephrology_booking', stepId: name.nextStepId!, variables: {} }, 'Ana Perez')!
+    expect(reason.variables.patient_name).toBe('Ana Perez')
+
+    const service = advanceFlow(def, { flowId: 'nephrology_booking', stepId: reason.nextStepId!, variables: reason.variables }, 'control renal')!
+    expect(service.variables.reason).toBe('control renal')
+    expect(service.nextStepId).toBe('service_selection')
+
+    const slot = advanceFlow(def, { flowId: 'nephrology_booking', stepId: service.nextStepId!, variables: service.variables }, 'nefrologia')!
+    expect(slot.variables.service).toBe('nefrologia')
+    expect(slot.nextStepId).toBe('availability_request')
+
+    const booked = advanceFlow(def, { flowId: 'nephrology_booking', stepId: slot.nextStepId!, variables: slot.variables }, 'manana a las 12')!
+    expect(booked.variables.preferred_slot).toBe('manana a las 12')
+    expect(booked.action).toBe('book')
+  })
+
+  it('nephrology booking template clarifies once before human handoff', () => {
+    const def = asDef(findFlowTemplate('nephrology_booking')!)
+    const greeting = startFlow(def)
+    const clarify = advanceFlow(def, { flowId: 'nephrology_booking', stepId: greeting.nextStepId!, variables: {} }, 'no se')!
+    expect(clarify.nextStepId).toBe('clarify_choice')
+    const handoff = advanceFlow(def, { flowId: 'nephrology_booking', stepId: clarify.nextStepId!, variables: clarify.variables }, 'todavia no se')!
+    expect(handoff.action).toBe('handoff')
   })
 })

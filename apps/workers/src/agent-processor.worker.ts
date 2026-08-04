@@ -71,6 +71,9 @@ const AgentJobSchema = z.object({
   phoneNumberId: z.string().optional(),
   patientWaId: z.string(),
   message: z.string(),
+  // Non-text WhatsApp event types we do not safely interpret are acknowledged
+  // and handed to a person instead of reaching workflows or the LLM.
+  unsupportedMessageType: z.string().min(1).max(64).optional(),
   waMessageId: z.string(),
   patientId: z.string().uuid().optional(),
   isNewPatient: z.boolean().optional(),
@@ -635,6 +638,24 @@ export async function processAgentJob(job: Job): Promise<void> {
       await sendReply(handoffNotice(patientLanguage))
       if (conversation) {
         await pauseBotForHandoff(conversations, data, conversation.metadata, 'patient_request')
+      }
+      await notificationQueue.add('notify', {
+        clinicId: data.clinicId,
+        conversationId: data.conversationId,
+        reason: 'human_handoff',
+      })
+      return
+    }
+
+    // Unknown WhatsApp interaction types (sticker, location, contacts, reaction,
+    // etc.) are retained in the inbox but are intentionally not interpreted by an
+    // LLM or workflow. Acknowledge them with the localized handoff notice, pause
+    // automation, and alert the clinic so the patient is never left without a
+    // response or an unsafe fabricated interpretation.
+    if (data.unsupportedMessageType) {
+      if (sendReply) await sendReply(handoffNotice(patientLanguage))
+      if (conversation) {
+        await pauseBotForHandoff(conversations, data, conversation.metadata, 'unsupported_message')
       }
       await notificationQueue.add('notify', {
         clinicId: data.clinicId,

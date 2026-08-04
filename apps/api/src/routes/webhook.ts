@@ -6,6 +6,9 @@ import { withDb } from '../lib/db.js'
 
 type RawBodyRequest = FastifyRequest & { rawBody?: Buffer }
 
+const SUPPORTED_INBOUND_MESSAGE_TYPES = ['text', 'audio', 'image', 'document', 'button', 'interactive'] as const
+type SupportedInboundMessageType = (typeof SUPPORTED_INBOUND_MESSAGE_TYPES)[number]
+
 // WhatsApp Cloud API inbound payload (the subset we act on).
 const WhatsAppEntrySchema = z.object({
   object: z.literal('whatsapp_business_account'),
@@ -32,7 +35,11 @@ const WhatsAppEntrySchema = z.object({
                   from: z.string(),
                   id: z.string(),
                   timestamp: z.string(),
-                  type: z.enum(['text', 'audio', 'image', 'document', 'button', 'interactive']),
+                  // Meta adds inbound message types over time (for example sticker,
+                  // location, contacts, reaction). Keep accepting the webhook so a
+                  // patient is never silently dropped; unsupported types are routed
+                  // to the deterministic human-handoff path below.
+                  type: z.string().min(1).max(64),
                   text: z.object({ body: z.string() }).optional(),
                   audio: z.object({ id: z.string(), mime_type: z.string() }).optional(),
                   // Inbound media (Req 3): an image/document carries a media id we
@@ -110,15 +117,24 @@ async function isAllowedVerifyToken(token: string | undefined): Promise<boolean>
   }
 }
 
-function interactiveText(msg: {
-  interactive?: { button_reply?: { title: string }; list_reply?: { title: string } }
+function interactiveReply(msg: {
+  interactive?: { button_reply?: { id: string; title: string }; list_reply?: { id: string; title: string } }
   button?: { text: string }
-}): string | undefined {
-  return (
-    msg.interactive?.button_reply?.title ??
-    msg.interactive?.list_reply?.title ??
-    msg.button?.text
-  )
+}): { text?: string; id?: string; type?: 'button_reply' | 'list_reply' | 'template_button' } {
+  if (msg.interactive?.button_reply) {
+    return { text: msg.interactive.button_reply.title, id: msg.interactive.button_reply.id, type: 'button_reply' }
+  }
+  if (msg.interactive?.list_reply) {
+    return { text: msg.interactive.list_reply.title, id: msg.interactive.list_reply.id, type: 'list_reply' }
+  }
+  if (msg.button) return { text: msg.button.text, type: 'template_button' }
+  return {}
+}
+
+function normalizedInboundMessageType(type: string): SupportedInboundMessageType | 'unsupported' {
+  return (SUPPORTED_INBOUND_MESSAGE_TYPES as readonly string[]).includes(type)
+    ? (type as SupportedInboundMessageType)
+    : 'unsupported'
 }
 
 const webhookRoute: FastifyPluginAsync = async (app) => {
@@ -169,16 +185,21 @@ const webhookRoute: FastifyPluginAsync = async (app) => {
           }
           const { metadata, messages, contacts, statuses } = change.value
           for (const msg of messages ?? []) {
+            const messageType = normalizedInboundMessageType(msg.type)
+            const interactive = interactiveReply(msg)
             await whatsappInboundQueue.add('inbound', {
               phoneNumberId: metadata.phone_number_id,
               patientWaId: msg.from,
               patientName: contacts?.[0]?.profile.name ?? '',
-              messageType: msg.type,
+              messageType,
+              ...(messageType === 'unsupported' ? { unsupportedMessageType: msg.type } : {}),
               content:
                 msg.text?.body ??
                 msg.image?.caption ??
                 msg.document?.caption ??
-                interactiveText(msg),
+                interactive.text,
+              interactiveReplyId: interactive.id,
+              interactiveReplyType: interactive.type,
               mediaId: msg.audio?.id ?? msg.image?.id ?? msg.document?.id,
               mimeType: msg.audio?.mime_type ?? msg.image?.mime_type ?? msg.document?.mime_type,
               waMessageId: msg.id,

@@ -28,8 +28,13 @@ export const InboundMessageSchema = z.object({
   phoneNumberId: z.string(),
   patientWaId: z.string(),
   patientName: z.string().optional().default(''),
-  messageType: z.enum(['text', 'audio', 'image', 'document', 'button', 'interactive']),
+  messageType: z.enum(['text', 'audio', 'image', 'document', 'button', 'interactive', 'unsupported']),
+  // Original provider type for a message we deliberately do not automate. This
+  // lets the inbox show what arrived while the agent performs a safe handoff.
+  unsupportedMessageType: z.string().min(1).max(64).optional(),
   content: z.string().optional(), // text messages
+  interactiveReplyId: z.string().optional(),
+  interactiveReplyType: z.enum(['button_reply', 'list_reply', 'template_button']).optional(),
   mediaId: z.string().optional(), // audio/image/document
   mimeType: z.string().optional(),
   waMessageId: z.string(),
@@ -186,13 +191,20 @@ async function threadInboundMessage(
       conversationId: conversation.id,
       clinicId,
       role: 'user',
-      content: msg.content ?? '',
+      content:
+        msg.content ??
+        (msg.unsupportedMessageType
+          ? `Unsupported WhatsApp message type: ${msg.unsupportedMessageType}`
+          : ''),
       contentType: inboundContentType(msg.messageType),
       channelMessageId: msg.waMessageId,
       metadata: {
         channel,
         ...(msg.mediaId ? { mediaId: msg.mediaId } : {}),
         ...(msg.mimeType ? { mimeType: msg.mimeType } : {}),
+        ...(msg.interactiveReplyId ? { interactiveReplyId: msg.interactiveReplyId } : {}),
+        ...(msg.interactiveReplyType ? { interactiveReplyType: msg.interactiveReplyType } : {}),
+        ...(msg.unsupportedMessageType ? { unsupportedMessageType: msg.unsupportedMessageType } : {}),
       },
     })
 
@@ -359,6 +371,8 @@ export async function processConversationJob(job: Job): Promise<void> {
             conversationId,
             channel,
             message: msg.content ?? '',
+            interactiveReplyId: msg.interactiveReplyId,
+            interactiveReplyType: msg.interactiveReplyType,
             waMessageId: msg.waMessageId,
           })
         : 0
@@ -378,6 +392,9 @@ export async function processConversationJob(job: Job): Promise<void> {
           patientId,
           patientWaId: msg.patientWaId,
           message: msg.content ?? '',
+          interactiveReplyId: msg.interactiveReplyId,
+          interactiveReplyType: msg.interactiveReplyType,
+          ...(msg.unsupportedMessageType ? { unsupportedMessageType: msg.unsupportedMessageType } : {}),
           waMessageId: msg.waMessageId,
           isNewPatient,
           conversationId: conversationId ?? undefined,

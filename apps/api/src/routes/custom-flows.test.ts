@@ -80,11 +80,11 @@ describe('Custom flow routes (Rev1 #28)', () => {
     await app.close()
   })
 
-  it('GET /templates serves the five prebuilt flows', async () => {
+  it('GET /templates serves the prebuilt flows', async () => {
     const res = await app.inject({ method: 'GET', url: '/clinics/c-1/custom-flows/templates', headers: secretaryAuth })
     expect(res.statusCode).toBe(200)
     const keys = JSON.parse(res.body).templates.map((t: { key: string }) => t.key).sort()
-    expect(keys).toEqual(['price', 'reschedule', 'review', 'schedule', 'surgery'])
+    expect(keys).toEqual(['nephrology_booking', 'price', 'reschedule', 'review', 'schedule', 'surgery'])
   })
 
   it('GET /templates without auth → 401', async () => {

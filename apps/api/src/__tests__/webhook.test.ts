@@ -312,6 +312,47 @@ describe('webhook routes', () => {
     expect(statusAdd).not.toHaveBeenCalled()
   })
 
+  it('POST with an unsupported WhatsApp interaction routes it for human handoff', async () => {
+    const stickerPayload = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'WABA',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                messaging_product: 'whatsapp',
+                metadata: { display_phone_number: '15550001111', phone_number_id: 'PHONE_ID' },
+                contacts: [{ profile: { name: 'Ana' }, wa_id: '5215555555555' }],
+                messages: [
+                  {
+                    from: '5215555555555',
+                    id: 'wamid.STICKER1',
+                    timestamp: '1700000700',
+                    type: 'sticker',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/webhook/whatsapp',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(stickerPayload) },
+      payload: stickerPayload,
+    })
+    await flush()
+
+    expect(res.statusCode).toBe(200)
+    const [, job] = add.mock.calls[0] as [string, Record<string, unknown>]
+    expect(job).toMatchObject({ messageType: 'unsupported', unsupportedMessageType: 'sticker' })
+  })
+
   it('POST with a delivery-status receipt enqueues to the status queue', async () => {
     const statusPayload = JSON.stringify({
       object: 'whatsapp_business_account',

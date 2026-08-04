@@ -49,6 +49,8 @@ export interface TriggerContext {
   appointmentId?: string
   conversationId?: string
   channel?: string
+  interactiveReplyId?: string
+  interactiveReplyType?: string
   transcript?: string
   waMessageId?: string
   isVoiceNote?: boolean

@@ -53,10 +53,28 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     fields: ['doctorIdField', 'dateField', 'days', 'slotsField'],
   },
   {
+    type: 'action.available_slots',
+    kind: 'action',
+    labelKey: 'wf.node.availableSlots',
+    fields: ['doctorIdField', 'serviceIdField', 'timezoneField', 'days', 'slotsField'],
+  },
+  {
     type: 'action.offer_slots',
     kind: 'action',
     labelKey: 'wf.node.offerSlots',
     fields: ['slotsField', 'count', 'message'],
+  },
+  {
+    type: 'action.interactive_menu',
+    kind: 'action',
+    labelKey: 'wf.node.interactiveMenu',
+    fields: ['menuType', 'title', 'body', 'buttonLabel', 'optionsField', 'slotsField', 'selectionField'],
+  },
+  {
+    type: 'action.revalidate_slot',
+    kind: 'action',
+    labelKey: 'wf.node.revalidateSlot',
+    fields: ['doctorIdField', 'serviceIdField', 'timezoneField', 'bookingKeyField', 'days', 'slotsField'],
   },
   {
     type: 'action.create_or_reschedule_booking',

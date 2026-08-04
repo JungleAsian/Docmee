@@ -10,7 +10,7 @@
 import type { FlowStep, CustomFlowAction } from './flow-engine.js'
 import type { CustomFlowLanguage } from './custom-flows.js'
 
-export type FlowTemplateKey = 'schedule' | 'reschedule' | 'price' | 'surgery' | 'review'
+export type FlowTemplateKey = 'schedule' | 'reschedule' | 'price' | 'surgery' | 'review' | 'nephrology_booking'
 
 export interface FlowTemplate {
   key: FlowTemplateKey
@@ -145,6 +145,78 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
       { id: 'thanks', messages: ['¡Gracias por tu comentario! Lo tomamos en cuenta para mejorar.'], next: 'end' },
     ],
     action: 'end',
+  },
+  {
+    key: 'nephrology_booking',
+    name: 'Nefrologia Integral - WhatsApp Booking Intake',
+    triggerKeywords: ['hola', 'cita', 'consulta', 'agendar', 'nefrologia', 'dr', 'doctor', 'precio', 'ubicacion'],
+    language: 'both',
+    startStepId: 'greeting',
+    steps: [
+      {
+        id: 'greeting',
+        messages: [
+          'Hola, soy el asistente de Nefrologia Integral. Puedo ayudarte a agendar una consulta, resolver preguntas generales o pasarte con una persona.',
+        ],
+        branches: [
+          { op: 'contains', keywords: ['agendar', 'cita', 'consulta', 'reservar', 'turno', 'booking', 'appointment'], next: 'ask_patient_name' },
+          { op: 'contains', keywords: ['pregunta', 'precio', 'ubicacion', 'horario', 'duda', 'question', 'price', 'location'], next: 'question_route' },
+          { op: 'contains', keywords: ['humano', 'persona', 'secretaria', 'asesor', 'human', 'staff'], next: 'human_handoff' },
+          { op: 'any', next: 'clarify_choice' },
+        ],
+      },
+      {
+        id: 'clarify_choice',
+        messages: ['Puedo ayudarte con una cita, una pregunta general o pasarte con una persona. Responde: agendar, pregunta o humano.'],
+        branches: [
+          { op: 'contains', keywords: ['agendar', 'cita', 'consulta', 'reservar', 'turno', 'booking', 'appointment'], next: 'ask_patient_name' },
+          { op: 'contains', keywords: ['pregunta', 'precio', 'ubicacion', 'horario', 'duda', 'question', 'price', 'location'], next: 'question_route' },
+          { op: 'contains', keywords: ['humano', 'persona', 'secretaria', 'asesor', 'human', 'staff'], next: 'human_handoff' },
+          { op: 'any', next: 'human_handoff' },
+        ],
+      },
+      {
+        id: 'ask_patient_name',
+        messages: ['Claro. Para agendar, dime el nombre del paciente.'],
+        collect: 'patient_name',
+        branches: [{ op: 'any', next: 'ask_reason' }],
+      },
+      {
+        id: 'ask_reason',
+        messages: ['Gracias, {{patient_name}}. Cual es el motivo de la consulta?'],
+        collect: 'reason',
+        branches: [{ op: 'any', next: 'service_selection' }],
+      },
+      {
+        id: 'service_selection',
+        messages: ['Que tipo de consulta necesitas? Puedes responder consulta general, nefrologia, seguimiento, o pedir ayuda humana.'],
+        collect: 'service',
+        branches: [
+          { op: 'contains', keywords: ['consulta general', 'general'], next: 'availability_request' },
+          { op: 'contains', keywords: ['nefrologia', 'rinon', 'renal'], next: 'availability_request' },
+          { op: 'contains', keywords: ['seguimiento', 'control'], next: 'availability_request' },
+          { op: 'contains', keywords: ['humano', 'persona', 'secretaria', 'asesor', 'human', 'staff'], next: 'human_handoff' },
+          { op: 'any', next: 'human_handoff' },
+        ],
+      },
+      {
+        id: 'availability_request',
+        messages: ['Que dia y hora prefieres? Si tienes flexibilidad, dime manana/tarde y el dia.'],
+        collect: 'preferred_slot',
+        branches: [{ op: 'any', next: 'book' }],
+      },
+      {
+        id: 'question_route',
+        messages: ['Escribeme tu pregunta general y revisare la informacion de la clinica. Si no tengo una respuesta segura, te conectare con una persona del equipo.'],
+        next: 'end',
+      },
+      {
+        id: 'human_handoff',
+        messages: ['Te conecto con una persona del equipo para ayudarte.'],
+        next: 'handoff',
+      },
+    ],
+    action: 'book',
   },
 ]
 

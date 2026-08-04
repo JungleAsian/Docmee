@@ -19,8 +19,9 @@ import {
 } from '@docmee/agents'
 import { decryptValue, encryptValue } from '@docmee/shared'
 import { randomUUID } from 'node:crypto'
+import { sendWhatsAppInteractive, sendWhatsAppList, type WhatsAppListSection, type WhatsAppReplyButton } from '@docmee/channels'
 import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
-import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
+import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey } from './clinic-ai-key.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
@@ -33,6 +34,7 @@ import {
   createChannelAccountsRepository,
   createConversationsRepository,
   createDoctorsRepository,
+  createDoctorServicesRepository,
   createAppointmentsRepository,
   createMessagesRepository,
   createMessageTemplatesRepository,
@@ -106,7 +108,7 @@ async function resolveTarget(
   return { account, handle, send }
 }
 
-async function persistOutbound(sql: Sql, clinicId: string, conversationId: string | undefined, text: string, wamid: string | null): Promise<void> {
+async function persistOutbound(sql: Sql, clinicId: string, conversationId: string | undefined, text: string, wamid: string | null, metadata: Record<string, unknown> = {}): Promise<void> {
   if (!conversationId) return
   try {
     await createMessagesRepository(sql).create({
@@ -114,11 +116,50 @@ async function persistOutbound(sql: Sql, clinicId: string, conversationId: strin
       clinicId,
       role: 'assistant',
       content: text,
+      contentType: metadata['contentType'] === 'interactive' ? 'interactive' : 'text',
       ...(wamid ? { channelMessageId: wamid } : {}),
-      metadata: { channel: 'whatsapp', source: 'workflow' },
+      metadata: { channel: 'whatsapp', source: 'workflow', ...metadata },
     })
   } catch (err) {
     console.error('[workflow] failed to persist outbound message:', err)
+  }
+}
+
+async function persistOutboundAttempt(
+  sql: Sql,
+  clinicId: string,
+  conversationId: string | undefined,
+  text: string,
+  metadata: Record<string, unknown> = {},
+): Promise<string | null> {
+  if (!conversationId) return null
+  try {
+    const message = await createMessagesRepository(sql).create({
+      conversationId,
+      clinicId,
+      role: 'assistant',
+      content: text,
+      contentType: metadata['contentType'] === 'interactive' ? 'interactive' : 'text',
+      metadata: { channel: 'whatsapp', source: 'workflow', deliveryState: 'attempted', ...metadata },
+    })
+    return message.id
+  } catch (err) {
+    console.error('[workflow] failed to persist outbound attempt:', err)
+    return null
+  }
+}
+
+async function markOutboundAccepted(
+  sql: Sql,
+  clinicId: string,
+  messageId: string | null,
+  wamid: string | null,
+): Promise<void> {
+  if (!messageId || !wamid) return
+  try {
+    await createMessagesRepository(sql).markDelivered(clinicId, messageId, wamid)
+  } catch (err) {
+    console.error('[workflow] failed to mark outbound provider acceptance:', err)
   }
 }
 
@@ -146,6 +187,22 @@ function reviewReasonForExtraction(input: {
 }
 
 type WorkflowSlot = { start: string; end: string }
+
+interface AvailableWorkflowSlot extends WorkflowSlot {
+  date: string
+  displayLabel: string
+  timezone: string
+  doctorId: string
+  serviceId: string
+  bookingKey: string
+}
+
+interface InteractiveMenuOption {
+  id: string
+  title: string
+  description?: string
+  data?: Record<string, unknown>
+}
 
 function configField(node: { config?: Record<string, unknown> }, key: string, fallback: string): string {
   const configured = String(node.config?.[key] ?? '').trim()
@@ -194,12 +251,18 @@ async function workflowCalendar(
   const doctors = createDoctorsRepository(sql)
   const doctor = doctorId ? await doctors.findById(clinic.id, doctorId) : null
   const doctorTokens = doctor ? doctorCalendarTokens(doctor) : null
-  const clinicTokens = calendarTokens(clinic.settings['googleCalendar'])
-  const tokens = doctorTokens ?? clinicTokens
+  const googleCalendarSettings = isRecord(clinic.settings['googleCalendar']) ? clinic.settings['googleCalendar'] : {}
+  const clinicTokens = calendarTokens(googleCalendarSettings)
+  const schedulingSource = String(
+    googleCalendarSettings['schedulingSource'] ?? clinic.settings['schedulingSource'] ?? '',
+  ).trim().toLowerCase()
+  const useClinicCalendar = schedulingSource === 'clinic' || schedulingSource === 'clinic_calendar'
+  const tokens = useClinicCalendar ? clinicTokens : doctorTokens ?? clinicTokens
   if (!tokens) return null
+  const usingDoctorTokens = Boolean(!useClinicCalendar && doctor && doctorTokens)
 
   const persistTokens = async (refreshed: RefreshedTokens) => {
-    if (doctor && doctorTokens) {
+    if (doctor && usingDoctorTokens) {
       await doctors.update(clinic.id, doctor.id, {
         googleCalendarAccessTokenEncrypted: encryptValue(refreshed.accessToken),
         ...(refreshed.refreshToken
@@ -218,6 +281,7 @@ async function workflowCalendar(
         ...latest.settings,
         googleCalendar: {
           ...existing,
+          ...(useClinicCalendar ? { schedulingSource } : {}),
           accessToken: encryptValue(refreshed.accessToken),
           ...(refreshed.refreshToken ? { refreshToken: encryptValue(refreshed.refreshToken) } : {}),
           ...(typeof refreshed.expiryDate === 'number' ? { expiryDate: refreshed.expiryDate } : {}),
@@ -287,6 +351,104 @@ function slotsCoverRange(slots: WorkflowSlot[], start: string, end: string): boo
     if (cursor >= end) return true
   }
   return false
+}
+
+function clinicDateTimeParts(timezone: string, now = new Date()): { date: string; time: string; dateTime: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? '00'
+  const date = `${value('year')}-${value('month')}-${value('day')}`
+  const time = `${value('hour')}:${value('minute')}:${value('second')}`
+  return { date, time, dateTime: `${date}T${time}` }
+}
+
+function formatClinicSlotLabel(slot: WorkflowSlot, timezone: string): string {
+  const date = slotDate(slot)
+  const time = slotTime(slot)
+  return `${date} ${time} ${timezone}`
+}
+
+function workflowBookingKey(input: { doctorId: string; serviceId: string; start: string; end: string; timezone: string }): string {
+  return Buffer.from(JSON.stringify(input)).toString('base64url')
+}
+
+function selectedDataMap(ctx: WorkflowContext): Record<string, Record<string, unknown>> {
+  const value = ctx['workflowSelectionMap']
+  return isRecord(value) ? value as Record<string, Record<string, unknown>> : {}
+}
+
+function setSelectionData(ctx: WorkflowContext, id: string, data: Record<string, unknown>): void {
+  ctx['workflowSelectionMap'] = { ...selectedDataMap(ctx), [id]: data }
+}
+
+function optionFromSlot(slot: AvailableWorkflowSlot): InteractiveMenuOption {
+  return {
+    id: slot.bookingKey,
+    title: slotTime(slot),
+    description: slot.displayLabel.slice(0, 72),
+    data: {
+      selected_date: slot.date,
+      selected_time: slotTime(slot),
+      selected_slot_start: slot.start,
+      selected_slot_end: slot.end,
+      selected_booking_key: slot.bookingKey,
+      doctor_id: slot.doctorId,
+      service_id: slot.serviceId,
+      timezone: slot.timezone,
+    },
+  }
+}
+
+function compactTitle(value: string, fallback: string): string {
+  const title = value.trim() || fallback
+  return title.length <= 24 ? title : title.slice(0, 23).trimEnd() || fallback
+}
+
+function parseMenuOptions(raw: unknown): InteractiveMenuOption[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry, index) => {
+    if (!isRecord(entry)) return []
+    const id = typeof entry['id'] === 'string' ? entry['id'] : `opt_${index}`
+    const title = typeof entry['title'] === 'string' ? entry['title'] : typeof entry['label'] === 'string' ? entry['label'] : ''
+    if (!title.trim()) return []
+    const description = typeof entry['description'] === 'string' ? entry['description'] : undefined
+    const data = isRecord(entry['data']) ? entry['data'] as Record<string, unknown> : entry
+    return [{ id, title, ...(description ? { description } : {}), data }]
+  })
+}
+
+function optionGroupsByDate(slots: AvailableWorkflowSlot[]): InteractiveMenuOption[] {
+  const dates = new Map<string, number>()
+  for (const slot of slots) dates.set(slot.date, (dates.get(slot.date) ?? 0) + 1)
+  return [...dates.entries()].map(([date, count]) => ({
+    id: `date_${date}`,
+    title: date,
+    description: `${count} available time${count === 1 ? '' : 's'}`,
+    data: { selected_date: date },
+  }))
+}
+
+async function persistSelectionMap(sql: Sql, clinicId: string, conversationId: string | undefined, options: InteractiveMenuOption[]): Promise<void> {
+  if (!conversationId) return
+  const conversations = createConversationsRepository(sql)
+  const conv = await conversations.findById(clinicId, conversationId)
+  if (!conv) return
+  const existing = isRecord(conv.metadata['workflowSelectionMap']) ? conv.metadata['workflowSelectionMap'] : {}
+  const next = options.reduce<Record<string, unknown>>((acc, option) => {
+    acc[option.id] = option.data ?? { id: option.id, title: option.title }
+    return acc
+  }, { ...existing })
+  await conversations.update(clinicId, conversationId, {
+    metadata: { ...conv.metadata, workflowSelectionMap: next },
+  })
 }
 
 function captureState(ctx: WorkflowContext): WorkflowCaptureState | null {
@@ -371,8 +533,10 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       console.log(`[workflow] no sendable WhatsApp target for clinic ${clinicId}; skipping send`)
       return null
     }
+    const messageId = await persistOutboundAttempt(sql, clinicId, ctx.conversationId, text)
     const wamid = await target.send(text)
-    await persistOutbound(sql, clinicId, ctx.conversationId, text, wamid)
+    if (messageId) await markOutboundAccepted(sql, clinicId, messageId, wamid)
+    else await persistOutbound(sql, clinicId, ctx.conversationId, text, wamid)
     return wamid
   }
 
@@ -532,6 +696,111 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     if (reviewTag && extraction.needsReview) await addConversationTag(reviewTag, ctx)
   }
 
+  const buildAvailableSlots = async (node: { config?: Record<string, unknown> }, ctx: WorkflowContext): Promise<AvailableWorkflowSlot[]> => {
+    const clinic = await createClinicsRepository(sql).findById(clinicId)
+    if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
+    const timezone = contextString(ctx, configField(node, 'timezoneField', 'clinic_timezone')) || clinic.timezone || 'UTC'
+    const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
+    const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
+    if (!doctorId) throw new Error('A selected doctor is required to calculate availability')
+    const serviceId = contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
+    const services = await createDoctorServicesRepository(sql).listServicesForDoctor(clinicId, doctorId)
+    const service = services.find((item) => item.id === serviceId)
+    if (!service) throw new Error('The selected service is not enabled for this doctor')
+    const duration = boundedInteger(service.durationMinutes, 30, 5, 480)
+    const today = clinicDateTimeParts(timezone).date
+    const nowLocal = clinicDateTimeParts(timezone).dateTime
+    const dates = dateRange(today, boundedInteger(node.config?.['days'], 5, 1, 14))
+    const calendar = await workflowCalendar(sql, clinic, doctorId)
+    if (!calendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
+    const slots = (await Promise.all(dates.map((date) => calendar.listSlots(date)))).flat()
+    return slots
+      .filter((slot): slot is WorkflowSlot => isRecord(slot) && typeof slot['start'] === 'string' && typeof slot['end'] === 'string')
+      .filter((slot) => slot.start >= nowLocal)
+      .filter((slot) => (Date.parse(`${slot.end}Z`) - Date.parse(`${slot.start}Z`)) / 60_000 >= duration)
+      .map((slot) => {
+        const base = { doctorId, serviceId, start: slot.start, end: slot.end, timezone }
+        return {
+          ...slot,
+          date: slotDate(slot),
+          displayLabel: formatClinicSlotLabel(slot, timezone),
+          timezone,
+          doctorId,
+          serviceId,
+          bookingKey: workflowBookingKey(base),
+        }
+      })
+  }
+
+  const buildInteractiveOptions = async (node: { config?: Record<string, unknown> }, ctx: WorkflowContext): Promise<InteractiveMenuOption[]> => {
+    const explicit = parseMenuOptions(ctx[configField(node, 'optionsField', 'menu_options')])
+    if (explicit.length > 0) return explicit
+    const menuType = String(node.config?.['menuType'] ?? '').trim()
+    if (menuType === 'doctor') {
+      return (await createDoctorsRepository(sql).listByClinic(clinicId)).map((doctor) => ({
+        id: `doctor_${doctor.id}`,
+        title: compactTitle(doctor.name, 'Doctor'),
+        ...(doctor.specialty ? { description: doctor.specialty.slice(0, 72) } : {}),
+        data: { doctor_id: doctor.id, selected_doctor_id: doctor.id, selected_doctor_name: doctor.name },
+      }))
+    }
+    if (menuType === 'service') {
+      const doctorId = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
+      if (!doctorId) return []
+      return (await createDoctorServicesRepository(sql).listServicesForDoctor(clinicId, doctorId)).map((service) => ({
+        id: `service_${service.id}`,
+        title: compactTitle(service.name, 'Service'),
+        description: `${service.durationMinutes} min`,
+        data: { service_id: service.id, selected_service_id: service.id, selected_service_name: service.name },
+      }))
+    }
+    const slots = Array.isArray(ctx[configField(node, 'slotsField', 'available_slots')])
+      ? (ctx[configField(node, 'slotsField', 'available_slots')] as unknown[]).filter((slot): slot is AvailableWorkflowSlot =>
+          isRecord(slot) &&
+          typeof slot['bookingKey'] === 'string' &&
+          typeof slot['date'] === 'string' &&
+          typeof slot['start'] === 'string' &&
+          typeof slot['end'] === 'string' &&
+          typeof slot['timezone'] === 'string' &&
+          typeof slot['doctorId'] === 'string' &&
+          typeof slot['serviceId'] === 'string',
+        )
+      : []
+    if (menuType === 'date') return optionGroupsByDate(slots)
+    if (menuType === 'time_slot') {
+      const selectedDate = contextString(ctx, configField(node, 'dateField', 'selected_date'))
+      return slots.filter((slot) => !selectedDate || slot.date === selectedDate).map(optionFromSlot)
+    }
+    if (menuType === 'confirm') {
+      return [
+        { id: 'confirm_booking', title: 'Confirm', data: { booking_confirmation: 'yes' } },
+        { id: 'change_selection', title: 'Change', data: { booking_confirmation: 'change' } },
+        { id: 'human_handoff', title: 'Talk to person', data: { booking_confirmation: 'handoff', route: 'human_handoff' } },
+      ]
+    }
+    return []
+  }
+
+  const applyInteractiveReply = async (ctx: WorkflowContext): Promise<boolean> => {
+    const numericReply = contextString(ctx, 'message').match(/^\s*(\d{1,2})\s*$/)
+    const fallbackIds = Array.isArray(ctx['menuOptionIds']) ? ctx['menuOptionIds'].filter((id): id is string => typeof id === 'string') : []
+    const replyId = contextString(ctx, 'interactiveReplyId') || (numericReply ? fallbackIds[Number(numericReply[1]) - 1] ?? '' : '')
+    if (!replyId) return false
+    let dataMap = selectedDataMap(ctx)
+    if (!dataMap[replyId] && ctx.conversationId) {
+      const conv = await createConversationsRepository(sql).findById(clinicId, ctx.conversationId)
+      const stored = conv && isRecord(conv.metadata['workflowSelectionMap']) ? conv.metadata['workflowSelectionMap'] : {}
+      dataMap = { ...(stored as Record<string, Record<string, unknown>>), ...dataMap }
+    }
+    const data = dataMap[replyId]
+    if (!isRecord(data)) return false
+    for (const [key, value] of Object.entries(data)) ctx[key] = value
+    ctx['workflow_selection_id'] = replyId
+    ctx['menu_status'] = 'selected'
+    ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = { nodeId: 'interactive_menu', field: 'workflow_selection_id', question: '', retryQuestion: '', validation: 'required', attempts: 0, maxAttempts: 1, status: 'captured' } satisfies WorkflowCaptureState
+    return true
+  }
+
   return {
     async runSideEffect(node, _ctx, invoke) {
       const executions = createWorkflowExecutionsRepository(sql)
@@ -582,8 +851,10 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       }
       const target = await resolveTarget(sql, clinicId, ctx.patientId)
       if (!target) return
+      const messageId = await persistOutboundAttempt(sql, clinicId, ctx.conversationId, template.body)
       const wamid = await target.send(template.body)
-      await persistOutbound(sql, clinicId, ctx.conversationId, template.body, wamid)
+      if (messageId) await markOutboundAccepted(sql, clinicId, messageId, wamid)
+      else await persistOutbound(sql, clinicId, ctx.conversationId, template.body, wamid)
     },
 
     async notifySecretary(ctx) {
@@ -751,6 +1022,21 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       ctx['availability_count'] = slots.length
     },
 
+    async availableSlots(node, ctx) {
+      const slots = await buildAvailableSlots(node, ctx)
+      const slotsField = configField(node, 'slotsField', 'available_slots')
+      ctx[slotsField] = slots
+      ctx['availability_count'] = slots.length
+      ctx['availability_status'] = slots.length > 0 ? 'available' : 'none'
+      for (const slot of slots) setSelectionData(ctx, slot.bookingKey, optionFromSlot(slot).data ?? {})
+      if (slots.length === 0) {
+        ctx['menu_options'] = [
+          { id: 'refresh_date_range', title: 'Refresh dates', data: { route: 'refresh_slots' } },
+          { id: 'human_handoff', title: 'Talk to person', data: { route: 'human_handoff' } },
+        ]
+      }
+    },
+
     async offerSlots(node, ctx) {
       const slotsField = configField(node, 'slotsField', 'available_slots')
       const raw = ctx[slotsField]
@@ -765,6 +1051,100 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         ? `${prefix}\n${chosen.map((slot, index) => `${index + 1}. ${slotDate(slot)} ${slotTime(slot)}`).join('\n')}`
         : 'No appointment times are available in that date range.'
       await sendWorkflowMessage(text, ctx)
+    },
+
+    async interactiveMenu(node, ctx) {
+      if (await applyInteractiveReply(ctx)) return
+      const options = await buildInteractiveOptions(node, ctx)
+      const menuType = String(node.config?.['menuType'] ?? 'list').trim()
+      const title = String(node.config?.['title'] ?? '').trim()
+      const body = String(node.config?.['body'] ?? title ?? '').trim()
+      if (!body) throw new Error('Interactive Menu requires a non-empty body')
+      if (!ctx.conversationId) throw new Error('Interactive Menu requires a conversation ID')
+      const selectionField = configField(node, 'selectionField', 'workflow_selection_id')
+      if (options.length === 0) {
+        ctx['menu_status'] = 'empty'
+        await sendWorkflowMessage(String(node.config?.['emptyMessage'] ?? 'No options are available right now. I can refresh the range or connect you with the clinic team.'), ctx)
+        return
+      }
+
+      const target = await resolveTarget(sql, clinicId, ctx.patientId)
+      if (!target) {
+        console.log(`[workflow] no sendable WhatsApp target for clinic ${clinicId}; skipping interactive menu`)
+        return
+      }
+      const accessToken = readMetaToken(target.account.accessTokenEnc)
+      if (!accessToken) throw new Error('WhatsApp access token is unavailable for interactive menu')
+      await persistSelectionMap(sql, clinicId, ctx.conversationId, options)
+      for (const option of options) if (option.data) setSelectionData(ctx, option.id, option.data)
+
+      const messageId = await persistOutboundAttempt(sql, clinicId, ctx.conversationId, body, {
+        contentType: 'interactive',
+        menuType,
+        optionIds: options.map((option) => option.id),
+      })
+      try {
+        let wamid: string | null
+        if (menuType === 'confirm' && options.length <= 3) {
+          const buttons: WhatsAppReplyButton[] = options.map((option) => ({ id: option.id, title: option.title.slice(0, 20) }))
+          wamid = await sendWhatsAppInteractive(target.account.accountId, accessToken, target.handle, body, buttons)
+        } else if (options.length <= 10) {
+          const rows = options.map((option) => ({
+            id: option.id,
+            title: compactTitle(option.title, 'Option'),
+            ...(option.description ? { description: option.description.slice(0, 72) } : {}),
+          }))
+          const sections: WhatsAppListSection[] = [{ ...(title ? { title: title.slice(0, 24) } : {}), rows }]
+          wamid = await sendWhatsAppList(target.account.accountId, accessToken, target.handle, body, String(node.config?.['buttonLabel'] ?? 'Choose').slice(0, 20), sections)
+        } else {
+          throw new Error('interactive_limit_exceeded')
+        }
+        await markOutboundAccepted(sql, clinicId, messageId, wamid)
+        ctx['menu_status'] = 'sent'
+        ctx[selectionField] = ''
+        ctx['menuOptionIds'] = options.map((option) => option.id)
+        ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = {
+          nodeId: node.id,
+          field: selectionField,
+          question: body,
+          retryQuestion: body,
+          validation: 'required',
+          attempts: 0,
+          maxAttempts: 1,
+          status: 'pending',
+        } satisfies WorkflowCaptureState
+      } catch (error) {
+        const fallback = `${body}\n${options.map((option, index) => `${index + 1}. ${option.title}`).join('\n')}`
+        await sendWorkflowMessage(fallback, ctx)
+        ctx['menu_status'] = 'fallback_text'
+        ctx['menu_error'] = error instanceof Error ? error.message : String(error)
+        ctx['menuOptionIds'] = options.map((option) => option.id)
+        ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = {
+          nodeId: node.id,
+          field: selectionField,
+          question: fallback,
+          retryQuestion: fallback,
+          validation: 'required',
+          attempts: 0,
+          maxAttempts: 1,
+          status: 'pending',
+        } satisfies WorkflowCaptureState
+      }
+    },
+
+    async revalidateSlot(node, ctx) {
+      const slots = await buildAvailableSlots(node, ctx)
+      const bookingKey = contextString(ctx, configField(node, 'bookingKeyField', 'selected_booking_key'))
+      const selected = slots.find((slot) => slot.bookingKey === bookingKey)
+      if (!selected) {
+        ctx['slot_revalidation_status'] = 'unavailable'
+        throw new Error('The selected appointment time is no longer available')
+      }
+      ctx['slot_revalidation_status'] = 'available'
+      ctx['preferred_date'] = selected.date
+      ctx['preferred_time'] = slotTime(selected)
+      ctx['selected_slot_start'] = selected.start
+      ctx['selected_slot_end'] = selected.end
     },
 
     async createOrRescheduleBooking(node, ctx) {

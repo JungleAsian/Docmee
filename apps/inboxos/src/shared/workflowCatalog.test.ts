@@ -20,4 +20,14 @@ describe('workflow trigger catalog', () => {
       }
     }
   })
+
+  it('keeps every built-in template within the advertised node catalog', () => {
+    const nodeTypes = new Set(WORKFLOW_NODE_TYPES.map((node) => node.type))
+
+    for (const template of WORKFLOW_TEMPLATES) {
+      for (const node of template.nodes) {
+        expect(nodeTypes).toContain(node.type)
+      }
+    }
+  })
 })

@@ -305,3 +305,25 @@ describe('processAgentJob — explicit human request (#5)', () => {
     )
   })
 })
+
+describe('processAgentJob — unsupported WhatsApp interaction', () => {
+  it('acknowledges, pauses automation, and alerts a human without invoking AI or workflows', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    await processAgentJob(
+      makeJob({ ...baseJob, message: '', unsupportedMessageType: 'sticker' }),
+    )
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
+
+    const [, , update] = h.updateConversation.mock.calls[0]
+    expect(update).toMatchObject({ status: 'handoff' })
+    expect(update.metadata.handoffReason).toBe('unsupported_message')
+    expect(h.notificationAdd).toHaveBeenCalledWith(
+      'notify',
+      expect.objectContaining({ reason: 'human_handoff', conversationId: CONVO }),
+    )
+  })
+})

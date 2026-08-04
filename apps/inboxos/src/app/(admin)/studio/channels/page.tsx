@@ -819,22 +819,43 @@ function loadFacebookSdk(appId: string, version: string): Promise<void> {
     return Promise.resolve()
   }
   return new Promise((resolve, reject) => {
-    window.fbAsyncInit = () => {
-      window.FB?.init({ appId, autoLogAppEvents: true, xfbml: false, version })
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      if (!window.FB) {
+        settled = true
+        window.clearTimeout(timeout)
+        reject(new Error('Facebook SDK loaded without exposing the login API. Refresh this page and try again.'))
+        return
+      }
+      settled = true
+      window.clearTimeout(timeout)
+      window.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version })
       resolve()
     }
     const existing = document.getElementById('facebook-jssdk') as HTMLScriptElement | null
     if (existing) {
-      existing.addEventListener('error', () => reject(new Error('Could not load Facebook SDK.')), { once: true })
-      return
+      existing.remove()
     }
+    const timeout = window.setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new Error('Facebook SDK did not finish loading. Check browser content blocking and try again.'))
+    }, 10_000)
+    window.fbAsyncInit = finish
     const script = document.createElement('script')
     script.id = 'facebook-jssdk'
     script.async = true
     script.defer = true
     script.crossOrigin = 'anonymous'
     script.src = 'https://connect.facebook.net/en_US/sdk.js'
-    script.onerror = () => reject(new Error('Could not load Facebook SDK.'))
+    script.onload = () => window.setTimeout(finish, 0)
+    script.onerror = () => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timeout)
+      reject(new Error('Could not load Facebook SDK. Check browser content blocking and try again.'))
+    }
     document.body.appendChild(script)
   })
 }
@@ -1430,6 +1451,7 @@ function WhatsAppCard({
   const [tokenExpiresAt, setTokenExpiresAt] = useState(account?.tokenExpiresAt?.slice(0, 10) ?? '')
   const [registrationPin, setRegistrationPin] = useState('')
   const [message, setMessage] = useState<string | null>(null)
+  const [facebookSdkReady, setFacebookSdkReady] = useState(false)
 
   useEffect(() => {
     setAccountId(account?.accountId ?? '')
@@ -1443,6 +1465,31 @@ function WhatsAppCard({
     queryKey: ['meta-embedded-signup-config'],
     queryFn: () => api.get<MetaEmbeddedSignupConfig>('/channels/meta-config'),
   })
+  useEffect(() => {
+    const config = metaConfigQuery.data
+    if (!config?.isConfigured || !config.appId || !config.configId) {
+      setFacebookSdkReady(false)
+      return
+    }
+    let active = true
+    void loadFacebookSdk(config.appId, config.graphApiVersion)
+      .then(() => {
+        if (active) setFacebookSdkReady(true)
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        setFacebookSdkReady(false)
+        setMessage(error instanceof Error ? error.message : 'Could not load Facebook SDK.')
+      })
+    return () => {
+      active = false
+    }
+  }, [
+    metaConfigQuery.data?.appId,
+    metaConfigQuery.data?.configId,
+    metaConfigQuery.data?.graphApiVersion,
+    metaConfigQuery.data?.isConfigured,
+  ])
   const coexistenceReadinessQuery = useQuery({
     queryKey: ['whatsapp-coexistence-readiness', clinicId, account?.id, account?.updatedAt],
     enabled: Boolean(clinicId),
@@ -1559,7 +1606,7 @@ function WhatsAppCard({
   const allPrereqsReady = prereqItems.every(([id]) => prereqs[id])
   const setAllPrereqs = (checked: boolean) =>
     setPrereqs(Object.fromEntries(prereqItems.map(([id]) => [id, checked])) as Record<string, boolean>)
-  async function continueWithFacebook(modeOverride?: WhatsAppSetupMode) {
+  function continueWithFacebook(modeOverride?: WhatsAppSetupMode) {
     const selectedSetupMode = modeOverride ?? setupMode ?? 'migrate-business-app'
     setSetupMode(selectedSetupMode)
     const config = metaConfigQuery.data
@@ -1569,6 +1616,10 @@ function WhatsAppCard({
       setStep('number')
       return
     }
+    if (!facebookSdkReady || !window.FB) {
+      setMessage('Facebook setup is still loading. Wait a moment and try again.')
+      return
+    }
 
     setMessage(
       selectedSetupMode === 'migrate-business-app'
@@ -1576,11 +1627,6 @@ function WhatsAppCard({
         : 'Opening Facebook setup...',
     )
     try {
-      await loadFacebookSdk(config.appId, config.graphApiVersion)
-      if (!window.FB) {
-        setMessage('Facebook SDK did not finish loading. Refresh this page and try again.')
-        return
-      }
       const assets: EmbeddedSignupAssets = {}
       let resolveAssets: (value: EmbeddedSignupAssets) => void = () => undefined
       const assetsReady = new Promise<EmbeddedSignupAssets>((resolve) => {
@@ -1615,34 +1661,40 @@ function WhatsAppCard({
       }
       window.addEventListener('message', listener)
       window.FB?.login(
-        async (response) => {
-          window.removeEventListener('message', listener)
-          const code = response.authResponse?.code
-          const returnedAssets = assets.phoneNumberId ? assets : await assetsReady
-          if (!code) {
-            setMessage('Facebook setup was cancelled before authorization finished.')
-            return
-          }
-          if (returnedAssets.event === 'ERROR') {
-            setMessage(returnedAssets.errorMessage ?? 'Meta Embedded Signup returned an error.')
-            setStep('prepare')
-            return
-          }
-          if (returnedAssets.event === 'CANCEL') {
-            setMessage('Facebook setup was cancelled. You can try again or use Cloud API setup.')
-            setStep('number')
-            return
-          }
-          if (!returnedAssets.phoneNumberId) {
-            setMessage('Facebook returned authorization, but no WhatsApp phone number ID. Try again after selecting a number.')
-            setStep('prepare')
-            return
-          }
-          embeddedSignup.mutate({
-            code,
-            phoneNumberId: returnedAssets.phoneNumberId,
-            wabaId: returnedAssets.wabaId,
-            setupMode: selectedSetupMode,
+        (response) => {
+          void (async () => {
+            window.removeEventListener('message', listener)
+            const code = response.authResponse?.code
+            if (!code) {
+              window.clearTimeout(timeout)
+              setMessage('Facebook setup was cancelled before authorization finished.')
+              return
+            }
+            const returnedAssets = assets.phoneNumberId ? assets : await assetsReady
+            if (returnedAssets.event === 'ERROR') {
+              setMessage(returnedAssets.errorMessage ?? 'Meta Embedded Signup returned an error.')
+              setStep('prepare')
+              return
+            }
+            if (returnedAssets.event === 'CANCEL') {
+              setMessage('Facebook setup was cancelled. You can try again or use Cloud API setup.')
+              setStep('number')
+              return
+            }
+            if (!returnedAssets.phoneNumberId) {
+              setMessage('Facebook returned authorization, but no WhatsApp phone number ID. Try again after selecting a number.')
+              setStep('prepare')
+              return
+            }
+            embeddedSignup.mutate({
+              code,
+              phoneNumberId: returnedAssets.phoneNumberId,
+              wabaId: returnedAssets.wabaId,
+              setupMode: selectedSetupMode,
+            })
+          })().catch((error: unknown) => {
+            window.removeEventListener('message', listener)
+            setMessage(error instanceof Error ? error.message : 'Could not complete Facebook setup.')
           })
         },
         {
@@ -1712,11 +1764,11 @@ function WhatsAppCard({
             <button
               type="button"
               onClick={() => continueWithFacebook('migrate-business-app')}
-              disabled={embeddedSignup.isPending}
+              disabled={embeddedSignup.isPending || !facebookSdkReady}
               className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-blue-600">f</span>
-              {embeddedSignup.isPending ? 'Opening...' : 'Connect with Facebook'}
+              {embeddedSignup.isPending ? 'Opening...' : facebookSdkReady ? 'Connect with Facebook' : 'Loading Facebook...'}
             </button>
             <p className="mt-2 text-[11px] text-gray-400">
               {metaConfigQuery.data?.isConfigured
@@ -1906,11 +1958,17 @@ function WhatsAppCard({
               <button
                 type="button"
                 onClick={() => continueWithFacebook(setupMode ?? 'migrate-business-app')}
-                disabled={embeddedSignup.isPending}
+                disabled={embeddedSignup.isPending || !facebookSdkReady}
                 className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-blue-600">f</span>
-                {embeddedSignup.isPending ? 'Opening...' : setupMode === 'migrate-business-app' ? 'Start co-existence' : 'Continue with Facebook'}
+                {embeddedSignup.isPending
+                  ? 'Opening...'
+                  : !facebookSdkReady
+                    ? 'Loading Facebook...'
+                    : setupMode === 'migrate-business-app'
+                      ? 'Start co-existence'
+                      : 'Continue with Facebook'}
               </button>
             </div>
             <div className="my-3 text-xs font-semibold text-gray-500">OR</div>

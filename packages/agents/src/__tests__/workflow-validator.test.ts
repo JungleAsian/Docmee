@@ -14,6 +14,25 @@ describe('validateWorkflowDefinition', () => {
     ], [edge('one', 'trigger', 'message'), edge('two', 'message', 'end')], { requireTrigger: true })).toEqual([])
   })
 
+  it('accepts guided WhatsApp booking action nodes', () => {
+    expect(validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('doctor', 'action', 'action.interactive_menu', { menuType: 'doctor' }),
+      node('slots', 'action', 'action.available_slots'),
+      node('time', 'action', 'action.interactive_menu', { menuType: 'time_slot' }),
+      node('revalidate', 'action', 'action.revalidate_slot'),
+      node('book', 'action', 'action.create_or_reschedule_booking'),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('one', 'trigger', 'doctor'),
+      edge('two', 'doctor', 'slots'),
+      edge('three', 'slots', 'time'),
+      edge('four', 'time', 'revalidate'),
+      edge('five', 'revalidate', 'book'),
+      edge('six', 'book', 'end'),
+    ], { requireTrigger: true })).toEqual([])
+  })
+
   it('rejects unsupported, dangling, cyclic, and unreachable graphs', () => {
     const errors = validateWorkflowDefinition([
       node('trigger', 'trigger', 'trigger.message_keyword'),

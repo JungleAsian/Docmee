@@ -35,7 +35,10 @@ export interface WorkflowExecutors {
   requestApproval(node: WorkflowNode, nextNodeId: string | undefined, ctx: WorkflowContext): Promise<unknown> | unknown
   transcribeBookingVoice?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   checkAvailability?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  availableSlots?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   offerSlots?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  interactiveMenu?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  revalidateSlot?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   createOrRescheduleBooking?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   askAndCapture?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   extractBookingDetails?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
@@ -140,8 +143,17 @@ export async function runWorkflow(
       case 'action.check_availability':
         if (exec.checkAvailability) await sideEffect(node, () => Promise.resolve(exec.checkAvailability!(node, ctx)))
         break
+      case 'action.available_slots':
+        if (exec.availableSlots) await sideEffect(node, () => Promise.resolve(exec.availableSlots!(node, ctx)))
+        break
       case 'action.offer_slots':
         if (exec.offerSlots) await sideEffect(node, () => Promise.resolve(exec.offerSlots!(node, ctx)))
+        break
+      case 'action.interactive_menu':
+        if (exec.interactiveMenu) await sideEffect(node, () => Promise.resolve(exec.interactiveMenu!(node, ctx)))
+        break
+      case 'action.revalidate_slot':
+        if (exec.revalidateSlot) await sideEffect(node, () => Promise.resolve(exec.revalidateSlot!(node, ctx)))
         break
       case 'action.create_or_reschedule_booking':
         if (exec.createOrRescheduleBooking) await sideEffect(node, () => Promise.resolve(exec.createOrRescheduleBooking!(node, ctx)))

@@ -157,6 +157,68 @@ describe('runWorkflow', () => {
     expect(exec.createOrRescheduleBooking).toHaveBeenCalledWith(wf.nodes[3], ctx)
   })
 
+  it('runs guided interactive booking nodes before appointment creation', async () => {
+    const wf = {
+      nodes: [
+        node('t', 'trigger', 'trigger.message_keyword'),
+        node('doctors', 'action', 'action.interactive_menu', { menuType: 'doctor' }),
+        node('services', 'action', 'action.interactive_menu', { menuType: 'service' }),
+        node('slots', 'action', 'action.available_slots'),
+        node('days', 'action', 'action.interactive_menu', { menuType: 'date' }),
+        node('times', 'action', 'action.interactive_menu', { menuType: 'time_slot' }),
+        node('revalidate', 'action', 'action.revalidate_slot'),
+        node('confirm', 'action', 'action.interactive_menu', { menuType: 'confirm' }),
+        node('book', 'action', 'action.create_or_reschedule_booking'),
+      ],
+      edges: [
+        edge('t', 'doctors'),
+        edge('doctors', 'services'),
+        edge('services', 'slots'),
+        edge('slots', 'days'),
+        edge('days', 'times'),
+        edge('times', 'revalidate'),
+        edge('revalidate', 'confirm'),
+        edge('confirm', 'book'),
+      ],
+    }
+    const order: string[] = []
+    const ctx = { clinicId: 'clinic_1' }
+    const exec = makeExec({
+      interactiveMenu: vi.fn(async (current, shared) => {
+        order.push(`${current.id}:${String(current.config?.['menuType'] ?? '')}`)
+        shared['last_menu'] = current.id
+      }),
+      availableSlots: vi.fn(async (_current, shared) => {
+        order.push('slots')
+        shared['available_slots'] = [{ bookingKey: 'slot_1' }]
+      }),
+      revalidateSlot: vi.fn(async (_current, shared) => {
+        order.push('revalidate')
+        shared['slot_revalidation_status'] = 'available'
+      }),
+      createOrRescheduleBooking: vi.fn(async () => {
+        order.push('book')
+      }),
+    })
+
+    await runWorkflow(wf, ctx, exec)
+
+    expect(order).toEqual([
+      'doctors:doctor',
+      'services:service',
+      'slots',
+      'days:date',
+      'times:time_slot',
+      'revalidate',
+      'confirm:confirm',
+      'book',
+    ])
+    expect(exec.createOrRescheduleBooking).toHaveBeenCalledWith(wf.nodes[8], expect.objectContaining({
+      available_slots: [{ bookingKey: 'slot_1' }],
+      slot_revalidation_status: 'available',
+    }))
+  })
+
   it('asks, persists at wait, then resumes after a captured reply', async () => {
     const wf = {
       nodes: [

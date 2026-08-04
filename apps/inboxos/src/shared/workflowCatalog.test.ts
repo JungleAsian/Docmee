@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { validateWorkflowDefinition } from '@docmee/agents'
 import { WORKFLOW_NODE_TYPES } from './workflowNodes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 
@@ -19,5 +20,16 @@ describe('workflow trigger catalog', () => {
         expect(triggerTypes).toContain(node.type)
       }
     }
+  })
+})
+
+describe('workflow template validation', () => {
+  it('validates the guided_whatsapp_booking template without errors', () => {
+    const template = WORKFLOW_TEMPLATES.find((t) => t.key === 'guided_whatsapp_booking')
+    expect(template).toBeDefined()
+    if (!template) return
+
+    const errors = validateWorkflowDefinition(template.nodes, template.edges, { requireTrigger: true })
+    expect(errors).toEqual([])
   })
 })

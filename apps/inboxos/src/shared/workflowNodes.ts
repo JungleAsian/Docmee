@@ -33,6 +33,19 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
   { type: 'action.notify_secretary', kind: 'action', labelKey: 'wf.node.notify', fields: [] },
   { type: 'action.add_tag', kind: 'action', labelKey: 'wf.node.addTag', fields: ['tag'] },
   { type: 'action.ai_draft', kind: 'action', labelKey: 'wf.node.aiDraft', fields: ['prompt'] },
+  {
+    type: 'action.interactive_menu',
+    kind: 'action',
+    labelKey: 'wf.node.interactiveMenu',
+    fields: ['variant', 'header', 'message', 'footer', 'options', 'field'],
+  },
+  {
+    type: 'action.interactive_menu',
+    kind: 'action',
+    labelKey: 'wf.node.interactiveMenu',
+    fields: ['variant', 'header', 'message', 'footer', 'options'],
+  },
+  { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', fields: [] },
   { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', fields: [] },
   {
     type: 'action.ask_capture',

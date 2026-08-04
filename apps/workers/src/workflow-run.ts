@@ -54,6 +54,7 @@ export interface TriggerContext {
   isVoiceNote?: boolean
   voiceMessageId?: string
   audioObjectKey?: string
+  interactiveReplyId?: string
 }
 
 /** Safe BullMQ ID and durable trace key derived from the producer's source event. */

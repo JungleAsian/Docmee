@@ -1,9 +1,8 @@
 'use client'
 
-// Rev 3 — N8N-style automation canvas. A typed node graph (trigger → logic →
-// action) on React Flow: a categorized palette adds nodes, drag repositions
-// (persists x/y), connect wires edges, the side panel edits the selected node's
-// config. Serializes to the Workflow nodes/edges model the API + engine consume.
+// Rev 4 — N8N-style automation canvas with BotPenguin-style self-documenting cards.
+// Each node renders key config fields on its face; interactive_menu nodes expose
+// per-option output handles and a side-panel options editor.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow as ReactFlowBase,
@@ -33,38 +32,160 @@ const Handle = HandleBase
 
 type WfNodeData = { wf: WfNode; label: string }
 
+interface MenuOption {
+  optionId: string
+  title: string
+  description?: string
+}
+
+function parseMenuOptionsSafe(raw: unknown): MenuOption[] {
+  if (Array.isArray(raw)) return raw.filter((o): o is MenuOption => typeof o === 'object' && o !== null && typeof (o as MenuOption).optionId === 'string' && typeof (o as MenuOption).title === 'string')
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((o): o is MenuOption => typeof o === 'object' && o !== null && typeof o.optionId === 'string' && typeof o.title === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+const KIND_ICON: Record<string, string> = {
+  trigger: '▶',
+  logic: '◈',
+  action: '⚡',
+}
+
+function nodeHandles(wf: WfNode): string[] {
+  const cfg = wf.config ?? {}
+  switch (wf.type) {
+    case 'logic.condition':
+      return ['true', 'false']
+    case 'logic.ai_classify_intent':
+      return ['high', 'low', 'error']
+    case 'action.interactive_menu': {
+      const opts = parseMenuOptionsSafe(cfg.options)
+      return [...opts.map((o) => o.optionId), 'restart', 'livechat', 'default']
+    }
+    default:
+      return []
+  }
+}
+
+function nodeFaceText(wf: WfNode): string | undefined {
+  const cfg = wf.config ?? {}
+  switch (wf.type) {
+    case 'action.send_message':
+      return String(cfg.text ?? '').trim() || undefined
+    case 'action.interactive_menu': {
+      const parts = [cfg.header, cfg.message, cfg.footer].filter((v) => typeof v === 'string' && v.trim())
+      const fieldPart = cfg.field ? `→ ${cfg.field}` : undefined
+      return [parts.join(' / '), fieldPart].filter(Boolean).join(' ') || undefined
+    }
+    case 'action.ai_draft':
+      return String(cfg.text ?? '').trim() || undefined
+    case 'action.interactive_menu': {
+      const parts = [cfg.header, cfg.message, cfg.footer].filter((v) => typeof v === 'string' && v.trim())
+      return parts.length > 0 ? parts.join(' / ') : undefined
+    }
+    case 'action.ai_draft':
+    case 'logic.ai_classify_intent': {
+      const ql = String(cfg.queryLimit ?? cfg.query_limit ?? '').trim()
+      const rb = String(cfg.responseBuffer ?? cfg.response_buffer ?? '').trim()
+      return [ql, rb].filter(Boolean).join(' / ') || undefined
+    }
+    case 'trigger.message_keyword':
+      return String(cfg.keywords ?? '').trim() || undefined
+    case 'action.ask_capture':
+      return String(cfg.question ?? '').trim() || undefined
+    default:
+      return undefined
+  }
+}
+
 function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
   const { wf, label } = data
-  const branches = wf.type === 'logic.condition'
-    ? ['true', 'false']
-    : wf.type === 'logic.ai_classify_intent'
-      ? ['high', 'low', 'error']
-      : []
+  const handles = nodeHandles(wf)
+  const face = nodeFaceText(wf)
+  const cfg = wf.config ?? {}
+
   return (
     <div
-      className={`w-44 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
+      className={`w-52 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
         selected ? 'ring-2 ring-teal-300' : ''
       }`}
     >
-      {wf.kind !== 'trigger' && <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-gray-400" />}
-      <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{wf.kind}</p>
+      {wf.kind !== 'trigger' && (
+        <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-gray-400" />
+      )}
+
+      {/* Header */}
+      <div className="mb-0.5 flex items-center gap-1">
+        <span className="text-[10px]">{KIND_ICON[wf.kind] ?? '•'}</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{wf.kind}</span>
+      </div>
       <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{label}</p>
-      {wf.type !== 'action.end' && branches.length === 0 && <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />}
-      {branches.map((branch, index) => (
-        <Handle
-          key={branch}
-          id={branch}
-          type="source"
-          position={Position.Right}
-          style={{ top: `${((index + 1) / (branches.length + 1)) * 100}%` }}
-          title={branch}
-          className="!h-2 !w-2 !bg-teal-500"
-        />
-      ))}
+
+      {/* Face content */}
+      {face && (
+        <>
+          <div className="my-1.5 border-t border-gray-200 dark:border-gray-700" />
+          <p className="line-clamp-2 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>
+        </>
+      )}
+
+      {/* Interactive menu options preview */}
+      {wf.type === 'action.interactive_menu' && (
+        <>
+          <div className="my-1.5 border-t border-gray-200 dark:border-gray-700" />
+          <div className="space-y-0.5">
+            {parseMenuOptionsSafe(cfg.options).map((o) => (
+              <div key={o.optionId} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teal-400" />
+                <span className="truncate">{o.title}</span>
+              </div>
+            ))}
+            {parseMenuOptionsSafe(cfg.options).length === 0 && (
+              <span className="text-[10px] italic text-gray-400">no options</span>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Condition branch chips */}
+      {wf.type === 'logic.condition' && (
+        <div className="mt-1.5 flex gap-1">
+          <span className="rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">true</span>
+          <span className="rounded bg-red-100 px-1 py-0.5 text-[9px] font-medium text-red-700 dark:bg-red-900 dark:text-red-200">false</span>
+        </div>
+      )}
+
+      {/* Output handles */}
+      {wf.type === 'action.end' ? null : handles.length === 0 ? (
+        <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />
+      ) : (
+        handles.map((h, i) => (
+          <Handle
+            key={h}
+            id={h}
+            type="source"
+            position={Position.Right}
+            style={{ top: `${((i + 1) / (handles.length + 1)) * 100}%` }}
+            title={h}
+            className="!h-2 !w-2 !bg-teal-500"
+          />
+        ))
+      )}
     </div>
   )
 }
+
 const nodeTypes = { wf: WorkflowNodeView }
+
+function nextMenuOptionId(existing: MenuOption[]): string {
+  let n = existing.length + 1
+  while (existing.some((o) => o.optionId === `option_${n}`)) n++
+  return `option_${n}`
+}
 
 export function WorkflowCanvas({
   nodes,
@@ -159,6 +280,45 @@ export function WorkflowCanvas({
 
   const byKind = (kind: string) => WORKFLOW_NODE_TYPES.filter((d) => d.kind === kind)
 
+  // --- interactive_menu options editor helpers --------------------------------
+  const menuOptions = useMemo(() => {
+    if (!selected || selected.type !== 'action.interactive_menu') return []
+    return parseMenuOptionsSafe(selected.config.options)
+  }, [selected])
+
+  const setMenuOptions = useCallback(
+    (next: MenuOption[]) => {
+      if (!selected) return
+      const value = JSON.stringify(next)
+      onChange({
+        nodes: nodes.map((n) => (n.id === selected.id ? { ...n, config: { ...n.config, options: value } } : n)),
+        edges,
+      })
+    },
+    [selected, nodes, edges, onChange],
+  )
+
+  const patchMenuOption = useCallback(
+    (index: number, patch: Partial<MenuOption>) => {
+      const next = menuOptions.map((o, i) => (i === index ? { ...o, ...patch } : o))
+      setMenuOptions(next)
+    },
+    [menuOptions, setMenuOptions],
+  )
+
+  const addMenuOption = useCallback(() => {
+    setMenuOptions([...menuOptions, { optionId: nextMenuOptionId(menuOptions), title: '' }])
+  }, [menuOptions, setMenuOptions])
+
+  const removeMenuOption = useCallback(
+    (index: number) => {
+      setMenuOptions(menuOptions.filter((_, i) => i !== index))
+    },
+    [menuOptions, setMenuOptions],
+  )
+
+  const isMenu = selected?.type === 'action.interactive_menu'
+
   return (
     <div className="flex h-[42rem] min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       {/* Palette */}
@@ -204,20 +364,80 @@ export function WorkflowCanvas({
 
       {/* Config panel */}
       {selected && (
-        <aside className="w-56 shrink-0 overflow-y-auto border-l border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-800 dark:bg-gray-900">
+        <aside className="w-64 shrink-0 overflow-y-auto border-l border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-800 dark:bg-gray-900">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">{selected.kind}</p>
           <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">{label(selected.type)}</p>
+
+          {/* Standard text fields */}
           {(nodeDef(selected.type)?.fields ?? []).map((key) => (
             <label key={key} className="mb-2 block">
-              <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{key}</span>
-              <input
-                value={String(selected.config[key] ?? '')}
-                onChange={(e) => patchConfig(key, e.target.value)}
-                className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-              />
+              <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{t(`wf.field.${key}` as Parameters<typeof t>[0]) ?? key}</span>
+              {key === 'options' && isMenu ? (
+                // options is edited via the richer editor below
+                <input
+                  value={String(selected.config[key] ?? '')}
+                  readOnly
+                  className="w-full cursor-not-allowed rounded border border-gray-300 bg-gray-100 p-1.5 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800"
+                />
+              ) : key === 'message' || key === 'prompt' || key === 'question' || key === 'text' ? (
+                <textarea
+                  value={String(selected.config[key] ?? '')}
+                  onChange={(e) => patchConfig(key, e.target.value)}
+                  rows={3}
+                  className="w-full resize-none rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                />
+              ) : (
+                <input
+                  value={String(selected.config[key] ?? '')}
+                  onChange={(e) => patchConfig(key, e.target.value)}
+                  className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                />
+              )}
             </label>
           ))}
-          {(nodeDef(selected.type)?.fields ?? []).length === 0 && (
+
+          {/* Interactive menu options editor */}
+          {isMenu && (
+            <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
+              <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.field.options')}</p>
+              <div className="space-y-2">
+                {menuOptions.map((opt, oi) => (
+                  <div key={oi} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
+                    <input
+                      value={opt.title}
+                      onChange={(e) => patchMenuOption(oi, { title: e.target.value })}
+                      maxLength={24}
+                      placeholder={t('wf.optionTitle')}
+                      className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                    />
+                    <input
+                      value={opt.description ?? ''}
+                      onChange={(e) => patchMenuOption(oi, { description: e.target.value || undefined })}
+                      maxLength={72}
+                      placeholder={t('wf.optionDescription')}
+                      className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                    />
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={opt.optionId}
+                        onChange={(e) => patchMenuOption(oi, { optionId: e.target.value })}
+                        placeholder="optionId"
+                        className="w-full rounded border border-gray-300 p-1 text-[10px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-800"
+                      />
+                      <button type="button" onClick={() => removeMenuOption(oi)} className="shrink-0 text-[10px] text-red-600 hover:underline">
+                        {t('common.delete')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={addMenuOption} className="text-xs text-violet-700 hover:underline dark:text-violet-300">
+                + {t('wf.addOption')}
+              </button>
+            </div>
+          )}
+
+          {(nodeDef(selected.type)?.fields ?? []).length === 0 && !isMenu && (
             <p className="mb-3 text-gray-400">{t('wf.noConfig')}</p>
           )}
           <button

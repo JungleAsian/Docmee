@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { runWorkflow, type WorkflowExecutors } from '../workflows/workflow-engine.js'
+import {
+  runWorkflow,
+  resolveMenuHandle,
+  parseMenuOptions,
+  type WorkflowExecutors,
+  type WorkflowMenuOption,
+} from '../workflows/workflow-engine.js'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
 
 const node = (
@@ -206,5 +212,117 @@ describe('runWorkflow', () => {
     const trace = await runWorkflow(wf, {}, exec)
     expect(trace).toEqual([])
     expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('interactive_menu — resolveMenuHandle', () => {
+  const opts: WorkflowMenuOption[] = [
+    { optionId: 'book_appt', title: 'Book an appointment' },
+    { optionId: 'location', title: 'Location & Hours' },
+    { optionId: 'inquiry', title: 'General Inquiry' },
+  ]
+
+  it('reserves footer 0 → restart and 1 → livechat', () => {
+    expect(resolveMenuHandle(opts, undefined, '0')).toBe('restart')
+    expect(resolveMenuHandle(opts, undefined, '1')).toBe('livechat')
+  })
+  it('matches a tapped interactive reply id exactly', () => {
+    expect(resolveMenuHandle(opts, 'inquiry', 'anything')).toBe('inquiry')
+  })
+  it('falls back to a 1-based numeric index for typed replies', () => {
+    expect(resolveMenuHandle(opts, undefined, '2')).toBe('location')
+  })
+  it('falls back to a case-insensitive title match', () => {
+    expect(resolveMenuHandle(opts, undefined, 'book an APPOINTMENT')).toBe('book_appt')
+  })
+  it('routes anything unrecognized to default', () => {
+    expect(resolveMenuHandle(opts, 'stale_id', 'blah blah')).toBe('default')
+  })
+})
+
+describe('interactive_menu — parseMenuOptions', () => {
+  it('parses a JSON-string options config', () => {
+    const parsed = parseMenuOptions({ options: JSON.stringify([{ optionId: 'a', title: 'A' }]) })
+    expect(parsed).toEqual([{ optionId: 'a', title: 'A' }])
+  })
+  it('accepts an already-array config and drops malformed entries', () => {
+    const parsed = parseMenuOptions({ options: [{ optionId: 'a', title: 'A' }, { bad: true }] as unknown[] })
+    expect(parsed).toEqual([{ optionId: 'a', title: 'A' }])
+  })
+  it('returns [] for absent or unparseable options', () => {
+    expect(parseMenuOptions({})).toEqual([])
+    expect(parseMenuOptions({ options: 'not json' })).toEqual([])
+  })
+})
+
+describe('runWorkflow — interactive_menu node', () => {
+  const menuConfig = {
+    variant: 'list',
+    header: 'Welcome',
+    message: 'Choose an option',
+    options: JSON.stringify([
+      { optionId: 'book_appt', title: 'Book an appointment' },
+      { optionId: 'inquiry', title: 'General Inquiry' },
+    ]),
+  }
+  const wf = {
+    nodes: [
+      node('t', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', menuConfig),
+      node('book', 'action', 'action.send_message', { text: 'Booking...' }),
+      node('inq', 'action', 'action.ai_draft', { prompt: 'answer' }),
+      node('restart', 'action', 'action.send_message', { text: 'Back to menu' }),
+      node('human', 'action', 'action.notify_secretary'),
+      node('fallback', 'action', 'action.send_message', { text: 'Sorry, please choose again' }),
+    ],
+    edges: [
+      edge('t', 'menu'),
+      edge('menu', 'book', 'book_appt'),
+      edge('menu', 'inq', 'inquiry'),
+      edge('menu', 'restart', 'restart'),
+      edge('menu', 'human', 'livechat'),
+      edge('menu', 'fallback', 'default'),
+    ],
+  }
+
+  it('sends the menu and pauses on first arrival', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ sendInteractiveMenu: send })
+    const trace = await runWorkflow(wf, {}, exec)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(trace.at(-1)).toEqual({ nodeId: 'menu', type: 'action.interactive_menu', status: 'paused' })
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('resumes and routes out of the matched option handle', async () => {
+    const exec = makeExec({ matchMenuReply: vi.fn(async () => 'book_appt') })
+    const ctx = { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'Book an appointment' }
+    await runWorkflow(wf, ctx, exec, { startNodeId: 'menu' })
+    expect(exec.sendMessage).toHaveBeenCalledWith('Booking...', expect.any(Object))
+    // menu state was cleared after routing
+    expect((ctx as Record<string, unknown>)['__workflowMenu']).toBeUndefined()
+  })
+
+  it('routes an unrecognized reply out of the default handle', async () => {
+    const exec = makeExec({ matchMenuReply: vi.fn(async () => 'default') })
+    const ctx = { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'gibberish' }
+    await runWorkflow(wf, ctx, exec, { startNodeId: 'menu' })
+    expect(exec.sendMessage).toHaveBeenCalledWith('Sorry, please choose again', expect.any(Object))
+  })
+
+  it('routes footer restart / livechat handles', async () => {
+    const restart = makeExec({ matchMenuReply: vi.fn(async () => 'restart') })
+    await runWorkflow(wf, { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: '0' }, restart, { startNodeId: 'menu' })
+    expect(restart.sendMessage).toHaveBeenCalledWith('Back to menu', expect.any(Object))
+
+    const human = makeExec({ matchMenuReply: vi.fn(async () => 'livechat') })
+    await runWorkflow(wf, { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: '1' }, human, { startNodeId: 'menu' })
+    expect(human.notifySecretary).toHaveBeenCalled()
+  })
+
+  it('falls through default when it cannot pause (no executor)', async () => {
+    const exec = makeExec()
+    await runWorkflow(wf, {}, exec)
+    expect(exec.sendMessage).toHaveBeenCalledWith('Sorry, please choose again', expect.any(Object))
   })
 })

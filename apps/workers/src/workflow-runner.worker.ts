@@ -11,6 +11,9 @@ import {
   runWorkflow,
   validateWorkflowDefinition,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
+  WORKFLOW_MENU_CONTEXT_KEY,
+  parseMenuOptions,
+  resolveMenuHandle,
   type CalendarOps,
   type RefreshedTokens,
   type WorkflowCaptureState,
@@ -20,7 +23,7 @@ import {
 import { decryptValue, encryptValue } from '@docmee/shared'
 import { randomUUID } from 'node:crypto'
 import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
-import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
+import { activeWhatsAppAccount, resolveWhatsAppInteractiveSender, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey } from './clinic-ai-key.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
@@ -734,6 +737,88 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         })
       }
       return true
+    },
+
+    async sendInteractiveMenu(node, ctx) {
+      const options = parseMenuOptions(node.config)
+      const variant = String(node.config?.['variant'] ?? 'list')
+      const header = String(node.config?.['header'] ?? '').trim()
+      const message = String(node.config?.['message'] ?? '').trim()
+      const footer = String(node.config?.['footer'] ?? '').trim()
+
+      const textParts = [
+        ...(header ? [header] : []),
+        message,
+        ...(footer ? [footer] : []),
+      ]
+      const fullText = textParts.join('\n\n')
+
+      const target = await resolveTarget(sql, clinicId, ctx.patientId)
+      if (target) {
+        const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
+        if (sender) {
+          try {
+            const isButton = variant === 'button' && options.length <= 3
+            const wamid = await sender({
+              kind: isButton ? 'buttons' : 'list',
+              header: header || undefined,
+              body: message,
+              footer: footer || undefined,
+              buttonLabel: isButton ? undefined : String(node.config?.['buttonLabel'] ?? 'Options'),
+              options: options.map((o) => ({ id: o.optionId, title: o.title, description: o.description })),
+            })
+            await persistOutbound(sql, clinicId, ctx.conversationId, fullText, wamid)
+          } catch (err) {
+            console.error('[workflow] failed to send interactive menu:', err)
+            await sendWorkflowMessage(fullText, ctx)
+          }
+        } else {
+          await sendWorkflowMessage(fullText, ctx)
+        }
+      } else {
+        const lines = [
+          ...(header ? [header] : []),
+          message,
+          ...options.map((o, i) => `${i + 1}. ${o.title}${o.description ? ` — ${o.description}` : ''}`),
+          ...(footer ? [footer] : []),
+        ]
+        await sendWorkflowMessage(lines.join('\n'), ctx)
+      }
+
+      if (!ctx.conversationId) {
+        console.log('[workflow] no conversation attached; cannot pause interactive menu')
+        return false
+      }
+
+      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, status: 'pending' }
+      const conversations = createConversationsRepository(sql)
+      const conversation = await conversations.findById(clinicId, ctx.conversationId)
+      if (!conversation) return false
+
+      const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
+      const metadata = writePendingWorkflowRun(conversation.metadata, {
+        workflowId: data.workflowId,
+        sourceEventId: data.trigger.sourceEventId,
+        resumeNodeId: node.id,
+        context: { ...ctx },
+        expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
+      })
+      await conversations.update(clinicId, ctx.conversationId, { metadata })
+      if (ctx.patientId) {
+        await scheduleNoResponseFollowUp({
+          clinicId,
+          patientId: ctx.patientId,
+          conversationId: ctx.conversationId,
+          silentSinceIso: new Date().toISOString(),
+          recoveryPrompt: message || 'Please choose an option.',
+        })
+      }
+      return true
+    },
+
+    matchMenuReply(node, ctx) {
+      const replyId = typeof ctx['interactiveReplyId'] === 'string' ? ctx['interactiveReplyId'] : undefined
+      return resolveMenuHandle(parseMenuOptions(node.config), replyId, contextString(ctx, 'message'))
     },
 
     async checkAvailability(node, ctx) {

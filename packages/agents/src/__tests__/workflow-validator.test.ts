@@ -54,4 +54,82 @@ describe('validateWorkflowDefinition', () => {
     expect(errors.join('\n')).toMatch(/must have exactly one successor/)
     expect(errors.join('\n')).toMatch(/requires a positive amount/)
   })
+
+  const menuOptions = (opts: Array<{ optionId: string; title: string }>) => JSON.stringify(opts)
+
+  it('accepts a valid interactive_menu with an edge per option', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', {
+        variant: 'button',
+        options: menuOptions([{ optionId: 'a', title: 'A' }, { optionId: 'b', title: 'B' }]),
+      }),
+      node('ea', 'action', 'action.end'),
+      node('eb', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'menu'),
+      edge('ma', 'menu', 'ea', 'a'),
+      edge('mb', 'menu', 'eb', 'b'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
+  it('rejects an interactive_menu with no options, an unwired option, and a bad handle', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('empty', 'action', 'action.interactive_menu', { options: '[]' }),
+      node('menu', 'action', 'action.interactive_menu', {
+        variant: 'button',
+        options: menuOptions([{ optionId: 'a', title: 'A' }, { optionId: 'b', title: 'B' }]),
+      }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'empty'),
+      edge('em', 'empty', 'menu'),
+      edge('ma', 'menu', 'end', 'a'),
+      edge('mbad', 'menu', 'end', 'nonexistent'),
+    ], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/requires at least one option/)
+    expect(errors.join('\n')).toMatch(/option "b" has no successor/)
+    expect(errors.join('\n')).toMatch(/unknown handle "nonexistent"/)
+  })
+
+  it('enforces the option-count limit per variant', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', {
+        variant: 'button',
+        options: menuOptions([
+          { optionId: 'a', title: 'A' }, { optionId: 'b', title: 'B' },
+          { optionId: 'c', title: 'C' }, { optionId: 'd', title: 'D' },
+        ]),
+      }),
+      node('end', 'action', 'action.end'),
+    ], [edge('t', 'trigger', 'menu'), edge('m', 'menu', 'end', 'a')], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/too many options for variant "button" \(max 3\)/)
+  })
+
+  it('allows a conversational loop through a pausing menu but rejects a synchronous cycle', () => {
+    // Legit: menu → send → back to menu (menu pauses, so this is cross-turn safe).
+    const looped = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', {
+        options: menuOptions([{ optionId: 'again', title: 'Again' }]),
+      }),
+      node('info', 'action', 'action.send_message', { text: 'Here you go' }),
+    ], [
+      edge('t', 'trigger', 'menu'),
+      edge('mi', 'menu', 'info', 'again'),
+      edge('im', 'info', 'menu'), // loops back to the pausing menu — allowed
+    ], { requireTrigger: true })
+    expect(looped.filter((e) => e.includes('Cycle detected'))).toEqual([])
+
+    // Illegal: two send_message nodes looping with no pause between them.
+    const spun = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('a', 'action', 'action.send_message', { text: 'a' }),
+      node('b', 'action', 'action.send_message', { text: 'b' }),
+    ], [edge('t', 'trigger', 'a'), edge('ab', 'a', 'b'), edge('ba', 'b', 'a')], { requireTrigger: true })
+    expect(spun.join('\n')).toMatch(/Cycle detected/)
+  })
 })

@@ -22,6 +22,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@docmee/agents": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

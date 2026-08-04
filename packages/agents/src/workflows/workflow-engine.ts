@@ -26,6 +26,75 @@ export interface WorkflowCaptureState {
   status: 'pending' | 'captured' | 'error'
 }
 
+// Interactive menu (BotPenguin-parity): a re-entrant node that sends a tappable
+// WhatsApp buttons/list message, pauses for the patient's choice, then routes
+// out of a per-option handle on resume. Mirrors the ask_capture pause/resume
+// precedent above, but with condition-style multi-handle routing.
+export const WORKFLOW_MENU_CONTEXT_KEY = '__workflowMenu'
+
+export interface WorkflowMenuState {
+  nodeId: string
+  status: 'pending'
+}
+
+/** One tappable option; `optionId` is both the WhatsApp interactive reply id and
+ *  the canvas output handle the branch wires from. */
+export interface WorkflowMenuOption {
+  optionId: string
+  title: string
+  description?: string
+}
+
+/** Reserved output handles every menu exposes in addition to its options:
+ *  footer "0" restarts (→ main menu), "1" hands off to live chat, and any
+ *  unmatched reply falls through `default` (re-show the menu). */
+export const MENU_RESERVED_HANDLES = ['restart', 'livechat', 'default'] as const
+
+/** Parse a menu node's `config.options` (stored as a JSON string, since node
+ *  config values are strings). Returns [] on absent/malformed input. */
+export function parseMenuOptions(config: Record<string, unknown> | undefined): WorkflowMenuOption[] {
+  const raw = config?.['options']
+  if (Array.isArray(raw)) return raw.filter(isMenuOption)
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(isMenuOption) : []
+  } catch {
+    return []
+  }
+}
+
+function isMenuOption(value: unknown): value is WorkflowMenuOption {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as WorkflowMenuOption).optionId === 'string' &&
+    typeof (value as WorkflowMenuOption).title === 'string'
+  )
+}
+
+/**
+ * Resolve a menu reply to an output handle. Precedence: reserved footer keys
+ * (`0`→restart, `1`→livechat) → exact interactive reply id → 1-based numeric
+ * index → case-insensitive title match → `default`. Pure, so the worker and
+ * unit tests share it.
+ */
+export function resolveMenuHandle(
+  options: WorkflowMenuOption[],
+  replyId: string | undefined,
+  text: string | undefined,
+): string {
+  const trimmed = (text ?? '').trim()
+  if (trimmed === '0') return 'restart'
+  if (trimmed === '1') return 'livechat'
+  if (replyId && options.some((o) => o.optionId === replyId)) return replyId
+  const index = Number(trimmed)
+  if (Number.isInteger(index) && index >= 1 && index <= options.length) return options[index - 1]!.optionId
+  const byTitle = options.find((o) => o.title.trim().toLowerCase() === trimmed.toLowerCase())
+  if (byTitle) return byTitle.optionId
+  return 'default'
+}
+
 export interface WorkflowExecutors {
   sendMessage(text: string, ctx: WorkflowContext): Promise<unknown> | unknown
   sendTemplate(category: string, ctx: WorkflowContext): Promise<unknown> | unknown
@@ -40,6 +109,13 @@ export interface WorkflowExecutors {
   askAndCapture?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   extractBookingDetails?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   classifyIntentConfidence?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<'high' | 'low' | 'error'> | 'high' | 'low' | 'error'
+  /** Send the interactive menu and pause for the patient's choice. Returns true
+   *  when the run was paused (a pending resume was persisted), false when it
+   *  could not pause (e.g. no conversation) and the engine should route `default`. */
+  sendInteractiveMenu?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<boolean> | boolean
+  /** On resume, resolve the patient's reply to one of the menu's output handles
+   *  (an optionId, or a reserved `restart`/`livechat`/`default`). */
+  matchMenuReply?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<string> | string
   /** Persist the context and pause until the conversation receives another reply. */
   waitForReply?: (node: WorkflowNode, nextNodeId: string, ctx: WorkflowContext) => Promise<boolean> | boolean
   /** Pause and resume the run at `nodeId` after `ms` (delay node). */
@@ -113,6 +189,37 @@ export async function runWorkflow(
           trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
           return trace
         }
+        break
+      }
+      case 'action.interactive_menu': {
+        // Re-entrant: first arrival sends the menu and pauses; the resume pass
+        // (worker restored the pending menu state and re-entered here) routes
+        // out of the per-option handle matched from the patient's reply.
+        const menu = ctx[WORKFLOW_MENU_CONTEXT_KEY] as WorkflowMenuState | undefined
+        if (menu && menu.nodeId === node.id && menu.status === 'pending') {
+          handle = exec.matchMenuReply ? await exec.matchMenuReply(node, ctx) : 'default'
+          const field = String(node.config?.['field'] ?? '')
+          if (field) {
+            const options = parseMenuOptions(node.config)
+            const selected = options.find((o) => o.optionId === handle)
+            ctx[field] = selected?.title ?? handle
+          }
+          delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
+          break
+        }
+        if (menu && menu.nodeId === node.id && menu.status === 'pending') {
+          handle = exec.matchMenuReply ? await exec.matchMenuReply(node, ctx) : 'default'
+          delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
+          break
+        }
+        const paused = exec.sendInteractiveMenu ? await exec.sendInteractiveMenu(node, ctx) : false
+        if (paused) {
+          trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+          return trace
+        }
+        // Could not pause (e.g. no conversation attached) — fall through the
+        // default handle rather than dead-end.
+        handle = 'default'
         break
       }
       case 'action.send_message':

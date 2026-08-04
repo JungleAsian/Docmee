@@ -1,4 +1,5 @@
 import type { WorkflowEdge, WorkflowNode } from '@docmee/db'
+import { parseMenuOptions, MENU_RESERVED_HANDLES } from './workflow-engine.js'
 
 const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['trigger.message_keyword', 'trigger'],
@@ -14,6 +15,7 @@ const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['action.ai_draft', 'action'],
   ['action.approval', 'action'],
   ['action.ask_capture', 'action'],
+  ['action.interactive_menu', 'action'],
   ['action.extract_booking_details', 'action'],
   ['action.check_availability', 'action'],
   ['action.offer_slots', 'action'],
@@ -75,7 +77,13 @@ export function validateWorkflowDefinition(
     if (!requireTrigger) continue
     const next = outgoing.get(node.id) ?? []
     if (node.type === 'action.end' && next.length > 0) errors.push(`End node ${node.id} cannot have outgoing edges`)
-    if (node.type !== 'action.end' && node.type !== 'logic.condition' && node.type !== 'logic.ai_classify_intent' && next.length !== 1) {
+    if (
+      node.type !== 'action.end' &&
+      node.type !== 'logic.condition' &&
+      node.type !== 'logic.ai_classify_intent' &&
+      node.type !== 'action.interactive_menu' &&
+      next.length !== 1
+    ) {
       errors.push(`Node ${node.id} must have exactly one successor`)
     }
     if (node.type === 'logic.condition') {
@@ -96,6 +104,34 @@ export function validateWorkflowDefinition(
       }
       if (handles.size !== next.length) errors.push(`Intent classifier ${node.id} has an unlabeled or ambiguous branch`)
     }
+    if (node.type === 'action.interactive_menu') {
+      const options = parseMenuOptions(node.config)
+      const variant = String(node.config?.['variant'] ?? 'button')
+      const limit = variant === 'list' ? 10 : 3
+      if (options.length === 0) {
+        errors.push(`Interactive menu ${node.id} requires at least one option`)
+      } else if (options.length > limit) {
+        errors.push(`Interactive menu ${node.id} has too many options for variant "${variant}" (max ${limit})`)
+      }
+      const seen = new Set<string>()
+      for (const opt of options) {
+        if (seen.has(opt.optionId)) errors.push(`Interactive menu ${node.id} has a duplicate option "${opt.optionId}"`)
+        seen.add(opt.optionId)
+        if (opt.title.length > 24) errors.push(`Interactive menu ${node.id} option "${opt.optionId}" title exceeds 24 chars`)
+      }
+      // Every option handle needs an edge; reserved handles are optional.
+      const validHandles = new Set<string>([...seen, ...MENU_RESERVED_HANDLES])
+      const wired = new Set<string>()
+      for (const edge of next) {
+        const h = edge.sourceHandle ?? ''
+        if (!validHandles.has(h)) errors.push(`Interactive menu edge ${edge.id} uses an unknown handle "${h}"`)
+        if (wired.has(h)) errors.push(`Interactive menu ${node.id} has an ambiguous "${h}" branch`)
+        wired.add(h)
+      }
+      for (const opt of seen) {
+        if (!wired.has(opt)) errors.push(`Interactive menu ${node.id} option "${opt}" has no successor`)
+      }
+    }
     if (node.type === 'logic.delay') {
       const amount = Number(node.config?.['amount'])
       if (!Number.isFinite(amount) || amount <= 0) errors.push(`Delay node ${node.id} requires a positive amount`)
@@ -108,20 +144,48 @@ export function validateWorkflowDefinition(
 
   if (triggers.length !== 1) return errors
 
+  // Cycle detection is barrier-aware. Nodes that PAUSE the run — interactive
+  // menus and wait_for_reply (await the patient's next message), delay, and
+  // approval — end a synchronous segment: control returns to the queue and the
+  // run resumes on a later turn. So a loop is only illegal when it is fully
+  // synchronous (spins within one turn); conversational loops that pass through
+  // a pause node (footer "0" → main menu, an unrecognized reply re-showing a
+  // menu) are legitimate and runtime-safe (the engine's visited guard + MAX_STEPS
+  // still bound a single turn). Each pause node seeds a fresh DFS segment.
+  const PAUSE_NODE_TYPES = new Set(['action.interactive_menu', 'logic.wait_for_reply', 'logic.delay', 'action.approval'])
+  const typeById = new Map(nodes.map((node) => [node.id, node.type]))
   const reachable = new Set<string>()
-  const visiting = new Set<string>()
-  const visit = (id: string): void => {
-    if (visiting.has(id)) {
-      errors.push(`Cycle detected at node: ${id}`)
-      return
-    }
-    if (reachable.has(id)) return
-    visiting.add(id)
+  const color = new Map<string, 'gray' | 'black'>()
+  const roots: string[] = [triggers[0]!.id]
+  const seenRoots = new Set<string>(roots)
+
+  const dfs = (id: string): void => {
+    color.set(id, 'gray')
     reachable.add(id)
-    for (const edge of outgoing.get(id) ?? []) visit(edge.target)
-    visiting.delete(id)
+    for (const edge of outgoing.get(id) ?? []) {
+      const target = edge.target
+      reachable.add(target)
+      if (PAUSE_NODE_TYPES.has(typeById.get(target) ?? '')) {
+        // Barrier: the current synchronous segment ends here; explore the pause
+        // node's own outgoing edges as a separate segment.
+        if (!seenRoots.has(target)) {
+          seenRoots.add(target)
+          roots.push(target)
+        }
+        continue
+      }
+      const c = color.get(target)
+      if (c === 'gray') errors.push(`Cycle detected at node: ${target}`)
+      else if (c !== 'black') dfs(target)
+    }
+    color.set(id, 'black')
   }
-  visit(triggers[0]!.id)
+
+  while (roots.length > 0) {
+    const root = roots.shift()!
+    if (color.get(root) === 'black') continue
+    dfs(root)
+  }
 
   for (const node of nodes) {
     if (!reachable.has(node.id)) errors.push(`Node ${node.id} is unreachable from the trigger`)

@@ -363,6 +363,15 @@ export async function processConversationJob(job: Job): Promise<void> {
             channel,
             message: msg.content ?? '',
             waMessageId: msg.waMessageId,
+            interactiveReplyId: msg.interactiveReplyId,
+          })
+        : 0
+        ? await resumePendingWorkflowRuns(sql, clinicId, conversationId, {
+            patientId,
+            conversationId,
+            channel,
+            message: msg.content ?? '',
+            waMessageId: msg.waMessageId,
           })
         : 0
       // A pending Ask & Capture owns this turn. Its workflow runner validates the

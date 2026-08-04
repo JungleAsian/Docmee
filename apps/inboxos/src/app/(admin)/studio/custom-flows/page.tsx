@@ -135,8 +135,15 @@ function editableStepsToCustom(steps: EditableStep[]): CustomFlowStep[] {
     // options/storeAs/retryMessage/maxRetries/onFailNext) have no Form-view
     // inputs — carry them through from the original step so a save made from
     // this view doesn't silently drop them. `base`'s fields win on overlap.
-    const { id: _id, messages: _messages, collect: _collect, next: _next, action: _action, branches: _branches, x: _x, y: _y, ...extra } =
-      (s.raw ?? {}) as Partial<CustomFlowStep>
+    const extra = { ...(s.raw ?? {}) } as Partial<CustomFlowStep>
+    delete extra.id
+    delete extra.messages
+    delete extra.collect
+    delete extra.next
+    delete extra.action
+    delete extra.branches
+    delete extra.x
+    delete extra.y
     return { ...extra, ...base } as CustomFlowStep
   })
 }

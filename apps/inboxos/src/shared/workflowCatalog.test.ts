@@ -30,4 +30,52 @@ describe('workflow trigger catalog', () => {
       }
     }
   })
+  it('configures the guided WhatsApp booking template with structured menu inputs', () => {
+    const template = WORKFLOW_TEMPLATES.find((item) => item.nameKey === 'wf.tpl.guidedWhatsAppBookingName')
+    expect(template).toBeDefined()
+
+    const node = (id: string) => template?.nodes.find((item) => item.id === id)
+    expect(node('doctor_menu')?.config).toMatchObject({
+      menuType: 'doctor',
+      clinicIdField: 'clinic_id',
+      selectionField: 'doctor_id',
+      optionsField: 'doctor_options',
+    })
+    expect(node('service_menu')?.config).toMatchObject({
+      menuType: 'service',
+      clinicIdField: 'clinic_id',
+      doctorIdField: 'doctor_id',
+      selectionField: 'service_id',
+      optionsField: 'service_options',
+    })
+    expect(node('slots_1')?.config).toMatchObject({
+      clinicIdField: 'clinic_id',
+      doctorIdField: 'doctor_id',
+      serviceIdField: 'service_id',
+      timezoneField: 'clinic_timezone',
+      slotsField: 'available_slots',
+    })
+    expect(node('date_menu')?.config).toMatchObject({
+      menuType: 'date',
+      slotsField: 'available_slots',
+      selectionField: 'selected_date',
+    })
+    expect(node('time_menu')?.config).toMatchObject({
+      menuType: 'time_slot',
+      slotsField: 'available_slots',
+      dateField: 'selected_date',
+      selectionField: 'selected_booking_key',
+    })
+    expect(node('revalidate_1')?.config).toMatchObject({
+      bookingKeyField: 'selected_booking_key',
+      slotsField: 'available_slots',
+    })
+    expect(node('book_1')?.config).toMatchObject({
+      doctorIdField: 'doctor_id',
+      serviceIdField: 'service_id',
+      dateField: 'preferred_date',
+      timeField: 'preferred_time',
+      bookingKeyField: 'selected_booking_key',
+    })
+  })
 })

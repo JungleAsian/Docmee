@@ -155,15 +155,6 @@ function buildCategories(quick: boolean): Category[] {
           status: envPresent(name) ? 'pass' as const : 'warning' as const,
           message: envPresent(name) ? `${name} is set.` : `${name} is missing.`
         }))
-      },
-      {
-        id: 'vps',
-        label: 'Hostinger VPS',
-        checks: ['VPS_HOST', 'VPS_USER', 'VPS_SSH_KEY_PATH', 'VPS_DEPLOY_PATH', 'VPS_DOMAIN'].map((name) => ({
-          name,
-          status: envPresent(name) ? 'pass' as const : 'warning' as const,
-          message: envPresent(name) ? `${name} is set.` : `${name} is missing.`
-        }))
       }
     )
   }

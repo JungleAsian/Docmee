@@ -1,42 +1,23 @@
 # Docmee Operations Runbook
 
-Operational reference for the Docmee production stack (Hostinger VPS, PM2 + Caddy).
-Pairs with `tools/deploy/ecosystem.config.cjs` and the `pnpm tool deploy …` commands.
+Production runs on AWS EC2 (see `DOCMEE CONNECTION.md` for the verified host,
+instance id, and SSH/SSM access details — reverify before use, these are
+time-sensitive). The legacy Hostinger VPS + GitHub Actions deploy workflow
+this runbook used to describe has been retired.
 
-## Services
+## What's verified so far
 
-| PM2 process        | Port | Source                         |
-| ------------------ | ---- | ------------------------------ |
-| `docmee-api`       | 3001 | `apps/api/dist/index.js`       |
-| `docmee-workers`   | —    | `apps/workers/dist/index.js`   |
-| `docmee-inboxos`   | 3000 | `apps/inboxos/server.js`       |
-| `docmee-licensekit`| 3002 | `apps/licensekit/dist/index.js`|
+- Instance is reached via AWS SSM (EC2 Instance Connect / direct SSH may be
+  blocked by the security group depending on your current egress IP).
+- The app runs from a git checkout at `/var/www/docmee`.
+- A systemd service (`docmee.service`) wraps `pm2-runtime start
+  ecosystem.config.cjs` and restarts on failure.
+- API health: `curl -fsS http://127.0.0.1:3001/health` (run on the instance,
+  or via SSM Run Command).
 
-Caddy terminates TLS and reverse-proxies `:3000` (panel) and `:3001` (API).
-Postgres (Supabase) and Redis back the whole stack; both must be healthy before
-the API or workers will accept traffic.
+## Local dev infrastructure
 
-## Health checks
-
-```
-curl -fsS http://localhost:3001/health          # API liveness
-pnpm tool deploy health --target vps             # remote API health
-redis-cli ping                                   # Redis
-pg_isready -U postgres                            # Postgres
-```
-
-## Common commands
-
-```
-pnpm tool deploy status                  # pm2 status + redis-cli ping + disk/mem
-pnpm tool deploy logs                    # tail all pm2 logs (last 100 lines)
-pnpm tool deploy logs --service docmee-api
-pnpm tool deploy restart --service docmee-api
-pnpm tool deploy rollback                # revert to the previous commit + reload
-pnpm tool deploy migrate                 # run DB migrations on the VPS
-```
-
-Local dev infrastructure (Postgres + Redis via Docker):
+Postgres + Redis via Docker, for local development only:
 
 ```
 pnpm tool deploy local                   # docker compose up -d
@@ -45,18 +26,21 @@ docker compose up -d                     # equivalent, from the repo root
 
 ## Deploys
 
-1. Merge to `main` → the **Deploy to VPS** GitHub Action runs automatically
-   (`.github/workflows/deploy.yml`): `git pull` → `pnpm install` → `pnpm build`
-   → `pm2 reload ecosystem.config.cjs --update-env`.
-2. Manual deploy: `pnpm tool deploy vps` (prints the plan and posts a Discord
-   notice; confirm settings before running production steps).
-3. Verify with the health checks above, then watch `pnpm tool deploy logs`.
+There is no automated CI/CD path to the AWS instance today. Treat any
+production deploy as a manual, reviewed operation:
 
-### Rollback
+1. Confirm the currently deployed commit on the instance (`git log --oneline
+   -1` in `/var/www/docmee`) and compare against what you intend to ship.
+2. Get the reviewed code onto the instance (e.g. `git fetch` + checkout the
+   approved commit) via SSM Run Command.
+3. Rebuild (`pnpm install --frozen-lockfile && pnpm build`) and reload
+   (`pm2 reload ecosystem.config.cjs --update-env`, or restart the
+   `docmee.service` systemd unit).
+4. Verify the health endpoint and watch logs (`pm2 logs`, or
+   `journalctl -u docmee.service`) for new errors.
 
-```
-pnpm tool deploy rollback                # SSH checkout previous commit, rebuild, pm2 reload, health check
-```
+Fill in the exact commands here once the full process manager / build
+pipeline on the instance is confirmed end-to-end.
 
 ## Alerts
 
@@ -86,12 +70,15 @@ in the Discord critical channel ~7 days out (`META_TOKEN_EXPIRING`).
 1. Go to the Meta Developer Portal.
 2. Generate a new long-lived token.
 3. Update the clinic's token via IA Studio (clinic → channel settings).
-4. `pnpm tool deploy env` to sync `.env` to the VPS if a shared secret changed.
+4. Sync the updated secret to the instance's `.env.production` if a shared
+   secret changed.
 
 ## Incident checklist
 
-1. `pnpm tool deploy status` — are all four PM2 processes online?
-2. `pnpm tool deploy logs --service <name>` — find the failing process.
+1. Is the instance reachable and is `docmee.service` active? (`systemctl
+   status docmee.service` via SSM, or `pm2 status` on the box.)
+2. Check logs for the failing process (`pm2 logs`, or `journalctl -u
+   docmee.service`).
 3. Redis/Postgres reachable? (`redis-cli ping`, `pg_isready`).
-4. If a bad deploy: `pnpm tool deploy rollback`.
+4. If a bad deploy: check out the previous known-good commit, rebuild, reload.
 5. Post status to the Discord critical channel.

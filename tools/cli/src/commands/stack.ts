@@ -246,7 +246,7 @@ async function fetchAiNews(input: { provider: 'grok' | 'claude'; url: string; he
 }
 
 function newsPrompt(window: string) {
-  return `Find ${window} Docmee stack updates for Anthropic, OpenAI, DeepSeek, Deepgram, Resend, Supabase, Fastify, Next.js, TypeScript, BullMQ, Redis, Notion API, Hostinger. Return only JSON array with date, tool, category, headline, impact, severity, source.`
+  return `Find ${window} Docmee stack updates for Anthropic, OpenAI, DeepSeek, Deepgram, Resend, Supabase, Fastify, Next.js, TypeScript, BullMQ, Redis, Notion API, AWS. Return only JSON array with date, tool, category, headline, impact, severity, source.`
 }
 
 function saveStore(data: StackStore) {

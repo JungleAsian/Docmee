@@ -41,7 +41,7 @@ const DEFAULT_ALERT_CATEGORIES: AlertCategories = {
   cancellation: true,
   bookingRevision: true,
 }
-const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 5
+const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 30
 
 function readAlertCategories(user: ClinicUser): AlertCategories {
   return {

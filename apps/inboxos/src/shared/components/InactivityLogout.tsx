@@ -4,8 +4,10 @@ import { useEffect, useRef } from 'react'
 import { useLogout } from '../hooks/useLogout'
 import { useAuthStore } from '../store/auth'
 
-const ACTIVITY_EVENTS = ['pointerdown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'visibilitychange'] as const
-const DEFAULT_TIMEOUT_MINUTES = 1
+// 'click' and 'wheel' matter for the workflow canvas: drag/wiring clicks and
+// trackpad wheel pan/zoom are real activity that pointerdown/mousemove may miss.
+const ACTIVITY_EVENTS = ['pointerdown', 'click', 'mousemove', 'wheel', 'keydown', 'scroll', 'touchstart', 'visibilitychange'] as const
+const DEFAULT_TIMEOUT_MINUTES = 30
 
 function normalizedTimeoutMs(value: number | undefined): number {
   const minutes = Number.isFinite(value) && value ? value : DEFAULT_TIMEOUT_MINUTES

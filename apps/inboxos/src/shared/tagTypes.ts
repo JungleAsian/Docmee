@@ -19,6 +19,7 @@ export const TAG_TYPES: TagType[] = [
   // Safety / compliance flags raised automatically by the workers. Kept at the top
   // so the most consequential states are the first chips a secretary sees.
   { name: 'emergency', labelEs: 'Emergencia', labelEn: 'Emergency', color: '#dc2626' },
+  { name: 'needs_human', labelEs: 'Necesita atención humana', labelEn: 'Needs human attention', color: '#dc2626' },
   { name: 'medical_safety', labelEs: 'Seguridad médica', labelEn: 'Medical safety', color: '#dc2626' },
   { name: 'patient_upset', labelEs: 'Paciente molesto', labelEn: 'Upset patient', color: '#ea580c' },
   { name: 'opted_out', labelEs: 'Dado de baja', labelEn: 'Opted out', color: '#6b7280' },

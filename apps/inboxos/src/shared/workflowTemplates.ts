@@ -120,7 +120,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         ]),
       }, 280, 400),
       n('handoff_notify', 'action', 'action.notify_secretary', {}, 520, 80),
-      n('handoff_tag', 'action', 'action.add_tag', { tag: 'needs-human' }, 760, 80),
+      n('handoff_tag', 'action', 'action.add_tag', { tag: 'needs_human' }, 760, 80),
       n('handoff_msg', 'action', 'action.send_message', { text: 'Connecting you with our secretary now. Someone will be with you shortly.' }, 1000, 80),
       n('end_handoff', 'action', 'action.end', {}, 1240, 80),
       n('inquiry_draft', 'action', 'action.ai_draft', {

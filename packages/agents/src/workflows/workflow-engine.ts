@@ -30,7 +30,12 @@ export interface WorkflowCaptureState {
 // WhatsApp buttons/list message, pauses for the patient's choice, then routes
 // out of a per-option handle on resume. Mirrors the ask_capture pause/resume
 // precedent above, but with condition-style multi-handle routing.
-export const WORKFLOW_MENU_CONTEXT_KEY = '__workflowMenu'
+//
+// The context key MUST be camelCase-stable: conversation metadata round-trips
+// through postgres.js's `transform: postgres.camel`, which rewrites JSON keys
+// (a leading-double-underscore key like `__workflowMenu` comes back as
+// `_WorkflowMenu` and the resumed run would lose its pending menu state).
+export const WORKFLOW_MENU_CONTEXT_KEY = 'workflowMenu'
 
 export interface WorkflowMenuState {
   nodeId: string

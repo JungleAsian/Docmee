@@ -296,27 +296,27 @@ describe('runWorkflow — interactive_menu node', () => {
 
   it('resumes and routes out of the matched option handle', async () => {
     const exec = makeExec({ matchMenuReply: vi.fn(async () => 'book_appt') })
-    const ctx = { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'Book an appointment' }
+    const ctx = { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'Book an appointment' }
     await runWorkflow(wf, ctx, exec, { startNodeId: 'menu' })
     expect(exec.sendMessage).toHaveBeenCalledWith('Booking...', expect.any(Object))
     // menu state was cleared after routing
-    expect((ctx as Record<string, unknown>)['__workflowMenu']).toBeUndefined()
+    expect((ctx as Record<string, unknown>)['workflowMenu']).toBeUndefined()
   })
 
   it('routes an unrecognized reply out of the default handle', async () => {
     const exec = makeExec({ matchMenuReply: vi.fn(async () => 'default') })
-    const ctx = { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'gibberish' }
+    const ctx = { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'gibberish' }
     await runWorkflow(wf, ctx, exec, { startNodeId: 'menu' })
     expect(exec.sendMessage).toHaveBeenCalledWith('Sorry, please choose again', expect.any(Object))
   })
 
   it('routes footer restart / livechat handles', async () => {
     const restart = makeExec({ matchMenuReply: vi.fn(async () => 'restart') })
-    await runWorkflow(wf, { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: '0' }, restart, { startNodeId: 'menu' })
+    await runWorkflow(wf, { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: '0' }, restart, { startNodeId: 'menu' })
     expect(restart.sendMessage).toHaveBeenCalledWith('Back to menu', expect.any(Object))
 
     const human = makeExec({ matchMenuReply: vi.fn(async () => 'livechat') })
-    await runWorkflow(wf, { __workflowMenu: { nodeId: 'menu', status: 'pending' }, message: '1' }, human, { startNodeId: 'menu' })
+    await runWorkflow(wf, { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: '1' }, human, { startNodeId: 'menu' })
     expect(human.notifySecretary).toHaveBeenCalled()
   })
 
@@ -324,6 +324,15 @@ describe('runWorkflow — interactive_menu node', () => {
     const exec = makeExec()
     await runWorkflow(wf, {}, exec)
     expect(exec.sendMessage).toHaveBeenCalledWith('Sorry, please choose again', expect.any(Object))
+  })
+
+  it('menu context key survives the postgres camel-case JSON transform', async () => {
+    // Regression: conversation metadata round-trips through postgres.js
+    // `transform: postgres.camel`, which rewrites JSON keys. A leading-
+    // underscore key (`__workflowMenu` → `_WorkflowMenu`) lost the pending
+    // menu state on resume and the menu was re-sent instead of routing.
+    const { WORKFLOW_MENU_CONTEXT_KEY } = await import('../workflows/workflow-engine.js')
+    expect(WORKFLOW_MENU_CONTEXT_KEY).toMatch(/^[a-z][a-zA-Z0-9]*$/)
   })
 })
 

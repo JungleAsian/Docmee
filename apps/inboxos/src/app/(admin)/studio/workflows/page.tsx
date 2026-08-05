@@ -4,7 +4,7 @@
 // graph (trigger → logic → action) on the visual canvas; active workflows run via
 // the workflow-runner worker when their trigger fires. List / create / edit /
 // activate / delete.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
@@ -14,6 +14,8 @@ import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from '@/shared/workflowTemplates'
+import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
+import { layoutWorkflow } from '@/shared/workflowLayout'
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus } from '@/shared/types'
 
 const btn = 'rounded-md px-3 py-1.5 text-sm font-medium'
@@ -203,11 +205,72 @@ function WorkflowEditor({
   const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
   const [status, setStatus] = useState<WorkflowStatus>(workflow?.status ?? 'draft')
-  const [nodes, setNodes] = useState<WorkflowNode[]>(seed.nodes)
-  const [edges, setEdges] = useState<WorkflowEdge[]>(seed.edges)
   // Dirty guard (R17): unsaved edits survive neither an accidental close nor a
   // full page unload.
   const [dirty, setDirty] = useState(false)
+  // Canvas state lives in an undo history; every canvas mutation flows through
+  // the single onChange below. Keystroke bursts within 600 ms coalesce into one
+  // step so typing a sentence is one undo, not thirty.
+  const [hist, setHist] = useState(() => createHistory({ nodes: seed.nodes, edges: seed.edges }))
+  const lastPushAtRef = useRef(0)
+  const nodes = hist.present.nodes
+  const edges = hist.present.edges
+
+  const applyCanvasChange = useCallback((next: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => {
+    const now = Date.now()
+    setHist((h) => (now - lastPushAtRef.current > 600 ? pushHistory(h, next) : replacePresent(h, next)))
+    lastPushAtRef.current = now
+    setDirty(true)
+  }, [])
+
+  const undo = useCallback(() => {
+    let changed = false
+    setHist((h) => {
+      const next = undoHistory(h)
+      changed = next !== h
+      return next
+    })
+    if (changed) setDirty(true)
+    lastPushAtRef.current = 0
+  }, [])
+
+  const redo = useCallback(() => {
+    let changed = false
+    setHist((h) => {
+      const next = redoHistory(h)
+      changed = next !== h
+      return next
+    })
+    if (changed) setDirty(true)
+    lastPushAtRef.current = 0
+  }, [])
+
+  const autoLayout = useCallback(() => {
+    setHist((h) => pushHistory(h, { nodes: layoutWorkflow(h.present.nodes, h.present.edges), edges: h.present.edges }))
+    lastPushAtRef.current = Date.now()
+    setDirty(true)
+  }, [])
+
+  // Ctrl/Cmd+Z, Ctrl+Shift+Z, Ctrl+Y — skipped while typing in a form field so
+  // native text undo keeps working there.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const typing =
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)
+      if (typing || !(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [undo, redo])
 
   useEffect(() => {
     if (!dirty) return
@@ -262,6 +325,32 @@ function WorkflowEditor({
           />
           {t('wf.activeToggle')}
         </label>
+        <button
+          type="button"
+          onClick={undo}
+          disabled={!canUndo(hist)}
+          title="Ctrl+Z"
+          className={`${btn} border border-gray-300 text-gray-700 disabled:opacity-40 dark:text-gray-200`}
+        >
+          ↶ {t('wf.undo')}
+        </button>
+        <button
+          type="button"
+          onClick={redo}
+          disabled={!canRedo(hist)}
+          title="Ctrl+Shift+Z"
+          className={`${btn} border border-gray-300 text-gray-700 disabled:opacity-40 dark:text-gray-200`}
+        >
+          ↷ {t('wf.redo')}
+        </button>
+        <button
+          type="button"
+          onClick={autoLayout}
+          disabled={nodes.length === 0}
+          className={`${btn} border border-gray-300 text-gray-700 disabled:opacity-40 dark:text-gray-200`}
+        >
+          ▦ {t('wf.autoLayout')}
+        </button>
         <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
         </button>
@@ -271,11 +360,7 @@ function WorkflowEditor({
         <WorkflowCanvas
           nodes={nodes}
           edges={edges}
-          onChange={(next) => {
-            setNodes(next.nodes)
-            setEdges(next.edges)
-            setDirty(true)
-          }}
+          onChange={applyCanvasChange}
         />
       </div>
     </>

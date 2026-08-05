@@ -326,3 +326,23 @@ describe('runWorkflow — interactive_menu node', () => {
     expect(exec.sendMessage).toHaveBeenCalledWith('Sorry, please choose again', expect.any(Object))
   })
 })
+
+describe('runWorkflow — action.ai_draft node', () => {
+  it('passes the full node (not just its prompt) so executors can read queryLimit/responseBuffer', async () => {
+    const aiDraft = vi.fn()
+    const exec = makeExec({ aiDraft })
+    const wf = {
+      nodes: [
+        node('t', 'trigger', 'trigger.message_keyword'),
+        node('draft', 'action', 'action.ai_draft', { prompt: 'answer politely', queryLimit: '300', responseBuffer: '50' }),
+      ],
+      edges: [edge('t', 'draft')],
+    }
+    await runWorkflow(wf, {}, exec)
+    expect(aiDraft).toHaveBeenCalledTimes(1)
+    expect(aiDraft.mock.calls[0]?.[0]).toMatchObject({
+      id: 'draft',
+      config: { prompt: 'answer politely', queryLimit: '300', responseBuffer: '50' },
+    })
+  })
+})

@@ -597,15 +597,19 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       await addConversationTag(tag, ctx)
     },
 
-    async aiDraft(prompt, ctx) {
+    async aiDraft(node, ctx) {
+      const prompt = String(node.config?.['prompt'] ?? '')
       const clinic = await createClinicsRepository(sql).findById(clinicId)
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
       const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
       const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
-      const content = await chatComplete({ provider, model: ai.model?.trim() || defaultChatModel(provider), baseURL: ai.baseURL?.trim() || undefined, apiKey: resolveClinicAiKey(clinic.settings, provider), history: [], maxTokens: 500,
+      const queryLimit = boundedInteger(node.config?.['queryLimit'], 500, 50, 4_000)
+      const responseBuffer = boundedInteger(node.config?.['responseBuffer'], 0, 0, queryLimit - 1)
+      const maxTokens = Math.max(1, queryLimit - responseBuffer)
+      const content = await chatComplete({ provider, model: ai.model?.trim() || defaultChatModel(provider), baseURL: ai.baseURL?.trim() || undefined, apiKey: resolveClinicAiKey(clinic.settings, provider), history: [], maxTokens,
         system: 'Write a staff-reviewable patient reply draft. Ground it only in the explicit workflow instruction and patient context. Never diagnose, prescribe, or claim unknown clinic facts. This is a draft only and must never be sent automatically.',
         message: `Workflow instruction: ${prompt || '(none)'}\nPatient context: ${String(ctx.message ?? ctx.transcript ?? '(none)')}` })
-      await createWorkflowApprovalsRepository(sql).createDraft({ clinicId, workflowId: data.workflowId, nodeId: 'action.ai_draft', runKey: `${workflowRunId}:ai_draft:${prompt}`, conversationId: ctx.conversationId, patientId: ctx.patientId, prompt, content: content.trim() })
+      await createWorkflowApprovalsRepository(sql).createDraft({ clinicId, workflowId: data.workflowId, nodeId: node.id, runKey: `${workflowRunId}:${node.id}:ai_draft`, conversationId: ctx.conversationId, patientId: ctx.patientId, prompt, content: content.trim() })
       await notify('A workflow generated an AI draft for staff review. It was not sent.', ctx)
     },
 

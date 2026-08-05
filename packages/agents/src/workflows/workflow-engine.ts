@@ -100,7 +100,7 @@ export interface WorkflowExecutors {
   sendTemplate(category: string, ctx: WorkflowContext): Promise<unknown> | unknown
   notifySecretary(ctx: WorkflowContext): Promise<unknown> | unknown
   addTag(tag: string, ctx: WorkflowContext): Promise<unknown> | unknown
-  aiDraft(prompt: string, ctx: WorkflowContext): Promise<unknown> | unknown
+  aiDraft(node: WorkflowNode, ctx: WorkflowContext): Promise<unknown> | unknown
   requestApproval(node: WorkflowNode, nextNodeId: string | undefined, ctx: WorkflowContext): Promise<unknown> | unknown
   transcribeBookingVoice?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   checkAvailability?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
@@ -235,7 +235,7 @@ export async function runWorkflow(
         await sideEffect(node, () => Promise.resolve(exec.addTag(String(cfg['tag'] ?? ''), ctx)))
         break
       case 'action.ai_draft':
-        await sideEffect(node, () => Promise.resolve(exec.aiDraft(String(cfg['prompt'] ?? ''), ctx)))
+        await sideEffect(node, () => Promise.resolve(exec.aiDraft(node, ctx)))
         break
       case 'action.approval':
         await sideEffect(node, () => Promise.resolve(exec.requestApproval(node, nextNodeId(edges, node.id), ctx)))

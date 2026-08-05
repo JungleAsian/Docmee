@@ -2604,3 +2604,65 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
     max-width: 100%;
   }
 }
+
+/* ---- React Flow (workflow canvas) theming ----------------------------------
+   P0: the default xyflow chrome (controls, minimap, edge labels) rendered as
+   unstyled white boxes on the dark canvas. Theme both light and dark. */
+.react-flow__controls {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+}
+.react-flow__controls button {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  color: #374151;
+}
+.react-flow__controls button:hover {
+  background: #f3f4f6;
+}
+.react-flow__controls button svg {
+  fill: currentColor;
+}
+.react-flow__minimap {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+.react-flow__edge-text {
+  fill: #374151;
+  font-size: 10px;
+  font-weight: 600;
+}
+.react-flow__edge-textbg {
+  fill: #ffffff;
+}
+.dark .react-flow__controls button {
+  background: #111827;
+  border-bottom-color: #374151;
+  color: #d1d5db;
+}
+.dark .react-flow__controls button:hover {
+  background: #1f2937;
+}
+.dark .react-flow__minimap {
+  background: #0b1220;
+  border-color: #1f2937;
+}
+.dark .react-flow__minimap-mask {
+  fill: rgb(3 7 18 / 0.6);
+}
+.dark .react-flow__minimap-node {
+  fill: #1f2937;
+}
+.dark .react-flow__edge-text {
+  fill: #e5e7eb;
+}
+.dark .react-flow__edge-textbg {
+  fill: #111827;
+}
+.dark .react-flow__attribution {
+  background: transparent;
+  color: #4b5563;
+}

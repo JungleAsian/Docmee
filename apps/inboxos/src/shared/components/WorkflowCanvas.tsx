@@ -1,8 +1,12 @@
 'use client'
 
-// Rev 4 — N8N-style automation canvas with BotPenguin-style self-documenting cards.
-// Each node renders key config fields on its face; interactive_menu nodes expose
-// per-option output handles and a side-panel options editor.
+// Rev 5 — BotPenguin-aligned automation canvas.
+// - Self-documenting node cards: kind badge, live config preview, per-branch
+//   output chips whose handles sit on the chip row (true/false, high/low/error,
+//   interactive-menu options).
+// - Searchable palette with one-line descriptions; dropping a loose connection
+//   on the pane opens the same palette and auto-wires the picked node.
+// - Branch-colored edges with translated labels; hover toolbar on nodes.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow as ReactFlowBase,
@@ -11,6 +15,9 @@ import {
   MiniMap as MiniMapBase,
   Handle as HandleBase,
   Position,
+  MarkerType,
+  ReactFlowProvider,
+  useReactFlow,
   useNodesState,
   useEdgesState,
   type Node,
@@ -18,11 +25,12 @@ import {
   type Connection,
   type NodeProps,
   type NodeChange,
+  type FinalConnectionState,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
 import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
-import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, type NodeTypeDef } from '../workflowNodes'
+import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, type NodeTypeDef } from '../workflowNodes'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -30,7 +38,13 @@ const Controls = ControlsBase
 const MiniMap = MiniMapBase
 const Handle = HandleBase
 
-type WfNodeData = { wf: WfNode; label: string }
+type WfNodeData = {
+  wf: WfNode
+  label: string
+  onConfigure: (id: string) => void
+  onDuplicate: (id: string) => void
+  onDelete: (id: string) => void
+}
 
 interface MenuOption {
   optionId: string
@@ -55,20 +69,60 @@ const KIND_ICON: Record<string, string> = {
   action: '⚡',
 }
 
-function nodeHandles(wf: WfNode): string[] {
+/** Branch output rows per node type. `key` is the sourceHandle id. */
+function branchRows(wf: WfNode): { key: string; tone: string }[] {
   const cfg = wf.config ?? {}
   switch (wf.type) {
     case 'logic.condition':
-      return ['true', 'false']
+      return [
+        { key: 'true', tone: 'emerald' },
+        { key: 'false', tone: 'red' },
+      ]
     case 'logic.ai_classify_intent':
-      return ['high', 'low', 'error']
+      return [
+        { key: 'high', tone: 'emerald' },
+        { key: 'low', tone: 'amber' },
+        { key: 'error', tone: 'red' },
+      ]
     case 'action.interactive_menu': {
-      const opts = parseMenuOptionsSafe(cfg.options)
-      return [...opts.map((o) => o.optionId), 'restart', 'livechat', 'default']
+      const opts = parseMenuOptionsSafe(cfg.options).map((o) => ({ key: o.optionId, tone: 'teal', label: o.title }))
+      return [
+        ...opts,
+        { key: 'restart', tone: 'slate' },
+        { key: 'livechat', tone: 'sky' },
+        { key: 'default', tone: 'slate' },
+      ]
     }
     default:
       return []
   }
+}
+
+/** Edge stroke per branch tone (sequential default = teal-gray). */
+function edgeColor(sourceHandle: string | null | undefined): string {
+  switch (sourceHandle) {
+    case 'true':
+    case 'high':
+      return '#10b981'
+    case 'false':
+    case 'error':
+      return '#ef4444'
+    case 'low':
+      return '#f59e0b'
+    case 'livechat':
+      return '#0ea5e9'
+    default:
+      return '#94a3b8'
+  }
+}
+
+const TONE_CHIP: Record<string, string> = {
+  emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200',
+  red: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200',
+  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
+  teal: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-200',
+  sky: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200',
+  slate: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
 }
 
 function nodeFaceText(wf: WfNode): string | undefined {
@@ -85,7 +139,7 @@ function nodeFaceText(wf: WfNode): string | undefined {
     case 'logic.ai_classify_intent': {
       const ql = String(cfg.queryLimit ?? cfg.query_limit ?? '').trim()
       const rb = String(cfg.responseBuffer ?? cfg.response_buffer ?? '').trim()
-      return [ql, rb].filter(Boolean).join(' / ') || undefined
+      return [ql, rb].filter(Boolean).join(' ') || undefined
     }
     case 'trigger.message_keyword':
       return String(cfg.keywords ?? '').trim() || undefined
@@ -96,15 +150,47 @@ function nodeFaceText(wf: WfNode): string | undefined {
   }
 }
 
+function humanize(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase())
+}
+
+/** One branch row: chip label + its own source handle aligned to the row. */
+function BranchRow({
+  handleId,
+  text,
+  tone,
+}: {
+  handleId: string
+  text: string
+  tone: string
+}) {
+  return (
+    <div className="relative flex items-center justify-end py-0.5">
+      <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${TONE_CHIP[tone] ?? TONE_CHIP.slate}`}>{text}</span>
+      <Handle
+        id={handleId}
+        type="source"
+        position={Position.Right}
+        title={handleId}
+        className="!absolute !right-[-7px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 !bg-teal-500"
+        style={{ position: 'absolute' }}
+      />
+    </div>
+  )
+}
+
 function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
-  const { wf, label } = data
-  const handles = nodeHandles(wf)
+  const { wf, label, onConfigure, onDuplicate, onDelete } = data
   const face = nodeFaceText(wf)
-  const cfg = wf.config ?? {}
+  const rows = branchRows(wf)
+  const { t } = useI18n()
 
   return (
     <div
-      className={`w-52 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
+      className={`group w-52 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
         selected ? 'ring-2 ring-teal-300' : ''
       }`}
     >
@@ -112,10 +198,47 @@ function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
         <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-gray-400" />
       )}
 
-      {/* Header */}
-      <div className="mb-0.5 flex items-center gap-1">
-        <span className="text-[10px]">{KIND_ICON[wf.kind] ?? '•'}</span>
-        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{wf.kind}</span>
+      {/* Hover toolbar */}
+      <div className="nodrag absolute -top-3 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          title={t('common.edit')}
+          onClick={(e) => {
+            e.stopPropagation()
+            onConfigure(wf.id)
+          }}
+          className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+        >
+          ✎
+        </button>
+        <button
+          type="button"
+          title={t('wf.duplicateNode')}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDuplicate(wf.id)
+          }}
+          className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+        >
+          ⧉
+        </button>
+        <button
+          type="button"
+          title={t('common.delete')}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(wf.id)
+          }}
+          className="rounded border border-red-300 bg-white px-1.5 py-0.5 text-[10px] leading-none text-red-600 shadow-sm hover:bg-red-50 dark:border-red-800 dark:bg-gray-800 dark:text-red-300"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Header: kind badge + type label */}
+      <div className="mb-0.5 flex items-center gap-1.5">
+        <span className={`rounded px-1 py-0.5 text-[10px] leading-none ${NODE_KIND_BADGE[wf.kind]}`}>{KIND_ICON[wf.kind] ?? '•'}</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
       </div>
       <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{label}</p>
 
@@ -127,47 +250,30 @@ function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
         </>
       )}
 
-      {/* Interactive menu options preview */}
-      {wf.type === 'action.interactive_menu' && (
+      {/* Branch rows with per-row handles */}
+      {rows.length > 0 && (
         <>
           <div className="my-1.5 border-t border-gray-200 dark:border-gray-700" />
-          <div className="space-y-0.5">
-            {parseMenuOptionsSafe(cfg.options).map((o) => (
-              <div key={o.optionId} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teal-400" />
-                <span className="truncate">{o.title}</span>
-              </div>
+          <div>
+            {rows.map((r) => (
+              <BranchRow
+                key={r.key}
+                handleId={r.key}
+                tone={r.tone}
+                text={
+                  wf.type === 'action.interactive_menu' && !['restart', 'livechat', 'default'].includes(r.key)
+                    ? parseMenuOptionsSafe(wf.config.options).find((o) => o.optionId === r.key)?.title || r.key
+                    : t(`wf.branch.${r.key}` as Parameters<typeof t>[0])
+                }
+              />
             ))}
-            {parseMenuOptionsSafe(cfg.options).length === 0 && (
-              <span className="text-[10px] italic text-gray-400">no options</span>
-            )}
           </div>
         </>
       )}
 
-      {/* Condition branch chips */}
-      {wf.type === 'logic.condition' && (
-        <div className="mt-1.5 flex gap-1">
-          <span className="rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">true</span>
-          <span className="rounded bg-red-100 px-1 py-0.5 text-[9px] font-medium text-red-700 dark:bg-red-900 dark:text-red-200">false</span>
-        </div>
-      )}
-
-      {/* Output handles */}
-      {wf.type === 'action.end' ? null : handles.length === 0 ? (
+      {/* Default single output */}
+      {wf.type !== 'action.end' && rows.length === 0 && (
         <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />
-      ) : (
-        handles.map((h, i) => (
-          <Handle
-            key={h}
-            id={h}
-            type="source"
-            position={Position.Right}
-            style={{ top: `${((i + 1) / (handles.length + 1)) * 100}%` }}
-            title={h}
-            className="!h-2 !w-2 !bg-teal-500"
-          />
-        ))
       )}
     </div>
   )
@@ -181,7 +287,13 @@ function nextMenuOptionId(existing: MenuOption[]): string {
   return `option_${n}`
 }
 
-export function WorkflowCanvas({
+interface PendingWire {
+  nodeId: string
+  handleId?: string
+  at: { x: number; y: number }
+}
+
+function WorkflowCanvasInner({
   nodes,
   edges,
   onChange,
@@ -191,17 +303,66 @@ export function WorkflowCanvas({
   onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
 }) {
   const { t } = useI18n()
+  const { screenToFlowPosition } = useReactFlow()
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
 
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [paletteQuery, setPaletteQuery] = useState('')
+  const [pendingWire, setPendingWire] = useState<PendingWire | null>(null)
+  const [pickerQuery, setPickerQuery] = useState('')
+
+  const configureNode = useCallback((id: string) => setSelectedId(id), [])
+
+  const deleteNodeById = useCallback(
+    (id: string) => {
+      onChange({
+        nodes: nodes.filter((n) => n.id !== id),
+        edges: edges.filter((e) => e.source !== id && e.target !== id),
+      })
+      setSelectedId((cur) => (cur === id ? null : cur))
+    },
+    [nodes, edges, onChange],
+  )
+
+  const duplicateNodeById = useCallback(
+    (id: string) => {
+      const src = nodes.find((n) => n.id === id)
+      if (!src) return
+      const base = src.type.split('.')[1] ?? 'node'
+      let n = nodes.length + 1
+      while (nodes.some((x) => x.id === `${base}_${n}`)) n++
+      const copy: WfNode = { ...src, id: `${base}_${n}`, config: { ...src.config }, x: src.x + 40, y: src.y + 40 }
+      onChange({ nodes: [...nodes, copy], edges })
+      setSelectedId(copy.id)
+    },
+    [nodes, edges, onChange],
+  )
+
   const graph = useMemo(() => {
-    const rfNodes: Node[] = nodes.map((n) => ({ id: n.id, type: 'wf', position: { x: n.x, y: n.y }, data: { wf: n, label: label(n.type) } }))
-    const rfEdges: Edge[] = edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? undefined, label: e.sourceHandle ?? undefined }))
+    const rfNodes: Node[] = nodes.map((n) => ({
+      id: n.id,
+      type: 'wf',
+      position: { x: n.x, y: n.y },
+      data: { wf: n, label: label(n.type), onConfigure: configureNode, onDuplicate: duplicateNodeById, onDelete: deleteNodeById },
+    }))
+    const rfEdges: Edge[] = edges.map((e) => {
+      const color = edgeColor(e.sourceHandle)
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? undefined,
+        label: e.sourceHandle ? t(`wf.branch.${e.sourceHandle}` as Parameters<typeof t>[0]) : undefined,
+        type: 'smoothstep',
+        style: { stroke: color, strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
+      }
+    })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, label])
+  }, [nodes, edges, label, t, configureNode, duplicateNodeById, deleteNodeById])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     setNodes(graph.nodes)
@@ -240,17 +401,41 @@ export function WorkflowCanvas({
     [nodes, edges, onChange],
   )
 
+  /** Dropping a loose connection on the pane opens the node picker, auto-wired. */
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      if (connectionState.isValid) return
+      const from = connectionState.fromNode
+      if (!from || connectionState.fromHandle?.type !== 'source') return
+      const point = 'changedTouches' in event ? event.changedTouches[0] : event
+      const at = screenToFlowPosition({ x: point.clientX, y: point.clientY })
+      setPickerQuery('')
+      setPendingWire({ nodeId: from.id, handleId: connectionState.fromHandle?.id ?? undefined, at })
+    },
+    [screenToFlowPosition],
+  )
+
   const addNode = useCallback(
-    (def: NodeTypeDef) => {
+    (def: NodeTypeDef, wire?: PendingWire | null) => {
       const base = def.type.split('.')[1] ?? 'node'
       let n = nodes.length + 1
       while (nodes.some((x) => x.id === `${base}_${n}`)) n++
       const id = `${base}_${n}`
+      const at = wire?.at ?? { x: 60 + (nodes.length % 4) * 40, y: 40 + (nodes.length % 8) * 30 }
+      const nextEdges = wire
+        ? [...edges, {
+            id: `e_${wire.nodeId}_${id}_${wire.handleId ?? 'default'}_${edges.length}`,
+            source: wire.nodeId,
+            target: id,
+            ...(wire.handleId ? { sourceHandle: wire.handleId } : {}),
+          }]
+        : edges
       onChange({
-        nodes: [...nodes, { id, kind: def.kind, type: def.type, config: {}, x: 60 + (nodes.length % 4) * 40, y: 40 + (nodes.length % 8) * 30 }],
-        edges,
+        nodes: [...nodes, { id, kind: def.kind, type: def.type, config: {}, x: Math.round(at.x - 104), y: Math.round(at.y - 30) }],
+        edges: nextEdges,
       })
       setSelectedId(id)
+      setPendingWire(null)
     },
     [nodes, edges, onChange],
   )
@@ -265,14 +450,39 @@ export function WorkflowCanvas({
 
   const deleteSelected = useCallback(() => {
     if (!selected) return
-    onChange({
-      nodes: nodes.filter((n) => n.id !== selected.id),
-      edges: edges.filter((e) => e.source !== selected.id && e.target !== selected.id),
-    })
-    setSelectedId(null)
-  }, [selected, nodes, edges, onChange])
+    deleteNodeById(selected.id)
+  }, [selected, deleteNodeById])
 
   const byKind = (kind: string) => WORKFLOW_NODE_TYPES.filter((d) => d.kind === kind)
+
+  /** Palette entries filtered by the search box (label + description). */
+  const paletteMatches = useCallback(
+    (def: NodeTypeDef, query: string) => {
+      if (!query.trim()) return true
+      const q = query.trim().toLowerCase()
+      return (
+        t(def.labelKey as Parameters<typeof t>[0]).toLowerCase().includes(q) ||
+        t(def.descKey as Parameters<typeof t>[0]).toLowerCase().includes(q) ||
+        def.type.toLowerCase().includes(q)
+      )
+    },
+    [t],
+  )
+
+  const renderPaletteItem = (def: NodeTypeDef, onPick: (d: NodeTypeDef) => void) => (
+    <button
+      key={def.type}
+      type="button"
+      onClick={() => onPick(def)}
+      className={`block w-full rounded border-l-2 bg-white px-2 py-1.5 text-left hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 ${NODE_KIND_TONE[def.kind]}`}
+    >
+      <span className="flex items-center gap-1.5">
+        <span className={`rounded px-1 text-[10px] leading-none ${NODE_KIND_BADGE[def.kind]}`}>{KIND_ICON[def.kind] ?? '•'}</span>
+        <span className="font-medium text-gray-800 dark:text-gray-100">{t(def.labelKey as Parameters<typeof t>[0])}</span>
+      </span>
+      <span className="mt-0.5 block text-[10px] leading-snug text-gray-400">{t(def.descKey as Parameters<typeof t>[0])}</span>
+    </button>
+  )
 
   // --- interactive_menu options editor helpers --------------------------------
   const menuOptions = useMemo(() => {
@@ -313,27 +523,33 @@ export function WorkflowCanvas({
 
   const isMenu = selected?.type === 'action.interactive_menu'
 
+  /** Translated field label; humanize if a key is still missing. */
+  const fieldLabel = (key: string) => {
+    const i18nKey = `wf.field.${key}`
+    const out = t(i18nKey as Parameters<typeof t>[0])
+    return out === i18nKey ? humanize(key) : out
+  }
+
   return (
-    <div className="flex h-[42rem] min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+    <div className="flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       {/* Palette */}
-      <div className="w-40 shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
-        {(['trigger', 'logic', 'action'] as const).map((kind) => (
-          <div key={kind} className="mb-3">
-            <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t(`wf.kind.${kind}` as Parameters<typeof t>[0])}</p>
-            <div className="space-y-1">
-              {byKind(kind).map((def) => (
-                <button
-                  key={def.type}
-                  type="button"
-                  onClick={() => addNode(def)}
-                  className={`block w-full rounded border-l-2 bg-white px-2 py-1 text-left hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 ${NODE_KIND_TONE[kind]}`}
-                >
-                  + {t(def.labelKey as Parameters<typeof t>[0])}
-                </button>
-              ))}
+      <div className="w-52 shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
+        <input
+          value={paletteQuery}
+          onChange={(e) => setPaletteQuery(e.target.value)}
+          placeholder={t('wf.searchNodes')}
+          className="mb-2 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+        />
+        {(['trigger', 'logic', 'action'] as const).map((kind) => {
+          const items = byKind(kind).filter((d) => paletteMatches(d, paletteQuery))
+          if (items.length === 0) return null
+          return (
+            <div key={kind} className="mb-3">
+              <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t(`wf.kind.${kind}` as Parameters<typeof t>[0])}</p>
+              <div className="space-y-1">{items.map((def) => renderPaletteItem(def, (d) => addNode(d)))}</div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Canvas */}
@@ -344,6 +560,7 @@ export function WorkflowCanvas({
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectEnd={onConnectEnd}
           onNodeClick={(_event: unknown, node: Node) => setSelectedId(node.id)}
           onPaneClick={() => setSelectedId(null)}
           nodeTypes={nodeTypes}
@@ -354,18 +571,49 @@ export function WorkflowCanvas({
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
+
+        {/* Auto-wire node picker (opened by dropping a loose connection) */}
+        {pendingWire && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+            <div className="max-h-[75%] w-80 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-xl dark:border-gray-700 dark:bg-gray-900">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="font-semibold text-gray-800 dark:text-gray-100">{t('wf.pickNodeTitle')}</p>
+                <button type="button" onClick={() => setPendingWire(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                  ✕
+                </button>
+              </div>
+              <input
+                autoFocus
+                value={pickerQuery}
+                onChange={(e) => setPickerQuery(e.target.value)}
+                placeholder={t('wf.searchNodes')}
+                className="mb-2 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+              />
+              {(['trigger', 'logic', 'action'] as const).map((kind) => {
+                const items = byKind(kind).filter((d) => paletteMatches(d, pickerQuery))
+                if (items.length === 0) return null
+                return (
+                  <div key={kind} className="mb-2">
+                    <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{t(`wf.kind.${kind}` as Parameters<typeof t>[0])}</p>
+                    <div className="space-y-1">{items.map((def) => renderPaletteItem(def, (d) => addNode(d, pendingWire)))}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Config panel */}
       {selected && (
         <aside className="w-64 shrink-0 overflow-y-auto border-l border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-800 dark:bg-gray-900">
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">{selected.kind}</p>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${selected.kind}` as Parameters<typeof t>[0])}</p>
           <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">{label(selected.type)}</p>
 
           {/* Standard text fields */}
           {(nodeDef(selected.type)?.fields ?? []).map((key) => (
             <label key={key} className="mb-2 block">
-              <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{t(`wf.field.${key}` as Parameters<typeof t>[0]) ?? key}</span>
+              <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{fieldLabel(key)}</span>
               {key === 'options' && isMenu ? (
                 // options is edited via the richer editor below
                 <input
@@ -373,6 +621,18 @@ export function WorkflowCanvas({
                   readOnly
                   className="w-full cursor-not-allowed rounded border border-gray-300 bg-gray-100 p-1.5 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800"
                 />
+              ) : key === 'validation' ? (
+                <select
+                  value={String(selected.config[key] ?? '')}
+                  onChange={(e) => patchConfig(key, e.target.value)}
+                  className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                >
+                  {['', 'text', 'date', 'time', 'phone', 'number', 'email'].map((v) => (
+                    <option key={v} value={v}>
+                      {v || '—'}
+                    </option>
+                  ))}
+                </select>
               ) : key === 'message' || key === 'prompt' || key === 'question' || key === 'text' ? (
                 <textarea
                   value={String(selected.config[key] ?? '')}
@@ -444,5 +704,17 @@ export function WorkflowCanvas({
         </aside>
       )}
     </div>
+  )
+}
+
+export function WorkflowCanvas(props: {
+  nodes: WfNode[]
+  edges: WfEdge[]
+  onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
+}) {
+  return (
+    <ReactFlowProvider>
+      <WorkflowCanvasInner {...props} />
+    </ReactFlowProvider>
   )
 }

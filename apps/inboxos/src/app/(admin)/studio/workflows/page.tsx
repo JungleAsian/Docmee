@@ -4,7 +4,7 @@
 // graph (trigger → logic → action) on the visual canvas; active workflows run via
 // the workflow-runner worker when their trigger fires. List / create / edit /
 // activate / delete.
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
@@ -92,15 +92,6 @@ export default function WorkflowsPage() {
 
       {!clinicId ? (
         <p className="text-sm text-gray-500">{t('analytics.selectClinicPrompt')}</p>
-      ) : editing ? (
-        <WorkflowEditor
-          clinicId={clinicId}
-          workflow={editing === 'new' ? undefined : editing}
-          onClose={() => {
-            setEditing(null)
-            qc.invalidateQueries({ queryKey: key })
-          }}
-        />
       ) : (
         <>
           <button type="button" onClick={() => setEditing('new')} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700`}>
@@ -164,8 +155,39 @@ export default function WorkflowsPage() {
           )}
         </>
       )}
+
+      {/* Full-viewport editor surface (R1): the canvas gets the whole screen,
+          free of the overview page content. */}
+      {editing && clinicId && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-gray-50 dark:bg-gray-950">
+          <WorkflowEditor
+            clinicId={clinicId}
+            workflow={editing === 'new' ? undefined : editing}
+            onClose={() => {
+              setEditing(null)
+              qc.invalidateQueries({ queryKey: key })
+            }}
+          />
+        </div>
+      )}
     </div>
   )
+}
+
+/** Starter chain for a blank workflow (R4): trigger → ask → wait, so the
+    canvas never opens empty. */
+function seedNodes(): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
+  return {
+    nodes: [
+      { id: 'message_keyword_1', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 40, y: 140 },
+      { id: 'ask_capture_1', kind: 'action', type: 'action.ask_capture', config: {}, x: 320, y: 140 },
+      { id: 'wait_for_reply_1', kind: 'logic', type: 'logic.wait_for_reply', config: {}, x: 600, y: 140 },
+    ],
+    edges: [
+      { id: 'e_seed_1', source: 'message_keyword_1', target: 'ask_capture_1' },
+      { id: 'e_seed_2', source: 'ask_capture_1', target: 'wait_for_reply_1' },
+    ],
+  }
 }
 
 function WorkflowEditor({
@@ -178,10 +200,28 @@ function WorkflowEditor({
   onClose: () => void
 }) {
   const { t } = useI18n()
+  const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
   const [status, setStatus] = useState<WorkflowStatus>(workflow?.status ?? 'draft')
-  const [nodes, setNodes] = useState<WorkflowNode[]>(workflow?.nodes ?? [])
-  const [edges, setEdges] = useState<WorkflowEdge[]>(workflow?.edges ?? [])
+  const [nodes, setNodes] = useState<WorkflowNode[]>(seed.nodes)
+  const [edges, setEdges] = useState<WorkflowEdge[]>(seed.edges)
+  // Dirty guard (R17): unsaved edits survive neither an accidental close nor a
+  // full page unload.
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
+
+  const requestClose = useCallback(() => {
+    if (dirty && !window.confirm(t('wf.unsavedChanges'))) return
+    onClose()
+  }, [dirty, onClose, t])
 
   const save = useMutation({
     mutationFn: () => {
@@ -190,38 +230,54 @@ function WorkflowEditor({
         ? api.patch(`/clinics/${clinicId}/workflows/${workflow.id}`, payload)
         : api.post(`/clinics/${clinicId}/workflows`, payload)
     },
-    onSuccess: onClose,
+    onSuccess: () => {
+      setDirty(false)
+      onClose()
+    },
   })
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <>
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
+        <button type="button" onClick={requestClose} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
+          ← {t('wf.backToWorkflows')}
+        </button>
         <input
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value)
+            setDirty(true)
+          }}
           placeholder={t('wf.namePlaceholder')}
-          className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          className="min-w-40 flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
         />
         <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-          <input type="checkbox" checked={status === 'active'} onChange={(e) => setStatus(e.target.checked ? 'active' : 'draft')} />
+          <input
+            type="checkbox"
+            checked={status === 'active'}
+            onChange={(e) => {
+              setStatus(e.target.checked ? 'active' : 'draft')
+              setDirty(true)
+            }}
+          />
           {t('wf.activeToggle')}
         </label>
         <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
         </button>
-        <button type="button" onClick={onClose} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
-          {t('common.cancel')}
-        </button>
       </div>
-      <p className="text-xs text-gray-500">{t('wf.canvasHint')}</p>
-      <WorkflowCanvas
-        nodes={nodes}
-        edges={edges}
-        onChange={(next) => {
-          setNodes(next.nodes)
-          setEdges(next.edges)
-        }}
-      />
-    </div>
+      <p className="px-4 pt-2 text-xs text-gray-500">{t('wf.canvasHint')}</p>
+      <div className="min-h-0 flex-1 p-4 pt-2">
+        <WorkflowCanvas
+          nodes={nodes}
+          edges={edges}
+          onChange={(next) => {
+            setNodes(next.nodes)
+            setEdges(next.edges)
+            setDirty(true)
+          }}
+        />
+      </div>
+    </>
   )
 }

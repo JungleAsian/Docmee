@@ -30,7 +30,15 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
 import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
-import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, type NodeTypeDef } from '../workflowNodes'
+import {
+  WORKFLOW_NODE_TYPES,
+  nodeDef,
+  NODE_KIND_TONE,
+  NODE_KIND_BADGE,
+  FIELD_REFERENCE_KEYS,
+  collectWorkflowFields,
+  type NodeTypeDef,
+} from '../workflowNodes'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -530,6 +538,23 @@ function WorkflowCanvasInner({
     return out === i18nKey ? humanize(key) : out
   }
 
+  // --- No-code Field selector ---------------------------------------------
+  // Every field name any node in the workflow could plausibly have written,
+  // for the dropdowns below. Recomputed as the graph changes.
+  const availableFields = useMemo(() => collectWorkflowFields(nodes), [nodes])
+  // Config keys the admin has explicitly opted to type by hand instead of
+  // picking from the list (e.g. a field no earlier node produces yet).
+  // Scoped by `${nodeId}:${key}` so switching nodes never carries it over.
+  const [manualFieldKeys, setManualFieldKeys] = useState<Set<string>>(new Set())
+  const setManualField = useCallback((manualKey: string, manual: boolean) => {
+    setManualFieldKeys((prev) => {
+      const next = new Set(prev)
+      if (manual) next.add(manualKey)
+      else next.delete(manualKey)
+      return next
+    })
+  }, [])
+
   return (
     <div className="flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       {/* Palette */}
@@ -611,16 +636,56 @@ function WorkflowCanvasInner({
           <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">{label(selected.type)}</p>
 
           {/* Standard text fields */}
-          {(nodeDef(selected.type)?.fields ?? []).map((key) => (
+          {(nodeDef(selected.type)?.fields ?? []).map((key) => {
+            const manualKey = `${selected.id}:${key}`
+            const isManual = manualFieldKeys.has(manualKey)
+            const value = String(selected.config[key] ?? '')
+            return (
             <label key={key} className="mb-2 block">
               <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{fieldLabel(key)}</span>
               {key === 'options' && isMenu ? (
                 // options is edited via the richer editor below
                 <input
-                  value={String(selected.config[key] ?? '')}
+                  value={value}
                   readOnly
                   className="w-full cursor-not-allowed rounded border border-gray-300 bg-gray-100 p-1.5 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800"
                 />
+              ) : FIELD_REFERENCE_KEYS.has(key) && !isManual ? (
+                <div className="flex items-center gap-1">
+                  <select
+                    value={value}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') setManualField(manualKey, true)
+                      else patchConfig(key, e.target.value)
+                    }}
+                    className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <option value="">{t('wf.field.selectPlaceholder')}</option>
+                    {(value && !availableFields.includes(value) ? [value, ...availableFields] : availableFields).map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                    <option value="__custom__">{t('wf.field.customOption')}</option>
+                  </select>
+                </div>
+              ) : FIELD_REFERENCE_KEYS.has(key) && isManual ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    value={value}
+                    onChange={(e) => patchConfig(key, e.target.value)}
+                    placeholder="field_name"
+                    className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setManualField(manualKey, false)}
+                    title={t('wf.field.backToList')}
+                    className="shrink-0 rounded border border-gray-300 px-1.5 py-1.5 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
+                  >
+                    ↩
+                  </button>
+                </div>
               ) : key === 'validation' ? (
                 <select
                   value={String(selected.config[key] ?? '')}
@@ -648,7 +713,8 @@ function WorkflowCanvasInner({
                 />
               )}
             </label>
-          ))}
+            )
+          })}
 
           {/* Interactive menu options editor */}
           {isMenu && (

@@ -37,8 +37,11 @@ import {
   NODE_KIND_BADGE,
   FIELD_REFERENCE_KEYS,
   collectWorkflowFields,
+  collectWorkflowTags,
+  ENUM_FIELD_OPTIONS,
   type NodeTypeDef,
 } from '../workflowNodes'
+import { TAG_TYPES, tagLabel } from '../tagTypes'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -310,7 +313,7 @@ function WorkflowCanvasInner({
   edges: WfEdge[]
   onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
 }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const { screenToFlowPosition } = useReactFlow()
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
 
@@ -538,13 +541,16 @@ function WorkflowCanvasInner({
     return out === i18nKey ? humanize(key) : out
   }
 
-  // --- No-code Field selector ---------------------------------------------
+  // --- No-code Field / Tag selectors ---------------------------------------
   // Every field name any node in the workflow could plausibly have written,
-  // for the dropdowns below. Recomputed as the graph changes.
+  // and every tag value already used by an add_tag node, for the dropdowns
+  // below. Recomputed as the graph changes.
   const availableFields = useMemo(() => collectWorkflowFields(nodes), [nodes])
+  const availableTags = useMemo(() => collectWorkflowTags(nodes), [nodes])
   // Config keys the admin has explicitly opted to type by hand instead of
-  // picking from the list (e.g. a field no earlier node produces yet).
-  // Scoped by `${nodeId}:${key}` so switching nodes never carries it over.
+  // picking from the list (e.g. a field no earlier node produces yet, or a
+  // one-off tag outside the canonical palette). Scoped by `${nodeId}:${key}`
+  // so switching nodes never carries it over.
   const [manualFieldKeys, setManualFieldKeys] = useState<Set<string>>(new Set())
   const setManualField = useCallback((manualKey: string, manual: boolean) => {
     setManualFieldKeys((prev) => {
@@ -554,6 +560,27 @@ function WorkflowCanvasInner({
       return next
     })
   }, [])
+  // A key is "pickable" when its value should come from a list of known
+  // names rather than free text: field references, or add_tag's own `tag`
+  // (picked from the canonical tag palette so it always renders with a
+  // label/colour elsewhere in the app — see tagTypes.ts).
+  const isPickableKey = (key: string) => FIELD_REFERENCE_KEYS.has(key) || key === 'tag'
+  /** Options for a pickable key: canonical tag palette (+ any custom tags
+   *  already used in this workflow) for `tag`, or the field pool otherwise.
+   *  Human-readable labels — never the raw technical name — per option. */
+  const pickableOptions = useCallback(
+    (key: string): { value: string; label: string }[] => {
+      if (key === 'tag') {
+        const canonical = TAG_TYPES.map((tt) => ({ value: tt.name, label: tagLabel(tt.name, language) }))
+        const extra = availableTags
+          .filter((tag) => !TAG_TYPES.some((tt) => tt.name === tag))
+          .map((tag) => ({ value: tag, label: humanize(tag) }))
+        return [...canonical, ...extra]
+      }
+      return availableFields.map((f) => ({ value: f, label: humanize(f) }))
+    },
+    [availableFields, availableTags, language],
+  )
 
   return (
     <div className="flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
@@ -650,7 +677,7 @@ function WorkflowCanvasInner({
                   readOnly
                   className="w-full cursor-not-allowed rounded border border-gray-300 bg-gray-100 p-1.5 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800"
                 />
-              ) : FIELD_REFERENCE_KEYS.has(key) && !isManual ? (
+              ) : isPickableKey(key) && !isManual ? (
                 <div className="flex items-center gap-1">
                   <select
                     value={value}
@@ -661,20 +688,24 @@ function WorkflowCanvasInner({
                     className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
                   >
                     <option value="">{t('wf.field.selectPlaceholder')}</option>
-                    {(value && !availableFields.includes(value) ? [value, ...availableFields] : availableFields).map((f) => (
-                      <option key={f} value={f}>
-                        {f}
+                    {(() => {
+                      const options = pickableOptions(key)
+                      const known = options.some((o) => o.value === value)
+                      return value && !known ? [{ value, label: humanize(value) }, ...options] : options
+                    })().map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
                       </option>
                     ))}
                     <option value="__custom__">{t('wf.field.customOption')}</option>
                   </select>
                 </div>
-              ) : FIELD_REFERENCE_KEYS.has(key) && isManual ? (
+              ) : isPickableKey(key) && isManual ? (
                 <div className="flex items-center gap-1">
                   <input
                     value={value}
                     onChange={(e) => patchConfig(key, e.target.value)}
-                    placeholder="field_name"
+                    placeholder={key === 'tag' ? 'tag_name' : 'field_name'}
                     className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
                   />
                   <button
@@ -686,6 +717,18 @@ function WorkflowCanvasInner({
                     ↩
                   </button>
                 </div>
+              ) : ENUM_FIELD_OPTIONS[key] ? (
+                <select
+                  value={value}
+                  onChange={(e) => patchConfig(key, e.target.value)}
+                  className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                >
+                  {ENUM_FIELD_OPTIONS[key]!.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {t(o.labelKey as Parameters<typeof t>[0])}
+                    </option>
+                  ))}
+                </select>
               ) : key === 'validation' ? (
                 <select
                   value={String(selected.config[key] ?? '')}

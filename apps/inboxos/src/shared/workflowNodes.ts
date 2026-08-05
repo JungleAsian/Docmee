@@ -202,3 +202,31 @@ export function collectWorkflowFields(nodes: WorkflowNode[]): string[] {
   fields.delete('')
   return Array.from(fields).sort()
 }
+
+/** Every `tag` value an action.add_tag node in this workflow already uses,
+ *  for the Tag no-code selector's "already used in this flow" section
+ *  (in addition to the canonical TAG_TYPES palette from tagTypes.ts). */
+export function collectWorkflowTags(nodes: WorkflowNode[]): string[] {
+  const tags = new Set<string>()
+  for (const node of nodes) {
+    if (node.type !== 'action.add_tag') continue
+    const value = String(node.config?.['tag'] ?? '').trim()
+    if (value) tags.add(value)
+  }
+  return Array.from(tags).sort()
+}
+
+/** Fixed, small vocabularies for enum-like config keys — rendered as a plain
+ *  dropdown (no "custom" escape hatch; the engine only understands these
+ *  exact values). `labelKey` resolves through the shared i18n dictionary. */
+export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: string }[]> = {
+  variant: [
+    { value: 'list', labelKey: 'wf.variant.list' },
+    { value: 'button', labelKey: 'wf.variant.button' },
+  ],
+  op: [
+    { value: 'equals', labelKey: 'wf.op.equals' },
+    { value: 'contains', labelKey: 'wf.op.contains' },
+    { value: 'not_equals', labelKey: 'wf.op.notEquals' },
+  ],
+}

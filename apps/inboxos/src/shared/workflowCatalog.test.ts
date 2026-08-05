@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
-import { WORKFLOW_NODE_TYPES, collectWorkflowFields } from './workflowNodes'
+import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, ENUM_FIELD_OPTIONS } from './workflowNodes'
+import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 import type { WorkflowNode } from './types'
 
@@ -79,5 +80,39 @@ describe('collectWorkflowFields (no-code Field selector)', () => {
     expect(fields).toContain('doctor_preference')
     expect(fields).toContain('preferred_date')
     expect(fields).toContain('available_slots')
+  })
+})
+
+describe('collectWorkflowTags (no-code Tag selector)', () => {
+  it('returns nothing for a workflow with no add_tag nodes', () => {
+    expect(collectWorkflowTags([node('t', 'trigger', 'trigger.message_keyword')])).toEqual([])
+  })
+
+  it('collects tag values from every add_tag node, deduped and sorted', () => {
+    const tags = collectWorkflowTags([
+      node('a', 'action', 'action.add_tag', { tag: 'urgent' }),
+      node('b', 'action', 'action.add_tag', { tag: 'needs_human' }),
+      node('c', 'action', 'action.add_tag', { tag: 'urgent' }),
+    ])
+    expect(tags).toEqual(['needs_human', 'urgent'])
+  })
+
+  it('the guided_whatsapp_booking template only uses tags in the canonical palette', () => {
+    const template = WORKFLOW_TEMPLATES.find((t) => t.key === 'guided_whatsapp_booking')
+    expect(template).toBeDefined()
+    if (!template) return
+    const tags = collectWorkflowTags(template.nodes)
+    const canonical = new Set(TAG_TYPES.map((tt) => tt.name))
+    for (const tag of tags) expect(canonical.has(tag)).toBe(true)
+  })
+})
+
+describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
+  it('offers exactly the variants the worker actually understands', () => {
+    expect(ENUM_FIELD_OPTIONS.variant?.map((o) => o.value)).toEqual(['list', 'button'])
+  })
+
+  it('offers exactly the operators evalCondition actually understands', () => {
+    expect(ENUM_FIELD_OPTIONS.op?.map((o) => o.value)).toEqual(['equals', 'contains', 'not_equals'])
   })
 })

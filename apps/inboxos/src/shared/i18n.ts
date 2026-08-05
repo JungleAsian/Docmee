@@ -42,6 +42,11 @@ const bookingEs: Dict = {
   // Workflow canvas — config panel field labels (P0: stop leaking raw keys).
   'wf.field.keywords': 'Palabras clave',
   'wf.field.op': 'Operador',
+  'wf.op.equals': 'Es igual a',
+  'wf.op.contains': 'Contiene',
+  'wf.op.notEquals': 'No es igual a',
+  'wf.variant.list': 'Lista',
+  'wf.variant.button': 'Botones',
   'wf.field.value': 'Valor',
   'wf.field.amount': 'Cantidad',
   'wf.field.unit': 'Unidad',
@@ -141,6 +146,11 @@ const bookingEn: Dict = {
   // Workflow canvas — config panel field labels (P0: stop leaking raw keys).
   'wf.field.keywords': 'Keywords',
   'wf.field.op': 'Operator',
+  'wf.op.equals': 'Equals',
+  'wf.op.contains': 'Contains',
+  'wf.op.notEquals': 'Does not equal',
+  'wf.variant.list': 'List',
+  'wf.variant.button': 'Buttons',
   'wf.field.value': 'Value',
   'wf.field.amount': 'Amount',
   'wf.field.unit': 'Unit',

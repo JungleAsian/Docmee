@@ -82,12 +82,6 @@ function nodeFaceText(wf: WfNode): string | undefined {
       return [parts.join(' / '), fieldPart].filter(Boolean).join(' ') || undefined
     }
     case 'action.ai_draft':
-      return String(cfg.text ?? '').trim() || undefined
-    case 'action.interactive_menu': {
-      const parts = [cfg.header, cfg.message, cfg.footer].filter((v) => typeof v === 'string' && v.trim())
-      return parts.length > 0 ? parts.join(' / ') : undefined
-    }
-    case 'action.ai_draft':
     case 'logic.ai_classify_intent': {
       const ql = String(cfg.queryLimit ?? cfg.query_limit ?? '').trim()
       const rb = String(cfg.responseBuffer ?? cfg.response_buffer ?? '').trim()

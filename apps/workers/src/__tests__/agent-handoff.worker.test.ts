@@ -25,11 +25,13 @@ const h = vi.hoisted(() => ({
   markSendFailed: vi.fn(),
   createErrorReview: vi.fn(),
   enqueueWorkflowRuns: vi.fn(),
+  enqueueInboundWorkflowRuns: vi.fn().mockResolvedValue({ enqueued: 0, ownsTurn: false }),
   end: vi.fn(),
 }))
 
 vi.mock('../workflow-run.js', () => ({
   enqueueWorkflowRuns: h.enqueueWorkflowRuns,
+  enqueueInboundWorkflowRuns: h.enqueueInboundWorkflowRuns,
 }))
 
 vi.mock('@docmee/llm', () => ({

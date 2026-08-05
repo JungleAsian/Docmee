@@ -7,7 +7,7 @@
 // - Searchable palette with one-line descriptions; dropping a loose connection
 //   on the pane opens the same palette and auto-wires the picked node.
 // - Branch-colored edges with translated labels; hover toolbar on nodes.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow as ReactFlowBase,
   Background as BackgroundBase,
@@ -52,6 +52,8 @@ const Handle = HandleBase
 type WfNodeData = {
   wf: WfNode
   label: string
+  /** Classic Builder: plain compact cards + simple bezier edges, no previews. */
+  classic: boolean
   onConfigure: (id: string) => void
   onDuplicate: (id: string) => void
   onDelete: (id: string) => void
@@ -193,11 +195,61 @@ function BranchRow({
   )
 }
 
-function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
-  const { wf, label, onConfigure, onDuplicate, onDelete } = data
+/** Classic branch row: plain text + working handle, no colored chip. */
+function ClassicBranchRow({ handleId, text }: { handleId: string; text: string }) {
+  return (
+    <div className="relative flex items-center justify-end py-px">
+      <span className="text-[9px] text-gray-400">{text}</span>
+      <Handle
+        id={handleId}
+        type="source"
+        position={Position.Right}
+        title={handleId}
+        className="!absolute !right-[-6px] !top-1/2 !h-1.5 !w-1.5 !-translate-y-1/2 !bg-gray-400"
+        style={{ position: 'absolute' }}
+      />
+    </div>
+  )
+}
+
+const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
+  const { wf, label, classic, onConfigure, onDuplicate, onDelete } = data
   const face = nodeFaceText(wf)
   const rows = branchRows(wf)
   const { t } = useI18n()
+
+  // Classic Builder face: uniform compact card — tiny kind label, title, plain
+  // branch rows (handles stay fully functional), no toolbar / previews / chips.
+  if (classic) {
+    return (
+      <div
+        className={`w-44 rounded-md border bg-white px-2.5 py-1.5 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
+          selected ? 'ring-2 ring-teal-300' : ''
+        }`}
+      >
+        {wf.kind !== 'trigger' && <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !bg-gray-400" />}
+        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
+        <p className="truncate font-medium text-gray-800 dark:text-gray-100">{label}</p>
+        {rows.length > 0 ? (
+          <div className="mt-1 border-t border-gray-100 pt-0.5 dark:border-gray-800">
+            {rows.map((r) => (
+              <ClassicBranchRow
+                key={r.key}
+                handleId={r.key}
+                text={
+                  wf.type === 'action.interactive_menu' && !['restart', 'livechat', 'default'].includes(r.key)
+                    ? parseMenuOptionsSafe(wf.config.options).find((o) => o.optionId === r.key)?.title || r.key
+                    : t(`wf.branch.${r.key}` as Parameters<typeof t>[0])
+                }
+              />
+            ))}
+          </div>
+        ) : (
+          wf.type !== 'action.end' && <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !bg-gray-400" />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -288,9 +340,11 @@ function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
       )}
     </div>
   )
-}
+})
 
 const nodeTypes = { wf: WorkflowNodeView }
+
+const CANVAS_MODE_KEY = 'docmee.canvas.mode'
 
 function nextMenuOptionId(existing: MenuOption[]): string {
   let n = existing.length + 1
@@ -321,6 +375,21 @@ function WorkflowCanvasInner({
   const [paletteQuery, setPaletteQuery] = useState('')
   const [pendingWire, setPendingWire] = useState<PendingWire | null>(null)
   const [pickerQuery, setPickerQuery] = useState('')
+  // Builder-mode preference persists across sessions (BotPenguin-style switcher).
+  const [classic, setClassic] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.localStorage.getItem(CANVAS_MODE_KEY) === 'classic',
+  )
+  const toggleClassic = useCallback(() => {
+    setClassic((cur) => {
+      const next = !cur
+      try {
+        window.localStorage.setItem(CANVAS_MODE_KEY, next ? 'classic' : 'enhanced')
+      } catch {
+        /* private mode — pref simply won't persist */
+      }
+      return next
+    })
+  }, [])
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
 
@@ -354,9 +423,21 @@ function WorkflowCanvasInner({
       id: n.id,
       type: 'wf',
       position: { x: n.x, y: n.y },
-      data: { wf: n, label: label(n.type), onConfigure: configureNode, onDuplicate: duplicateNodeById, onDelete: deleteNodeById },
+      data: { wf: n, label: label(n.type), classic, onConfigure: configureNode, onDuplicate: duplicateNodeById, onDelete: deleteNodeById },
     }))
     const rfEdges: Edge[] = edges.map((e) => {
+      if (classic) {
+        // Classic Builder: plain thin gray beziers, no labels or colored markers.
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? undefined,
+          type: 'default',
+          style: { stroke: '#9ca3af', strokeWidth: 1.5 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#9ca3af', width: 14, height: 14 },
+        }
+      }
       const color = edgeColor(e.sourceHandle)
       return {
         id: e.id,
@@ -370,7 +451,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, label, t, configureNode, duplicateNodeById, deleteNodeById])
+  }, [nodes, edges, label, t, classic, configureNode, duplicateNodeById, deleteNodeById])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -617,12 +698,22 @@ function WorkflowCanvasInner({
           onPaneClick={() => setSelectedId(null)}
           nodeTypes={nodeTypes}
           fitView
+          onlyRenderVisibleElements
           proOptions={{ hideAttribution: true }}
         >
           <Background />
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
+
+        {/* Builder-mode switcher (BotPenguin-style, top-right) */}
+        <button
+          type="button"
+          onClick={toggleClassic}
+          className="absolute right-3 top-3 z-10 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+        >
+          ▦ {classic ? t('wf.enhancedBuilder') : t('wf.classicBuilder')}
+        </button>
 
         {/* Auto-wire node picker (opened by dropping a loose connection) */}
         {pendingWire && (

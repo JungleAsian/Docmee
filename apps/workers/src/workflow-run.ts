@@ -162,6 +162,37 @@ export function workflowKeywordMatches(workflow: Pick<Workflow, 'nodes'>, messag
   return keywords.some((k) => lower.includes(k))
 }
 
+/** Node types that speak to the patient. A keyword-matched workflow containing at
+ *  least one of these is conversational: it produces the reply for this turn, so
+ *  the producer must let it own the turn (skip custom flows + LLM fallback) rather
+ *  than fire it as a best-effort side effect. Pure side-effect workflows (tag,
+ *  notify, approval, …) never own a turn. */
+const CONVERSATIONAL_NODE_TYPES = new Set([
+  'action.send_message',
+  'action.send_template',
+  'action.interactive_menu',
+  'action.ask_capture',
+  'action.offer_slots',
+  'action.ai_draft',
+])
+
+/** Pure: does this workflow talk to the patient? */
+export function workflowIsConversational(workflow: Pick<Workflow, 'nodes'>): boolean {
+  return workflow.nodes.some((n) => CONVERSATIONAL_NODE_TYPES.has(n.type))
+}
+
+/** Active workflows for this trigger, filtered by keyword match for inbound messages. */
+async function matchWorkflows(
+  sql: Sql,
+  clinicId: string,
+  triggerType: string,
+  message: string,
+): Promise<Workflow[]> {
+  const workflows = await createWorkflowsRepository(sql).listActiveByTrigger(clinicId, triggerType)
+  if (triggerType !== 'trigger.message_keyword') return workflows
+  return workflows.filter((wf) => workflowKeywordMatches(wf, message))
+}
+
 /** Enqueue a run for every active workflow whose trigger matches. Returns the count
  *  enqueued. A no-op (returns 0) when the clinic has no matching active workflow —
  *  so wiring this into a producer is behaviour-neutral until a workflow is activated. */
@@ -176,10 +207,9 @@ export async function enqueueWorkflowRuns(
     console.error(`[workflow] refusing ${triggerType} without a stable source event ID`)
     return 0
   }
-  const workflows = await createWorkflowsRepository(sql).listActiveByTrigger(clinicId, triggerType)
+  const workflows = await matchWorkflows(sql, clinicId, triggerType, ctx.message ?? '')
   let enqueued = 0
   for (const wf of workflows) {
-    if (triggerType === 'trigger.message_keyword' && !workflowKeywordMatches(wf, ctx.message ?? '')) continue
     await workflowQueue().add('run', {
       clinicId,
       workflowId: wf.id,
@@ -188,6 +218,41 @@ export async function enqueueWorkflowRuns(
     enqueued++
   }
   return enqueued
+}
+
+export interface InboundWorkflowClaim {
+  enqueued: number
+  /** True when at least one matched workflow talks to the patient — the caller
+   *  must end its turn (no custom flow / LLM reply on top). */
+  ownsTurn: boolean
+}
+
+/** Inbound-message variant: same enqueue semantics as enqueueWorkflowRuns, plus
+ *  turn-ownership signalling so the agent worker lets conversational workflows
+ *  answer the patient themselves (BotPenguin-style bot builder behaviour). */
+export async function enqueueInboundWorkflowRuns(
+  sql: Sql,
+  clinicId: string,
+  ctx: TriggerContext = {},
+): Promise<InboundWorkflowClaim> {
+  const sourceEventId = ctx.sourceEventId ?? ctx.waMessageId
+  if (!sourceEventId) {
+    console.error('[workflow] refusing trigger.message_keyword without a stable source event ID')
+    return { enqueued: 0, ownsTurn: false }
+  }
+  const workflows = await matchWorkflows(sql, clinicId, 'trigger.message_keyword', ctx.message ?? '')
+  let enqueued = 0
+  let ownsTurn = false
+  for (const wf of workflows) {
+    await workflowQueue().add('run', {
+      clinicId,
+      workflowId: wf.id,
+      trigger: { type: 'trigger.message_keyword', sourceEventId, ...ctx },
+    } satisfies WorkflowRunJobData, { jobId: workflowRunKey(wf.id, sourceEventId) })
+    enqueued++
+    if (workflowIsConversational(wf)) ownsTurn = true
+  }
+  return { enqueued, ownsTurn }
 }
 
 /** Re-enqueue a paused run to resume at `nodeId` after `ms` (delay node). */

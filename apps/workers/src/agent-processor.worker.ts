@@ -12,7 +12,7 @@ import {
   type IntentProvider,
 } from '@docmee/llm'
 import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
-import { enqueueWorkflowRuns } from './workflow-run.js'
+import { enqueueInboundWorkflowRuns, enqueueWorkflowRuns } from './workflow-run.js'
 import {
   orchestrateConversation,
   runClinicBot,
@@ -769,16 +769,19 @@ export async function processAgentJob(job: Job): Promise<void> {
       return
     }
 
-    // Fire non-exclusive inbound workflow side effects only after the safety and
-    // consent guards above. Workflows remain best-effort and do not own the reply
-    // turn; Custom Flows below remain the patient-facing booking authority.
+    // Fire inbound workflows after the safety and consent guards above. A matched
+    // CONVERSATIONAL workflow (menu / ask & capture / send message…) owns the
+    // reply turn: it answers the patient itself, so custom flows and the LLM stay
+    // silent this turn. Pure side-effect workflows (tag / notify / approval)
+    // remain best-effort and never suppress the reply below.
     try {
-      await enqueueWorkflowRuns(sql, data.clinicId, 'trigger.message_keyword', {
+      const claim = await enqueueInboundWorkflowRuns(sql, data.clinicId, {
         sourceEventId: data.waMessageId,
         message: data.message,
         ...(data.patientId ? { patientId: data.patientId } : {}),
         ...(data.conversationId ? { conversationId: data.conversationId } : {}),
       })
+      if (claim.ownsTurn) return
     } catch (err) {
       console.error('[agent] workflow trigger enqueue failed:', err)
     }

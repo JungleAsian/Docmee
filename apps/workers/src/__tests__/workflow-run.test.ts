@@ -1,10 +1,31 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@docmee/queue', () => ({
-  createQueue: () => ({ add: vi.fn() }),
+const h = vi.hoisted(() => ({
+  queueAdd: vi.fn().mockResolvedValue(undefined),
+  listActiveByTrigger: vi.fn().mockResolvedValue([]),
 }))
 
-import { WorkflowRunJobSchema, readPendingWorkflowRuns, workflowKeywordMatches, workflowRunKey, workflowResumeJobKey, writePendingWorkflowRun } from '../workflow-run.js'
+vi.mock('@docmee/queue', () => ({
+  createQueue: () => ({ add: h.queueAdd }),
+}))
+
+vi.mock('@docmee/db', () => ({
+  createConversationsRepository: () => ({ findById: vi.fn(), update: vi.fn() }),
+  createWorkflowsRepository: () => ({ listActiveByTrigger: h.listActiveByTrigger }),
+}))
+
+import {
+  WorkflowRunJobSchema,
+  enqueueInboundWorkflowRuns,
+  readPendingWorkflowRuns,
+  workflowIsConversational,
+  workflowKeywordMatches,
+  workflowRunKey,
+  workflowResumeJobKey,
+  writePendingWorkflowRun,
+} from '../workflow-run.js'
+
+const triggerNode = { id: 't', kind: 'trigger' as const, type: 'trigger.message_keyword', config: {}, x: 0, y: 0 }
 
 const wf = (keywords: string) => ({
   nodes: [{ id: 't', kind: 'trigger' as const, type: 'trigger.message_keyword', config: { keywords }, x: 0, y: 0 }],
@@ -62,5 +83,61 @@ describe('workflow idempotency keys', () => {
       workflowId: '22222222-2222-4222-8222-222222222222',
       trigger: { type: 'trigger.message_keyword' },
     })).toThrow()
+  })
+})
+
+describe('workflowIsConversational', () => {
+  it('is true when the graph can speak to the patient', () => {
+    for (const type of ['action.send_message', 'action.interactive_menu', 'action.ask_capture', 'action.send_template', 'action.offer_slots', 'action.ai_draft']) {
+      expect(workflowIsConversational({ nodes: [{ ...triggerNode }, { id: 'a', kind: 'action' as const, type, config: {}, x: 0, y: 0 }] })).toBe(true)
+    }
+  })
+
+  it('is false for pure side-effect graphs', () => {
+    expect(workflowIsConversational({ nodes: [
+      { ...triggerNode },
+      { id: 'a', kind: 'action' as const, type: 'action.add_tag', config: {}, x: 0, y: 0 },
+      { id: 'b', kind: 'action' as const, type: 'action.notify_secretary', config: {}, x: 0, y: 0 },
+    ] })).toBe(false)
+  })
+})
+
+describe('enqueueInboundWorkflowRuns', () => {
+  beforeEach(() => {
+    h.queueAdd.mockClear()
+    h.listActiveByTrigger.mockReset().mockResolvedValue([])
+  })
+
+  const sql = {} as never
+
+  it('claims the turn when a matched workflow is conversational', async () => {
+    h.listActiveByTrigger.mockResolvedValue([
+      { id: 'wf-menu', nodes: [triggerNode, { id: 'm', kind: 'action', type: 'action.interactive_menu', config: {}, x: 0, y: 0 }] },
+    ])
+    const claim = await enqueueInboundWorkflowRuns(sql, 'clinic-1', { sourceEventId: 'wamid.1', message: 'hi' })
+    expect(claim).toEqual({ enqueued: 1, ownsTurn: true })
+    expect(h.queueAdd).toHaveBeenCalledWith('run', expect.objectContaining({ workflowId: 'wf-menu' }), expect.objectContaining({ jobId: workflowRunKey('wf-menu', 'wamid.1') }))
+  })
+
+  it('does not claim the turn for side-effect-only workflows (still enqueues)', async () => {
+    h.listActiveByTrigger.mockResolvedValue([
+      { id: 'wf-tag', nodes: [triggerNode, { id: 'a', kind: 'action', type: 'action.add_tag', config: {}, x: 0, y: 0 }] },
+    ])
+    const claim = await enqueueInboundWorkflowRuns(sql, 'clinic-1', { sourceEventId: 'wamid.2', message: 'hi' })
+    expect(claim).toEqual({ enqueued: 1, ownsTurn: false })
+  })
+
+  it('skips workflows whose keywords do not match', async () => {
+    h.listActiveByTrigger.mockResolvedValue([
+      { id: 'wf-nomatch', nodes: [{ ...triggerNode, config: { keywords: 'urgent' } }, { id: 'm', kind: 'action', type: 'action.send_message', config: {}, x: 0, y: 0 }] },
+    ])
+    const claim = await enqueueInboundWorkflowRuns(sql, 'clinic-1', { sourceEventId: 'wamid.3', message: 'hello there' })
+    expect(claim).toEqual({ enqueued: 0, ownsTurn: false })
+    expect(h.queueAdd).not.toHaveBeenCalled()
+  })
+
+  it('refuses to run without a stable source event ID', async () => {
+    const claim = await enqueueInboundWorkflowRuns(sql, 'clinic-1', { message: 'hi' })
+    expect(claim).toEqual({ enqueued: 0, ownsTurn: false })
   })
 })

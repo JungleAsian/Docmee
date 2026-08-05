@@ -27,6 +27,13 @@ const nodeKinds = new Map<string, WorkflowNode['kind']>([
 /** Only these triggers have an event producer in the worker runtime. */
 export const SUPPORTED_WORKFLOW_TRIGGER_TYPES = ['trigger.message_keyword', 'trigger.patient_upset'] as const
 
+/**
+ * Nodes that PAUSE the run — interactive menus and wait_for_reply (await the
+ * patient's next message), delay, and approval — end a synchronous segment:
+ * control returns to the queue and the run resumes on a later turn.
+ */
+const PAUSE_NODE_TYPES = new Set(['action.interactive_menu', 'logic.wait_for_reply', 'logic.delay', 'action.approval'])
+
 export interface WorkflowValidationOptions {
   /** Active workflows must be complete. Drafts may start as an empty canvas. */
   requireTrigger?: boolean
@@ -58,13 +65,20 @@ export function validateWorkflowDefinition(
   if (triggers.length > 1) errors.push('A workflow may have exactly one trigger')
   if (requireTrigger && triggers.length !== 1) errors.push('An active workflow requires exactly one trigger')
 
+  const typeByIdEarly = new Map(nodes.map((node) => [node.id, node.type]))
   const outgoing = new Map<string, WorkflowEdge[]>()
   for (const edge of edges) {
     if (edgeIds.has(edge.id)) errors.push(`Duplicate edge id: ${edge.id}`)
     edgeIds.add(edge.id)
     if (!ids.has(edge.source)) errors.push(`Edge ${edge.id} has an unknown source: ${edge.source}`)
     if (!ids.has(edge.target)) errors.push(`Edge ${edge.id} has an unknown target: ${edge.target}`)
-    if (edge.source === edge.target) errors.push(`Edge ${edge.id} cannot point to the same node`)
+    // Self-loops are legal on pause nodes only: an interactive menu re-showing
+    // itself on an unmatched reply (default) or a footer restart resumes on the
+    // patient's next turn, so the loop is conversational, not synchronous. A
+    // self-loop on any other node would spin within a single turn.
+    if (edge.source === edge.target && !PAUSE_NODE_TYPES.has(typeByIdEarly.get(edge.source) ?? '')) {
+      errors.push(`Edge ${edge.id} cannot point to the same node`)
+    }
     const sourceEdges = outgoing.get(edge.source) ?? []
     sourceEdges.push(edge)
     outgoing.set(edge.source, sourceEdges)
@@ -144,16 +158,12 @@ export function validateWorkflowDefinition(
 
   if (triggers.length !== 1) return errors
 
-  // Cycle detection is barrier-aware. Nodes that PAUSE the run — interactive
-  // menus and wait_for_reply (await the patient's next message), delay, and
-  // approval — end a synchronous segment: control returns to the queue and the
-  // run resumes on a later turn. So a loop is only illegal when it is fully
+  // Cycle detection is barrier-aware. So a loop is only illegal when it is fully
   // synchronous (spins within one turn); conversational loops that pass through
   // a pause node (footer "0" → main menu, an unrecognized reply re-showing a
   // menu) are legitimate and runtime-safe (the engine's visited guard + MAX_STEPS
   // still bound a single turn). Each pause node seeds a fresh DFS segment.
-  const PAUSE_NODE_TYPES = new Set(['action.interactive_menu', 'logic.wait_for_reply', 'logic.delay', 'action.approval'])
-  const typeById = new Map(nodes.map((node) => [node.id, node.type]))
+  const typeById = typeByIdEarly
   const reachable = new Set<string>()
   const color = new Map<string, 'gray' | 'black'>()
   const roots: string[] = [triggers[0]!.id]

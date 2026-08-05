@@ -132,4 +132,32 @@ describe('validateWorkflowDefinition', () => {
     ], [edge('t', 'trigger', 'a'), edge('ab', 'a', 'b'), edge('ba', 'b', 'a')], { requireTrigger: true })
     expect(spun.join('\n')).toMatch(/Cycle detected/)
   })
+
+  it('allows a menu self-loop on reserved handles (re-show / restart)', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', {
+        variant: 'button',
+        options: menuOptions([{ optionId: 'book', title: 'Book' }]),
+      }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'menu'),
+      edge('mb', 'menu', 'end', 'book'),
+      edge('mdef', 'menu', 'menu', 'default'), // unmatched reply re-shows the menu
+      edge('mre', 'menu', 'menu', 'restart'), // footer "0" restarts the menu
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
+  it('still rejects a self-loop on a synchronous node', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('spam', 'action', 'action.send_message', { text: 'loop' }),
+    ], [
+      edge('t', 'trigger', 'spam'),
+      edge('ss', 'spam', 'spam'),
+    ], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/cannot point to the same node/)
+  })
 })

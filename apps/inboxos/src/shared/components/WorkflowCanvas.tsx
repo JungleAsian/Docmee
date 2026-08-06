@@ -169,10 +169,10 @@ function humanize(key: string): string {
     .replace(/^\w/, (c) => c.toUpperCase())
 }
 
-/** A canvas mode: Enhanced (Docmee chrome), Classic (BotPenguin anatomy on the
- *  themed canvas), BotPenguin (light surface + white cards + "+" add buttons,
- *  mirroring app.botpenguin.com/bot-builder/canvas). */
-type CanvasMode = 'enhanced' | 'classic' | 'bp'
+/** A canvas mode: Enhanced (Docmee chrome) or Classic Builder (BotPenguin
+ *  anatomy cards + "+" auto-wire buttons + floating toolbar, on the themed
+ *  canvas — same background as Enhanced). */
+type CanvasMode = 'enhanced' | 'classic'
 
 /** BotPenguin-style option row: left-aligned title, a per-row source handle
  *  floating on the card's right edge, and (in bp mode) a blue "+" button that
@@ -180,22 +180,19 @@ type CanvasMode = 'enhanced' | 'classic' | 'bp'
 function OptionRow({
   handleId,
   text,
-  light,
   handleClass,
   textClass,
   onAdd,
 }: {
   handleId: string
   text: string
-  /** Force light-only styling (bp mode inside a dark-themed app). */
-  light: boolean
   handleClass: string
   textClass?: string
   onAdd?: (handleId: string) => void
 }) {
   return (
-    <div className={`relative flex items-center border-t py-1 ${light ? 'border-gray-100' : 'border-gray-100 dark:border-gray-800'}`}>
-      <span className={`truncate text-[10px] ${textClass ?? (light ? 'text-gray-600' : 'text-gray-600 dark:text-gray-300')}`}>{text}</span>
+    <div className="relative flex items-center border-t border-gray-100 py-1 dark:border-gray-800">
+      <span className={`truncate text-[10px] ${textClass ?? 'text-gray-600 dark:text-gray-300'}`}>{text}</span>
       {onAdd && (
         <button
           type="button"
@@ -223,20 +220,17 @@ function OptionRow({
 
 /** Section block: tiny gray caption above its value (BotPenguin's
  *  Header / Message / Footer blocks on a card). */
-function SectionBlock({ caption, value, light }: { caption: string; value: string; light: boolean }) {
+function SectionBlock({ caption, value }: { caption: string; value: string }) {
   return (
     <div>
-      <p className={`text-[9px] ${light ? 'text-gray-400' : 'text-gray-400 dark:text-gray-500'}`}>{caption}</p>
-      <p className={`line-clamp-2 text-[10px] font-medium ${light ? 'text-gray-700' : 'text-gray-700 dark:text-gray-200'}`}>{value}</p>
+      <p className="text-[9px] text-gray-400 dark:text-gray-500">{caption}</p>
+      <p className="line-clamp-2 text-[10px] font-medium text-gray-700 dark:text-gray-200">{value}</p>
     </div>
   )
 }
 
-/** White ring handle (classic + bp cards). */
-const ringHandleClass = (light: boolean) =>
-  light
-    ? '!rounded-full !border !border-gray-300 !bg-white'
-    : '!rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700'
+/** White ring handle (classic cards). */
+const RING_HANDLE = '!rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700'
 
 /** Solid teal handle (enhanced cards). */
 const TEAL_HANDLE = '!bg-teal-500'
@@ -250,10 +244,10 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
   const cfg = wf.config ?? {}
   const isMenu = wf.type === 'action.interactive_menu'
   const menuOpts = isMenu ? parseMenuOptionsSafe(cfg.options) : []
-  const section = (key: string, light: boolean) => {
+  const section = (key: string) => {
     const value = String(cfg[key] ?? '').trim()
     return value ? (
-      <SectionBlock key={key} caption={t(`wf.field.${key}` as Parameters<typeof t>[0])} value={value} light={light} />
+      <SectionBlock key={key} caption={t(`wf.field.${key}` as Parameters<typeof t>[0])} value={value} />
     ) : null
   }
   const rowText = (key: string) =>
@@ -261,70 +255,67 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
       ? menuOpts.find((o) => o.optionId === key)?.title || key
       : t(`wf.branch.${key}` as Parameters<typeof t>[0])
 
-  // Classic & BotPenguin faces — BotPenguin card anatomy: icon + type-name
-  // header, structured Header/Message/Footer sections, left-aligned option
-  // rows with per-row handles. bp mode forces a light card and adds the
-  // signature blue "+" continue buttons (auto-wire via the node picker).
-  if (mode !== 'enhanced') {
-    const light = mode === 'bp'
-    const add = light ? (handleId: string) => onAddFrom(wf.id, handleId) : undefined
+  // Classic Builder face — BotPenguin card anatomy on the themed canvas:
+  // icon + type-name header, structured Header/Message/Footer sections,
+  // left-aligned option rows with per-row handles, and blue "+" continue
+  // buttons that auto-wire the picked node from that exact handle.
+  if (mode === 'classic') {
+    const add = (handleId: string) => onAddFrom(wf.id, handleId)
     return (
       <div
-        className={`w-48 rounded-lg border px-3 py-2 text-xs shadow-md ${
-          light ? 'border-gray-200 bg-white' : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'
-        } ${selected ? 'ring-2 ring-teal-300' : ''}`}
+        className={`w-48 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md dark:border-gray-700 dark:bg-gray-900 ${
+          selected ? 'ring-2 ring-teal-300' : ''
+        }`}
       >
         {wf.kind !== 'trigger' && (
-          <Handle type="target" position={Position.Left} className={`!h-2 !w-2 ${ringHandleClass(light)}`} />
+          <Handle type="target" position={Position.Left} className={`!h-2 !w-2 ${RING_HANDLE}`} />
         )}
 
         {/* Type badge: colored icon + type name (BotPenguin card header) */}
         <div className="mb-1 flex items-center gap-1.5">
           <span className={`rounded px-1 py-0.5 text-[10px] leading-none ${NODE_KIND_BADGE[wf.kind]}`}>{KIND_ICON[wf.kind] ?? '•'}</span>
-          <span className={`truncate text-[11px] font-semibold ${light ? 'text-gray-700' : 'text-gray-700 dark:text-gray-200'}`}>{label}</span>
+          <span className="truncate text-[11px] font-semibold text-gray-700 dark:text-gray-200">{label}</span>
         </div>
 
         {isMenu ? (
           <div className="space-y-1.5">
-            {section('header', light)}
-            {section('message', light)}
-            {section('footer', light)}
+            {section('header')}
+            {section('message')}
+            {section('footer')}
             {rows.length > 0 && (
               <div>
-                <p className={`mt-1 text-[9px] ${light ? 'text-gray-400' : 'text-gray-400 dark:text-gray-500'}`}>{t('wf.field.options')}</p>
+                <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
                 {rows.map((r) => (
-                  <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} light={light} handleClass={ringHandleClass(light)} onAdd={add} />
+                  <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} handleClass={RING_HANDLE} onAdd={add} />
                 ))}
               </div>
             )}
           </div>
         ) : (
           <>
-            {face && <p className={`line-clamp-3 text-[10px] ${light ? 'text-gray-500' : 'text-gray-500 dark:text-gray-400'}`}>{face}</p>}
+            {face && <p className="line-clamp-3 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>}
             {rows.length > 0 ? (
               <div className="mt-1">
                 {rows.map((r) => (
-                  <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} light={light} handleClass={ringHandleClass(light)} onAdd={add} />
+                  <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} handleClass={RING_HANDLE} onAdd={add} />
                 ))}
               </div>
             ) : (
               wf.type !== 'action.end' && (
                 <>
-                  <Handle type="source" position={Position.Right} className={`!h-2 !w-2 ${ringHandleClass(light)}`} />
-                  {/* BotPenguin's floating blue "+" continues the flow */}
-                  {light && (
-                    <button
-                      type="button"
-                      title={t('wf.pickNodeTitle')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onAddFrom(wf.id, undefined)
-                      }}
-                      className="nodrag absolute -bottom-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-sm font-bold leading-none text-white shadow-md hover:bg-blue-600"
-                    >
-                      +
-                    </button>
-                  )}
+                  <Handle type="source" position={Position.Right} className={`!h-2 !w-2 ${RING_HANDLE}`} />
+                  {/* Floating blue "+" continues the flow */}
+                  <button
+                    type="button"
+                    title={t('wf.pickNodeTitle')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAddFrom(wf.id, undefined)
+                    }}
+                    className="nodrag absolute -bottom-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-sm font-bold leading-none text-white shadow-md hover:bg-blue-600"
+                  >
+                    +
+                  </button>
                 </>
               )
             )}
@@ -393,9 +384,9 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
           rows with teal per-row handles; other nodes show their content. */}
       {isMenu ? (
         <div className="mt-1.5 space-y-1.5 border-t border-gray-200 pt-1.5 dark:border-gray-700">
-          {section('header', false)}
-          {section('message', false)}
-          {section('footer', false)}
+          {section('header')}
+          {section('message')}
+          {section('footer')}
           {rows.length > 0 && (
             <div>
               <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
@@ -404,7 +395,6 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
                   key={r.key}
                   handleId={r.key}
                   text={rowText(r.key)}
-                  light={false}
                   handleClass={TEAL_HANDLE}
                   textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
                 />
@@ -427,7 +417,6 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
                   key={r.key}
                   handleId={r.key}
                   text={rowText(r.key)}
-                  light={false}
                   handleClass={TEAL_HANDLE}
                   textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
                 />
@@ -516,7 +505,8 @@ function WorkflowCanvasInner({
   const [mode, setMode] = useState<CanvasMode>(() => {
     if (typeof window === 'undefined') return 'enhanced'
     const stored = window.localStorage.getItem(CANVAS_MODE_KEY)
-    return stored === 'classic' || stored === 'bp' ? stored : 'enhanced'
+    // 'bp' was the short-lived BotPenguin mode — it IS the Classic Builder now.
+    return stored === 'classic' || stored === 'bp' ? 'classic' : 'enhanced'
   })
   const switchMode = useCallback((next: CanvasMode) => {
     setMode(next)
@@ -844,8 +834,8 @@ function WorkflowCanvasInner({
         })}
       </div>
 
-      {/* Canvas — bp mode gets the light BotPenguin surface (see .bp-canvas) */}
-      <div className={`relative flex-1 ${mode === 'bp' ? 'bp-canvas' : ''}`}>
+      {/* Canvas */}
+      <div className="relative flex-1">
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -860,14 +850,14 @@ function WorkflowCanvasInner({
           onlyRenderVisibleElements
           proOptions={{ hideAttribution: true }}
         >
-          <Background color={mode === 'bp' ? '#cbd5e1' : undefined} bgColor={mode === 'bp' ? '#f3f4f6' : undefined} />
+          <Background />
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
 
-        {/* Builder-mode switcher (BotPenguin-style, top-right) */}
+        {/* Builder-mode switcher (top-right) */}
         <div className="absolute right-3 top-3 z-10 flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-          {(['enhanced', 'classic', 'bp'] as const).map((m) => (
+          {(['enhanced', 'classic'] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -878,21 +868,21 @@ function WorkflowCanvasInner({
                   : 'hover:bg-gray-50 dark:hover:bg-gray-700'
               }`}
             >
-              {m === 'enhanced' ? t('wf.enhancedBuilder') : m === 'classic' ? t('wf.classicBuilder') : t('wf.bpBuilder')}
+              {m === 'enhanced' ? t('wf.enhancedBuilder') : t('wf.classicBuilder')}
             </button>
           ))}
         </div>
 
-        {/* BotPenguin-mode floating toolbar (bottom-center): zoom / fit */}
-        {mode === 'bp' && (
-          <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-gray-600 shadow-lg">
-            <button type="button" title="−" onClick={() => zoomOut()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100">
+        {/* Classic Builder floating toolbar (bottom-center): zoom / fit */}
+        {mode === 'classic' && (
+          <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-gray-600 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            <button type="button" title="−" onClick={() => zoomOut()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
               −
             </button>
-            <button type="button" title="+" onClick={() => zoomIn()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100">
+            <button type="button" title="+" onClick={() => zoomIn()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
               +
             </button>
-            <button type="button" title="⤢" onClick={() => fitView()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100">
+            <button type="button" title="⤢" onClick={() => fitView()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
               ⤢
             </button>
           </div>

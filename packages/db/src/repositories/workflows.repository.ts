@@ -29,21 +29,42 @@ export interface WorkflowsRepository {
   delete(clinicId: string, id: string): Promise<boolean>
 }
 
+/**
+ * Defensive normalization: a workflow written outside the app (seed scripts,
+ * manual SQL with a string parameter) can leave nodes/edges double-encoded —
+ * jsonb holding a JSON *string* instead of an array. The editor assumes arrays
+ * and hard-crashes at mount (`.map is not a function`) on such a row, so parse
+ * the string form back into the real value here, once, at the boundary.
+ */
+function parseGraphColumn<T>(value: T): T {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return value
+  }
+}
+
+export function normalizeWorkflowGraph(w: Workflow): Workflow {
+  return { ...w, nodes: parseGraphColumn(w.nodes), edges: parseGraphColumn(w.edges) }
+}
+
 export function createWorkflowsRepository(sql: Sql): WorkflowsRepository {
   return {
     async listByClinic(clinicId) {
-      return sql<Workflow[]>`SELECT * FROM workflows WHERE clinic_id = ${clinicId} ORDER BY updated_at DESC`
+      const rows = await sql<Workflow[]>`SELECT * FROM workflows WHERE clinic_id = ${clinicId} ORDER BY updated_at DESC`
+      return rows.map(normalizeWorkflowGraph)
     },
 
     async findById(clinicId, id) {
       const rows = await sql<Workflow[]>`
         SELECT * FROM workflows WHERE clinic_id = ${clinicId} AND id = ${id} LIMIT 1
       `
-      return rows[0] ?? null
+      return rows[0] ? normalizeWorkflowGraph(rows[0]) : null
     },
 
     async listActiveByTrigger(clinicId, triggerType) {
-      return sql<Workflow[]>`
+      const rows = await sql<Workflow[]>`
         SELECT * FROM workflows
         WHERE clinic_id = ${clinicId} AND status = 'active'
           AND EXISTS (
@@ -52,6 +73,7 @@ export function createWorkflowsRepository(sql: Sql): WorkflowsRepository {
           )
         ORDER BY updated_at DESC
       `
+      return rows.map(normalizeWorkflowGraph)
     },
 
     async create(data) {
@@ -66,7 +88,7 @@ export function createWorkflowsRepository(sql: Sql): WorkflowsRepository {
         )
         RETURNING *
       `
-      return rows[0]!
+      return normalizeWorkflowGraph(rows[0]!)
     },
 
     async update(clinicId, id, data) {
@@ -79,7 +101,7 @@ export function createWorkflowsRepository(sql: Sql): WorkflowsRepository {
         WHERE clinic_id = ${clinicId} AND id = ${id}
         RETURNING *
       `
-      return rows[0] ?? null
+      return rows[0] ? normalizeWorkflowGraph(rows[0]) : null
     },
 
     async delete(clinicId, id) {

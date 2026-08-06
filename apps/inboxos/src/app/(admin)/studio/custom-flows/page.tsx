@@ -5,10 +5,10 @@
 // with conditions (executed by the flow engine). List / create / edit / delete /
 // enable, plus one-click instantiation of the prebuilt templates.
 import { useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
-import { FlowCanvas } from '@/shared/components/FlowCanvas'
 import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
@@ -24,6 +24,22 @@ import type {
 
 const field =
   'w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800'
+
+// R15: lazy-load the React Flow canvas — the list/form view doesn't need the
+// @xyflow/react bundle until the user switches to the canvas view.
+function CanvasLoading() {
+  const { t } = useI18n()
+  return (
+    <div className="flex min-h-[16rem] items-center justify-center rounded-md border border-dashed border-gray-300 text-sm text-gray-500 dark:border-gray-700">
+      {t('common.loading')}
+    </div>
+  )
+}
+
+const FlowCanvas = dynamic(
+  () => import('@/shared/components/FlowCanvas').then((m) => m.FlowCanvas),
+  { ssr: false, loading: () => <CanvasLoading /> },
+)
 
 // ── Editable models (string-backed for inputs) ──────────────────────────────────
 interface EditableBranch {

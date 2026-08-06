@@ -5,10 +5,10 @@
 // the workflow-runner worker when their trigger fires. List / create / edit /
 // activate / delete.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
-import { WorkflowCanvas } from '@/shared/components/WorkflowCanvas'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { useI18n } from '@/shared/hooks/useI18n'
@@ -19,6 +19,23 @@ import { layoutWorkflow } from '@/shared/workflowLayout'
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus } from '@/shared/types'
 
 const btn = 'rounded-md px-3 py-1.5 text-sm font-medium'
+
+// R15: the React Flow editor bundle (@xyflow/react) is heavy — split it out and
+// fetch it only when a workflow is actually opened for editing, so the workflow
+// list page stays lean.
+function CanvasLoading() {
+  const { t } = useI18n()
+  return (
+    <div className="flex h-full min-h-[16rem] items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-500 dark:border-gray-700">
+      {t('common.loading')}
+    </div>
+  )
+}
+
+const WorkflowCanvas = dynamic(
+  () => import('@/shared/components/WorkflowCanvas').then((m) => m.WorkflowCanvas),
+  { ssr: false, loading: () => <CanvasLoading /> },
+)
 
 export default function WorkflowsPage() {
   const { t } = useI18n()

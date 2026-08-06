@@ -57,11 +57,14 @@ const Handle = HandleBase
 type WfNodeData = {
   wf: WfNode
   label: string
-  /** Classic Builder: plain compact cards + simple bezier edges, no previews. */
-  classic: boolean
+  /** Canvas face + chrome mode: enhanced / classic / bp (BotPenguin). */
+  mode: CanvasMode
   onConfigure: (id: string) => void
   onDuplicate: (id: string) => void
   onDelete: (id: string) => void
+  /** bp mode's "+" buttons: open the node picker and auto-wire from this node
+   *  (and this exact output handle when given). */
+  onAddFrom: (id: string, handleId?: string) => void
 }
 
 interface MenuOption {
@@ -134,15 +137,6 @@ function edgeColor(sourceHandle: string | null | undefined): string {
   }
 }
 
-const TONE_CHIP: Record<string, string> = {
-  emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200',
-  red: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200',
-  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
-  teal: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-200',
-  sky: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200',
-  slate: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-}
-
 function nodeFaceText(wf: WfNode): string | undefined {
   const cfg = wf.config ?? {}
   switch (wf.type) {
@@ -175,129 +169,163 @@ function humanize(key: string): string {
     .replace(/^\w/, (c) => c.toUpperCase())
 }
 
-/** One branch row: chip label + its own source handle aligned to the row. */
-function BranchRow({
+/** A canvas mode: Enhanced (Docmee chrome), Classic (BotPenguin anatomy on the
+ *  themed canvas), BotPenguin (light surface + white cards + "+" add buttons,
+ *  mirroring app.botpenguin.com/bot-builder/canvas). */
+type CanvasMode = 'enhanced' | 'classic' | 'bp'
+
+/** BotPenguin-style option row: left-aligned title, a per-row source handle
+ *  floating on the card's right edge, and (in bp mode) a blue "+" button that
+ *  opens the node picker and auto-wires the new node from this exact handle. */
+function OptionRow({
   handleId,
   text,
-  tone,
+  light,
+  handleClass,
+  textClass,
+  onAdd,
 }: {
   handleId: string
   text: string
-  tone: string
+  /** Force light-only styling (bp mode inside a dark-themed app). */
+  light: boolean
+  handleClass: string
+  textClass?: string
+  onAdd?: (handleId: string) => void
 }) {
   return (
-    <div className="relative flex items-center justify-end py-0.5">
-      <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${TONE_CHIP[tone] ?? TONE_CHIP.slate}`}>{text}</span>
+    <div className={`relative flex items-center border-t py-1 ${light ? 'border-gray-100' : 'border-gray-100 dark:border-gray-800'}`}>
+      <span className={`truncate text-[10px] ${textClass ?? (light ? 'text-gray-600' : 'text-gray-600 dark:text-gray-300')}`}>{text}</span>
+      {onAdd && (
+        <button
+          type="button"
+          title={handleId}
+          onClick={(e) => {
+            e.stopPropagation()
+            onAdd(handleId)
+          }}
+          className="nodrag ml-auto mr-1.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold leading-none text-white shadow-sm hover:bg-blue-600"
+        >
+          +
+        </button>
+      )}
       <Handle
         id={handleId}
         type="source"
         position={Position.Right}
         title={handleId}
-        className="!absolute !right-[-7px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 !bg-teal-500"
+        className={`!absolute !right-[-9px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 ${handleClass}`}
         style={{ position: 'absolute' }}
       />
     </div>
   )
 }
 
-/** Classic option row (BotPenguin-style): left-aligned title with a plain
- *  circular source handle floating on the card's right edge. */
-function ClassicOptionRow({ handleId, text }: { handleId: string; text: string }) {
-  return (
-    <div className="relative flex items-center border-t border-gray-100 py-1 dark:border-gray-800">
-      <span className="truncate text-[10px] text-gray-600 dark:text-gray-300">{text}</span>
-      <Handle
-        id={handleId}
-        type="source"
-        position={Position.Right}
-        title={handleId}
-        className="!absolute !right-[-9px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 !rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700"
-        style={{ position: 'absolute' }}
-      />
-    </div>
-  )
-}
-
-/** Classic section: tiny gray caption above its value (BotPenguin's
+/** Section block: tiny gray caption above its value (BotPenguin's
  *  Header / Message / Footer blocks on a card). */
-function ClassicSection({ caption, value }: { caption: string; value: string }) {
+function SectionBlock({ caption, value, light }: { caption: string; value: string; light: boolean }) {
   return (
     <div>
-      <p className="text-[9px] text-gray-400 dark:text-gray-500">{caption}</p>
-      <p className="line-clamp-2 text-[10px] font-medium text-gray-700 dark:text-gray-200">{value}</p>
+      <p className={`text-[9px] ${light ? 'text-gray-400' : 'text-gray-400 dark:text-gray-500'}`}>{caption}</p>
+      <p className={`line-clamp-2 text-[10px] font-medium ${light ? 'text-gray-700' : 'text-gray-700 dark:text-gray-200'}`}>{value}</p>
     </div>
   )
 }
 
+/** White ring handle (classic + bp cards). */
+const ringHandleClass = (light: boolean) =>
+  light
+    ? '!rounded-full !border !border-gray-300 !bg-white'
+    : '!rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700'
+
+/** Solid teal handle (enhanced cards). */
+const TEAL_HANDLE = '!bg-teal-500'
+
 const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
-  const { wf, label, classic, onConfigure, onDuplicate, onDelete } = data
+  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom } = data
   const face = nodeFaceText(wf)
   const rows = branchRows(wf)
   const { t } = useI18n()
 
-  // Classic Builder face — BotPenguin-style card: icon + type-name header,
-  // structured Header/Message/Footer sections, left-aligned option rows with
-  // plain circular per-row handles. Branch handles stay fully functional.
-  if (classic) {
-    const cfg = wf.config ?? {}
-    const isMenu = wf.type === 'action.interactive_menu'
-    const menuOpts = isMenu ? parseMenuOptionsSafe(cfg.options) : []
-    const section = (key: string) => {
-      const value = String(cfg[key] ?? '').trim()
-      return value ? (
-        <ClassicSection key={key} caption={t(`wf.field.${key}` as Parameters<typeof t>[0])} value={value} />
-      ) : null
-    }
+  const cfg = wf.config ?? {}
+  const isMenu = wf.type === 'action.interactive_menu'
+  const menuOpts = isMenu ? parseMenuOptionsSafe(cfg.options) : []
+  const section = (key: string, light: boolean) => {
+    const value = String(cfg[key] ?? '').trim()
+    return value ? (
+      <SectionBlock key={key} caption={t(`wf.field.${key}` as Parameters<typeof t>[0])} value={value} light={light} />
+    ) : null
+  }
+  const rowText = (key: string) =>
+    isMenu && !['restart', 'livechat', 'default'].includes(key)
+      ? menuOpts.find((o) => o.optionId === key)?.title || key
+      : t(`wf.branch.${key}` as Parameters<typeof t>[0])
+
+  // Classic & BotPenguin faces — BotPenguin card anatomy: icon + type-name
+  // header, structured Header/Message/Footer sections, left-aligned option
+  // rows with per-row handles. bp mode forces a light card and adds the
+  // signature blue "+" continue buttons (auto-wire via the node picker).
+  if (mode !== 'enhanced') {
+    const light = mode === 'bp'
+    const add = light ? (handleId: string) => onAddFrom(wf.id, handleId) : undefined
     return (
       <div
-        className={`w-48 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md dark:border-gray-700 dark:bg-gray-900 ${
-          selected ? 'ring-2 ring-teal-300' : ''
-        }`}
+        className={`w-48 rounded-lg border px-3 py-2 text-xs shadow-md ${
+          light ? 'border-gray-200 bg-white' : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'
+        } ${selected ? 'ring-2 ring-teal-300' : ''}`}
       >
         {wf.kind !== 'trigger' && (
-          <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700" />
+          <Handle type="target" position={Position.Left} className={`!h-2 !w-2 ${ringHandleClass(light)}`} />
         )}
 
         {/* Type badge: colored icon + type name (BotPenguin card header) */}
         <div className="mb-1 flex items-center gap-1.5">
           <span className={`rounded px-1 py-0.5 text-[10px] leading-none ${NODE_KIND_BADGE[wf.kind]}`}>{KIND_ICON[wf.kind] ?? '•'}</span>
-          <span className="truncate text-[11px] font-semibold text-gray-700 dark:text-gray-200">{label}</span>
+          <span className={`truncate text-[11px] font-semibold ${light ? 'text-gray-700' : 'text-gray-700 dark:text-gray-200'}`}>{label}</span>
         </div>
 
         {isMenu ? (
           <div className="space-y-1.5">
-            {section('header')}
-            {section('message')}
-            {section('footer')}
+            {section('header', light)}
+            {section('message', light)}
+            {section('footer', light)}
             {rows.length > 0 && (
               <div>
-                <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
+                <p className={`mt-1 text-[9px] ${light ? 'text-gray-400' : 'text-gray-400 dark:text-gray-500'}`}>{t('wf.field.options')}</p>
                 {rows.map((r) => (
-                  <ClassicOptionRow
-                    key={r.key}
-                    handleId={r.key}
-                    text={
-                      !['restart', 'livechat', 'default'].includes(r.key)
-                        ? menuOpts.find((o) => o.optionId === r.key)?.title || r.key
-                        : t(`wf.branch.${r.key}` as Parameters<typeof t>[0])
-                    }
-                  />
+                  <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} light={light} handleClass={ringHandleClass(light)} onAdd={add} />
                 ))}
               </div>
             )}
           </div>
         ) : (
           <>
-            {face && <p className="line-clamp-3 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>}
+            {face && <p className={`line-clamp-3 text-[10px] ${light ? 'text-gray-500' : 'text-gray-500 dark:text-gray-400'}`}>{face}</p>}
             {rows.length > 0 ? (
               <div className="mt-1">
                 {rows.map((r) => (
-                  <ClassicOptionRow key={r.key} handleId={r.key} text={t(`wf.branch.${r.key}` as Parameters<typeof t>[0])} />
+                  <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} light={light} handleClass={ringHandleClass(light)} onAdd={add} />
                 ))}
               </div>
             ) : (
               wf.type !== 'action.end' && (
-                <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700" />
+                <>
+                  <Handle type="source" position={Position.Right} className={`!h-2 !w-2 ${ringHandleClass(light)}`} />
+                  {/* BotPenguin's floating blue "+" continues the flow */}
+                  {light && (
+                    <button
+                      type="button"
+                      title={t('wf.pickNodeTitle')}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onAddFrom(wf.id, undefined)
+                      }}
+                      className="nodrag absolute -bottom-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-sm font-bold leading-none text-white shadow-md hover:bg-blue-600"
+                    >
+                      +
+                    </button>
+                  )}
+                </>
               )
             )}
           </>
@@ -360,32 +388,52 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
       </div>
       <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{label}</p>
 
-      {/* Face content */}
-      {face && (
+      {/* Full BotPenguin-style anatomy (R9): menu cards show structured
+          Header/Message/Footer sections; options/branches are left-aligned
+          rows with teal per-row handles; other nodes show their content. */}
+      {isMenu ? (
+        <div className="mt-1.5 space-y-1.5 border-t border-gray-200 pt-1.5 dark:border-gray-700">
+          {section('header', false)}
+          {section('message', false)}
+          {section('footer', false)}
+          {rows.length > 0 && (
+            <div>
+              <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
+              {rows.map((r) => (
+                <OptionRow
+                  key={r.key}
+                  handleId={r.key}
+                  text={rowText(r.key)}
+                  light={false}
+                  handleClass={TEAL_HANDLE}
+                  textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
         <>
-          <div className="my-1.5 border-t border-gray-200 dark:border-gray-700" />
-          <p className="line-clamp-2 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>
-        </>
-      )}
-
-      {/* Branch rows with per-row handles */}
-      {rows.length > 0 && (
-        <>
-          <div className="my-1.5 border-t border-gray-200 dark:border-gray-700" />
-          <div>
-            {rows.map((r) => (
-              <BranchRow
-                key={r.key}
-                handleId={r.key}
-                tone={r.tone}
-                text={
-                  wf.type === 'action.interactive_menu' && !['restart', 'livechat', 'default'].includes(r.key)
-                    ? parseMenuOptionsSafe(wf.config.options).find((o) => o.optionId === r.key)?.title || r.key
-                    : t(`wf.branch.${r.key}` as Parameters<typeof t>[0])
-                }
-              />
-            ))}
-          </div>
+          {face && (
+            <>
+              <div className="my-1.5 border-t border-gray-200 dark:border-gray-700" />
+              <p className="line-clamp-3 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>
+            </>
+          )}
+          {rows.length > 0 && (
+            <div className="mt-1">
+              {rows.map((r) => (
+                <OptionRow
+                  key={r.key}
+                  handleId={r.key}
+                  text={rowText(r.key)}
+                  light={false}
+                  handleClass={TEAL_HANDLE}
+                  textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -426,7 +474,7 @@ function WorkflowCanvasInner({
   clinicId?: string
 }) {
   const { t, language } = useI18n()
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow()
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
 
   // The clinic's active doctors, for the no-code optionId picker in the
@@ -465,19 +513,18 @@ function WorkflowCanvasInner({
   const [pendingWire, setPendingWire] = useState<PendingWire | null>(null)
   const [pickerQuery, setPickerQuery] = useState('')
   // Builder-mode preference persists across sessions (BotPenguin-style switcher).
-  const [classic, setClassic] = useState<boolean>(
-    () => typeof window !== 'undefined' && window.localStorage.getItem(CANVAS_MODE_KEY) === 'classic',
-  )
-  const toggleClassic = useCallback(() => {
-    setClassic((cur) => {
-      const next = !cur
-      try {
-        window.localStorage.setItem(CANVAS_MODE_KEY, next ? 'classic' : 'enhanced')
-      } catch {
-        /* private mode — pref simply won't persist */
-      }
-      return next
-    })
+  const [mode, setMode] = useState<CanvasMode>(() => {
+    if (typeof window === 'undefined') return 'enhanced'
+    const stored = window.localStorage.getItem(CANVAS_MODE_KEY)
+    return stored === 'classic' || stored === 'bp' ? stored : 'enhanced'
+  })
+  const switchMode = useCallback((next: CanvasMode) => {
+    setMode(next)
+    try {
+      window.localStorage.setItem(CANVAS_MODE_KEY, next)
+    } catch {
+      /* private mode — pref simply won't persist */
+    }
   }, [])
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
@@ -507,16 +554,28 @@ function WorkflowCanvasInner({
     [nodes, edges, onChange],
   )
 
+  /** bp mode's "+" buttons: open the node picker positioned just right of the
+   *  source node; picking a node auto-wires it from this handle (same
+   *  pendingWire flow as dropping a loose connection on the pane). */
+  const openAddFrom = useCallback(
+    (id: string, handleId?: string) => {
+      const from = nodes.find((n) => n.id === id)
+      setPickerQuery('')
+      setPendingWire({ nodeId: id, handleId, at: { x: (from?.x ?? 0) + 300, y: (from?.y ?? 0) + 40 } })
+    },
+    [nodes],
+  )
+
   const graph = useMemo(() => {
     const rfNodes: Node[] = nodes.map((n) => ({
       id: n.id,
       type: 'wf',
       position: { x: n.x, y: n.y },
-      data: { wf: n, label: label(n.type), classic, onConfigure: configureNode, onDuplicate: duplicateNodeById, onDelete: deleteNodeById },
+      data: { wf: n, label: label(n.type), mode, onConfigure: configureNode, onDuplicate: duplicateNodeById, onDelete: deleteNodeById, onAddFrom: openAddFrom },
     }))
     const rfEdges: Edge[] = edges.map((e) => {
-      if (classic) {
-        // Classic Builder: plain thin gray beziers, no labels or colored markers.
+      if (mode !== 'enhanced') {
+        // Classic / BotPenguin: plain thin gray beziers, no labels or colored markers.
         return {
           id: e.id,
           source: e.source,
@@ -540,7 +599,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, label, t, classic, configureNode, duplicateNodeById, deleteNodeById])
+  }, [nodes, edges, label, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -785,8 +844,8 @@ function WorkflowCanvasInner({
         })}
       </div>
 
-      {/* Canvas */}
-      <div className="relative flex-1">
+      {/* Canvas — bp mode gets the light BotPenguin surface (see .bp-canvas) */}
+      <div className={`relative flex-1 ${mode === 'bp' ? 'bp-canvas' : ''}`}>
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -801,19 +860,43 @@ function WorkflowCanvasInner({
           onlyRenderVisibleElements
           proOptions={{ hideAttribution: true }}
         >
-          <Background />
+          <Background color={mode === 'bp' ? '#cbd5e1' : undefined} bgColor={mode === 'bp' ? '#f3f4f6' : undefined} />
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
 
         {/* Builder-mode switcher (BotPenguin-style, top-right) */}
-        <button
-          type="button"
-          onClick={toggleClassic}
-          className="absolute right-3 top-3 z-10 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-        >
-          ▦ {classic ? t('wf.enhancedBuilder') : t('wf.classicBuilder')}
-        </button>
+        <div className="absolute right-3 top-3 z-10 flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          {(['enhanced', 'classic', 'bp'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => switchMode(m)}
+              className={`px-2.5 py-1 ${
+                mode === m
+                  ? 'bg-teal-600 text-white'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              {m === 'enhanced' ? t('wf.enhancedBuilder') : m === 'classic' ? t('wf.classicBuilder') : t('wf.bpBuilder')}
+            </button>
+          ))}
+        </div>
+
+        {/* BotPenguin-mode floating toolbar (bottom-center): zoom / fit */}
+        {mode === 'bp' && (
+          <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-gray-600 shadow-lg">
+            <button type="button" title="−" onClick={() => zoomOut()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100">
+              −
+            </button>
+            <button type="button" title="+" onClick={() => zoomIn()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100">
+              +
+            </button>
+            <button type="button" title="⤢" onClick={() => fitView()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100">
+              ⤢
+            </button>
+          </div>
+        )}
 
         {/* Auto-wire node picker (opened by dropping a loose connection) */}
         {pendingWire && (

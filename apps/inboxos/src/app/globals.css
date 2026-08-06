@@ -2666,3 +2666,25 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
   background: transparent;
   color: #4b5563;
 }
+
+/* ---- BotPenguin canvas mode (.bp-canvas) -----------------------------------
+   The bp canvas mode forces a light surface even when the app theme is dark,
+   so the React Flow chrome must be re-lit inside it. */
+.bp-canvas .react-flow__controls button {
+  background: #ffffff;
+  border-bottom-color: #e5e7eb;
+  color: #374151;
+}
+.bp-canvas .react-flow__controls button:hover {
+  background: #f3f4f6;
+}
+.bp-canvas .react-flow__minimap {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+.bp-canvas .react-flow__minimap-mask {
+  fill: rgb(243 244 246 / 0.7);
+}
+.bp-canvas .react-flow__minimap-node {
+  fill: #d1d5db;
+}

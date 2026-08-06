@@ -200,19 +200,31 @@ function BranchRow({
   )
 }
 
-/** Classic branch row: plain text + working handle, no colored chip. */
-function ClassicBranchRow({ handleId, text }: { handleId: string; text: string }) {
+/** Classic option row (BotPenguin-style): left-aligned title with a plain
+ *  circular source handle floating on the card's right edge. */
+function ClassicOptionRow({ handleId, text }: { handleId: string; text: string }) {
   return (
-    <div className="relative flex items-center justify-end py-px">
-      <span className="text-[9px] text-gray-400">{text}</span>
+    <div className="relative flex items-center border-t border-gray-100 py-1 dark:border-gray-800">
+      <span className="truncate text-[10px] text-gray-600 dark:text-gray-300">{text}</span>
       <Handle
         id={handleId}
         type="source"
         position={Position.Right}
         title={handleId}
-        className="!absolute !right-[-6px] !top-1/2 !h-1.5 !w-1.5 !-translate-y-1/2 !bg-gray-400"
+        className="!absolute !right-[-9px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 !rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700"
         style={{ position: 'absolute' }}
       />
+    </div>
+  )
+}
+
+/** Classic section: tiny gray caption above its value (BotPenguin's
+ *  Header / Message / Footer blocks on a card). */
+function ClassicSection({ caption, value }: { caption: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[9px] text-gray-400 dark:text-gray-500">{caption}</p>
+      <p className="line-clamp-2 text-[10px] font-medium text-gray-700 dark:text-gray-200">{value}</p>
     </div>
   )
 }
@@ -223,34 +235,72 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
   const rows = branchRows(wf)
   const { t } = useI18n()
 
-  // Classic Builder face: uniform compact card — tiny kind label, title, plain
-  // branch rows (handles stay fully functional), no toolbar / previews / chips.
+  // Classic Builder face — BotPenguin-style card: icon + type-name header,
+  // structured Header/Message/Footer sections, left-aligned option rows with
+  // plain circular per-row handles. Branch handles stay fully functional.
   if (classic) {
+    const cfg = wf.config ?? {}
+    const isMenu = wf.type === 'action.interactive_menu'
+    const menuOpts = isMenu ? parseMenuOptionsSafe(cfg.options) : []
+    const section = (key: string) => {
+      const value = String(cfg[key] ?? '').trim()
+      return value ? (
+        <ClassicSection key={key} caption={t(`wf.field.${key}` as Parameters<typeof t>[0])} value={value} />
+      ) : null
+    }
     return (
       <div
-        className={`w-44 rounded-md border bg-white px-2.5 py-1.5 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
+        className={`w-48 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md dark:border-gray-700 dark:bg-gray-900 ${
           selected ? 'ring-2 ring-teal-300' : ''
         }`}
       >
-        {wf.kind !== 'trigger' && <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !bg-gray-400" />}
-        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
-        <p className="truncate font-medium text-gray-800 dark:text-gray-100">{label}</p>
-        {rows.length > 0 ? (
-          <div className="mt-1 border-t border-gray-100 pt-0.5 dark:border-gray-800">
-            {rows.map((r) => (
-              <ClassicBranchRow
-                key={r.key}
-                handleId={r.key}
-                text={
-                  wf.type === 'action.interactive_menu' && !['restart', 'livechat', 'default'].includes(r.key)
-                    ? parseMenuOptionsSafe(wf.config.options).find((o) => o.optionId === r.key)?.title || r.key
-                    : t(`wf.branch.${r.key}` as Parameters<typeof t>[0])
-                }
-              />
-            ))}
+        {wf.kind !== 'trigger' && (
+          <Handle type="target" position={Position.Left} className="!h-2 !w-2 !rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700" />
+        )}
+
+        {/* Type badge: colored icon + type name (BotPenguin card header) */}
+        <div className="mb-1 flex items-center gap-1.5">
+          <span className={`rounded px-1 py-0.5 text-[10px] leading-none ${NODE_KIND_BADGE[wf.kind]}`}>{KIND_ICON[wf.kind] ?? '•'}</span>
+          <span className="truncate text-[11px] font-semibold text-gray-700 dark:text-gray-200">{label}</span>
+        </div>
+
+        {isMenu ? (
+          <div className="space-y-1.5">
+            {section('header')}
+            {section('message')}
+            {section('footer')}
+            {rows.length > 0 && (
+              <div>
+                <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
+                {rows.map((r) => (
+                  <ClassicOptionRow
+                    key={r.key}
+                    handleId={r.key}
+                    text={
+                      !['restart', 'livechat', 'default'].includes(r.key)
+                        ? menuOpts.find((o) => o.optionId === r.key)?.title || r.key
+                        : t(`wf.branch.${r.key}` as Parameters<typeof t>[0])
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ) : (
-          wf.type !== 'action.end' && <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !bg-gray-400" />
+          <>
+            {face && <p className="line-clamp-3 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>}
+            {rows.length > 0 ? (
+              <div className="mt-1">
+                {rows.map((r) => (
+                  <ClassicOptionRow key={r.key} handleId={r.key} text={t(`wf.branch.${r.key}` as Parameters<typeof t>[0])} />
+                ))}
+              </div>
+            ) : (
+              wf.type !== 'action.end' && (
+                <Handle type="source" position={Position.Right} className="!h-2 !w-2 !rounded-full !border !border-gray-300 !bg-white dark:!border-gray-600 dark:!bg-gray-700" />
+              )
+            )}
+          </>
         )}
       </div>
     )

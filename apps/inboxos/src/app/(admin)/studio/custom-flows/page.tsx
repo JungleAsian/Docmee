@@ -4,12 +4,12 @@
 // flows that bypass intent classification / the LLM. Single-shot OR multi-step
 // with conditions (executed by the flow engine). List / create / edit / delete /
 // enable, plus one-click instantiation of the prebuilt templates.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
-import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
@@ -229,14 +229,43 @@ export default function CustomFlowsPage() {
   const templates = templatesQuery.data?.templates ?? []
   const bookingTemplate = templates.find((template) => template.key === 'schedule')
 
+  // R5 deep links from the Automations hub gallery:
+  //   ?template=<key>  → open the editor pre-filled from that template
+  //   ?new=1           → open a blank editor
+  const deepLinkHandledRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkHandledRef.current || !clinicId) return
+    const params = new URLSearchParams(window.location.search)
+    if (!params.toString()) return
+    const clear = () => window.history.replaceState(null, '', window.location.pathname)
+    if (params.get('new') === '1') {
+      deepLinkHandledRef.current = true
+      setEditor({})
+      clear()
+      return
+    }
+    const tplKey = params.get('template')
+    if (tplKey && templates.length > 0) {
+      const tpl = templates.find((x) => x.key === tplKey)
+      if (tpl) {
+        deepLinkHandledRef.current = true
+        setEditor({ initial: templateToEditable(tpl) })
+        clear()
+      }
+    }
+  }, [templates, clinicId])
+
   return (
     <div className="clinic-page space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('studio.customFlows.title')}</h1>
+        <div>
+          <Link href="/studio/automations" className="text-xs font-medium text-cyan-700 hover:underline dark:text-cyan-300">
+            ← {t('hub.backToHub')}
+          </Link>
+          <h1 className="text-xl font-bold">{t('studio.customFlows.title')}</h1>
+        </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />
       </div>
-
-      <NoCodeBuilderGuide active="custom_flows" />
 
       {!clinicId ? (
         <p className="text-sm text-gray-400">{t('studio.customFlows.selectClinic')}</p>

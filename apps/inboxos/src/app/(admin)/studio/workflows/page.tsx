@@ -6,11 +6,11 @@
 // activate / delete.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
-import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from '@/shared/workflowTemplates'
@@ -79,6 +79,45 @@ export default function WorkflowsPage() {
 
   const workflows = query.data?.workflows ?? []
 
+  // R5 deep links from the Automations hub gallery (client-side read avoids a
+  // useSearchParams Suspense requirement on this statically rendered page):
+  //   ?template=<key>  → create from that template, then open the editor
+  //   ?new=1           → open a blank (pre-seeded) editor
+  //   ?edit=<id>       → open that workflow's editor
+  const deepLinkHandledRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkHandledRef.current || !clinicId) return
+    const params = new URLSearchParams(window.location.search)
+    if (!params.toString()) return
+    const clear = () => window.history.replaceState(null, '', window.location.pathname)
+    const tplKey = params.get('template')
+    if (tplKey) {
+      const tpl = WORKFLOW_TEMPLATES.find((x) => x.key === tplKey)
+      if (tpl) {
+        deepLinkHandledRef.current = true
+        createFromTemplate.mutate(tpl)
+        clear()
+      }
+      return
+    }
+    if (params.get('new') === '1') {
+      deepLinkHandledRef.current = true
+      setEditing('new')
+      clear()
+      return
+    }
+    const editId = params.get('edit')
+    if (editId && workflows.length > 0) {
+      const wf = workflows.find((w) => w.id === editId)
+      if (wf) {
+        deepLinkHandledRef.current = true
+        setEditing(wf)
+        clear()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflows, clinicId])
+
   return (
     <div className="clinic-page space-y-6">
       <ConfirmDialog
@@ -95,6 +134,9 @@ export default function WorkflowsPage() {
       />
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
+          <Link href="/studio/automations" className="text-xs font-medium text-cyan-700 hover:underline dark:text-cyan-300">
+            ← {t('hub.backToHub')}
+          </Link>
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('wf.title')}</h1>
           <p className="text-sm text-gray-500">{t('wf.subtitle')}</p>
         </div>
@@ -106,8 +148,6 @@ export default function WorkflowsPage() {
           {deleteError}
         </p>
       )}
-
-      <NoCodeBuilderGuide active="workflows" />
 
       {!clinicId ? (
         <p className="text-sm text-gray-500">{t('analytics.selectClinicPrompt')}</p>

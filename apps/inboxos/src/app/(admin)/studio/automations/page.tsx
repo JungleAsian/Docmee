@@ -11,14 +11,15 @@
 // clinic.settings.reviewLink (where the review-request worker points patients).
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
-import { NoCodeBuilderGuide } from '@/shared/components/NoCodeBuilderGuide'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { useAuthStore } from '@/shared/store/auth'
+import { WORKFLOW_TEMPLATES } from '@/shared/workflowTemplates'
 import {
   AUTOMATION_DEFS,
   PROACTIVE_CAP_PER_DAY,
@@ -31,7 +32,7 @@ import {
   type ScheduleOffset,
   type AutomationsConfig,
 } from '@/shared/automations'
-import type { Clinic, ClinicSettings, CustomFlow, FollowUpActivity, FollowUpStatus, Workflow } from '@/shared/types'
+import type { Clinic, ClinicSettings, CustomFlow, FlowTemplate, FollowUpActivity, FollowUpStatus, Workflow } from '@/shared/types'
 import {
   CHAT_PROVIDERS,
   INTENT_PROVIDERS,
@@ -86,6 +87,137 @@ function WindowBadge({ def }: { def: AutomationDef }) {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────────
+type HubTranslateKey = Parameters<ReturnType<typeof useI18n>['t']>[0]
+
+// R5: goal-first creation gallery — the single creation entry for all three
+// automation engines. The user picks a goal (a template); the engine choice is
+// deferred to the "start from scratch" fallback at the bottom. Every card
+// deep-links into the owning builder (?template= / ?new=), which performs the
+// actual creation — this component stays presentational.
+function CreateAutomationGallery({ clinicId }: { clinicId: string | null }) {
+  const { t } = useI18n()
+  const router = useRouter()
+  const flowTemplatesQuery = useQuery({
+    queryKey: ['custom-flow-templates', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ templates: FlowTemplate[] }>(`/clinics/${clinicId}/custom-flows/templates`),
+  })
+  const flowTemplates = flowTemplatesQuery.data?.templates ?? []
+
+  type Chip = 'workflow' | 'replyFlow' | 'scheduled'
+  interface GalleryCard {
+    key: string
+    name: string
+    desc: string
+    chip: Chip
+    href: string
+  }
+
+  const workflowCard = (tplKey: string): GalleryCard | null => {
+    const tpl = WORKFLOW_TEMPLATES.find((x) => x.key === tplKey)
+    if (!tpl) return null
+    return {
+      key: tpl.key,
+      name: t(tpl.nameKey as HubTranslateKey),
+      desc: t(tpl.descKey as HubTranslateKey),
+      chip: 'workflow',
+      href: `/studio/workflows?template=${tpl.key}`,
+    }
+  }
+  const onlyCards = (cards: (GalleryCard | null)[]) => cards.filter((c): c is GalleryCard => c !== null)
+
+  const groups: { key: string; titleKey: HubTranslateKey; cards: GalleryCard[] }[] = [
+    {
+      key: 'booking',
+      titleKey: 'hub.goal.booking' as HubTranslateKey,
+      cards: onlyCards([workflowCard('guided_whatsapp_booking'), workflowCard('single_turn_booking')]),
+    },
+    {
+      key: 'triage',
+      titleKey: 'hub.goal.triage' as HubTranslateKey,
+      cards: onlyCards([workflowCard('urgent_keyword')]),
+    },
+    {
+      key: 'replies',
+      titleKey: 'hub.goal.replies' as HubTranslateKey,
+      cards: flowTemplates.map((tpl) => ({
+        key: tpl.key,
+        name: tpl.name,
+        desc: tpl.triggerKeywords.join(', '),
+        chip: 'replyFlow' as Chip,
+        href: `/studio/custom-flows?template=${tpl.key}`,
+      })),
+    },
+    {
+      key: 'followUps',
+      titleKey: 'hub.goal.followUps' as HubTranslateKey,
+      cards: [
+        { key: 'followup', name: t('hub.preset.followUp.name' as HubTranslateKey), desc: t('hub.preset.followUp.desc' as HubTranslateKey), chip: 'scheduled', href: '#follow-ups' },
+        { key: 'review', name: t('hub.preset.review.name' as HubTranslateKey), desc: t('hub.preset.review.desc' as HubTranslateKey), chip: 'scheduled', href: '#review' },
+      ],
+    },
+  ]
+
+  const CHIP_STYLE: Record<Chip, string> = {
+    workflow: 'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300',
+    replyFlow: 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
+    scheduled: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  }
+
+  const open = (href: string) => {
+    if (href.startsWith('#')) {
+      document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      router.push(href)
+    }
+  }
+
+  const cardCls =
+    'flex flex-col rounded-md border border-gray-200 p-3 text-left transition hover:border-cyan-300 hover:bg-cyan-50 dark:border-gray-800 dark:hover:border-cyan-800 dark:hover:bg-gray-800'
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-50">{t('hub.create' as HubTranslateKey)}</h2>
+      <p className="mt-0.5 max-w-2xl text-sm text-gray-500 dark:text-gray-400">{t('hub.createDesc' as HubTranslateKey)}</p>
+
+      <div className="mt-4 space-y-4">
+        {groups.map((group) =>
+          group.cards.length === 0 ? null : (
+            <div key={group.key}>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{t(group.titleKey)}</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {group.cards.map((card) => (
+                  <button key={card.key} type="button" onClick={() => open(card.href)} className={cardCls}>
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{card.name}</p>
+                    <p className="mt-0.5 flex-1 text-xs text-gray-500 dark:text-gray-400">{card.desc}</p>
+                    <span className={`mt-2 self-start rounded-full px-2 py-0.5 text-[10px] font-semibold ${CHIP_STYLE[card.chip]}`}>
+                      {t(`hub.chip.${card.chip}` as HubTranslateKey)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ),
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{t('hub.scratch' as HubTranslateKey)}</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button type="button" onClick={() => open('/studio/workflows?new=1')} className={cardCls}>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t('hub.chip.workflow' as HubTranslateKey)}</p>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t('hub.scratch.workflowDesc' as HubTranslateKey)}</p>
+          </button>
+          <button type="button" onClick={() => open('/studio/custom-flows?new=1')} className={cardCls}>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t('hub.chip.replyFlow' as HubTranslateKey)}</p>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t('hub.scratch.flowDesc' as HubTranslateKey)}</p>
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 export default function AutomationsPage() {
   const { t } = useI18n()
   const { clinicId, switchClinic } = useActiveClinic()
@@ -106,7 +238,7 @@ export default function AutomationsPage() {
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />
       </div>
 
-      <NoCodeBuilderGuide active="automations" />
+      {clinicId ? <CreateAutomationGallery clinicId={clinicId} /> : null}
 
       {!clinicId ? (
         <p className="text-sm text-gray-400">{t('automations.selectClinic')}</p>
@@ -200,7 +332,7 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
       <AiAssistantSection key={clinicId} ai={ai} saving={save.isPending} locked={jzelConfigLocked} onPatch={patchAiAssistant} />
 
       {/* ── Section A: Follow-up automation (Req 14) ─────────────────────────── */}
-      <section>
+      <section id="follow-ups">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">{t('automations.section.followUps')}</h2>
           <span className="text-xs text-gray-400">
@@ -553,7 +685,7 @@ function ReviewSection({
   const shown = (savedLink || t('automations.review.samplePlaceholder')) as string
 
   return (
-    <section>
+    <section id="review">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('automations.section.review')}</h2>
         <PillToggle checked={on} disabled={saving} label={t('automations.section.review')} onChange={onToggle} />

@@ -24,6 +24,7 @@ const ASSETS: Record<string, string> = {
   hologram: 'docmee-mascot-hologram.png',
   'login-hologram': 'docmee-mascot-login-hologram.png',
   'kb-crossed-arms': 'docmee-mascot-kb-crossed-arms.png',
+  analytics: 'docmee-mascot-analytics.png',
 }
 
 export const dynamic = 'force-static'

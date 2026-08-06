@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
-import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, ENUM_FIELD_OPTIONS } from './workflowNodes'
+import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, ENUM_FIELD_OPTIONS } from './workflowNodes'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 import type { WorkflowNode } from './types'
@@ -114,5 +114,69 @@ describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
 
   it('offers exactly the operators evalCondition actually understands', () => {
     expect(ENUM_FIELD_OPTIONS.op?.map((o) => o.value)).toEqual(['equals', 'contains', 'not_equals'])
+  })
+})
+
+describe('collectFieldValueOptions (dependent Value selector)', () => {
+  const menuOptions = JSON.stringify([
+    { optionId: 'opt_pricing', title: '💰 Pricing' },
+    { optionId: 'opt_book', title: 'Book a visit' },
+  ])
+
+  it('returns nothing without a selected field', () => {
+    expect(collectFieldValueOptions([node('m', 'action', 'action.interactive_menu', { field: 'choice', options: menuOptions })], '')).toEqual([])
+  })
+
+  it('offers a menu field the option titles the engine actually writes, plus reserved handles', () => {
+    // workflow-engine.ts: ctx[field] = selected?.title ?? handle
+    const values = collectFieldValueOptions(
+      [node('m', 'action', 'action.interactive_menu', { field: 'choice', options: menuOptions })],
+      'choice',
+    ).map((o) => o.value)
+    expect(values).toEqual(['💰 Pricing', 'Book a visit', 'restart', 'livechat', 'default'])
+  })
+
+  it('ignores menu nodes whose field config names a different field', () => {
+    expect(
+      collectFieldValueOptions(
+        [node('m', 'action', 'action.interactive_menu', { field: 'choice', options: menuOptions })],
+        'other_field',
+      ),
+    ).toEqual([])
+  })
+
+  it('accepts options stored as a real array, not only a JSON string', () => {
+    const values = collectFieldValueOptions(
+      [node('m', 'action', 'action.interactive_menu', { field: 'choice', options: [{ optionId: 'a', title: 'A' }] })],
+      'choice',
+    ).map((o) => o.value)
+    expect(values).toEqual(['A', 'restart', 'livechat', 'default'])
+  })
+
+  it('offers the fixed vocabularies the worker writes into status fields', () => {
+    expect(collectFieldValueOptions([], 'capture_status').map((o) => o.value)).toEqual(['captured', 'pending', 'error'])
+    expect(collectFieldValueOptions([], 'booking_status').map((o) => o.value)).toEqual(['created', 'rescheduled'])
+    expect(collectFieldValueOptions([], 'voice_booking_confidence').map((o) => o.value)).toEqual(['high', 'medium', 'low'])
+    expect(collectFieldValueOptions([], 'needs_review').map((o) => o.value)).toEqual(['true', 'false'])
+  })
+
+  it('returns nothing for free-text fields so the panel keeps a plain input', () => {
+    expect(collectFieldValueOptions([node('a', 'action', 'action.ask_capture', { field: 'preferred_date' })], 'preferred_date')).toEqual([])
+    expect(collectFieldValueOptions([], 'message')).toEqual([])
+  })
+
+  it('the guided_whatsapp_booking template menu fields expose their option titles', () => {
+    const template = WORKFLOW_TEMPLATES.find((t) => t.key === 'guided_whatsapp_booking')
+    expect(template).toBeDefined()
+    if (!template) return
+    const menuNode = template.nodes.find(
+      (n) => n.type === 'action.interactive_menu' && String(n.config?.['field'] ?? '').trim(),
+    )
+    expect(menuNode).toBeDefined()
+    if (!menuNode) return
+    const field = String(menuNode.config?.['field'] ?? '')
+    const values = collectFieldValueOptions(template.nodes, field).map((o) => o.value)
+    expect(values.length).toBeGreaterThan(3) // at least one option title + reserved handles
+    expect(values).toContain('default')
   })
 })

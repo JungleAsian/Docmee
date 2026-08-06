@@ -38,6 +38,7 @@ import {
   FIELD_REFERENCE_KEYS,
   collectWorkflowFields,
   collectWorkflowTags,
+  collectFieldValueOptions,
   ENUM_FIELD_OPTIONS,
   type NodeTypeDef,
 } from '../workflowNodes'
@@ -628,6 +629,17 @@ function WorkflowCanvasInner({
   // below. Recomputed as the graph changes.
   const availableFields = useMemo(() => collectWorkflowFields(nodes), [nodes])
   const availableTags = useMemo(() => collectWorkflowTags(nodes), [nodes])
+  // Dependent value options for logic.condition: once the admin picks a
+  // field, the literals that field can actually hold at runtime (menu option
+  // titles, status enums, booleans) are offered as a dropdown. Empty when the
+  // field takes free text — the panel keeps a plain input then.
+  const conditionValueOptions = useMemo(
+    () =>
+      selected?.type === 'logic.condition'
+        ? collectFieldValueOptions(nodes, String(selected.config?.['field'] ?? ''))
+        : [],
+    [nodes, selected],
+  )
   // Config keys the admin has explicitly opted to type by hand instead of
   // picking from the list (e.g. a field no earlier node produces yet, or a
   // one-off tag outside the canonical palette). Scoped by `${nodeId}:${key}`
@@ -758,6 +770,11 @@ function WorkflowCanvasInner({
             const manualKey = `${selected.id}:${key}`
             const isManual = manualFieldKeys.has(manualKey)
             const value = String(selected.config[key] ?? '')
+            // logic.condition's `value` becomes a dependent dropdown once the
+            // chosen field has a known value vocabulary (menu option titles,
+            // status enums, booleans); free-text fields keep the plain input.
+            const isConditionValue = key === 'value' && selected.type === 'logic.condition'
+            const hasValueOptions = isConditionValue && conditionValueOptions.length > 0
             return (
             <label key={key} className="mb-2 block">
               <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{fieldLabel(key)}</span>
@@ -797,6 +814,47 @@ function WorkflowCanvasInner({
                     value={value}
                     onChange={(e) => patchConfig(key, e.target.value)}
                     placeholder={key === 'tag' ? 'tag_name' : 'field_name'}
+                    className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setManualField(manualKey, false)}
+                    title={t('wf.field.backToList')}
+                    className="shrink-0 rounded border border-gray-300 px-1.5 py-1.5 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
+                  >
+                    ↩
+                  </button>
+                </div>
+              ) : hasValueOptions && !isManual ? (
+                <div>
+                  <select
+                    value={value}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') setManualField(manualKey, true)
+                      else patchConfig(key, e.target.value)
+                    }}
+                    className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <option value="">{t('wf.field.selectPlaceholder')}</option>
+                    {(() => {
+                      const options = conditionValueOptions.map((o) => ({ value: o.value, label: o.label ?? humanize(o.value) }))
+                      const known = options.some((o) => o.value === value)
+                      return value && !known ? [{ value, label: humanize(value) }, ...options] : options
+                    })().map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                    <option value="__custom__">{t('wf.field.customOption')}</option>
+                  </select>
+                  <span className="mt-0.5 block text-[10px] text-gray-400 dark:text-gray-500">{t('wf.hint.valueFromField')}</span>
+                </div>
+              ) : hasValueOptions && isManual ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    value={value}
+                    onChange={(e) => patchConfig(key, e.target.value)}
+                    placeholder={t('wf.field.value')}
                     className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
                   />
                   <button

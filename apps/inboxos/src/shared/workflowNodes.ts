@@ -230,3 +230,97 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
     { value: 'not_equals', labelKey: 'wf.op.notEquals' },
   ],
 }
+
+// --- No-code dependent "value" selector --------------------------------------
+// logic.condition compares a context field against a literal `value`. Once the
+// admin has picked the field, the set of values that field can actually hold
+// at runtime is often known — so the panel offers those as a dropdown instead
+// of demanding an exact hand-typed match (a typo silently never matches).
+
+export interface FieldValueOption {
+  /** Exact string the runtime context will hold — this is what gets stored. */
+  value: string
+  /** Optional display label; the canvas humanizes `value` when absent. */
+  label?: string
+}
+
+/** Reserved menu handles the engine may write into a menu's field when the
+ *  reply did not match an option (mirrors MENU_RESERVED_HANDLES in
+ *  @docmee/agents workflow-engine — ctx[field] = selected?.title ?? handle). */
+const MENU_HANDLE_VALUES = ['restart', 'livechat', 'default']
+
+/** Fields whose runtime values come from a fixed vocabulary, verified against
+ *  workflow-runner.worker.ts / workflow-engine.ts. (classification_confidence
+ *  and booking_confidence are deliberately absent — the worker writes numeric
+ *  scores there, not enums.) */
+const FIXED_FIELD_VALUES: Record<string, string[]> = {
+  // askAndCapture: 'captured' on success, 'pending' while waiting, 'error' otherwise
+  capture_status: ['captured', 'pending', 'error'],
+  // askAndCapture: `invalid_${validation}` or 'conversation_required'
+  capture_error: ['invalid_text', 'invalid_date', 'invalid_time', 'invalid_phone', 'invalid_number', 'invalid_email', 'conversation_required'],
+  // createOrRescheduleBooking
+  booking_status: ['created', 'rescheduled'],
+  // extract/transcribe: extraction.confidence is a high/medium/low enum
+  voice_booking_confidence: ['high', 'medium', 'low'],
+  // extract/transcribe booleans (evalCondition stringifies ctx values, so
+  // boolean true/false compare against these exact strings)
+  needs_review: ['true', 'false'],
+  contains_disallowed_medical_content: ['true', 'false'],
+}
+
+interface MenuOptionLike {
+  optionId: string
+  title: string
+}
+
+/** Parse a menu node's `config.options` (JSON string or array). Local copy of
+ *  the engine's parseMenuOptions so inboxos stays dependency-free. */
+function parseMenuOptionList(raw: unknown): MenuOptionLike[] {
+  let list: unknown = raw
+  if (typeof list === 'string') {
+    if (!list.trim()) return []
+    try {
+      list = JSON.parse(list)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(list)) return []
+  return list.filter(
+    (o): o is MenuOptionLike =>
+      typeof o === 'object' && o !== null &&
+      typeof (o as MenuOptionLike).optionId === 'string' &&
+      typeof (o as MenuOptionLike).title === 'string',
+  )
+}
+
+/**
+ * Every literal value the given context field can plausibly hold at runtime,
+ * for the dependent "value" dropdown in logic.condition:
+ * - a field produced by an interactive_menu node takes the chosen option's
+ *   **title** (the engine stores `selected?.title ?? handle`), plus the
+ *   reserved restart/livechat/default handles it may fall back to;
+ * - fixed-vocabulary fields (capture_status, booking_status, …) take their
+ *   known enum values.
+ * Empty for fields with free-text values (ask_capture answers, dates, …) —
+ * the panel keeps a plain text input for those. Deduped, order-preserving.
+ */
+export function collectFieldValueOptions(nodes: WorkflowNode[], fieldName: string): FieldValueOption[] {
+  const field = fieldName.trim()
+  if (!field) return []
+  const out: FieldValueOption[] = []
+  const seen = new Set<string>()
+  const push = (value: string, label?: string) => {
+    if (!value || seen.has(value)) return
+    seen.add(value)
+    out.push(label === undefined ? { value } : { value, label })
+  }
+  for (const node of nodes) {
+    if (node.type !== 'action.interactive_menu') continue
+    if (String(node.config?.['field'] ?? '').trim() !== field) continue
+    for (const opt of parseMenuOptionList(node.config?.['options'])) push(opt.title)
+    for (const handle of MENU_HANDLE_VALUES) push(handle)
+  }
+  for (const value of FIXED_FIELD_VALUES[field] ?? []) push(value)
+  return out
+}

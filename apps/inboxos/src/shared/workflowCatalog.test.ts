@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
-import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, ENUM_FIELD_OPTIONS } from './workflowNodes'
+import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS } from './workflowNodes'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 import type { WorkflowNode } from './types'
@@ -178,5 +178,41 @@ describe('collectFieldValueOptions (dependent Value selector)', () => {
     const values = collectFieldValueOptions(template.nodes, field).map((o) => o.value)
     expect(values.length).toBeGreaterThan(3) // at least one option title + reserved handles
     expect(values).toContain('default')
+  })
+})
+
+describe('slugifyOptionId / uniqueOptionId (no-code doctor picker)', () => {
+  it('turns a doctor name into a readable branch-handle slug', () => {
+    expect(slugifyOptionId('Dr. García')).toBe('dr_garcia')
+    expect(slugifyOptionId('Dr. López')).toBe('dr_lopez')
+    expect(slugifyOptionId('Specialized service')).toBe('specialized_service')
+  })
+
+  it('strips accents so slugs stay plain ASCII', () => {
+    expect(slugifyOptionId('Dra. Nuñez Peña')).toBe('dra_nunez_pena')
+  })
+
+  it('falls back to a placeholder for names with no usable characters', () => {
+    expect(slugifyOptionId('…')).toBe('option')
+    expect(slugifyOptionId('')).toBe('option')
+  })
+
+  it('uniqueOptionId keeps the base when free and suffixes on collision', () => {
+    expect(uniqueOptionId('dr_garcia', ['dr_lopez'])).toBe('dr_garcia')
+    expect(uniqueOptionId('dr_garcia', ['dr_garcia'])).toBe('dr_garcia_2')
+    expect(uniqueOptionId('dr_garcia', ['dr_garcia', 'dr_garcia_2'])).toBe('dr_garcia_3')
+  })
+
+  it('the template doctor-menu ids are exactly the slugs of their titles', () => {
+    // This invariant is what lets the canvas match an existing option back to
+    // the doctor it was filled from (slugifyOptionId(doctor.name) === optionId).
+    const template = WORKFLOW_TEMPLATES.find((t) => t.key === 'guided_whatsapp_booking')
+    expect(template).toBeDefined()
+    if (!template) return
+    const doctorMenu = template.nodes.find((n) => n.id === 'doctor_menu')
+    expect(doctorMenu).toBeDefined()
+    if (!doctorMenu) return
+    const options = JSON.parse(String(doctorMenu.config?.['options'])) as { optionId: string; title: string }[]
+    for (const opt of options) expect(opt.optionId).toBe(slugifyOptionId(opt.title))
   })
 })

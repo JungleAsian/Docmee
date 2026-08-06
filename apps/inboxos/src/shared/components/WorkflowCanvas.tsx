@@ -8,6 +8,7 @@
 //   on the pane opens the same palette and auto-wires the picked node.
 // - Branch-colored edges with translated labels; hover toolbar on nodes.
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   ReactFlow as ReactFlowBase,
   Background as BackgroundBase,
@@ -29,7 +30,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
-import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
+import { api } from '../api/client'
+import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge, Doctor } from '../types'
 import {
   WORKFLOW_NODE_TYPES,
   nodeDef,
@@ -39,6 +41,8 @@ import {
   collectWorkflowFields,
   collectWorkflowTags,
   collectFieldValueOptions,
+  slugifyOptionId,
+  uniqueOptionId,
   ENUM_FIELD_OPTIONS,
   type NodeTypeDef,
 } from '../workflowNodes'
@@ -363,14 +367,30 @@ function WorkflowCanvasInner({
   nodes,
   edges,
   onChange,
+  clinicId,
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
   onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
+  /** Active clinic — enables entity pickers (doctor list for menu options). */
+  clinicId?: string
 }) {
   const { t, language } = useI18n()
   const { screenToFlowPosition } = useReactFlow()
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
+
+  // The clinic's active doctors, for the no-code optionId picker in the
+  // interactive-menu options editor: picking a doctor fills the option with
+  // the exact name the worker's resolveWorkflowDoctorId matches at runtime.
+  const doctorsQuery = useQuery({
+    queryKey: ['doctors', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ doctors: Doctor[] }>(`/clinics/${clinicId}/doctors`),
+  })
+  const activeDoctors = useMemo(
+    () => (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive),
+    [doctorsQuery.data],
+  )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [paletteQuery, setPaletteQuery] = useState('')
@@ -930,12 +950,69 @@ function WorkflowCanvasInner({
                       className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
                     />
                     <div className="flex items-center gap-1">
-                      <input
-                        value={opt.optionId}
-                        onChange={(e) => patchMenuOption(oi, { optionId: e.target.value })}
-                        placeholder="optionId"
-                        className="w-full rounded border border-gray-300 p-1 text-[10px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-800"
-                      />
+                      {(() => {
+                        // No-code optionId: pick a real clinic doctor instead of
+                        // hand-typing an id. The option's id becomes a readable
+                        // slug (branch handle); its title — what the worker's
+                        // resolveWorkflowDoctorId actually matches at runtime —
+                        // is filled with the doctor's registered name when empty.
+                        const optManualKey = `${selected.id}:optionId:${oi}`
+                        const isOptManual = manualFieldKeys.has(optManualKey)
+                        const matchedDoctor = activeDoctors.find((d) => slugifyOptionId(d.name) === opt.optionId)
+                        if (!isOptManual) {
+                          return (
+                            <div className="w-full">
+                              <select
+                                value={matchedDoctor ? matchedDoctor.id : opt.optionId ? '__current__' : ''}
+                                onChange={(e) => {
+                                  const picked = e.target.value
+                                  if (picked === '__custom__') {
+                                    setManualField(optManualKey, true)
+                                    return
+                                  }
+                                  const doc = activeDoctors.find((d) => d.id === picked)
+                                  if (!doc) return
+                                  const otherIds = menuOptions.filter((_, i) => i !== oi).map((o) => o.optionId)
+                                  patchMenuOption(oi, {
+                                    optionId: uniqueOptionId(slugifyOptionId(doc.name), otherIds),
+                                    ...(opt.title.trim() ? {} : { title: doc.name }),
+                                  })
+                                }}
+                                className="w-full rounded border border-gray-300 bg-white p-1 text-[10px] text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                              >
+                                <option value="">{t('wf.field.pickDoctor')}</option>
+                                {opt.optionId && !matchedDoctor && <option value="__current__">{opt.optionId}</option>}
+                                {activeDoctors.map((d) => (
+                                  <option key={d.id} value={d.id}>
+                                    {d.name}
+                                    {d.specialty ? ` · ${d.specialty}` : ''}
+                                  </option>
+                                ))}
+                                <option value="__custom__">{t('wf.field.customOption')}</option>
+                              </select>
+                              <span className="mt-0.5 block text-[10px] text-gray-400 dark:text-gray-500">{t('wf.hint.doctorOptionId')}</span>
+                            </div>
+                          )
+                        }
+                        return (
+                          <>
+                            <input
+                              value={opt.optionId}
+                              onChange={(e) => patchMenuOption(oi, { optionId: e.target.value })}
+                              placeholder="optionId"
+                              className="w-full rounded border border-gray-300 p-1 text-[10px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-800"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setManualField(optManualKey, false)}
+                              title={t('wf.field.backToList')}
+                              className="shrink-0 rounded border border-gray-300 px-1.5 py-1 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
+                            >
+                              ↩
+                            </button>
+                          </>
+                        )
+                      })()}
                       <button type="button" onClick={() => removeMenuOption(oi)} className="shrink-0 text-[10px] text-red-600 hover:underline">
                         {t('common.delete')}
                       </button>
@@ -969,6 +1046,8 @@ export function WorkflowCanvas(props: {
   nodes: WfNode[]
   edges: WfEdge[]
   onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
+  /** Active clinic — enables entity pickers (doctor list for menu options). */
+  clinicId?: string
 }) {
   return (
     <ReactFlowProvider>

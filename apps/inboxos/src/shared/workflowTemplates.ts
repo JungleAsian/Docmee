@@ -140,7 +140,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         options: JSON.stringify([
           { optionId: 'dr_garcia', title: 'Dr. García' },
           { optionId: 'dr_lopez', title: 'Dr. López' },
-          { optionId: 'specialized', title: 'Specialized service' },
+          { optionId: 'specialized_service', title: 'Specialized service' },
         ]),
       }, 520, 400),
       n('specialized_msg', 'action', 'action.send_message', { text: "For specialized bookings please contact Clínica Demo A's office at [phone number]." }, 760, 720),
@@ -199,7 +199,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       e('inquiry_classify', 'main_menu', 'error'),
       e('doctor_menu', 'ask_date', 'dr_garcia'),
       e('doctor_menu', 'ask_date', 'dr_lopez'),
-      e('doctor_menu', 'specialized_msg', 'specialized'),
+      e('doctor_menu', 'specialized_msg', 'specialized_service'),
       e('doctor_menu', 'main_menu', 'restart'),
       e('doctor_menu', 'handoff_notify', 'livechat'),
       e('doctor_menu', 'doctor_menu', 'default'),

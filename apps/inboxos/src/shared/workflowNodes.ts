@@ -273,6 +273,30 @@ interface MenuOptionLike {
   title: string
 }
 
+/** Slug for a menu optionId derived from a display name ("Dr. García" →
+ *  "dr_garcia"): strips accents, lowercases, folds non-alphanumerics to `_`.
+ *  Used when an admin picks a real entity (e.g. a clinic doctor) to fill a
+ *  menu option — the id stays a readable branch handle while the option's
+ *  title carries the exact name the runtime doctor resolver matches on. */
+export function slugifyOptionId(name: string): string {
+  const slug = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return slug || 'option'
+}
+
+/** `slugifyOptionId` guaranteed unique among existing optionIds
+ *  (appends `_2`, `_3`, … on collision). */
+export function uniqueOptionId(base: string, existing: string[]): string {
+  if (!existing.includes(base)) return base
+  let suffix = 2
+  while (existing.includes(`${base}_${suffix}`)) suffix++
+  return `${base}_${suffix}`
+}
+
 /** Parse a menu node's `config.options` (JSON string or array). Local copy of
  *  the engine's parseMenuOptions so inboxos stays dependency-free. */
 function parseMenuOptionList(raw: unknown): MenuOptionLike[] {

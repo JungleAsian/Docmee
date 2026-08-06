@@ -31,7 +31,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
 import { api } from '../api/client'
-import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge, Doctor } from '../types'
+import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge, Doctor, MessageTemplate } from '../types'
 import {
   WORKFLOW_NODE_TYPES,
   nodeDef,
@@ -390,6 +390,24 @@ function WorkflowCanvasInner({
   const activeDoctors = useMemo(
     () => (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive),
     [doctorsQuery.data],
+  )
+  // The clinic's message templates, for the send_template category dropdown:
+  // the worker sends the APPROVED template of the chosen category, so the
+  // panel marks which categories actually have one (anything else silently
+  // no-ops at runtime — findApprovedByCategory returns null and skips).
+  const templatesQuery = useQuery({
+    queryKey: ['message-templates', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ templates: MessageTemplate[] }>(`/clinics/${clinicId}/message-templates`),
+  })
+  const approvedTemplateCategories = useMemo(
+    () =>
+      new Set(
+        (templatesQuery.data?.templates ?? [])
+          .filter((tpl) => tpl.status === 'approved')
+          .map((tpl) => tpl.category),
+      ),
+    [templatesQuery.data],
   )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -887,17 +905,23 @@ function WorkflowCanvasInner({
                   </button>
                 </div>
               ) : ENUM_FIELD_OPTIONS[key] ? (
-                <select
-                  value={value}
-                  onChange={(e) => patchConfig(key, e.target.value)}
-                  className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                >
-                  {ENUM_FIELD_OPTIONS[key]!.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {t(o.labelKey as Parameters<typeof t>[0])}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <select
+                    value={value}
+                    onChange={(e) => patchConfig(key, e.target.value)}
+                    className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    {ENUM_FIELD_OPTIONS[key]!.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {t(o.labelKey as Parameters<typeof t>[0])}
+                        {key === 'category' && templatesQuery.data && approvedTemplateCategories.has(o.value as MessageTemplate['category']) ? ' ✓' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {key === 'category' && value && templatesQuery.data && !approvedTemplateCategories.has(value as MessageTemplate['category']) && (
+                    <span className="mt-0.5 block text-[10px] text-amber-600 dark:text-amber-400">{t('wf.hint.noApprovedTemplate')}</span>
+                  )}
+                </div>
               ) : key === 'validation' ? (
                 <select
                   value={String(selected.config[key] ?? '')}

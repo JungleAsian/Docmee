@@ -229,6 +229,15 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
     { value: 'contains', labelKey: 'wf.op.contains' },
     { value: 'not_equals', labelKey: 'wf.op.notEquals' },
   ],
+  // send_template's `category` — the worker looks up the clinic's APPROVED
+  // template for exactly one of these MessageTemplateCategory values (see
+  // findApprovedByCategory); anything else silently no-ops at runtime.
+  category: [
+    { value: 'appointment_confirmation', labelKey: 'studio.templates.category.appointment_confirmation' },
+    { value: 'appointment_reminder', labelKey: 'studio.templates.category.appointment_reminder' },
+    { value: 'human_handoff_notification', labelKey: 'studio.templates.category.human_handoff_notification' },
+    { value: 'review_request', labelKey: 'studio.templates.category.review_request' },
+  ],
 }
 
 // --- No-code dependent "value" selector --------------------------------------

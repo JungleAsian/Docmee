@@ -115,6 +115,21 @@ describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
   it('offers exactly the operators evalCondition actually understands', () => {
     expect(ENUM_FIELD_OPTIONS.op?.map((o) => o.value)).toEqual(['equals', 'contains', 'not_equals'])
   })
+
+  it('offers exactly the template categories findApprovedByCategory can serve', () => {
+    // Must mirror MessageTemplateCategory in shared/types.ts — the worker
+    // silently skips any other value at runtime.
+    expect(ENUM_FIELD_OPTIONS.category?.map((o) => o.value)).toEqual([
+      'appointment_confirmation',
+      'appointment_reminder',
+      'human_handoff_notification',
+      'review_request',
+    ])
+    // …and every label must resolve through the shared template-category keys.
+    for (const o of ENUM_FIELD_OPTIONS.category ?? []) {
+      expect(o.labelKey).toMatch(/^studio\.templates\.category\./)
+    }
+  })
 })
 
 describe('collectFieldValueOptions (dependent Value selector)', () => {

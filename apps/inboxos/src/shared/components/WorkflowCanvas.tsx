@@ -26,6 +26,7 @@ import {
   type Connection,
   type NodeProps,
   type NodeChange,
+  type EdgeChange,
   type FinalConnectionState,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -601,18 +602,45 @@ function WorkflowCanvasInner({
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
 
+  // Both handlers below apply the raw change to React Flow's own local
+  // node/edge state first (so dragging and selection stay snappy), THEN
+  // propagate anything that should actually persist — position-drag-end and
+  // removal — up to the parent via onChange. Any change NOT propagated here
+  // is local-only and gets silently discarded the next time `graph`
+  // recomputes and the sync effect below overwrites local state from the
+  // (unaware) parent props — e.g. keyboard-deleting a node or edge used to
+  // vanish only until the next edit, then reappear ("reverts to the old
+  // configuration"), and an add right after such a phantom deletion would
+  // read the still-stale, still-larger `nodes`/`edges` and resurrect the
+  // "deleted" item alongside the new one ("multiple nodes added").
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       onNodesChange(changes)
       const dragEnd = changes.filter((c): c is Extract<NodeChange, { type: 'position' }> => c.type === 'position' && c.dragging === false)
-      if (dragEnd.length === 0) return
+      const removed = changes.filter((c): c is Extract<NodeChange, { type: 'remove' }> => c.type === 'remove')
+      if (dragEnd.length === 0 && removed.length === 0) return
+      const removedIds = new Set(removed.map((c) => c.id))
       const moved = new Map(dragEnd.map((c) => [c.id, c.position]))
       onChange({
-        nodes: nodes.map((n) => (moved.has(n.id) ? { ...n, x: Math.round(moved.get(n.id)!.x), y: Math.round(moved.get(n.id)!.y) } : n)),
-        edges,
+        nodes: nodes
+          .filter((n) => !removedIds.has(n.id))
+          .map((n) => (moved.has(n.id) ? { ...n, x: Math.round(moved.get(n.id)!.x), y: Math.round(moved.get(n.id)!.y) } : n)),
+        edges: removedIds.size > 0 ? edges.filter((e) => !removedIds.has(e.source) && !removedIds.has(e.target)) : edges,
       })
+      if (removedIds.size > 0) setSelectedId((cur) => (cur && removedIds.has(cur) ? null : cur))
     },
     [onNodesChange, nodes, edges, onChange],
+  )
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      onEdgesChange(changes)
+      const removed = changes.filter((c): c is Extract<EdgeChange, { type: 'remove' }> => c.type === 'remove')
+      if (removed.length === 0) return
+      const removedIds = new Set(removed.map((c) => c.id))
+      onChange({ nodes, edges: edges.filter((e) => !removedIds.has(e.id)) })
+    },
+    [onEdgesChange, nodes, edges, onChange],
   )
 
   const onConnect = useCallback(
@@ -840,7 +868,7 @@ function WorkflowCanvasInner({
           nodes={rfNodes}
           edges={rfEdges}
           onNodesChange={handleNodesChange}
-          onEdgesChange={onEdgesChange}
+          onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           onNodeClick={(_event: unknown, node: Node) => setSelectedId(node.id)}

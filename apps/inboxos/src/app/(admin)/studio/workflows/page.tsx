@@ -115,7 +115,6 @@ export default function WorkflowsPage() {
         clear()
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflows, clinicId])
 
   return (

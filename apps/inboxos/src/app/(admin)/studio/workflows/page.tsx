@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/shared/api/client'
+import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { useI18n } from '@/shared/hooks/useI18n'
@@ -411,6 +411,20 @@ function WorkflowEditor({
           {t('common.save')}
         </button>
       </div>
+      {save.isError && (
+        <div role="alert" className="mx-4 mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          <p className="font-medium">
+            {t('wf.saveFailed')}: {save.error instanceof ApiError ? save.error.message : t('common.error')}
+          </p>
+          {save.error instanceof ApiError && save.error.details && save.error.details.length > 0 && (
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              {save.error.details.map((d, i) => (
+                <li key={i}>{d}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <p className="px-4 pt-2 text-xs text-gray-500">{t('wf.canvasHint')}</p>
       <div className="min-h-0 flex-1 p-4 pt-2">
         <WorkflowCanvas

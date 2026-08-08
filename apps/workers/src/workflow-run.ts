@@ -82,17 +82,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-export function readPendingWorkflowRuns(metadata: Record<string, unknown>): PendingWorkflowRun[] {
+/** Raw stored entries, `context` still a JSON string — i.e. before the parse
+ *  step in `readPendingWorkflowRuns`. Lets `writePendingWorkflowRun` filter
+ *  out another workflow's entry without needing to parse (and rebuild) a
+ *  context it isn't touching. */
+function readRawPendingEntries(metadata: Record<string, unknown>): Record<string, unknown>[] {
   const value = metadata[PENDING_WORKFLOWS_KEY]
-  if (!Array.isArray(value)) return []
-  return value.flatMap((entry) => {
-    if (!isRecord(entry) || !isRecord(entry['context'])) return []
+  return Array.isArray(value) ? value.filter(isRecord) : []
+}
+
+export function readPendingWorkflowRuns(metadata: Record<string, unknown>): PendingWorkflowRun[] {
+  return readRawPendingEntries(metadata).flatMap((entry) => {
     const workflowId = entry['workflowId']
     const resumeNodeId = entry['resumeNodeId']
     const sourceEventId = entry['sourceEventId']
     const expiresAt = entry['expiresAt']
-    if (typeof workflowId !== 'string' || typeof sourceEventId !== 'string' || typeof resumeNodeId !== 'string' || typeof expiresAt !== 'string') return []
-    return [{ workflowId, sourceEventId, resumeNodeId, context: entry['context'], expiresAt }]
+    const rawContext = entry['context']
+    if (
+      typeof workflowId !== 'string' ||
+      typeof sourceEventId !== 'string' ||
+      typeof resumeNodeId !== 'string' ||
+      typeof expiresAt !== 'string' ||
+      typeof rawContext !== 'string'
+    ) {
+      return []
+    }
+    // `context` is stored JSON-stringified (see writePendingWorkflowRun) rather
+    // than as a nested jsonb object: postgres.js's `transform: postgres.camel`
+    // recursively camelCases keys it finds INSIDE jsonb content, not just SQL
+    // column names — a persisted `available_slots` comes back as
+    // `availableSlots`, silently breaking every snake_case workflow context
+    // field (available_slots, doctor_preference, preferred_date, …) the
+    // moment it has to survive an actual pause/resume round trip. A JSON
+    // string has no keys for that transform to see, so it round-trips intact.
+    let context: Record<string, unknown>
+    try {
+      const parsed: unknown = JSON.parse(rawContext)
+      if (!isRecord(parsed)) return []
+      context = parsed
+    } catch {
+      return []
+    }
+    return [{ workflowId, sourceEventId, resumeNodeId, context, expiresAt }]
   })
 }
 
@@ -100,8 +131,9 @@ export function writePendingWorkflowRun(
   metadata: Record<string, unknown>,
   pending: PendingWorkflowRun,
 ): Record<string, unknown> {
-  const current = readPendingWorkflowRuns(metadata).filter((item) => item.workflowId !== pending.workflowId)
-  return { ...metadata, [PENDING_WORKFLOWS_KEY]: [...current, pending] }
+  const current = readRawPendingEntries(metadata).filter((item) => item['workflowId'] !== pending.workflowId)
+  const stored = { ...pending, context: JSON.stringify(pending.context) }
+  return { ...metadata, [PENDING_WORKFLOWS_KEY]: [...current, stored] }
 }
 
 /** Resume every non-expired workflow waiting on this conversation. The queue job id

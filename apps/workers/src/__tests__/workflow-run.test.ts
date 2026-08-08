@@ -52,6 +52,45 @@ describe('pending conversational workflow state', () => {
   it('rejects malformed persisted cursors', () => {
     expect(readPendingWorkflowRuns({ pendingWorkflowRuns: [{ workflowId: 4 }] })).toEqual([])
   })
+
+  it('survives postgres.js transform: postgres.camel round-tripping (regression)', () => {
+    // postgres.camel recursively camelCases keys it finds INSIDE jsonb content
+    // on read, not just SQL column names — confirmed directly against prod:
+    // {available_slots:[...]} round-tripped through a jsonb column comes back
+    // {availableSlots:[...]}. Every snake_case workflow context field
+    // (available_slots, doctor_preference, preferred_date, preferred_time, …)
+    // that has to survive an actual pause/resume is at risk. context is
+    // therefore stored JSON-stringified — a string has no keys for the
+    // transform to see. Simulate that mangling here to prove it can't reach in.
+    const camelizeRecursively = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(camelizeRecursively)
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+            k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
+            camelizeRecursively(v),
+          ]),
+        )
+      }
+      return value
+    }
+
+    const written = writePendingWorkflowRun(
+      {},
+      {
+        workflowId: 'workflow-1',
+        sourceEventId: 'wamid.test-1',
+        resumeNodeId: 'date_menu',
+        context: { available_slots: [{ start: '2026-08-08T09:00:00', end: '2026-08-08T09:30:00' }], doctor_preference: 'Dr. Contreras' },
+        expiresAt: '2026-07-19T00:00:00.000Z',
+      },
+    )
+    const afterSimulatedJsonbRoundTrip = camelizeRecursively(written) as Record<string, unknown>
+
+    const [pending] = readPendingWorkflowRuns(afterSimulatedJsonbRoundTrip)
+    expect(pending?.context['available_slots']).toEqual([{ start: '2026-08-08T09:00:00', end: '2026-08-08T09:30:00' }])
+    expect(pending?.context['doctor_preference']).toBe('Dr. Contreras')
+  })
 })
 
 describe('workflowKeywordMatches', () => {

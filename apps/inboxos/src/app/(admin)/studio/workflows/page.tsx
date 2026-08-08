@@ -64,11 +64,16 @@ export default function WorkflowsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   })
   const createFromTemplate = useMutation({
+    // Re-run the same auto-layout the toolbar's "Auto Layout" button uses, so
+    // a new workflow starts in the canonical organized arrangement instead of
+    // depending on the template author having hand-placed non-overlapping
+    // coordinates (harmless when they did, but not something future template
+    // edits should have to get right by hand).
     mutationFn: (tpl: WorkflowTemplate) =>
       api.post<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows`, {
         name: t(tpl.nameKey as Parameters<typeof t>[0]),
         status: 'draft',
-        nodes: tpl.nodes,
+        nodes: layoutWorkflow(tpl.nodes, tpl.edges),
         edges: tpl.edges,
       }),
     onSuccess: (res) => {

@@ -16,6 +16,48 @@ import type { WorkflowEdge, WorkflowNode } from './types'
 const LAYER_WIDTH = 280
 const ROW_HEIGHT = 150
 
+// Generous card bounding box for collision checks — covers both the
+// Enhanced (w-52 = 208px) and Classic (w-48 = 192px) card widths, plus
+// headroom for the tallest content (a menu card's option rows). Exact pixel
+// accuracy isn't the goal; avoiding the near-guaranteed overlap of the old
+// placement is — a drag or the Auto Layout button still fixes any residual
+// visual crowding for unusually tall cards.
+const CARD_WIDTH = 220
+const CARD_HEIGHT = 130
+
+function boxesOverlap(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  return a.x < b.x + CARD_WIDTH && a.x + CARD_WIDTH > b.x && a.y < b.y + CARD_HEIGHT && a.y + CARD_HEIGHT > b.y
+}
+
+/**
+ * The nearest position to `desired` that doesn't overlap any existing node's
+ * bounding box — cascades diagonally (a common "new item lands offset from a
+ * collision" pattern) until it clears every other node. Pure and
+ * deterministic; capped so a pathological input can never loop forever.
+ */
+export function findFreePosition(nodes: WorkflowNode[], desired: { x: number; y: number }): { x: number; y: number } {
+  let candidate = { ...desired }
+  let guard = 0
+  while (nodes.some((n) => boxesOverlap(candidate, n)) && guard < nodes.length + 50) {
+    candidate = { x: candidate.x + 40, y: candidate.y + 40 }
+    guard++
+  }
+  return candidate
+}
+
+/** Default landing spot for a brand-new, unwired node: below the lowest
+ *  existing node, aligned to the leftmost column — grows the canvas
+ *  downward instead of scattering through a tiny fixed grid (the old
+ *  `nodes.length % 4/8` placement, which wrapped and guaranteed overlap
+ *  after only a handful of adds). Still run through findFreePosition in
+ *  case that spot happens to be occupied (e.g. an unusually wide layout). */
+export function nextNodePosition(nodes: WorkflowNode[]): { x: number; y: number } {
+  if (nodes.length === 0) return { x: 60, y: 40 }
+  const x = Math.min(...nodes.map((n) => n.x))
+  const y = Math.max(...nodes.map((n) => n.y)) + ROW_HEIGHT
+  return findFreePosition(nodes, { x, y })
+}
+
 export function layoutWorkflow(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowNode[] {
   if (nodes.length === 0) return nodes
 

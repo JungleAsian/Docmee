@@ -48,6 +48,7 @@ import {
   type NodeTypeDef,
 } from '../workflowNodes'
 import { TAG_TYPES, tagLabel } from '../tagTypes'
+import { findFreePosition, nextNodePosition } from '../workflowLayout'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -538,7 +539,8 @@ function WorkflowCanvasInner({
       const base = src.type.split('.')[1] ?? 'node'
       let n = nodes.length + 1
       while (nodes.some((x) => x.id === `${base}_${n}`)) n++
-      const copy: WfNode = { ...src, id: `${base}_${n}`, config: { ...src.config }, x: src.x + 40, y: src.y + 40 }
+      const at = findFreePosition(nodes, { x: src.x + 40, y: src.y + 40 })
+      const copy: WfNode = { ...src, id: `${base}_${n}`, config: { ...src.config }, x: at.x, y: at.y }
       onChange({ nodes: [...nodes, copy], edges })
       setSelectedId(copy.id)
     },
@@ -679,7 +681,12 @@ function WorkflowCanvasInner({
       let n = nodes.length + 1
       while (nodes.some((x) => x.id === `${base}_${n}`)) n++
       const id = `${base}_${n}`
-      const at = wire?.at ?? { x: 60 + (nodes.length % 4) * 40, y: 40 + (nodes.length % 8) * 30 }
+      // Wired adds (dropped-connection / bp "+" button) center the new card on
+      // the drop point; unwired palette clicks land below the lowest existing
+      // node instead of the old nodes.length % 4/8 scatter, which wrapped back
+      // over earlier positions and guaranteed overlap after a handful of adds.
+      // Either way, findFreePosition nudges clear of anything already there.
+      const at = wire ? findFreePosition(nodes, { x: Math.round(wire.at.x - 104), y: Math.round(wire.at.y - 30) }) : nextNodePosition(nodes)
       const nextEdges = wire
         ? [...edges, {
             id: `e_${wire.nodeId}_${id}_${wire.handleId ?? 'default'}_${edges.length}`,
@@ -689,7 +696,7 @@ function WorkflowCanvasInner({
           }]
         : edges
       onChange({
-        nodes: [...nodes, { id, kind: def.kind, type: def.type, config: {}, x: Math.round(at.x - 104), y: Math.round(at.y - 30) }],
+        nodes: [...nodes, { id, kind: def.kind, type: def.type, config: {}, x: Math.round(at.x), y: Math.round(at.y) }],
         edges: nextEdges,
       })
       setSelectedId(id)

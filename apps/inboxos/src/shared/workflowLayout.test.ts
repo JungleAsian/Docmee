@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutWorkflow } from './workflowLayout'
+import { layoutWorkflow, findFreePosition, nextNodePosition } from './workflowLayout'
 import type { WorkflowEdge, WorkflowNode } from './types'
 
 const node = (id: string, kind: WorkflowNode['kind'] = 'action', type = 'action.send_message'): WorkflowNode => ({
@@ -79,5 +79,66 @@ describe('layoutWorkflow', () => {
     expect(elapsed).toBeLessThan(200)
     expect(laid).toHaveLength(100)
     expect(new Set(laid.map((n) => `${n.x},${n.y}`)).size).toBe(100) // no overlaps
+  })
+})
+
+function overlaps(a: { x: number; y: number }, b: { x: number; y: number }, w = 220, h = 130): boolean {
+  return a.x < b.x + w && a.x + w > b.x && a.y < b.y + h && a.y + h > b.y
+}
+
+describe('findFreePosition', () => {
+  it('returns the desired spot untouched when nothing is there', () => {
+    expect(findFreePosition([], { x: 100, y: 100 })).toEqual({ x: 100, y: 100 })
+  })
+
+  it('nudges away from a single occupying node', () => {
+    const existing = [node('a')]
+    existing[0]!.x = 100
+    existing[0]!.y = 100
+    const at = findFreePosition(existing, { x: 100, y: 100 })
+    expect(overlaps(at, existing[0]!)).toBe(false)
+  })
+
+  it('clears a dense cluster of existing nodes instead of landing inside it', () => {
+    const existing: WorkflowNode[] = []
+    for (let i = 0; i < 10; i++) {
+      const n = node(`n${i}`)
+      n.x = 100 + i * 30 // deliberately tighter than the 220px collision box — a real cluster
+      n.y = 100
+      existing.push(n)
+    }
+    const at = findFreePosition(existing, { x: 100, y: 100 })
+    for (const n of existing) expect(overlaps(at, n)).toBe(false)
+  })
+})
+
+describe('nextNodePosition', () => {
+  it('starts a blank canvas at a fixed origin', () => {
+    expect(nextNodePosition([])).toEqual({ x: 60, y: 40 })
+  })
+
+  it('lands below the lowest existing node without overlapping anything', () => {
+    const existing = [node('a'), node('b'), node('c')]
+    existing[0]!.x = 60; existing[0]!.y = 40
+    existing[1]!.x = 340; existing[1]!.y = 40
+    existing[2]!.x = 60; existing[2]!.y = 190
+    const at = nextNodePosition(existing)
+    expect(at.y).toBeGreaterThan(Math.max(...existing.map((n) => n.y)))
+    for (const n of existing) expect(overlaps(at, n)).toBe(false)
+  })
+
+  it('never lands on top of an existing node across repeated adds (the reported overlap bug)', () => {
+    // Simulates clicking "+ Send message" from the palette 8 times in a row —
+    // the old `nodes.length % 4/8` placement wrapped back over itself well
+    // before this many adds and guaranteed a visible overlap.
+    let nodes: WorkflowNode[] = []
+    for (let i = 0; i < 8; i++) {
+      const at = nextNodePosition(nodes)
+      const n = node(`n${i}`)
+      n.x = at.x
+      n.y = at.y
+      for (const existing of nodes) expect(overlaps(at, existing)).toBe(false)
+      nodes = [...nodes, n]
+    }
   })
 })

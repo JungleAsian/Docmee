@@ -5,6 +5,7 @@ import {
   formatDateLabel,
   formatTimeLabel,
   slotMenuPage,
+  resolveSlotMenuReply,
   todayIso,
   type WorkflowSlot,
 } from '../workflow-runner.worker.js'
@@ -127,5 +128,46 @@ describe('slotMenuPage', () => {
   it('returns no items when the context field is missing or malformed', () => {
     expect(slotMenuPage(node({ pickerMode: 'date' }), {}, 0).items).toEqual([])
     expect(slotMenuPage(node({ pickerMode: 'date' }), { available_slots: 'not-an-array' }, 0).items).toEqual([])
+  })
+})
+
+describe('resolveSlotMenuReply', () => {
+  const items = [
+    { id: '2026-08-08', title: 'Sat, Aug 8' },
+    { id: '2026-08-09', title: 'Sun, Aug 9' },
+  ]
+
+  it('matches on the tapped row title — regression: production sends message = list_reply.title, not the id', () => {
+    // The webhook populates ctx.message with interactive.list_reply.title
+    // (see apps/api/src/routes/webhook.ts), not its id. A patient tapping
+    // "Sun, Aug 9" produced exactly this in production: replyId undefined,
+    // text = the title. Matching on id alone silently fell through to
+    // `default` for every real tap, which the engine then turned into an
+    // incorrect "no appointment times available" message.
+    expect(resolveSlotMenuReply(items, undefined, 'Sun, Aug 9')).toEqual({ outcome: 'selected', value: '2026-08-09' })
+  })
+
+  it('title match is case-insensitive and trims whitespace', () => {
+    expect(resolveSlotMenuReply(items, undefined, '  sun, aug 9  ')).toEqual({ outcome: 'selected', value: '2026-08-09' })
+  })
+
+  it('prefers the interactiveReplyId when it does match an option', () => {
+    expect(resolveSlotMenuReply(items, '2026-08-08', 'Sun, Aug 9')).toEqual({ outcome: 'selected', value: '2026-08-08' })
+  })
+
+  it('falls back to a 1-based numeric index for plain-text channels', () => {
+    expect(resolveSlotMenuReply(items, undefined, '2')).toEqual({ outcome: 'selected', value: '2026-08-09' })
+  })
+
+  it('resolves footer restart/livechat and the "See other schedules" row by id or title', () => {
+    expect(resolveSlotMenuReply(items, undefined, '0')).toEqual({ outcome: 'restart' })
+    expect(resolveSlotMenuReply(items, undefined, '1')).toEqual({ outcome: 'livechat' })
+    expect(resolveSlotMenuReply(items, '__more__', '')).toEqual({ outcome: 'more' })
+    expect(resolveSlotMenuReply(items, undefined, 'See other schedules')).toEqual({ outcome: 'more' })
+  })
+
+  it('falls through to default on an unrecognized reply', () => {
+    expect(resolveSlotMenuReply(items, undefined, 'gibberish')).toEqual({ outcome: 'default' })
+    expect(resolveSlotMenuReply(items, undefined, '99')).toEqual({ outcome: 'default' })
   })
 })

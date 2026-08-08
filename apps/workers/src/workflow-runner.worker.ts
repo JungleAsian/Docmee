@@ -21,6 +21,7 @@ import {
   type GoogleCalendarConfig,
   type RefreshedTokens,
   type TimeSlot,
+  type SlotMenuReplyOutcome,
   type WorkflowCaptureState,
   type WorkflowContext,
   type WorkflowExecutors,
@@ -399,6 +400,38 @@ export function slotMenuPage(
   const hasMore = ids.length > (page + 1) * pageSize
   const items = pageIds.map((id) => ({ id, title: mode === 'time' ? formatTimeLabel(id) : formatDateLabel(id) }))
   return { items, hasMore }
+}
+
+/**
+ * Resolve a slot-menu reply against the page of options `sendSlotMenu`
+ * actually showed. Precedence mirrors the engine's `resolveMenuHandle` for
+ * interactive_menu: footer "0"/"1" → the tapped row's id (interactiveReplyId)
+ * → the tapped row's TITLE (the inbound webhook populates `message` with
+ * `interactive.list_reply.title`, not its id — matching on id alone silently
+ * dropped every real tap to `default` whenever interactiveReplyId wasn't the
+ * value that round-tripped) → a 1-based numeric index (plain-text fallback).
+ */
+export function resolveSlotMenuReply(
+  items: { id: string; title: string }[],
+  replyId: string | undefined,
+  text: string,
+): { outcome: 'selected'; value: string } | { outcome: Exclude<SlotMenuReplyOutcome, 'selected'> } {
+  const trimmed = text.trim()
+  if (trimmed === '0') return { outcome: 'restart' }
+  if (trimmed === '1') return { outcome: 'livechat' }
+  const lower = trimmed.toLowerCase()
+  if (replyId === SLOT_MENU_MORE_OPTION_ID || lower === 'see other schedules') return { outcome: 'more' }
+  if (replyId) {
+    const byId = items.find((item) => item.id === replyId)
+    if (byId) return { outcome: 'selected', value: byId.id }
+  }
+  const byTitle = items.find((item) => item.title.trim().toLowerCase() === lower)
+  if (byTitle) return { outcome: 'selected', value: byTitle.id }
+  const index = Number(trimmed)
+  if (Number.isInteger(index) && index >= 1 && index <= items.length) {
+    return { outcome: 'selected', value: items[index - 1]!.id }
+  }
+  return { outcome: 'default' }
 }
 
 function addMinutes(localStart: string, minutes: number): string {
@@ -1037,26 +1070,16 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     },
 
     matchSlotMenuReply(node, ctx, page) {
-      const trimmed = contextString(ctx, 'message')
-      if (trimmed === '0') return 'restart'
-      if (trimmed === '1') return 'livechat'
       const replyId = typeof ctx['interactiveReplyId'] === 'string' ? ctx['interactiveReplyId'] : undefined
-      if (replyId === SLOT_MENU_MORE_OPTION_ID) return 'more'
-
       const { items } = slotMenuPage(node, ctx, page)
-      const mode = String(node.config?.['pickerMode'] ?? 'date')
-      const selectField = configField(node, 'selectField', mode === 'time' ? 'preferred_time' : 'preferred_date')
-
-      if (replyId && items.some((item) => item.id === replyId)) {
-        ctx[selectField] = replyId
+      const resolved = resolveSlotMenuReply(items, replyId, contextString(ctx, 'message'))
+      if (resolved.outcome === 'selected') {
+        const mode = String(node.config?.['pickerMode'] ?? 'date')
+        const selectField = configField(node, 'selectField', mode === 'time' ? 'preferred_time' : 'preferred_date')
+        ctx[selectField] = resolved.value
         return 'selected'
       }
-      const index = Number(trimmed)
-      if (Number.isInteger(index) && index >= 1 && index <= items.length) {
-        ctx[selectField] = items[index - 1]!.id
-        return 'selected'
-      }
-      return 'default'
+      return resolved.outcome
     },
 
     async checkAvailability(node, ctx) {

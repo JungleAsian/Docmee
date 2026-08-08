@@ -14,8 +14,11 @@ import {
   WORKFLOW_MENU_CONTEXT_KEY,
   parseMenuOptions,
   resolveMenuHandle,
+  type BookingGrid,
   type CalendarOps,
+  type GoogleCalendarConfig,
   type RefreshedTokens,
+  type TimeSlot,
   type WorkflowCaptureState,
   type WorkflowContext,
   type WorkflowExecutors,
@@ -189,11 +192,19 @@ function doctorCalendarTokens(doctor: Doctor): { accessToken: string; refreshTok
   }
 }
 
-async function workflowCalendar(
+/**
+ * Resolves which Google Calendar credentials a workflow should use (the
+ * doctor's own, falling back to the clinic's shared one) without yet binding
+ * a client — so a caller that needs several grids for the same doctor across
+ * several dates (see doctorDayGrid) can build multiple CalendarOps from one
+ * token resolution instead of re-fetching the doctor and re-authing per date.
+ * Also returns the resolved `doctor` row so the caller can read availableDays.
+ */
+async function workflowCalendarConfig(
   sql: Sql,
   clinic: Clinic,
   doctorId?: string,
-): Promise<CalendarOps | null> {
+): Promise<{ doctor: Doctor | null; config: GoogleCalendarConfig } | null> {
   const doctors = createDoctorsRepository(sql)
   const doctor = doctorId ? await doctors.findById(clinic.id, doctorId) : null
   const doctorTokens = doctor ? doctorCalendarTokens(doctor) : null
@@ -229,11 +240,73 @@ async function workflowCalendar(
     })
   }
 
-  return createGoogleCalendarOps({
-    ...tokens,
-    timezone: clinic.timezone,
-    onTokensRefreshed: persistTokens,
-  })
+  return { doctor, config: { ...tokens, timezone: clinic.timezone, onTokensRefreshed: persistTokens } }
+}
+
+async function workflowCalendar(
+  sql: Sql,
+  clinic: Clinic,
+  doctorId?: string,
+): Promise<CalendarOps | null> {
+  const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
+  return resolved ? createGoogleCalendarOps(resolved.config) : null
+}
+
+// Sunday-first to match JS Date#getUTCDay().
+const WEEKDAY_BY_INDEX = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+
+/**
+ * The doctor's configured working hours for a specific date, as a BookingGrid
+ * — mirrors apps/api/src/lib/slots.ts's semantics (that module computes the
+ * same thing for the panel's slot picker; this is a separate, worker-local
+ * implementation since the two apps don't share a package for it today).
+ * Multiple ranges in one day (e.g. a lunch-break split) collapse to their
+ * outer span — BookingGrid only expresses one contiguous window — which is
+ * exact for the common single-range case and a safe over-approximation
+ * otherwise (a drag-to-book UI would still be needed to represent a true gap).
+ *
+ * Returns:
+ * - `null` when the doctor has no availableDays configured at all, so the
+ *   caller should fall back to the default 09:00–18:00 grid (today's only
+ *   behavior) rather than treat every day as a day off.
+ * - `'off'` when availableDays IS configured but has no ranges for this
+ *   weekday — the doctor genuinely doesn't work this day; the caller should
+ *   produce zero slots without even calling Google.
+ * - a `BookingGrid` otherwise.
+ */
+export function doctorDayGrid(availableDays: unknown, date: string): BookingGrid | 'off' | null {
+  if (!isRecord(availableDays) || Object.keys(availableDays).length === 0) return null
+  const day = WEEKDAY_BY_INDEX[new Date(`${date}T00:00:00Z`).getUTCDay()]!
+  const raw = availableDays[day]
+  if (!Array.isArray(raw) || raw.length === 0) return 'off'
+  let startMin = Infinity
+  let endMin = -Infinity
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue
+    const start = entry['start']
+    const end = entry['end']
+    if (typeof start !== 'string' || typeof end !== 'string' || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) continue
+    startMin = Math.min(startMin, Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5)))
+    endMin = Math.max(endMin, Number(end.slice(0, 2)) * 60 + Number(end.slice(3, 5)))
+  }
+  if (!Number.isFinite(startMin) || !Number.isFinite(endMin) || startMin >= endMin) return 'off'
+  // Round inward (start up, end down) so a partial-hour boundary never offers
+  // time the doctor didn't actually make available.
+  return { startHour: Math.ceil(startMin / 60), endHour: Math.floor(endMin / 60), slotMinutes: 30 }
+}
+
+/** listSlots for one date, honoring the doctor's real hours for that weekday
+ *  when configured. Builds a fresh CalendarOps per distinct grid (cheap: at
+ *  most one per requested date) rather than widening the shared CalendarOps
+ *  interface with a per-call grid override. */
+async function listSlotsForDate(
+  config: GoogleCalendarConfig,
+  availableDays: unknown,
+  date: string,
+): Promise<TimeSlot[]> {
+  const grid = doctorDayGrid(availableDays, date)
+  if (grid === 'off') return []
+  return createGoogleCalendarOps(grid ? { ...config, grid } : config).listSlots(date)
 }
 
 async function resolveWorkflowDoctorId(sql: Sql, clinicId: string, value: string): Promise<string | undefined> {
@@ -830,12 +903,20 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
       const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
       const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
+      // A doctor WAS named but couldn't be matched — do not silently fall
+      // through to the clinic's shared calendar (a different doctor's or a
+      // generic calendar), which looks like "availability" but isn't the
+      // selected doctor's. Fail loudly instead.
+      if (doctorValue.trim() && !doctorId) {
+        throw new Error(`Could not identify the selected doctor from "${doctorValue}"`)
+      }
       const dateField = configField(node, 'dateField', 'preferred_date')
       const dates = dateRange(contextString(ctx, dateField), boundedInteger(node.config?.['days'], 1, 1, 14))
       if (dates.length === 0) throw new Error(`Workflow availability date is invalid or missing in ${dateField}`)
-      const calendar = await workflowCalendar(sql, clinic, doctorId)
-      if (!calendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
-      const slots = (await Promise.all(dates.map((date) => calendar.listSlots(date)))).flat()
+      const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
+      if (!resolved) throw new Error('Google Calendar is not connected for this doctor or clinic')
+      const availableDays = resolved.doctor?.availableDays
+      const slots = (await Promise.all(dates.map((date) => listSlotsForDate(resolved.config, availableDays, date)))).flat()
       ctx[configField(node, 'slotsField', 'available_slots')] = slots
       ctx['availability_count'] = slots.length
     },
@@ -863,6 +944,9 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
       const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
       const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
+      if (doctorValue.trim() && !doctorId) {
+        throw new Error(`Could not identify the selected doctor from "${doctorValue}"`)
+      }
       const serviceId = contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
       const date = contextString(ctx, configField(node, 'dateField', 'preferred_date'))
       const time = contextString(ctx, configField(node, 'timeField', 'preferred_time')).slice(0, 5)
@@ -881,12 +965,17 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const services = await appointments.listServices(clinicId)
       const service = serviceId ? services.find((item) => item.id === serviceId) : undefined
       const duration = boundedInteger(node.config?.['durationMinutes'] ?? service?.durationMinutes, 30, 5, 480)
-      const calendar = await workflowCalendar(sql, clinic, doctorId || undefined)
-      if (!calendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
+      const resolvedCalendar = await workflowCalendarConfig(sql, clinic, doctorId || undefined)
+      if (!resolvedCalendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
+      const calendar = createGoogleCalendarOps(resolvedCalendar.config)
       const title = String(node.config?.['title'] ?? `Appointment: ${contextString(ctx, 'patient_name') || 'Patient'}`)
       const startTime = `${date}T${time}:00`
       const endTime = addMinutes(startTime, duration)
-      const availableSlots = await calendar.listSlots(date)
+      // Same grid the offered slots were computed with (the doctor's real
+      // hours for this weekday, when configured) — otherwise a slot correctly
+      // offered outside the default 09:00–18:00 window would be rejected here
+      // as "no longer available" even though nothing actually changed.
+      const availableSlots = await listSlotsForDate(resolvedCalendar.config, resolvedCalendar.doctor?.availableDays, date)
       if (!slotsCoverRange(availableSlots, startTime, endTime)) {
         throw new Error('The selected appointment time is no longer available for the required duration')
       }

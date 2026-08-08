@@ -32,7 +32,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
 import { api } from '../api/client'
-import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge, Doctor, MessageTemplate } from '../types'
+import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge, Doctor, MessageTemplate, Workflow } from '../types'
 import {
   WORKFLOW_NODE_TYPES,
   nodeDef,
@@ -45,7 +45,10 @@ import {
   slugifyOptionId,
   uniqueOptionId,
   ENUM_FIELD_OPTIONS,
+  parseAiAgentScenarioList,
   type NodeTypeDef,
+  type AiAgentScenarioLike,
+  type AiAgentScenarioAction,
 } from '../workflowNodes'
 import { TAG_TYPES, tagLabel } from '../tagTypes'
 import { findFreePosition, nextNodePosition } from '../workflowLayout'
@@ -116,6 +119,13 @@ function branchRows(wf: WfNode): { key: string; tone: string }[] {
         { key: 'default', tone: 'slate' },
       ]
     }
+    case 'action.ai_agent':
+      return [
+        { key: 'replied', tone: 'emerald' },
+        { key: 'handoff', tone: 'sky' },
+        { key: 'no_match', tone: 'slate' },
+        { key: 'error', tone: 'red' },
+      ]
     default:
       return []
   }
@@ -159,6 +169,11 @@ function nodeFaceText(wf: WfNode): string | undefined {
       return String(cfg.keywords ?? '').trim() || undefined
     case 'action.ask_capture':
       return String(cfg.question ?? '').trim() || undefined
+    case 'action.ai_agent': {
+      const style = String(cfg.communicationStyle ?? '').trim()
+      const count = parseAiAgentScenarioList(cfg.scenarios).length
+      return [style, `${count} scenario${count === 1 ? '' : 's'}`].filter(Boolean).join(' · ') || undefined
+    }
     default:
       return undefined
   }
@@ -457,12 +472,16 @@ function WorkflowCanvasInner({
   edges,
   onChange,
   clinicId,
+  workflowId,
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
   onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
   /** Active clinic — enables entity pickers (doctor list for menu options). */
   clinicId?: string
+  /** The workflow currently open — excluded from the AI Agent node's "route
+   *  to another workflow" target picker so it can't route to itself. */
+  workflowId?: string
 }) {
   const { t, language } = useI18n()
   const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow()
@@ -497,6 +516,19 @@ function WorkflowCanvasInner({
           .map((tpl) => tpl.category),
       ),
     [templatesQuery.data],
+  )
+  // The clinic's other active workflows, for the AI Agent node's "route to a
+  // specific workflow" scenario target picker. Reuses the SAME query key +
+  // endpoint the Studio workflows list page already fetches with, so this is
+  // free cache reuse rather than an extra request.
+  const workflowsQuery = useQuery({
+    queryKey: ['workflows', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ workflows: Workflow[] }>(`/clinics/${clinicId}/workflows`),
+  })
+  const routableWorkflows = useMemo(
+    () => (workflowsQuery.data?.workflows ?? []).filter((wf) => wf.status === 'active' && wf.id !== workflowId),
+    [workflowsQuery.data, workflowId],
   )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -788,6 +820,51 @@ function WorkflowCanvasInner({
 
   const isMenu = selected?.type === 'action.interactive_menu'
 
+  // --- action.ai_agent scenarios editor helpers -------------------------------
+  const aiAgentScenarios = useMemo(() => {
+    if (!selected || selected.type !== 'action.ai_agent') return []
+    return parseAiAgentScenarioList(selected.config.scenarios)
+  }, [selected])
+
+  const setAiAgentScenarios = useCallback(
+    (next: AiAgentScenarioLike[]) => {
+      if (!selected) return
+      const value = JSON.stringify(next)
+      onChange({
+        nodes: nodes.map((n) => (n.id === selected.id ? { ...n, config: { ...n.config, scenarios: value } } : n)),
+        edges,
+      })
+    },
+    [selected, nodes, edges, onChange],
+  )
+
+  const patchAiAgentScenario = useCallback(
+    (index: number, patch: Partial<AiAgentScenarioLike>) => {
+      const next = aiAgentScenarios.map((s, i) => (i === index ? { ...s, ...patch } : s))
+      setAiAgentScenarios(next)
+    },
+    [aiAgentScenarios, setAiAgentScenarios],
+  )
+
+  const nextScenarioId = (existing: AiAgentScenarioLike[]): string => {
+    let n = existing.length + 1
+    while (existing.some((s) => s.id === `scenario_${n}`)) n++
+    return `scenario_${n}`
+  }
+
+  const addAiAgentScenario = useCallback(() => {
+    setAiAgentScenarios([...aiAgentScenarios, { id: nextScenarioId(aiAgentScenarios), description: '', action: 'reply' }])
+  }, [aiAgentScenarios, setAiAgentScenarios])
+
+  const removeAiAgentScenario = useCallback(
+    (index: number) => {
+      setAiAgentScenarios(aiAgentScenarios.filter((_, i) => i !== index))
+    },
+    [aiAgentScenarios, setAiAgentScenarios],
+  )
+
+  const isAiAgent = selected?.type === 'action.ai_agent'
+
   /** Translated field label; humanize if a key is still missing. */
   const fieldLabel = (key: string) => {
     const i18nKey = `wf.field.${key}`
@@ -974,8 +1051,8 @@ function WorkflowCanvasInner({
             return (
             <label key={key} className="mb-2 block">
               <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{fieldLabel(key)}</span>
-              {key === 'options' && isMenu ? (
-                // options is edited via the richer editor below
+              {(key === 'options' && isMenu) || (key === 'scenarios' && isAiAgent) ? (
+                // edited via the richer editor below
                 <input
                   value={value}
                   readOnly
@@ -1092,7 +1169,7 @@ function WorkflowCanvasInner({
                     </option>
                   ))}
                 </select>
-              ) : key === 'message' || key === 'prompt' || key === 'question' || key === 'text' ? (
+              ) : key === 'message' || key === 'prompt' || key === 'question' || key === 'text' || key === 'personality' || key === 'customInstructions' ? (
                 <textarea
                   value={String(selected.config[key] ?? '')}
                   onChange={(e) => patchConfig(key, e.target.value)}
@@ -1208,7 +1285,61 @@ function WorkflowCanvasInner({
             </div>
           )}
 
-          {(nodeDef(selected.type)?.fields ?? []).length === 0 && !isMenu && (
+          {/* AI Agent scenarios editor */}
+          {isAiAgent && (
+            <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
+              <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.field.scenarios')}</p>
+              <div className="space-y-2">
+                {aiAgentScenarios.map((sc, si) => (
+                  <div key={si} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
+                    <textarea
+                      value={sc.description}
+                      onChange={(e) => patchAiAgentScenario(si, { description: e.target.value })}
+                      rows={2}
+                      placeholder={t('wf.scenario.description')}
+                      className="w-full resize-none rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                    />
+                    <select
+                      value={sc.action}
+                      onChange={(e) => {
+                        const action = e.target.value as AiAgentScenarioAction
+                        patchAiAgentScenario(si, { action, ...(action === 'route' ? {} : { targetWorkflowId: undefined }) })
+                      }}
+                      className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                    >
+                      <option value="reply">{t('wf.scenario.actionReply')}</option>
+                      <option value="route">{t('wf.scenario.actionRoute')}</option>
+                      <option value="handoff">{t('wf.scenario.actionHandoff')}</option>
+                    </select>
+                    {sc.action === 'route' && (
+                      <select
+                        value={sc.targetWorkflowId ?? ''}
+                        onChange={(e) => patchAiAgentScenario(si, { targetWorkflowId: e.target.value })}
+                        className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                      >
+                        <option value="">{t('wf.scenario.targetWorkflow')}</option>
+                        {routableWorkflows.map((wf) => (
+                          <option key={wf.id} value={wf.id}>
+                            {wf.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div className="flex justify-end">
+                      <button type="button" onClick={() => removeAiAgentScenario(si)} className="shrink-0 text-[10px] text-red-600 hover:underline">
+                        {t('common.delete')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={addAiAgentScenario} className="text-xs text-violet-700 hover:underline dark:text-violet-300">
+                + {t('wf.addScenario')}
+              </button>
+            </div>
+          )}
+
+          {(nodeDef(selected.type)?.fields ?? []).length === 0 && !isMenu && !isAiAgent && (
             <p className="mb-3 text-gray-400">{t('wf.noConfig')}</p>
           )}
           <button
@@ -1230,6 +1361,9 @@ export function WorkflowCanvas(props: {
   onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
   /** Active clinic — enables entity pickers (doctor list for menu options). */
   clinicId?: string
+  /** The workflow currently open — excluded from the AI Agent node's "route
+   *  to another workflow" target picker so it can't route to itself. */
+  workflowId?: string
 }) {
   return (
     <ReactFlowProvider>

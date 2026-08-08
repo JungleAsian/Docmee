@@ -448,6 +448,62 @@ describe('runWorkflow — action.offer_slot_menu node', () => {
   })
 })
 
+describe('runWorkflow — action.ai_agent node', () => {
+  const wf = {
+    nodes: [
+      node('t', 'trigger', 'trigger.message_keyword'),
+      node('agent', 'action', 'action.ai_agent'),
+      node('replied', 'action', 'action.end'),
+      node('handoff', 'action', 'action.end'),
+      node('noMatch', 'action', 'action.end'),
+      node('errorEnd', 'action', 'action.end'),
+      node('routedTarget', 'action', 'action.end'), // never reached — 'routed' bypasses edges entirely
+    ],
+    edges: [
+      edge('t', 'agent'),
+      edge('agent', 'replied', 'replied'),
+      edge('agent', 'handoff', 'handoff'),
+      edge('agent', 'noMatch', 'no_match'),
+      edge('agent', 'errorEnd', 'error'),
+    ],
+  }
+
+  it('routes each fixed outcome to its labeled edge', async () => {
+    for (const outcome of ['replied', 'handoff', 'no_match', 'error'] as const) {
+      const aiAgent = vi.fn(async () => outcome)
+      const exec = makeExec({ aiAgent })
+      const trace = await runWorkflow(wf, {}, exec)
+      const expectedTarget = outcome === 'replied' ? 'replied' : outcome === 'handoff' ? 'handoff' : outcome === 'no_match' ? 'noMatch' : 'errorEnd'
+      expect(trace.map((s) => s.nodeId)).toContain(expectedTarget)
+    }
+  })
+
+  it('a "routed" outcome ends the run immediately, without consulting any edge', async () => {
+    const aiAgent = vi.fn(async () => 'routed' as const)
+    const exec = makeExec({ aiAgent })
+    const trace = await runWorkflow(wf, {}, exec)
+    expect(trace.at(-1)).toEqual({ nodeId: 'agent', type: 'action.ai_agent', status: 'ended' })
+    // Ends right after the agent node — the engine never looked up a
+    // successor for 'routed' (trigger + agent, nothing beyond it).
+    expect(trace).toHaveLength(2)
+  })
+
+  it('falls through to error when no executor is wired', async () => {
+    const exec = makeExec()
+    const trace = await runWorkflow(wf, {}, exec)
+    expect(trace.map((s) => s.nodeId)).toContain('errorEnd')
+  })
+
+  it('is not wrapped in the durable side-effect boundary — its return value is the routing decision', async () => {
+    const guarded = vi.fn(async (_node, _ctx, invoke) => invoke())
+    const aiAgent = vi.fn(async () => 'replied' as const)
+    const exec = makeExec({ runSideEffect: guarded, aiAgent })
+    await runWorkflow(wf, {}, exec)
+    expect(aiAgent).toHaveBeenCalledTimes(1)
+    expect(guarded).not.toHaveBeenCalled()
+  })
+})
+
 describe('runWorkflow — action.ai_draft node', () => {
   it('passes the full node (not just its prompt) so executors can read queryLimit/responseBuffer', async () => {
     const aiDraft = vi.fn()

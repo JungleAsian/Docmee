@@ -103,6 +103,53 @@ function isMenuOption(value: unknown): value is WorkflowMenuOption {
   )
 }
 
+// AI Agent: a single-pass (not re-entrant) node that hands a turn's routing
+// decision to an LLM. Each scenario is a free-text trigger description the
+// model semantically matches against, paired with exactly one action:
+// `reply` (draft + auto-send using the node's personality/instructions/
+// style), `route` (hand the conversation to a different workflow entirely —
+// ends this run like action.end, no successor edge needed), or `handoff`
+// (actually pause the bot, not the cosmetic action.notify_secretary).
+export type AiAgentScenarioAction = 'reply' | 'route' | 'handoff'
+
+export interface AiAgentScenario {
+  id: string
+  description: string
+  action: AiAgentScenarioAction
+  targetWorkflowId?: string
+}
+
+/** Parse an AI Agent node's `config.scenarios` (stored as a JSON string, same
+ *  convention as `parseMenuOptions`). Returns [] on absent/malformed input. */
+export function parseAiAgentScenarios(config: Record<string, unknown> | undefined): AiAgentScenario[] {
+  const raw = config?.['scenarios']
+  if (Array.isArray(raw)) return raw.filter(isAiAgentScenario)
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(isAiAgentScenario) : []
+  } catch {
+    return []
+  }
+}
+
+function isAiAgentScenario(value: unknown): value is AiAgentScenario {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as AiAgentScenario
+  return (
+    typeof v.id === 'string' &&
+    typeof v.description === 'string' &&
+    (v.action === 'reply' || v.action === 'route' || v.action === 'handoff')
+  )
+}
+
+/** Outcomes the worker's `aiAgent` executor can resolve to. `routed` is
+ *  internal to the engine (§ the switch case below) — it never becomes a
+ *  `handle` and therefore never needs a wired successor edge, mirroring how
+ *  `action.end` needs none: the target workflow was already enqueued, so
+ *  this run simply ends. */
+export type AiAgentOutcome = 'replied' | 'handoff' | 'no_match' | 'error' | 'routed'
+
 /**
  * Resolve a menu reply to an output handle. Precedence: reserved footer keys
  * (`0`→restart, `1`→livechat) → exact interactive reply id → 1-based numeric
@@ -154,6 +201,10 @@ export interface WorkflowExecutors {
    *  showed for `page`. A `selected` outcome must also write the chosen value
    *  into context (the engine has no option data to do this itself). */
   matchSlotMenuReply?: (node: WorkflowNode, ctx: WorkflowContext, page: number) => Promise<SlotMenuReplyOutcome> | SlotMenuReplyOutcome
+  /** Run the AI Agent node: match the patient's message against the node's
+   *  scenarios and act on the best match (reply / route / handoff). See
+   *  `AiAgentOutcome` for what each return value means. */
+  aiAgent?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<AiAgentOutcome> | AiAgentOutcome
   /** Persist the context and pause until the conversation receives another reply. */
   waitForReply?: (node: WorkflowNode, nextNodeId: string, ctx: WorkflowContext) => Promise<boolean> | boolean
   /** Pause and resume the run at `nodeId` after `ms` (delay node). */
@@ -292,6 +343,17 @@ export async function runWorkflow(
         // Nothing to show (no slots at all, or could not pause) — route out
         // the empty handle rather than dead-end.
         handle = 'empty'
+        break
+      }
+      case 'action.ai_agent': {
+        const outcome: AiAgentOutcome = exec.aiAgent ? await exec.aiAgent(node, ctx) : 'error'
+        if (outcome === 'routed') {
+          // A `route` scenario already enqueued the target workflow — this
+          // run ends here, exactly like action.end, no successor consulted.
+          trace.push({ nodeId: node.id, type: node.type, status: 'ended' })
+          return trace
+        }
+        handle = outcome
         break
       }
       case 'action.send_message':

@@ -243,4 +243,91 @@ describe('validateWorkflowDefinition', () => {
     ], { requireTrigger: true })
     expect(errors.join('\n')).toMatch(/ambiguous "selected" branch/)
   })
+
+  const aiAgentScenarios = (scenarios: Array<{ id: string; description: string; action: string; targetWorkflowId?: string }>) =>
+    JSON.stringify(scenarios)
+
+  it('accepts a valid action.ai_agent with all four fixed successors and is exempt from "exactly one successor"', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('agent', 'action', 'action.ai_agent', {
+        communicationStyle: 'friendly',
+        scenarios: aiAgentScenarios([{ id: 'a', description: 'wants to book', action: 'reply' }]),
+      }),
+      node('replied', 'action', 'action.end'),
+      node('handoff', 'action', 'action.end'),
+      node('noMatch', 'action', 'action.end'),
+      node('errorEnd', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'agent'),
+      edge('r', 'agent', 'replied', 'replied'),
+      edge('h', 'agent', 'handoff', 'handoff'),
+      edge('n', 'agent', 'noMatch', 'no_match'),
+      edge('e', 'agent', 'errorEnd', 'error'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
+  it('rejects an action.ai_agent missing successors, with zero scenarios, and an invalid style', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('agent', 'action', 'action.ai_agent', { communicationStyle: 'sarcastic', scenarios: '[]' }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'agent'),
+      edge('r', 'agent', 'end', 'replied'),
+    ], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/invalid communicationStyle "sarcastic"/)
+    expect(errors.join('\n')).toMatch(/requires at least one scenario/)
+    expect(errors.join('\n')).toMatch(/requires a handoff successor/)
+    expect(errors.join('\n')).toMatch(/requires a no_match successor/)
+    expect(errors.join('\n')).toMatch(/requires a error successor/)
+  })
+
+  it('rejects a "route" scenario with no target workflow, a duplicate scenario id, and an unknown edge handle', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('agent', 'action', 'action.ai_agent', {
+        scenarios: aiAgentScenarios([
+          { id: 'a', description: 'route me', action: 'route' },
+          { id: 'a', description: 'duplicate id', action: 'reply' },
+        ]),
+      }),
+      node('replied', 'action', 'action.end'),
+      node('handoff', 'action', 'action.end'),
+      node('noMatch', 'action', 'action.end'),
+      node('errorEnd', 'action', 'action.end'),
+      node('weird', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'agent'),
+      edge('r', 'agent', 'replied', 'replied'),
+      edge('h', 'agent', 'handoff', 'handoff'),
+      edge('n', 'agent', 'noMatch', 'no_match'),
+      edge('e', 'agent', 'errorEnd', 'error'),
+      edge('w', 'agent', 'weird', 'not_a_real_handle'),
+    ], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/scenario "a" requires a target workflow/)
+    expect(errors.join('\n')).toMatch(/duplicate scenario id "a"/)
+    expect(errors.join('\n')).toMatch(/unknown handle "not_a_real_handle"/)
+  })
+
+  it('accepts a "route" scenario that does supply a target workflow', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('agent', 'action', 'action.ai_agent', {
+        scenarios: aiAgentScenarios([{ id: 'a', description: 'route me', action: 'route', targetWorkflowId: 'wf-2' }]),
+      }),
+      node('replied', 'action', 'action.end'),
+      node('handoff', 'action', 'action.end'),
+      node('noMatch', 'action', 'action.end'),
+      node('errorEnd', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'agent'),
+      edge('r', 'agent', 'replied', 'replied'),
+      edge('h', 'agent', 'handoff', 'handoff'),
+      edge('n', 'agent', 'noMatch', 'no_match'),
+      edge('e', 'agent', 'errorEnd', 'error'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
 })

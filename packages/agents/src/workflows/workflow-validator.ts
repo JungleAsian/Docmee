@@ -1,5 +1,5 @@
 import type { WorkflowEdge, WorkflowNode } from '@docmee/db'
-import { parseMenuOptions, MENU_RESERVED_HANDLES } from './workflow-engine.js'
+import { parseMenuOptions, MENU_RESERVED_HANDLES, parseAiAgentScenarios } from './workflow-engine.js'
 
 const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['trigger.message_keyword', 'trigger'],
@@ -22,6 +22,7 @@ const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['action.offer_slot_menu', 'action'],
   ['action.create_or_reschedule_booking', 'action'],
   ['action.transcribe_booking_voice', 'action'],
+  ['action.ai_agent', 'action'],
   ['action.end', 'action'],
 ])
 
@@ -104,6 +105,7 @@ export function validateWorkflowDefinition(
       node.type !== 'logic.ai_classify_intent' &&
       node.type !== 'action.interactive_menu' &&
       node.type !== 'action.offer_slot_menu' &&
+      node.type !== 'action.ai_agent' &&
       next.length !== 1
     ) {
       errors.push(`Node ${node.id} must have exactly one successor`)
@@ -175,6 +177,35 @@ export function validateWorkflowDefinition(
       }
       if (!wired.has('selected')) errors.push(`Slot menu ${node.id} requires a "selected" successor`)
       if (!wired.has('empty')) errors.push(`Slot menu ${node.id} requires an "empty" successor (no slots available)`)
+    }
+    if (node.type === 'action.ai_agent') {
+      const style = String(node.config?.['communicationStyle'] ?? '')
+      if (style && !['professional', 'friendly', 'brief'].includes(style)) {
+        errors.push(`AI Agent ${node.id} has an invalid communicationStyle "${style}"`)
+      }
+      const scenarios = parseAiAgentScenarios(node.config)
+      if (scenarios.length === 0) errors.push(`AI Agent ${node.id} requires at least one scenario`)
+      const seenScenarioIds = new Set<string>()
+      for (const s of scenarios) {
+        if (seenScenarioIds.has(s.id)) errors.push(`AI Agent ${node.id} has a duplicate scenario id "${s.id}"`)
+        seenScenarioIds.add(s.id)
+        if (!s.description.trim()) errors.push(`AI Agent ${node.id} has a scenario with no description`)
+        if (s.action === 'route' && !s.targetWorkflowId?.trim()) {
+          errors.push(`AI Agent ${node.id} scenario "${s.id}" requires a target workflow`)
+        }
+      }
+      const handles = new Set(next.map((edge) => edge.sourceHandle).filter((h): h is string => Boolean(h)))
+      for (const handle of ['replied', 'handoff', 'no_match', 'error']) {
+        if (!handles.has(handle)) errors.push(`AI Agent ${node.id} requires a ${handle} successor`)
+      }
+      const validHandles = new Set(['replied', 'handoff', 'no_match', 'error'])
+      const wired = new Set<string>()
+      for (const edge of next) {
+        const h = edge.sourceHandle ?? ''
+        if (!validHandles.has(h)) errors.push(`AI Agent edge ${edge.id} uses an unknown handle "${h}"`)
+        if (wired.has(h)) errors.push(`AI Agent ${node.id} has an ambiguous "${h}" branch`)
+        wired.add(h)
+      }
     }
     if (node.type === 'logic.delay') {
       const amount = Number(node.config?.['amount'])

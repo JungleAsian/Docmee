@@ -11,6 +11,8 @@ export {
   detectPromptInjection,
   screenPromptLeak,
   wrapUntrustedKb,
+  injectionGuard,
+  promptSafetyDeferral,
 } from './prompt-safety.js'
 
 export {
@@ -44,6 +46,7 @@ export {
   isLikelyQuestion,
   emergencyNotice,
   resolveLanguage,
+  toneInstruction,
   type BotTone,
   type BotLanguage,
   type ClinicBotConfig,

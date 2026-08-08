@@ -16,12 +16,23 @@ import {
   SLOT_MENU_MORE_OPTION_ID,
   parseMenuOptions,
   resolveMenuHandle,
+  parseAiAgentScenarios,
+  isEmergencyMessage,
+  screenMedicalSafety,
+  medicalSafetyDeferral,
+  screenPromptLeak,
+  promptSafetyDeferral,
+  injectionGuard,
+  toneInstruction,
+  detectLanguage,
   type BookingGrid,
   type CalendarOps,
   type GoogleCalendarConfig,
   type RefreshedTokens,
   type TimeSlot,
   type SlotMenuReplyOutcome,
+  type AiAgentOutcome,
+  type BotTone,
   type WorkflowCaptureState,
   type WorkflowContext,
   type WorkflowExecutors,
@@ -34,6 +45,7 @@ import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey } from './clinic-ai-key.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
+import { pauseBotForHandoff } from './bot-handoff.js'
 import { type Job } from '@docmee/queue'
 import {
   createServiceDbClient,
@@ -59,6 +71,7 @@ import {
   WorkflowRunJobSchema,
   scheduleWorkflowResume,
   writePendingWorkflowRun,
+  enqueueWorkflowRunByTarget,
   type WorkflowRunJobData,
 } from './workflow-run.js'
 
@@ -476,6 +489,51 @@ export function resolveSlotMenuReply(
   return { outcome: 'default' }
 }
 
+/** Build the AI Agent node's system prompt: clinic + tone + personality/custom
+ *  instructions + an injection guard + the scenario list the model must pick
+ *  from, with a strict output-format contract `parseAiAgentCompletion` relies
+ *  on. Exported for direct testing (this session's established convention
+ *  for worker-side prompt-building helpers). */
+export function buildAiAgentSystemPrompt(input: {
+  clinicName: string
+  personality: string
+  customInstructions: string
+  style: BotTone
+  scenarios: { id: string; description: string }[]
+}): string {
+  const scenarioLines = input.scenarios.length
+    ? input.scenarios.map((s) => `- ${s.id}: ${s.description}`).join('\n')
+    : '(no scenarios configured)'
+  return [
+    `You are the AI agent for ${input.clinicName}, deciding how to route this WhatsApp conversation.`,
+    `Tone: ${toneInstruction(input.style)}`,
+    input.personality ? `Personality: ${input.personality}` : '',
+    input.customInstructions ? `Instructions: ${input.customInstructions}` : '',
+    injectionGuard(input.clinicName),
+    'Scenarios you can match the patient\'s message against (id: description):',
+    scenarioLines,
+    [
+      'Respond in EXACTLY this format, nothing else:',
+      'SCENARIO: <the id of the single best-matching scenario, or NONE if nothing fits>',
+      'REPLY:',
+      '<your reply to the patient, in their language — ONLY when the matched scenario is a reply scenario, otherwise leave this blank>',
+    ].join('\n'),
+  ].filter(Boolean).join('\n\n')
+}
+
+/** Parse the strict `SCENARIO: ...` / `REPLY: ...` completion format
+ *  `buildAiAgentSystemPrompt` instructs the model to use. Defensive: any
+ *  unparseable or `NONE` completion returns a null scenarioId — the caller
+ *  treats that as "no match", never as an LLM failure (that's `error`,
+ *  reserved for the chatComplete call itself throwing). */
+export function parseAiAgentCompletion(raw: string): { scenarioId: string | null; reply: string } {
+  const scenarioMatch = raw.match(/SCENARIO:\s*(\S+)/i)
+  const scenarioId = scenarioMatch && scenarioMatch[1]!.toUpperCase() !== 'NONE' ? scenarioMatch[1]!.trim() : null
+  const replyMatch = raw.match(/REPLY:\s*([\s\S]*)$/i)
+  const reply = replyMatch ? replyMatch[1]!.trim() : ''
+  return { scenarioId, reply }
+}
+
 function addMinutes(localStart: string, minutes: number): string {
   const value = new Date(`${localStart}Z`)
   value.setUTCMinutes(value.getUTCMinutes() + minutes)
@@ -817,6 +875,105 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         message: `Workflow instruction: ${prompt || '(none)'}\nPatient context: ${String(ctx.message ?? ctx.transcript ?? '(none)')}` })
       await createWorkflowApprovalsRepository(sql).createDraft({ clinicId, workflowId: data.workflowId, nodeId: node.id, runKey: `${workflowRunId}:${node.id}:ai_draft`, conversationId: ctx.conversationId, patientId: ctx.patientId, prompt, content: content.trim() })
       await notify('A workflow generated an AI draft for staff review. It was not sent.', ctx)
+    },
+
+    async aiAgent(node, ctx) {
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
+      const message = contextString(ctx, 'message')
+      const language = detectLanguage(message)
+
+      const currentMetadata = async (): Promise<Record<string, unknown> | undefined> => {
+        if (!ctx.conversationId) return undefined
+        const conv = await createConversationsRepository(sql).findById(clinicId, ctx.conversationId)
+        return conv?.metadata
+      }
+
+      // Pre-LLM deterministic guard — same emergency check the main clinic
+      // bot runs before ever calling the model; a true emergency should
+      // never wait on (or be talked out of escalating by) an LLM call.
+      if (isEmergencyMessage(message)) {
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'emergency')
+        await notify('The AI Agent workflow detected a possible emergency and paused the bot.', ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+
+      const scenarios = parseAiAgentScenarios(node.config)
+      const styleRaw = String(node.config?.['communicationStyle'] ?? 'professional')
+      const style: BotTone = styleRaw === 'friendly' || styleRaw === 'brief' ? styleRaw : 'professional'
+      const personality = String(node.config?.['personality'] ?? '').trim()
+      const customInstructions = String(node.config?.['customInstructions'] ?? '').trim()
+
+      const system = buildAiAgentSystemPrompt({ clinicName: clinic.name, personality, customInstructions, style, scenarios })
+      const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
+      const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
+
+      let raw: string
+      try {
+        raw = await chatComplete({
+          provider,
+          model: ai.model?.trim() || defaultChatModel(provider),
+          baseURL: ai.baseURL?.trim() || undefined,
+          apiKey: resolveClinicAiKey(clinic.settings, provider),
+          history: [],
+          maxTokens: 512,
+          system,
+          message,
+        })
+      } catch (err) {
+        console.error('[workflow] ai_agent LLM call failed:', err)
+        return 'error'
+      }
+
+      const { scenarioId, reply } = parseAiAgentCompletion(raw)
+      const matched = scenarios.find((s) => s.id === scenarioId)
+      ctx['ai_agent_matched_scenario'] = matched?.id ?? ''
+      if (!matched) {
+        ctx['ai_agent_action'] = 'none'
+        return 'no_match'
+      }
+
+      if (matched.action === 'handoff') {
+        ctx['ai_agent_action'] = 'handoff'
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'ai_agent_handoff')
+        await notify('The AI Agent handed this conversation off to the team.', ctx)
+        return 'handoff'
+      }
+
+      if (matched.action === 'route') {
+        ctx['ai_agent_action'] = 'route'
+        if (matched.targetWorkflowId) {
+          await enqueueWorkflowRunByTarget(sql, clinicId, matched.targetWorkflowId, 'workflow.ai_agent_route', {
+            sourceEventId: `${workflowRunId}:${node.id}:route`,
+            conversationId: ctx.conversationId,
+            patientId: ctx.patientId,
+            message,
+          })
+        }
+        return 'routed'
+      }
+
+      // action === 'reply': run the same output-side safety screens the main
+      // clinic bot applies before any auto-send — this node can now speak
+      // for real, so it inherits the same defense-in-depth.
+      const safety = screenMedicalSafety(reply)
+      if (!safety.safe) {
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
+        await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+      const leak = screenPromptLeak(reply)
+      if (!leak.safe) {
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
+        await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+      await sendWorkflowMessage(reply, ctx)
+      ctx['ai_agent_action'] = 'reply'
+      return 'replied'
     },
 
     async requestApproval(node, resumeNodeId, ctx) {

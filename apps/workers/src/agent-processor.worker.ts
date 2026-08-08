@@ -45,6 +45,7 @@ import {
   type FlowInteractivePrompt,
 } from '@docmee/agents'
 import { hybridClarificationMessage, resolveHybridFlowBranch } from './custom-flow-hybrid.js'
+import { pauseBotForHandoff } from './bot-handoff.js'
 import { sendMessengerText, sendInstagramText } from '@docmee/channels'
 import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender, resolveWhatsAppInteractiveSender } from './meta-token.js'
 import { schedulingQueue, notificationQueue, type Job } from '@docmee/queue'
@@ -466,12 +467,7 @@ async function emitFlowResult(
     await schedulingQueue.add('schedule', { ...data, action: 'book' })
   } else if (result.action === 'handoff') {
     if (conversation) {
-      await pauseBotForHandoff(
-        createConversationsRepository(sql),
-        data,
-        persistedMetadata,
-        'custom_flow_handoff',
-      )
+      await pauseBotForHandoff(sql, data.clinicId, data.conversationId, persistedMetadata, 'custom_flow_handoff')
     }
     await notificationQueue.add('notify', {
       ...data,
@@ -487,28 +483,6 @@ async function clearFlowState(sql: Sql, data: AgentJobData, conversation: Conver
   const metadata = { ...conversation.metadata }
   delete metadata[FLOW_STATE]
   await createConversationsRepository(sql).update(data.clinicId, data.conversationId, { metadata })
-}
-
-/**
- * Pause the bot for a human handoff (Rev1 #5/#6): flip the conversation to
- * `handoff` and stamp who/why so the inbox shows the bot is off and the timeout
- * monitor can later reactivate it. No-op when the job carries no conversation id.
- */
-async function pauseBotForHandoff(
-  conversations: ReturnType<typeof createConversationsRepository>,
-  data: AgentJobData,
-  currentMetadata: Record<string, unknown> | undefined,
-  reason: string,
-): Promise<void> {
-  if (!data.conversationId) return
-  await conversations.update(data.clinicId, data.conversationId, {
-    status: 'handoff',
-    metadata: {
-      ...(currentMetadata ?? {}),
-      [BOT_PAUSED_AT]: new Date().toISOString(),
-      [HANDOFF_REASON]: reason,
-    },
-  })
 }
 
 export async function processAgentJob(job: Job): Promise<void> {
@@ -695,7 +669,7 @@ export async function processAgentJob(job: Job): Promise<void> {
       if (data.conversationId && conversation) {
         const tag = await conversations.createTag({ clinicId: data.clinicId, name: 'emergency' })
         await conversations.addTag(data.clinicId, data.conversationId, tag.id)
-        await pauseBotForHandoff(conversations, data, conversation.metadata, 'emergency')
+        await pauseBotForHandoff(sql, data.clinicId, data.conversationId, conversation.metadata, 'emergency')
       }
       await notificationQueue.add('notify', {
         clinicId: data.clinicId,
@@ -741,7 +715,7 @@ export async function processAgentJob(job: Job): Promise<void> {
     if (sendReply && detectHumanRequest(data.message)) {
       await sendReply(handoffNotice(patientLanguage))
       if (conversation) {
-        await pauseBotForHandoff(conversations, data, conversation.metadata, 'patient_request')
+        await pauseBotForHandoff(sql, data.clinicId, data.conversationId, conversation.metadata, 'patient_request')
       }
       await notificationQueue.add('notify', {
         clinicId: data.clinicId,
@@ -875,8 +849,9 @@ export async function processAgentJob(job: Job): Promise<void> {
         }
         if (conversation) {
           await pauseBotForHandoff(
-            conversations,
-            data,
+            sql,
+            data.clinicId,
+            data.conversationId,
             routedMetadata,
             route.reason === 'emergency' ? 'emergency' : 'patient_request',
           )
@@ -1059,8 +1034,9 @@ export async function processAgentJob(job: Job): Promise<void> {
               await conversations.addTag(data.clinicId, data.conversationId, tag.id)
             }
             await pauseBotForHandoff(
-              conversations,
-              data,
+              sql,
+              data.clinicId,
+              data.conversationId,
               latest?.metadata ?? conversation.metadata,
               'medical_safety',
             )

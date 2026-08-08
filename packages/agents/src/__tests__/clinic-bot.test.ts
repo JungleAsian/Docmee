@@ -5,6 +5,7 @@ import {
   isLikelyQuestion,
   emergencyNotice,
   resolveLanguage,
+  toneInstruction,
   type ClinicBotConfig,
   type ClinicBotInput,
   type ClinicBotDeps,
@@ -88,6 +89,15 @@ describe('resolveLanguage', () => {
 
   it("'auto' follows the stored patient language after the first message", () => {
     expect(resolveLanguage(baseInput({ clinic: { ...clinic, language: 'auto' }, isFirstMessage: false, patientLanguage: 'en' }))).toBe('en')
+  })
+})
+
+describe('toneInstruction', () => {
+  it('returns a distinct instruction for each communication style, reused verbatim in the system prompt', () => {
+    expect(toneInstruction('friendly')).toContain('warm')
+    expect(toneInstruction('brief')).toContain('short')
+    expect(toneInstruction('professional')).not.toEqual(toneInstruction('friendly'))
+    expect(toneInstruction('professional')).not.toEqual(toneInstruction('brief'))
   })
 })
 

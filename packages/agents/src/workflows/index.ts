@@ -7,6 +7,7 @@ export {
   SLOT_MENU_MORE_OPTION_ID,
   parseMenuOptions,
   resolveMenuHandle,
+  parseAiAgentScenarios,
   type WorkflowContext,
   type WorkflowExecutors,
   type WorkflowStep,
@@ -17,5 +18,8 @@ export {
   type WorkflowMenuOption,
   type WorkflowSlotMenuState,
   type SlotMenuReplyOutcome,
+  type AiAgentScenario,
+  type AiAgentScenarioAction,
+  type AiAgentOutcome,
 } from './workflow-engine.js'
 export { validateWorkflowDefinition, SUPPORTED_WORKFLOW_TRIGGER_TYPES, type WorkflowValidationOptions } from './workflow-validator.js'

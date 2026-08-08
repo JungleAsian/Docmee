@@ -206,6 +206,7 @@ const CONVERSATIONAL_NODE_TYPES = new Set([
   'action.ask_capture',
   'action.offer_slots',
   'action.ai_draft',
+  'action.ai_agent',
 ])
 
 /** Pure: does this workflow talk to the patient? */
@@ -250,6 +251,36 @@ export async function enqueueWorkflowRuns(
     enqueued++
   }
   return enqueued
+}
+
+/** Enqueue a run for one exact workflow — used by action.ai_agent's `route`
+ *  outcome, which already knows precisely which workflow the admin picked
+ *  (unlike `enqueueWorkflowRuns`, this does NOT match by trigger type). Same
+ *  jobId-keyed idempotency as every other enqueue here: `workflowRunKey`
+ *  hashes workflowId+sourceEventId, so a crash-retry of the same triggering
+ *  event naturally dedupes without any extra bookkeeping. Returns false
+ *  (no-op) when there's no stable source event id or the target workflow
+ *  doesn't exist / isn't active. */
+export async function enqueueWorkflowRunByTarget(
+  sql: Sql,
+  clinicId: string,
+  targetWorkflowId: string,
+  triggerType: string,
+  ctx: TriggerContext,
+): Promise<boolean> {
+  const sourceEventId = ctx.sourceEventId ?? ctx.waMessageId
+  if (!sourceEventId) {
+    console.error(`[workflow] refusing to route to ${targetWorkflowId} without a stable source event ID`)
+    return false
+  }
+  const target = await createWorkflowsRepository(sql).findById(clinicId, targetWorkflowId)
+  if (!target || target.status !== 'active') return false
+  await workflowQueue().add('run', {
+    clinicId,
+    workflowId: targetWorkflowId,
+    trigger: { type: triggerType, sourceEventId, ...ctx },
+  } satisfies WorkflowRunJobData, { jobId: workflowRunKey(targetWorkflowId, sourceEventId) })
+  return true
 }
 
 export interface InboundWorkflowClaim {

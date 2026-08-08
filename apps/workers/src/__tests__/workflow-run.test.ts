@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const h = vi.hoisted(() => ({
   queueAdd: vi.fn().mockResolvedValue(undefined),
   listActiveByTrigger: vi.fn().mockResolvedValue([]),
+  findWorkflowById: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@docmee/queue', () => ({
@@ -11,12 +12,13 @@ vi.mock('@docmee/queue', () => ({
 
 vi.mock('@docmee/db', () => ({
   createConversationsRepository: () => ({ findById: vi.fn(), update: vi.fn() }),
-  createWorkflowsRepository: () => ({ listActiveByTrigger: h.listActiveByTrigger }),
+  createWorkflowsRepository: () => ({ listActiveByTrigger: h.listActiveByTrigger, findById: h.findWorkflowById }),
 }))
 
 import {
   WorkflowRunJobSchema,
   enqueueInboundWorkflowRuns,
+  enqueueWorkflowRunByTarget,
   readPendingWorkflowRuns,
   workflowIsConversational,
   workflowKeywordMatches,
@@ -127,7 +129,7 @@ describe('workflow idempotency keys', () => {
 
 describe('workflowIsConversational', () => {
   it('is true when the graph can speak to the patient', () => {
-    for (const type of ['action.send_message', 'action.interactive_menu', 'action.ask_capture', 'action.send_template', 'action.offer_slots', 'action.ai_draft']) {
+    for (const type of ['action.send_message', 'action.interactive_menu', 'action.ask_capture', 'action.send_template', 'action.offer_slots', 'action.ai_draft', 'action.ai_agent']) {
       expect(workflowIsConversational({ nodes: [{ ...triggerNode }, { id: 'a', kind: 'action' as const, type, config: {}, x: 0, y: 0 }] })).toBe(true)
     }
   })
@@ -178,5 +180,48 @@ describe('enqueueInboundWorkflowRuns', () => {
   it('refuses to run without a stable source event ID', async () => {
     const claim = await enqueueInboundWorkflowRuns(sql, 'clinic-1', { message: 'hi' })
     expect(claim).toEqual({ enqueued: 0, ownsTurn: false })
+  })
+})
+
+describe('enqueueWorkflowRunByTarget', () => {
+  beforeEach(() => {
+    h.queueAdd.mockClear()
+    h.findWorkflowById.mockReset().mockResolvedValue(null)
+  })
+
+  const sql = {} as never
+
+  it('refuses without a stable source event ID', async () => {
+    const ok = await enqueueWorkflowRunByTarget(sql, 'clinic-1', 'wf-target', 'workflow.ai_agent_route', {})
+    expect(ok).toBe(false)
+    expect(h.queueAdd).not.toHaveBeenCalled()
+  })
+
+  it('no-ops when the target workflow does not exist', async () => {
+    h.findWorkflowById.mockResolvedValue(null)
+    const ok = await enqueueWorkflowRunByTarget(sql, 'clinic-1', 'wf-missing', 'workflow.ai_agent_route', { sourceEventId: 'wamid.1' })
+    expect(ok).toBe(false)
+    expect(h.queueAdd).not.toHaveBeenCalled()
+  })
+
+  it('no-ops when the target workflow is not active', async () => {
+    h.findWorkflowById.mockResolvedValue({ id: 'wf-target', status: 'draft' })
+    const ok = await enqueueWorkflowRunByTarget(sql, 'clinic-1', 'wf-target', 'workflow.ai_agent_route', { sourceEventId: 'wamid.1' })
+    expect(ok).toBe(false)
+    expect(h.queueAdd).not.toHaveBeenCalled()
+  })
+
+  it('enqueues with the expected jobId when the target is active', async () => {
+    h.findWorkflowById.mockResolvedValue({ id: 'wf-target', status: 'active' })
+    const ok = await enqueueWorkflowRunByTarget(sql, 'clinic-1', 'wf-target', 'workflow.ai_agent_route', {
+      sourceEventId: 'wamid.1',
+      conversationId: 'convo-1',
+    })
+    expect(ok).toBe(true)
+    expect(h.queueAdd).toHaveBeenCalledWith(
+      'run',
+      expect.objectContaining({ clinicId: 'clinic-1', workflowId: 'wf-target' }),
+      expect.objectContaining({ jobId: workflowRunKey('wf-target', 'wamid.1') }),
+    )
   })
 })

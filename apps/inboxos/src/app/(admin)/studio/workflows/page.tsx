@@ -437,6 +437,7 @@ function WorkflowEditor({
           edges={edges}
           onChange={applyCanvasChange}
           clinicId={clinicId}
+          workflowId={workflow?.id}
         />
       </div>
     </>

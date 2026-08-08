@@ -128,6 +128,13 @@ const TONE_INSTRUCTIONS: Record<BotTone, string> = {
   brief: 'Keep responses short. Use bullet points where appropriate. Maximum 3 sentences.',
 }
 
+/** The system-prompt instruction for a given communication tone — exported so
+ *  other callers (e.g. the AI Agent workflow node) reuse the exact same
+ *  tone vocabulary as the main clinic bot instead of duplicating it. */
+export function toneInstruction(tone: BotTone): string {
+  return TONE_INSTRUCTIONS[tone]
+}
+
 function buildSystemPrompt(input: ClinicBotInput, language: Language, kbMatches: KbMatch[]): string {
   const kbContext = kbMatches.length
     ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')

@@ -103,6 +103,13 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     descKey: 'wf.desc.transcribeBookingVoice',
     fields: ['provider', 'allowedFields', 'reviewTag'],
   },
+  {
+    type: 'action.ai_agent',
+    kind: 'action',
+    labelKey: 'wf.node.aiAgent',
+    descKey: 'wf.desc.aiAgent',
+    fields: ['personality', 'customInstructions', 'communicationStyle', 'scenarios'],
+  },
   { type: 'action.end', kind: 'action', labelKey: 'wf.node.end', descKey: 'wf.desc.end', fields: [] },
 ]
 
@@ -183,6 +190,7 @@ const FIELD_PRODUCERS: Partial<Record<string, FieldProducer>> = {
     fixed: ['needs_review', 'contains_disallowed_medical_content', 'voice_booking_confidence', 'booking_confidence', 'voice_booking_source'],
   },
   'logic.ai_classify_intent': { fromConfig: [{ key: 'confidenceField', fallback: 'booking_confidence' }], fixed: ['classification_confidence'] },
+  'action.ai_agent': { fixed: ['ai_agent_matched_scenario', 'ai_agent_action'] },
 }
 
 /**
@@ -239,6 +247,11 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
   pickerMode: [
     { value: 'date', labelKey: 'wf.slotMenuMode.date' },
     { value: 'time', labelKey: 'wf.slotMenuMode.time' },
+  ],
+  communicationStyle: [
+    { value: 'professional', labelKey: 'wf.style.professional' },
+    { value: 'friendly', labelKey: 'wf.style.friendly' },
+    { value: 'brief', labelKey: 'wf.style.brief' },
   ],
   op: [
     { value: 'equals', labelKey: 'wf.op.equals' },
@@ -340,6 +353,38 @@ function parseMenuOptionList(raw: unknown): MenuOptionLike[] {
       typeof o === 'object' && o !== null &&
       typeof (o as MenuOptionLike).optionId === 'string' &&
       typeof (o as MenuOptionLike).title === 'string',
+  )
+}
+
+export type AiAgentScenarioAction = 'reply' | 'route' | 'handoff'
+
+export interface AiAgentScenarioLike {
+  id: string
+  description: string
+  action: AiAgentScenarioAction
+  targetWorkflowId?: string
+}
+
+/** Parse an action.ai_agent node's `config.scenarios` (JSON string or array).
+ *  Local copy of the engine's parseAiAgentScenarios so inboxos stays
+ *  dependency-free of @docmee/agents, mirroring parseMenuOptionList above. */
+export function parseAiAgentScenarioList(raw: unknown): AiAgentScenarioLike[] {
+  let list: unknown = raw
+  if (typeof list === 'string') {
+    if (!list.trim()) return []
+    try {
+      list = JSON.parse(list)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(list)) return []
+  return list.filter(
+    (o): o is AiAgentScenarioLike =>
+      typeof o === 'object' && o !== null &&
+      typeof (o as AiAgentScenarioLike).id === 'string' &&
+      typeof (o as AiAgentScenarioLike).description === 'string' &&
+      ((o as AiAgentScenarioLike).action === 'reply' || (o as AiAgentScenarioLike).action === 'route' || (o as AiAgentScenarioLike).action === 'handoff'),
   )
 }
 

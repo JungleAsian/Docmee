@@ -54,6 +54,12 @@ export interface FlowInteractivePrompt {
   kind: FlowRenderMode
   body: string
   header?: string
+  /** A public image URL to send as the header instead of `header` text.
+   *  WhatsApp only allows an image header on `kind: 'button'` sends — a list
+   *  message's header must stay text. Callers building a button-kind prompt
+   *  can set this for consistent brand imagery (e.g. a logo); `header` is
+   *  then ignored for the send (fold any text into `body` instead). */
+  headerImageUrl?: string
   footer?: string
   /** Tap-to-open button label; `kind: 'list'` only. */
   buttonLabel?: string

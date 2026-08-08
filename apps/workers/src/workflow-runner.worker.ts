@@ -156,6 +156,34 @@ function reviewReasonForExtraction(input: {
 
 export type WorkflowSlot = { start: string; end: string }
 
+// Docmee branding for interactive workflow menus. WhatsApp only allows an
+// image header on button-kind sends (list headers must stay text), so the
+// logo appears there; every menu gets the branded text header, links, and a
+// plain-text options listing baked into what's persisted for the Inbox.
+const DOCMEE_LOGO_URL = 'https://app.docmeedevelopment.dev/icon-512.png'
+const DOCMEE_LINKS_TEXT = [
+  '🌐 Website: https://docmee.ai/',
+  '❓ FAQ: https://docmee.ai/#faq',
+  '💬 Contact Us: https://docmee.ai/#contact',
+].join('\n')
+
+function brandedMenuHeader(rawHeader: string): string {
+  return rawHeader ? `Docmee | ${rawHeader}` : 'Docmee'
+}
+
+/** Numbered options listing shown under a menu's message — sent as part of
+ *  the plain-text fallback (no interactive sender available) and always
+ *  included in what's persisted to conversation_messages, so the Inbox shows
+ *  exactly what the patient was offered even though a real interactive send
+ *  carries the options as WhatsApp buttons/rows, not body text. */
+function menuOptionsListText(options: { title: string; description?: string }[]): string {
+  if (options.length === 0) return ''
+  return [
+    'Options:',
+    ...options.map((o, i) => `${i + 1}. ${o.title}${o.description ? ` — ${o.description}` : ''}`),
+  ].join('\n')
+}
+
 function configField(node: { config?: Record<string, unknown> }, key: string, fallback: string): string {
   const configured = String(node.config?.[key] ?? '').trim()
   return configured || fallback
@@ -348,6 +376,20 @@ function slotDate(slot: WorkflowSlot): string {
 
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+/** Current time as a naive `YYYY-MM-DDTHH:MM:SS` string in the same shape as
+ *  WorkflowSlot's start/end (no trailing `Z`) — comparable to slot start
+ *  times with a plain string comparison since same-shaped ISO strings sort
+ *  chronologically. */
+export function nowLocalIso(): string {
+  return new Date().toISOString().slice(0, 19)
+}
+
+/** Drop slots that have already started — offering "9:00 AM today" at 2pm is
+ *  not a bookable option regardless of what the doctor's grid allows. */
+export function excludePastSlots(slots: WorkflowSlot[], now: string = nowLocalIso()): WorkflowSlot[] {
+  return slots.filter((slot) => slot.start > now)
 }
 
 export function distinctSlotDates(slots: WorkflowSlot[]): string[] {
@@ -910,26 +952,38 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     async sendInteractiveMenu(node, ctx) {
       const options = parseMenuOptions(node.config)
       const variant = String(node.config?.['variant'] ?? 'list')
-      const header = String(node.config?.['header'] ?? '').trim()
-      const message = String(node.config?.['message'] ?? '').trim()
+      const rawHeader = String(node.config?.['header'] ?? '').trim()
+      const rawMessage = String(node.config?.['message'] ?? '').trim()
       const footer = String(node.config?.['footer'] ?? '').trim()
+      const isButton = variant === 'button' && options.length <= 3
 
-      const textParts = [
-        ...(header ? [header] : []),
+      const brandedHeader = brandedMenuHeader(rawHeader)
+      const message = [rawMessage, DOCMEE_LINKS_TEXT].filter(Boolean).join('\n\n')
+      // What actually reaches conversation_messages (and the plain-text
+      // fallback when no interactive sender is available) — always includes
+      // the option list so the Inbox shows exactly what the patient was
+      // offered, even though a real send carries options as WhatsApp
+      // buttons/rows rather than body text.
+      const fullText = [
+        brandedHeader,
         message,
+        ...(options.length ? [menuOptionsListText(options)] : []),
         ...(footer ? [footer] : []),
-      ]
-      const fullText = textParts.join('\n\n')
+      ].join('\n\n')
 
       const target = await resolveTarget(sql, clinicId, ctx.patientId)
       if (target) {
         const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
         if (sender) {
           try {
-            const isButton = variant === 'button' && options.length <= 3
             const wamid = await sender({
               kind: isButton ? 'buttons' : 'list',
-              header: header || undefined,
+              // A button send shows the Docmee logo as its header image
+              // instead — WhatsApp allows only one header (image or text)
+              // per interactive message, and only button-kind sends support
+              // an image header at all (list headers must stay text).
+              header: isButton ? undefined : brandedHeader,
+              headerImageUrl: isButton ? DOCMEE_LOGO_URL : undefined,
               body: message,
               footer: footer || undefined,
               buttonLabel: isButton ? undefined : String(node.config?.['buttonLabel'] ?? 'Options'),
@@ -944,13 +998,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
           await sendWorkflowMessage(fullText, ctx)
         }
       } else {
-        const lines = [
-          ...(header ? [header] : []),
-          message,
-          ...options.map((o, i) => `${i + 1}. ${o.title}${o.description ? ` — ${o.description}` : ''}`),
-          ...(footer ? [footer] : []),
-        ]
-        await sendWorkflowMessage(lines.join('\n'), ctx)
+        await sendWorkflowMessage(fullText, ctx)
       }
 
       if (!ctx.conversationId) {
@@ -994,8 +1042,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       if (items.length === 0) return false
 
       const mode = String(node.config?.['pickerMode'] ?? 'date')
-      const header = String(node.config?.['header'] ?? '').trim()
-      const message = String(
+      const rawHeader = String(node.config?.['header'] ?? '').trim()
+      const rawMessage = String(
         node.config?.['message'] ?? (mode === 'time' ? 'What time works for you?' : 'Here are the available dates:'),
       ).trim()
       const footer = String(node.config?.['footer'] ?? '').trim()
@@ -1004,8 +1052,9 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         ...(hasMore ? [{ id: SLOT_MENU_MORE_OPTION_ID, title: 'See other schedules' }] : []),
       ]
 
-      const textParts = [...(header ? [header] : []), message, ...(footer ? [footer] : [])]
-      const fullText = textParts.join('\n\n')
+      const brandedHeader = brandedMenuHeader(rawHeader)
+      const message = [rawMessage, DOCMEE_LINKS_TEXT].filter(Boolean).join('\n\n')
+      const fullText = [brandedHeader, message, menuOptionsListText(options), ...(footer ? [footer] : [])].join('\n\n')
 
       const target = await resolveTarget(sql, clinicId, ctx.patientId)
       if (target) {
@@ -1014,7 +1063,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
           try {
             const wamid = await sender({
               kind: 'list',
-              header: header || undefined,
+              header: brandedHeader,
               body: message,
               footer: footer || undefined,
               buttonLabel: String(node.config?.['buttonLabel'] ?? 'Options'),
@@ -1029,13 +1078,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
           await sendWorkflowMessage(fullText, ctx)
         }
       } else {
-        const lines = [
-          ...(header ? [header] : []),
-          message,
-          ...options.map((o, i) => `${i + 1}. ${o.title}`),
-          ...(footer ? [footer] : []),
-        ]
-        await sendWorkflowMessage(lines.join('\n'), ctx)
+        await sendWorkflowMessage(fullText, ctx)
       }
 
       if (!ctx.conversationId) {
@@ -1102,7 +1145,9 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
       if (!resolved) throw new Error('Google Calendar is not connected for this doctor or clinic')
       const availableDays = resolved.doctor?.availableDays
-      const slots = (await Promise.all(dates.map((date) => listSlotsForDate(resolved.config, availableDays, date)))).flat()
+      const slots = excludePastSlots(
+        (await Promise.all(dates.map((date) => listSlotsForDate(resolved.config, availableDays, date)))).flat(),
+      )
       ctx[configField(node, 'slotsField', 'available_slots')] = slots
       ctx['availability_count'] = slots.length
     },

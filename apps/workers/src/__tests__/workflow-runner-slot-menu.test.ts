@@ -7,6 +7,8 @@ import {
   slotMenuPage,
   resolveSlotMenuReply,
   todayIso,
+  nowLocalIso,
+  excludePastSlots,
   type WorkflowSlot,
 } from '../workflow-runner.worker.js'
 import type { WorkflowNode } from '@docmee/db'
@@ -26,6 +28,34 @@ describe('todayIso', () => {
   it('returns a YYYY-MM-DD string matching the current UTC date', () => {
     expect(todayIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(todayIso()).toBe(new Date().toISOString().slice(0, 10))
+  })
+})
+
+describe('nowLocalIso / excludePastSlots', () => {
+  it('nowLocalIso matches the naive (no trailing Z) shape of a WorkflowSlot start time', () => {
+    expect(nowLocalIso()).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)
+    expect(nowLocalIso()).toBe(new Date().toISOString().slice(0, 19))
+  })
+
+  it('drops slots that start at or before "now", keeps slots strictly after it', () => {
+    const now = '2026-08-08T14:00:00'
+    const slots = [
+      slot('2026-08-08T09:00:00', '2026-08-08T09:30:00'), // past
+      slot('2026-08-08T13:59:59', '2026-08-08T14:29:59'), // past (1s before now)
+      slot('2026-08-08T14:00:00', '2026-08-08T14:30:00'), // exactly now — excluded
+      slot('2026-08-08T14:00:01', '2026-08-08T14:30:01'), // future
+      slot('2026-08-09T09:00:00', '2026-08-09T09:30:00'), // a later day — always future
+    ]
+    expect(excludePastSlots(slots, now)).toEqual([
+      slot('2026-08-08T14:00:01', '2026-08-08T14:30:01'),
+      slot('2026-08-09T09:00:00', '2026-08-09T09:30:00'),
+    ])
+  })
+
+  it('defaults to the real current time when no "now" is passed', () => {
+    const future = new Date(Date.now() + 60_000).toISOString().slice(0, 19)
+    const past = new Date(Date.now() - 60_000).toISOString().slice(0, 19)
+    expect(excludePastSlots([slot(future, future), slot(past, past)])).toEqual([slot(future, future)])
   })
 })
 

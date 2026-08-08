@@ -96,8 +96,13 @@ export async function sendWhatsAppInteractiveButtons(
   phoneNumberId: string,
   accessToken: string,
   toWaId: string,
-  prompt: { body: string; header?: string; footer?: string; options: WhatsAppInteractiveOption[] },
+  prompt: { body: string; header?: string; headerImageUrl?: string; footer?: string; options: WhatsAppInteractiveOption[] },
 ): Promise<string | null> {
+  const header = prompt.headerImageUrl
+    ? { header: { type: 'image', image: { link: prompt.headerImageUrl } } }
+    : prompt.header
+      ? { header: { type: 'text', text: prompt.header } }
+      : {}
   const response = await fetch(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
     {
@@ -113,7 +118,7 @@ export async function sendWhatsAppInteractiveButtons(
         type: 'interactive',
         interactive: {
           type: 'button',
-          ...(prompt.header ? { header: { type: 'text', text: prompt.header } } : {}),
+          ...header,
           body: { text: prompt.body },
           ...(prompt.footer ? { footer: { text: prompt.footer } } : {}),
           action: {

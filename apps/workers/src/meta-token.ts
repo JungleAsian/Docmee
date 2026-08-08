@@ -67,6 +67,7 @@ export function resolveWhatsAppInteractiveSender(
       : sendWhatsAppInteractiveButtons(account.accountId, accessToken, recipient, {
           body: prompt.body,
           header: prompt.header,
+          headerImageUrl: prompt.headerImageUrl,
           footer: prompt.footer,
           options: prompt.options,
         })

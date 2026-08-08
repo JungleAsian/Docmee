@@ -352,6 +352,101 @@ describe('runWorkflow — interactive_menu node', () => {
   })
 })
 
+describe('runWorkflow — action.offer_slot_menu node', () => {
+  const wf = {
+    nodes: [
+      node('t', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'date' }),
+      node('picked', 'action', 'action.send_message', { text: 'Got your date' }),
+      node('none', 'action', 'action.send_message', { text: 'Nothing available' }),
+      node('restart', 'action', 'action.send_message', { text: 'Back to menu' }),
+      node('human', 'action', 'action.notify_secretary'),
+    ],
+    edges: [
+      edge('t', 'slots'),
+      edge('slots', 'picked', 'selected'),
+      edge('slots', 'none', 'empty'),
+      edge('slots', 'restart', 'restart'),
+      edge('slots', 'human', 'livechat'),
+    ],
+  }
+
+  it('sends page 0 and pauses on first arrival', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ sendSlotMenu: send })
+    const trace = await runWorkflow(wf, {}, exec)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'slots' }), expect.any(Object), 0)
+    expect(trace.at(-1)).toEqual({ nodeId: 'slots', type: 'action.offer_slot_menu', status: 'paused' })
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('routes out the selected handle and clears the pending state', async () => {
+    const exec = makeExec({ matchSlotMenuReply: vi.fn(async () => 'selected') })
+    const ctx = { workflowSlotMenu: { nodeId: 'slots', page: 0, status: 'pending' }, message: '1' }
+    await runWorkflow(wf, ctx, exec, { startNodeId: 'slots' })
+    expect(exec.sendMessage).toHaveBeenCalledWith('Got your date', expect.any(Object))
+    expect((ctx as Record<string, unknown>)['workflowSlotMenu']).toBeUndefined()
+  })
+
+  it('routes out the empty handle when nothing is available', async () => {
+    const exec = makeExec({ matchSlotMenuReply: vi.fn(async () => 'empty') })
+    const ctx = { workflowSlotMenu: { nodeId: 'slots', page: 0, status: 'pending' }, message: 'anything' }
+    await runWorkflow(wf, ctx, exec, { startNodeId: 'slots' })
+    expect(exec.sendMessage).toHaveBeenCalledWith('Nothing available', expect.any(Object))
+  })
+
+  it('routes footer restart / livechat handles', async () => {
+    const restart = makeExec({ matchSlotMenuReply: vi.fn(async () => 'restart') })
+    await runWorkflow(wf, { workflowSlotMenu: { nodeId: 'slots', page: 0, status: 'pending' }, message: '0' }, restart, {
+      startNodeId: 'slots',
+    })
+    expect(restart.sendMessage).toHaveBeenCalledWith('Back to menu', expect.any(Object))
+
+    const human = makeExec({ matchSlotMenuReply: vi.fn(async () => 'livechat') })
+    await runWorkflow(wf, { workflowSlotMenu: { nodeId: 'slots', page: 0, status: 'pending' }, message: '1' }, human, {
+      startNodeId: 'slots',
+    })
+    expect(human.notifySecretary).toHaveBeenCalled()
+  })
+
+  it('"more" re-sends the same node at the next page instead of routing through an edge', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ matchSlotMenuReply: vi.fn(async () => 'more'), sendSlotMenu: send })
+    const ctx = { workflowSlotMenu: { nodeId: 'slots', page: 0, status: 'pending' }, interactiveReplyId: '__more__' }
+    const trace = await runWorkflow(wf, ctx, exec, { startNodeId: 'slots' })
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'slots' }), expect.any(Object), 1)
+    expect(trace.at(-1)).toEqual({ nodeId: 'slots', type: 'action.offer_slot_menu', status: 'paused' })
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('an unmatched reply re-sends the same page rather than dead-ending', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ matchSlotMenuReply: vi.fn(async () => 'default'), sendSlotMenu: send })
+    const ctx = { workflowSlotMenu: { nodeId: 'slots', page: 2, status: 'pending' }, message: 'gibberish' }
+    const trace = await runWorkflow(wf, ctx, exec, { startNodeId: 'slots' })
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'slots' }), expect.any(Object), 2)
+    expect(trace.at(-1)).toEqual({ nodeId: 'slots', type: 'action.offer_slot_menu', status: 'paused' })
+  })
+
+  it('falls through the empty handle when it cannot pause (no executor)', async () => {
+    const exec = makeExec()
+    await runWorkflow(wf, {}, exec)
+    expect(exec.sendMessage).toHaveBeenCalledWith('Nothing available', expect.any(Object))
+  })
+
+  it('falls through the empty handle when a re-send (more/default) cannot pause', async () => {
+    const exec = makeExec({ matchSlotMenuReply: vi.fn(async () => 'more'), sendSlotMenu: vi.fn(async () => false) })
+    const ctx = { workflowSlotMenu: { nodeId: 'slots', page: 0, status: 'pending' }, interactiveReplyId: '__more__' }
+    await runWorkflow(wf, ctx, exec, { startNodeId: 'slots' })
+    expect(exec.sendMessage).toHaveBeenCalledWith('Nothing available', expect.any(Object))
+  })
+
+  it('slot menu context key survives the postgres camel-case JSON transform', async () => {
+    const { WORKFLOW_SLOT_MENU_CONTEXT_KEY } = await import('../workflows/workflow-engine.js')
+    expect(WORKFLOW_SLOT_MENU_CONTEXT_KEY).toMatch(/^[a-z][a-zA-Z0-9]*$/)
+  })
+})
+
 describe('runWorkflow — action.ai_draft node', () => {
   it('passes the full node (not just its prompt) so executors can read queryLimit/responseBuffer', async () => {
     const aiDraft = vi.fn()

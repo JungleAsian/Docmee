@@ -74,6 +74,13 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     fields: ['slotsField', 'count', 'message'],
   },
   {
+    type: 'action.offer_slot_menu',
+    kind: 'action',
+    labelKey: 'wf.node.offerSlotMenu',
+    descKey: 'wf.desc.offerSlotMenu',
+    fields: ['pickerMode', 'slotsField', 'dateField', 'selectField', 'pageSize', 'header', 'message', 'footer'],
+  },
+  {
     type: 'action.create_or_reschedule_booking',
     kind: 'action',
     labelKey: 'wf.node.createOrRescheduleBooking',
@@ -138,6 +145,7 @@ export const FIELD_REFERENCE_KEYS = new Set([
   'serviceIdField',
   'timeField',
   'appointmentIdField',
+  'selectField',
 ])
 
 /** Context fields present on every run regardless of graph shape (see the
@@ -161,6 +169,10 @@ const FIELD_PRODUCERS: Partial<Record<string, FieldProducer>> = {
   'action.interactive_menu': { fromConfig: [{ key: 'field', fallback: '' }] },
   'action.check_availability': { fromConfig: [{ key: 'slotsField', fallback: 'available_slots' }], fixed: ['availability_count'] },
   'action.offer_slots': { fixed: ['offered_slots'] },
+  // pickerMode ('date'|'time') decides whether selectField defaults to
+  // preferred_date or preferred_time; offering both keeps the no-code
+  // dropdown correct either way.
+  'action.offer_slot_menu': { fromConfig: [{ key: 'selectField', fallback: '' }], fixed: ['preferred_date', 'preferred_time'] },
   'action.create_or_reschedule_booking': { fixed: ['appointment_id', 'booking_status'] },
   'action.extract_booking_details': {
     csvFromConfig: 'allowedFields',
@@ -223,6 +235,10 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
   variant: [
     { value: 'list', labelKey: 'wf.variant.list' },
     { value: 'button', labelKey: 'wf.variant.button' },
+  ],
+  pickerMode: [
+    { value: 'date', labelKey: 'wf.slotMenuMode.date' },
+    { value: 'time', labelKey: 'wf.slotMenuMode.time' },
   ],
   op: [
     { value: 'equals', labelKey: 'wf.op.equals' },

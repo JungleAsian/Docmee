@@ -12,6 +12,8 @@ import {
   validateWorkflowDefinition,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   WORKFLOW_MENU_CONTEXT_KEY,
+  WORKFLOW_SLOT_MENU_CONTEXT_KEY,
+  SLOT_MENU_MORE_OPTION_ID,
   parseMenuOptions,
   resolveMenuHandle,
   type BookingGrid,
@@ -151,7 +153,7 @@ function reviewReasonForExtraction(input: {
   return null
 }
 
-type WorkflowSlot = { start: string; end: string }
+export type WorkflowSlot = { start: string; end: string }
 
 function configField(node: { config?: Record<string, unknown> }, key: string, fallback: string): string {
   const configured = String(node.config?.[key] ?? '').trim()
@@ -341,6 +343,62 @@ function slotTime(slot: WorkflowSlot): string {
 
 function slotDate(slot: WorkflowSlot): string {
   return slot.start.slice(0, 10)
+}
+
+export function todayIso(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+export function distinctSlotDates(slots: WorkflowSlot[]): string[] {
+  return Array.from(new Set(slots.map(slotDate))).sort()
+}
+
+export function slotsOnDate(slots: WorkflowSlot[], date: string): WorkflowSlot[] {
+  return slots.filter((slot) => slotDate(slot) === date).sort((a, b) => a.start.localeCompare(b.start))
+}
+
+export function formatDateLabel(iso: string): string {
+  const parsed = new Date(`${iso}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return iso
+  return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(parsed)
+}
+
+export function formatTimeLabel(hhmm: string): string {
+  const [hourStr, minuteStr] = hhmm.split(':')
+  const hour = Number(hourStr)
+  const minute = Number(minuteStr)
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return hhmm
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`
+}
+
+/** One page of a slot menu's dynamic options — distinct dates in `mode:
+ *  'date'`, or the chosen date's distinct times in `mode: 'time'`. Shared by
+ *  `sendSlotMenu` (what to show) and `matchSlotMenuReply` (what a reply can
+ *  match) so both compute the exact same page from the exact same context. */
+export function slotMenuPage(
+  node: import('@docmee/db').WorkflowNode,
+  ctx: WorkflowContext,
+  page: number,
+): { items: { id: string; title: string }[]; hasMore: boolean } {
+  const mode = String(node.config?.['pickerMode'] ?? 'date')
+  const slotsField = configField(node, 'slotsField', 'available_slots')
+  const raw = ctx[slotsField]
+  const slots = Array.isArray(raw)
+    ? raw.filter((slot): slot is WorkflowSlot => isRecord(slot) && typeof slot['start'] === 'string' && typeof slot['end'] === 'string')
+    : []
+  const pageSize = boundedInteger(node.config?.['pageSize'], 8, 1, 9)
+
+  const ids =
+    mode === 'time'
+      ? Array.from(new Set(slotsOnDate(slots, contextString(ctx, configField(node, 'dateField', 'preferred_date'))).map(slotTime)))
+      : distinctSlotDates(slots)
+
+  const pageIds = ids.slice(page * pageSize, page * pageSize + pageSize)
+  const hasMore = ids.length > (page + 1) * pageSize
+  const items = pageIds.map((id) => ({ id, title: mode === 'time' ? formatTimeLabel(id) : formatDateLabel(id) }))
+  return { items, hasMore }
 }
 
 function addMinutes(localStart: string, minutes: number): string {
@@ -898,6 +956,109 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       return resolveMenuHandle(parseMenuOptions(node.config), replyId, contextString(ctx, 'message'))
     },
 
+    async sendSlotMenu(node, ctx, page) {
+      const { items, hasMore } = slotMenuPage(node, ctx, page)
+      if (items.length === 0) return false
+
+      const mode = String(node.config?.['pickerMode'] ?? 'date')
+      const header = String(node.config?.['header'] ?? '').trim()
+      const message = String(
+        node.config?.['message'] ?? (mode === 'time' ? 'What time works for you?' : 'Here are the available dates:'),
+      ).trim()
+      const footer = String(node.config?.['footer'] ?? '').trim()
+      const options = [
+        ...items.map((item) => ({ id: item.id, title: item.title })),
+        ...(hasMore ? [{ id: SLOT_MENU_MORE_OPTION_ID, title: 'See other schedules' }] : []),
+      ]
+
+      const textParts = [...(header ? [header] : []), message, ...(footer ? [footer] : [])]
+      const fullText = textParts.join('\n\n')
+
+      const target = await resolveTarget(sql, clinicId, ctx.patientId)
+      if (target) {
+        const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
+        if (sender) {
+          try {
+            const wamid = await sender({
+              kind: 'list',
+              header: header || undefined,
+              body: message,
+              footer: footer || undefined,
+              buttonLabel: String(node.config?.['buttonLabel'] ?? 'Options'),
+              options,
+            })
+            await persistOutbound(sql, clinicId, ctx.conversationId, fullText, wamid)
+          } catch (err) {
+            console.error('[workflow] failed to send slot menu:', err)
+            await sendWorkflowMessage(fullText, ctx)
+          }
+        } else {
+          await sendWorkflowMessage(fullText, ctx)
+        }
+      } else {
+        const lines = [
+          ...(header ? [header] : []),
+          message,
+          ...options.map((o, i) => `${i + 1}. ${o.title}`),
+          ...(footer ? [footer] : []),
+        ]
+        await sendWorkflowMessage(lines.join('\n'), ctx)
+      }
+
+      if (!ctx.conversationId) {
+        console.log('[workflow] no conversation attached; cannot pause slot menu')
+        return false
+      }
+
+      ctx[WORKFLOW_SLOT_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending' }
+      const conversations = createConversationsRepository(sql)
+      const conversation = await conversations.findById(clinicId, ctx.conversationId)
+      if (!conversation) return false
+
+      const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
+      const metadata = writePendingWorkflowRun(conversation.metadata, {
+        workflowId: data.workflowId,
+        sourceEventId: data.trigger.sourceEventId,
+        resumeNodeId: node.id,
+        context: { ...ctx },
+        expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
+      })
+      await conversations.update(clinicId, ctx.conversationId, { metadata })
+      if (ctx.patientId) {
+        await scheduleNoResponseFollowUp({
+          clinicId,
+          patientId: ctx.patientId,
+          conversationId: ctx.conversationId,
+          silentSinceIso: new Date().toISOString(),
+          recoveryPrompt: message || 'Please choose an option.',
+        })
+      }
+      return true
+    },
+
+    matchSlotMenuReply(node, ctx, page) {
+      const trimmed = contextString(ctx, 'message')
+      if (trimmed === '0') return 'restart'
+      if (trimmed === '1') return 'livechat'
+      const replyId = typeof ctx['interactiveReplyId'] === 'string' ? ctx['interactiveReplyId'] : undefined
+      if (replyId === SLOT_MENU_MORE_OPTION_ID) return 'more'
+
+      const { items } = slotMenuPage(node, ctx, page)
+      const mode = String(node.config?.['pickerMode'] ?? 'date')
+      const selectField = configField(node, 'selectField', mode === 'time' ? 'preferred_time' : 'preferred_date')
+
+      if (replyId && items.some((item) => item.id === replyId)) {
+        ctx[selectField] = replyId
+        return 'selected'
+      }
+      const index = Number(trimmed)
+      if (Number.isInteger(index) && index >= 1 && index <= items.length) {
+        ctx[selectField] = items[index - 1]!.id
+        return 'selected'
+      }
+      return 'default'
+    },
+
     async checkAvailability(node, ctx) {
       const clinic = await createClinicsRepository(sql).findById(clinicId)
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
@@ -911,8 +1072,10 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         throw new Error(`Could not identify the selected doctor from "${doctorValue}"`)
       }
       const dateField = configField(node, 'dateField', 'preferred_date')
-      const dates = dateRange(contextString(ctx, dateField), boundedInteger(node.config?.['days'], 1, 1, 14))
-      if (dates.length === 0) throw new Error(`Workflow availability date is invalid or missing in ${dateField}`)
+      const requestedStart = contextString(ctx, dateField)
+      const startDate = requestedStart || todayIso()
+      const dates = dateRange(startDate, boundedInteger(node.config?.['days'], 1, 1, 14))
+      if (dates.length === 0) throw new Error(`Workflow availability date is invalid in ${dateField}: "${requestedStart}"`)
       const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
       if (!resolved) throw new Error('Google Calendar is not connected for this doctor or clinic')
       const availableDays = resolved.doctor?.availableDays

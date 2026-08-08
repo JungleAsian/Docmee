@@ -160,4 +160,68 @@ describe('validateWorkflowDefinition', () => {
     ], { requireTrigger: true })
     expect(errors.join('\n')).toMatch(/cannot point to the same node/)
   })
+
+  it('accepts a valid offer_slot_menu with selected and empty successors', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'date' }),
+      node('picked', 'action', 'action.end'),
+      node('none', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('s1', 'slots', 'picked', 'selected'),
+      edge('s2', 'slots', 'none', 'empty'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
+  it('accepts offer_slot_menu restart/livechat as optional extras', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'time' }),
+      node('picked', 'action', 'action.end'),
+      node('none', 'action', 'action.end'),
+      node('main', 'action', 'action.end'),
+      node('human', 'action', 'action.notify_secretary'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('s1', 'slots', 'picked', 'selected'),
+      edge('s2', 'slots', 'none', 'empty'),
+      edge('s3', 'slots', 'main', 'restart'),
+      edge('s4', 'slots', 'human', 'livechat'),
+      edge('hm', 'human', 'main'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
+  it('rejects an offer_slot_menu missing selected/empty, with a bad mode and an unknown handle', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'weekday' }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('s1', 'slots', 'end', 'maybe'),
+    ], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/invalid pickerMode "weekday"/)
+    expect(errors.join('\n')).toMatch(/unknown handle "maybe"/)
+    expect(errors.join('\n')).toMatch(/requires a "selected" successor/)
+    expect(errors.join('\n')).toMatch(/requires an "empty" successor/)
+  })
+
+  it('rejects an ambiguous offer_slot_menu branch', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'date' }),
+      node('a', 'action', 'action.end'),
+      node('b', 'action', 'action.end'),
+      node('none', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('s1', 'slots', 'a', 'selected'),
+      edge('s2', 'slots', 'b', 'selected'),
+      edge('s3', 'slots', 'none', 'empty'),
+    ], { requireTrigger: true })
+    expect(errors.join('\n')).toMatch(/ambiguous "selected" branch/)
+  })
 })

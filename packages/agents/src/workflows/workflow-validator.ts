@@ -19,6 +19,7 @@ const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['action.extract_booking_details', 'action'],
   ['action.check_availability', 'action'],
   ['action.offer_slots', 'action'],
+  ['action.offer_slot_menu', 'action'],
   ['action.create_or_reschedule_booking', 'action'],
   ['action.transcribe_booking_voice', 'action'],
   ['action.end', 'action'],
@@ -32,7 +33,13 @@ export const SUPPORTED_WORKFLOW_TRIGGER_TYPES = ['trigger.message_keyword', 'tri
  * patient's next message), delay, and approval — end a synchronous segment:
  * control returns to the queue and the run resumes on a later turn.
  */
-const PAUSE_NODE_TYPES = new Set(['action.interactive_menu', 'logic.wait_for_reply', 'logic.delay', 'action.approval'])
+const PAUSE_NODE_TYPES = new Set([
+  'action.interactive_menu',
+  'action.offer_slot_menu',
+  'logic.wait_for_reply',
+  'logic.delay',
+  'action.approval',
+])
 
 export interface WorkflowValidationOptions {
   /** Active workflows must be complete. Drafts may start as an empty canvas. */
@@ -96,6 +103,7 @@ export function validateWorkflowDefinition(
       node.type !== 'logic.condition' &&
       node.type !== 'logic.ai_classify_intent' &&
       node.type !== 'action.interactive_menu' &&
+      node.type !== 'action.offer_slot_menu' &&
       next.length !== 1
     ) {
       errors.push(`Node ${node.id} must have exactly one successor`)
@@ -145,6 +153,22 @@ export function validateWorkflowDefinition(
       for (const opt of seen) {
         if (!wired.has(opt)) errors.push(`Interactive menu ${node.id} option "${opt}" has no successor`)
       }
+    }
+    if (node.type === 'action.offer_slot_menu') {
+      const mode = String(node.config?.['pickerMode'] ?? '')
+      if (mode !== 'date' && mode !== 'time') {
+        errors.push(`Slot menu ${node.id} has an invalid pickerMode "${mode}" (must be "date" or "time")`)
+      }
+      const validHandles = new Set(['selected', 'empty', 'restart', 'livechat'])
+      const wired = new Set<string>()
+      for (const edge of next) {
+        const h = edge.sourceHandle ?? ''
+        if (!validHandles.has(h)) errors.push(`Slot menu edge ${edge.id} uses an unknown handle "${h}"`)
+        if (wired.has(h)) errors.push(`Slot menu ${node.id} has an ambiguous "${h}" branch`)
+        wired.add(h)
+      }
+      if (!wired.has('selected')) errors.push(`Slot menu ${node.id} requires a "selected" successor`)
+      if (!wired.has('empty')) errors.push(`Slot menu ${node.id} requires an "empty" successor (no slots available)`)
     }
     if (node.type === 'logic.delay') {
       const amount = Number(node.config?.['amount'])

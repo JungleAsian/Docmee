@@ -55,6 +55,31 @@ export interface WorkflowMenuOption {
  *  unmatched reply falls through `default` (re-show the menu). */
 export const MENU_RESERVED_HANDLES = ['restart', 'livechat', 'default'] as const
 
+// Slot menu (dates-then-times booking picker): a re-entrant node, same family
+// as the interactive menu above, but its options are computed at send time
+// from the availability data check_availability already put in context —
+// there is no admin-authored option list, so it cannot reuse the per-option
+// edge routing interactive_menu uses. Instead it exposes a small fixed set of
+// outcome handles (`selected`, `empty`, `restart`, `livechat`); pagination
+// (the "See other schedules" row) and an unmatched reply are both handled by
+// re-sending the same node rather than routing through an edge, so they never
+// touch the engine's cycle guard.
+export const WORKFLOW_SLOT_MENU_CONTEXT_KEY = 'workflowSlotMenu'
+
+export interface WorkflowSlotMenuState {
+  nodeId: string
+  page: number
+  status: 'pending'
+}
+
+/** The reply id used for the "See other schedules" pagination row. Reserved —
+ *  no real date (`YYYY-MM-DD`) or time (`HH:MM`) value can collide with it. */
+export const SLOT_MENU_MORE_OPTION_ID = '__more__'
+
+/** Outcomes `matchSlotMenuReply` can resolve a reply to. `more` and `default`
+ *  are handled inline (re-send the node); the rest route out via edges. */
+export type SlotMenuReplyOutcome = 'selected' | 'empty' | 'restart' | 'livechat' | 'more' | 'default'
+
 /** Parse a menu node's `config.options` (stored as a JSON string, since node
  *  config values are strings). Returns [] on absent/malformed input. */
 export function parseMenuOptions(config: Record<string, unknown> | undefined): WorkflowMenuOption[] {
@@ -121,6 +146,14 @@ export interface WorkflowExecutors {
   /** On resume, resolve the patient's reply to one of the menu's output handles
    *  (an optionId, or a reserved `restart`/`livechat`/`default`). */
   matchMenuReply?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<string> | string
+  /** Send page `page` (0-based) of the slot menu and pause. Same return
+   *  contract as `sendInteractiveMenu`: true when paused, false when it
+   *  could not send (including "nothing to show on this page"). */
+  sendSlotMenu?: (node: WorkflowNode, ctx: WorkflowContext, page: number) => Promise<boolean> | boolean
+  /** On resume, resolve the patient's reply against the options `sendSlotMenu`
+   *  showed for `page`. A `selected` outcome must also write the chosen value
+   *  into context (the engine has no option data to do this itself). */
+  matchSlotMenuReply?: (node: WorkflowNode, ctx: WorkflowContext, page: number) => Promise<SlotMenuReplyOutcome> | SlotMenuReplyOutcome
   /** Persist the context and pause until the conversation receives another reply. */
   waitForReply?: (node: WorkflowNode, nextNodeId: string, ctx: WorkflowContext) => Promise<boolean> | boolean
   /** Pause and resume the run at `nodeId` after `ms` (delay node). */
@@ -225,6 +258,40 @@ export async function runWorkflow(
         // Could not pause (e.g. no conversation attached) — fall through the
         // default handle rather than dead-end.
         handle = 'default'
+        break
+      }
+      case 'action.offer_slot_menu': {
+        const slotMenu = ctx[WORKFLOW_SLOT_MENU_CONTEXT_KEY] as WorkflowSlotMenuState | undefined
+        if (slotMenu && slotMenu.nodeId === node.id && slotMenu.status === 'pending') {
+          const outcome: SlotMenuReplyOutcome = exec.matchSlotMenuReply
+            ? await exec.matchSlotMenuReply(node, ctx, slotMenu.page)
+            : 'default'
+          if (outcome === 'more' || outcome === 'default') {
+            // Pagination and an unmatched reply both re-send this same node
+            // rather than routing through an edge — a literal self-loop edge
+            // would hit the cycle guard above and silently end the run.
+            delete ctx[WORKFLOW_SLOT_MENU_CONTEXT_KEY]
+            const nextPage = outcome === 'more' ? slotMenu.page + 1 : slotMenu.page
+            const paused = exec.sendSlotMenu ? await exec.sendSlotMenu(node, ctx, nextPage) : false
+            if (paused) {
+              trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+              return trace
+            }
+            handle = 'empty'
+            break
+          }
+          delete ctx[WORKFLOW_SLOT_MENU_CONTEXT_KEY]
+          handle = outcome
+          break
+        }
+        const paused = exec.sendSlotMenu ? await exec.sendSlotMenu(node, ctx, 0) : false
+        if (paused) {
+          trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+          return trace
+        }
+        // Nothing to show (no slots at all, or could not pause) — route out
+        // the empty handle rather than dead-end.
+        handle = 'empty'
         break
       }
       case 'action.send_message':

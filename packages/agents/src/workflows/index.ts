@@ -2,7 +2,9 @@ export {
   runWorkflow,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   WORKFLOW_MENU_CONTEXT_KEY,
+  WORKFLOW_SLOT_MENU_CONTEXT_KEY,
   MENU_RESERVED_HANDLES,
+  SLOT_MENU_MORE_OPTION_ID,
   parseMenuOptions,
   resolveMenuHandle,
   type WorkflowContext,
@@ -13,5 +15,7 @@ export {
   type WorkflowCaptureState,
   type WorkflowMenuState,
   type WorkflowMenuOption,
+  type WorkflowSlotMenuState,
+  type SlotMenuReplyOutcome,
 } from './workflow-engine.js'
 export { validateWorkflowDefinition, SUPPORTED_WORKFLOW_TRIGGER_TYPES, type WorkflowValidationOptions } from './workflow-validator.js'

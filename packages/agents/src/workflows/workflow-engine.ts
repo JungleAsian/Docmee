@@ -250,7 +250,15 @@ export async function runWorkflow(
         if (exec.transcribeBookingVoice) await sideEffect(node, () => Promise.resolve(exec.transcribeBookingVoice!(node, ctx)))
         break
       case 'action.check_availability':
-        if (exec.checkAvailability) await sideEffect(node, () => Promise.resolve(exec.checkAvailability!(node, ctx)))
+        // Deliberately NOT wrapped in sideEffect(): unlike every other action
+        // node, this one only reads Google Calendar and sets a context field —
+        // it creates/sends/charges nothing, so there is no double-execution
+        // risk the durable effect ledger needs to guard against. Wrapping it
+        // anyway meant one interrupted attempt (a slow calendar call, a
+        // mid-flight worker restart) permanently poisoned that execution key:
+        // every later retry hit "uncertain prior provider outcome" and never
+        // even reached the real availability check again.
+        if (exec.checkAvailability) await exec.checkAvailability(node, ctx)
         break
       case 'action.offer_slots':
         if (exec.offerSlots) await sideEffect(node, () => Promise.resolve(exec.offerSlots!(node, ctx)))

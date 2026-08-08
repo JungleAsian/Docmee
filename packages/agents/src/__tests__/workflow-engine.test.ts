@@ -46,6 +46,22 @@ describe('runWorkflow', () => {
     expect(guarded).toHaveBeenCalledTimes(1)
     expect(guarded.mock.calls[0]?.[0]).toMatchObject({ id: 'send', type: 'action.send_message' })
   })
+
+  it('check_availability deliberately bypasses the durable side-effect boundary (it only reads Google Calendar)', async () => {
+    // Regression guard: wrapping this node the same way as genuine side
+    // effects (send/book/tag) meant one interrupted attempt permanently
+    // poisoned that execution key — every retry hit "uncertain prior
+    // provider outcome" and never got to actually check availability again.
+    const guarded = vi.fn(async (_node, _ctx, invoke) => invoke())
+    const checkAvailability = vi.fn()
+    const exec = makeExec({ runSideEffect: guarded, checkAvailability })
+    await runWorkflow({
+      nodes: [node('t', 'trigger', 'trigger.message_keyword'), node('check', 'action', 'action.check_availability')],
+      edges: [edge('t', 'check')],
+    }, {}, exec)
+    expect(checkAvailability).toHaveBeenCalledTimes(1)
+    expect(guarded).not.toHaveBeenCalled()
+  })
   it('walks a linear trigger → action → end and runs the action', async () => {
     const wf = {
       nodes: [

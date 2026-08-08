@@ -135,11 +135,17 @@ export function validateWorkflowDefinition(
       } else if (options.length > limit) {
         errors.push(`Interactive menu ${node.id} has too many options for variant "${variant}" (max ${limit})`)
       }
+      // WhatsApp's two interactive kinds cap option titles differently: a list
+      // row allows 24 chars, but a reply BUTTON allows only 20 — sending a
+      // longer button title doesn't truncate, it's rejected outright (#131009
+      // "Parameter value is not valid"), which the send path's catch silently
+      // downgrades to a plain-text fallback with no tappable options at all.
+      const titleLimit = variant === 'list' ? 24 : 20
       const seen = new Set<string>()
       for (const opt of options) {
         if (seen.has(opt.optionId)) errors.push(`Interactive menu ${node.id} has a duplicate option "${opt.optionId}"`)
         seen.add(opt.optionId)
-        if (opt.title.length > 24) errors.push(`Interactive menu ${node.id} option "${opt.optionId}" title exceeds 24 chars`)
+        if (opt.title.length > titleLimit) errors.push(`Interactive menu ${node.id} option "${opt.optionId}" title exceeds ${titleLimit} chars`)
       }
       // Every option handle needs an edge; reserved handles are optional.
       const validHandles = new Set<string>([...seen, ...MENU_RESERVED_HANDLES])

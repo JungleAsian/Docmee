@@ -9,7 +9,9 @@
 //   3. Meta submission checklist — an operator self-tracker persisted per-clinic in
 //      clinic.settings.complianceChecklist (GET/PATCH /clinics/:id via
 //      useComplianceChecklist), so progress is shared across the operator's devices.
-// Permission-denied is handled upstream by the admin layout (useAuthGuard(['ia_studio_admin'])).
+// Permission-denied is handled upstream by the admin layout
+// (useAuthGuard(['ia_studio_admin', 'clinic_admin'])); the nav only links this page
+// for superusers, but a clinic_admin who navigates here directly still loads it fine.
 // Loading / error / empty / offline / success states are handled inline below.
 import Link from 'next/link'
 import { useState } from 'react'
@@ -53,8 +55,12 @@ const ITEMS: { id: string; titleKey: TranslationKey; descKey: TranslationKey; de
 export default function CompliancePage() {
   const { t, language } = useI18n()
   const online = useOnline()
-  const [showPosture, setShowPosture] = useState(false)
-  const [showChecklist, setShowChecklist] = useState(false)
+  // Open by default — this is the whole point of the page; a collapsed-by-default
+  // section behind an unlabeled icon button reads as "broken/empty" to an admin who
+  // has no reason to expect content is hidden. The toggle stays available for anyone
+  // who wants to collapse it after reading.
+  const [showPosture, setShowPosture] = useState(true)
+  const [showChecklist, setShowChecklist] = useState(true)
   // Server-backed checklist (per-clinic, GET/PATCH /clinics/:id). Optimistic writes
   // give the same instant feedback the old localStorage tracker had.
   const { state, save, isLoading, isError, isSaving, refetch } = useComplianceChecklist()
@@ -151,7 +157,7 @@ export default function CompliancePage() {
             <ReqLabel>{t('compliance.req.r1921')}</ReqLabel>
             <InfoButton
               expanded={showPosture}
-              label="Show production standards"
+              label={t('compliance.posture.toggle')}
               onClick={() => setShowPosture((v) => !v)}
             />
           </div>
@@ -220,7 +226,7 @@ export default function CompliancePage() {
             )}
             <InfoButton
               expanded={showChecklist}
-              label="Show production standards checklist"
+              label={t('compliance.checklist.toggle')}
               onClick={() => setShowChecklist((v) => !v)}
             />
           </div>
@@ -350,10 +356,11 @@ function InfoButton({
       type="button"
       onClick={onClick}
       aria-label={label}
+      title={label}
       aria-expanded={expanded}
       className="grid h-7 w-7 place-items-center rounded-full border border-gray-300 text-xs font-semibold text-gray-500 hover:border-teal-300 hover:text-teal-600 dark:border-gray-700 dark:text-gray-400"
     >
-      i
+      {expanded ? '▾' : '▸'}
     </button>
   )
 }

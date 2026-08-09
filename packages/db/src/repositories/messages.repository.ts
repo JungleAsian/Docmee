@@ -23,6 +23,12 @@ export interface MessagesRepository {
    * the no_response self-cancel for follow-up automation (Rev1 #14).
    */
   findLastInboundAt(clinicId: string, patientId: string): Promise<string | null>
+  /**
+   * The single most recent message (any role) for one conversation, or null for an
+   * empty thread. Used by the stall-timer to fetch the exact last outbound
+   * question/menu to re-announce, and to derive "silent since" from its timestamp.
+   */
+  findLast(clinicId: string, conversationId: string): Promise<ConversationMessage | null>
   listByConversation(clinicId: string, conversationId: string): Promise<ConversationMessage[]>
   listByConversationSince(clinicId: string, conversationId: string, since: string): Promise<ConversationMessage[]>
   create(data: CreateMessageInput): Promise<ConversationMessage>
@@ -73,6 +79,16 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
           AND m.role = 'user'
       `
       return rows[0]?.last ?? null
+    },
+
+    async findLast(clinicId, conversationId) {
+      const rows = await sql<ConversationMessage[]>`
+        SELECT * FROM conversation_messages
+        WHERE clinic_id = ${clinicId} AND conversation_id = ${conversationId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `
+      return rows[0] ?? null
     },
 
     async listByConversation(clinicId, conversationId) {

@@ -63,6 +63,14 @@ export interface ConversationsRepository {
   listStale(statuses: ConversationStatus[], olderThanMinutes: number): Promise<Conversation[]>
   /** CRE-60: snoozed conversations whose snooze_until has passed (auto-wake). */
   listDueSnoozed(): Promise<Conversation[]>
+  /**
+   * Stall-timer candidates (across all clinics): open conversations carrying a
+   * mid-flow cursor (pendingWorkflowRuns or customFlowState in metadata) whose
+   * last activity is older than a small global floor. Per-clinic exact
+   * thresholds are applied afterward in JS. Service-client only (no clinic
+   * scoping), mirrors listStale/listDueSnoozed.
+   */
+  listMidFlowCandidates(olderThanMinutes: number): Promise<Conversation[]>
   create(data: CreateConversationInput): Promise<Conversation>
   update(clinicId: string, id: string, data: UpdateConversationInput): Promise<Conversation>
   bulkUpdate(clinicId: string, ids: string[], data: UpdateConversationInput): Promise<number>
@@ -260,6 +268,17 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
         SELECT * FROM conversations
         WHERE status = 'snoozed' AND snooze_until IS NOT NULL AND snooze_until <= NOW()
         ORDER BY snooze_until
+        LIMIT 500
+      `
+    },
+
+    async listMidFlowCandidates(olderThanMinutes) {
+      return sql<Conversation[]>`
+        SELECT * FROM conversations
+        WHERE status = 'open'
+          AND (metadata ? 'pendingWorkflowRuns' OR metadata ? 'customFlowState')
+          AND COALESCE(last_message_at, created_at) < NOW() - ${`${olderThanMinutes} minutes`}::interval
+        ORDER BY clinic_id, last_message_at NULLS LAST
         LIMIT 500
       `
     },

@@ -157,6 +157,7 @@ export async function processFollowUpJob(job: Job): Promise<void> {
     const patients = createPatientsRepository(sql)
     const channelAccounts = createChannelAccountsRepository(sql)
     const appointments = createAppointmentsRepository(sql)
+    const conversations = createConversationsRepository(sql)
     const followUps = createFollowUpsRepository(sql)
     const messages = createMessagesRepository(sql)
     const templates = createMessageTemplatesRepository(sql)
@@ -217,6 +218,19 @@ export async function processFollowUpJob(job: Job): Promise<void> {
       ) {
         console.log(`[follow-up] patient ${data.patientId} replied; cancelling no_response`)
         return
+      }
+      // The stall-timer (stalled-conversation.ts) may already have auto-closed this
+      // exact "mid-flow, no reply" conversation long before this fixed 20h job fires
+      // (no job-cancellation mechanism exists in this codebase). A closed conversation
+      // is "already handled", not "no response" — skip it.
+      if (data.conversationId) {
+        const conv = await conversations.findById(data.clinicId, data.conversationId)
+        if (conv && conv.status !== 'open') {
+          console.log(
+            `[follow-up] conversation ${data.conversationId} is no longer open (${conv.status}); cancelling no_response`,
+          )
+          return
+        }
       }
       if (
         data.conversationId &&

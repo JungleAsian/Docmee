@@ -122,7 +122,7 @@ describe('processFollowUpJob', () => {
     })
 
     it('threads a no_response nudge onto the conversation it belongs to', async () => {
-      h.convFindById.mockResolvedValue({ id: CONVO })
+      h.convFindById.mockResolvedValue({ id: CONVO, status: 'open' })
       await processFollowUpJob(
         makeJob({
           clinicId: CLINIC,

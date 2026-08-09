@@ -467,6 +467,7 @@ export interface ClinicSettings {
   clinicRulesList?: ClinicRule[]
   businessHours?: BusinessHours
   bookingGrid?: { startHour: number; endHour: number; slotMinutes: number }
+  stalledConversation?: { stallMinutes?: number; maxReannouncements?: number; closeGraceMinutes?: number }
   googleCalendar?: { calendarId?: string } & Record<string, unknown>
   googleSheets?: { spreadsheetId?: string; sheetName?: string; enabled?: boolean } & Record<
     string,

@@ -27,6 +27,7 @@ import {
   type UsersRepository,
 } from '@docmee/db'
 import { buildNotificationStore } from './notification-store.js'
+import { runStalledConversationCheck } from './stalled-conversation.js'
 
 export const SECRETARY_TIMEOUT_MINUTES = 10
 export const STALE_MINUTES = 30
@@ -112,6 +113,11 @@ export async function runTimeoutChecks(): Promise<void> {
       const metadata = { ...conv.metadata, snoozeWokeAt: new Date().toISOString() }
       await conversations.update(conv.clinicId, conv.id, { status: 'open', snoozeUntil: null, metadata })
     }
+
+    // Stalled conversation timer: mid-flow conversations idle past their clinic's
+    // configured threshold get re-announced, then a final notice, then auto-close —
+    // see stalled-conversation.ts for the pure decision logic.
+    await runStalledConversationCheck(sql)
 
     // Escalation chain (Rev1 #18): urgent alerts nobody acknowledged in time
     // bubble up to the clinic admin (then a configured fallback).

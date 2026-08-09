@@ -139,6 +139,9 @@ interface SuperuserClinicSettingsForm {
   bookingStartHour: string
   bookingEndHour: string
   bookingSlotMinutes: string
+  stallMinutes: string
+  maxReannouncements: string
+  closeGraceMinutes: string
   googleCalendarId: string
   googleSheetsEnabled: boolean
   googleSheetsSpreadsheetId: string
@@ -327,6 +330,9 @@ function buildSuperuserSettingsForm(settings: ClinicSettings | undefined): Super
     bookingStartHour: String(settings?.bookingGrid?.startHour ?? 8),
     bookingEndHour: String(settings?.bookingGrid?.endHour ?? 17),
     bookingSlotMinutes: String(settings?.bookingGrid?.slotMinutes ?? 30),
+    stallMinutes: String(settings?.stalledConversation?.stallMinutes ?? 10),
+    maxReannouncements: String(settings?.stalledConversation?.maxReannouncements ?? 3),
+    closeGraceMinutes: String(settings?.stalledConversation?.closeGraceMinutes ?? 5),
     googleCalendarId: settings?.googleCalendar?.calendarId ? String(settings.googleCalendar.calendarId) : '',
     googleSheetsEnabled: Boolean(settings?.googleSheets?.enabled),
     googleSheetsSpreadsheetId: settings?.googleSheets?.spreadsheetId ? String(settings.googleSheets.spreadsheetId) : '',
@@ -367,12 +373,31 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
         throw new Error('Slot length must be 5, 10, 15, 20, 30, 45, or 60 minutes.')
       }
 
+      const stallMinutes = integerFromForm(form.stallMinutes, 10)
+      const maxReannouncements = integerFromForm(form.maxReannouncements, 3)
+      const closeGraceMinutes = integerFromForm(form.closeGraceMinutes, 5)
+      if (stallMinutes < 5 || stallMinutes > 120) {
+        throw new Error('Stall wait must be between 5 and 120 minutes.')
+      }
+      if (maxReannouncements < 0 || maxReannouncements > 10) {
+        throw new Error('Max re-announcements must be between 0 and 10.')
+      }
+      if (closeGraceMinutes < 1 || closeGraceMinutes > 60) {
+        throw new Error('Close grace period must be between 1 and 60 minutes.')
+      }
+
       const current = (clinic.settings ?? {}) as ClinicSettings
       const nextSettings: ClinicSettings = {
         ...current,
         botTone: form.botTone,
         botLanguage: form.botLanguage,
         bookingGrid: { ...(current.bookingGrid ?? {}), startHour, endHour, slotMinutes },
+        stalledConversation: {
+          ...(current.stalledConversation ?? {}),
+          stallMinutes,
+          maxReannouncements,
+          closeGraceMinutes,
+        },
         googleCalendar: {
           ...(current.googleCalendar ?? {}),
           calendarId: form.googleCalendarId.trim() || undefined,
@@ -485,6 +510,45 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
                   <option key={minutes} value={minutes}>{minutes}</option>
                 ))}
               </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+          <h3 className="text-xs font-semibold uppercase text-gray-400">Stalled conversation timer</h3>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <label className="block text-xs font-medium text-gray-500">
+              Stall wait (min)
+              <input
+                value={form.stallMinutes}
+                onChange={(event) => updateField('stallMinutes', event.target.value)}
+                type="number"
+                min={5}
+                max={120}
+                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
+              />
+            </label>
+            <label className="block text-xs font-medium text-gray-500">
+              Max re-announcements
+              <input
+                value={form.maxReannouncements}
+                onChange={(event) => updateField('maxReannouncements', event.target.value)}
+                type="number"
+                min={0}
+                max={10}
+                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
+              />
+            </label>
+            <label className="block text-xs font-medium text-gray-500">
+              Close grace (min)
+              <input
+                value={form.closeGraceMinutes}
+                onChange={(event) => updateField('closeGraceMinutes', event.target.value)}
+                type="number"
+                min={1}
+                max={60}
+                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
+              />
             </label>
           </div>
         </div>

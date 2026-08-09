@@ -507,6 +507,9 @@ export function buildAiAgentSystemPrompt(input: {
   style: BotTone
   scenarios: { id: string; description: string }[]
   kbMatches?: KbMatch[]
+  clinicAddress?: string | null
+  clinicPhone?: string | null
+  clinicType?: string | null
 }): string {
   const scenarioLines = input.scenarios.length
     ? input.scenarios.map((s) => `- ${s.id}: ${s.description}`).join('\n')
@@ -515,8 +518,14 @@ export function buildAiAgentSystemPrompt(input: {
   const kbContext = kbMatches.length
     ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
     : ''
+  const clinicFacts = [
+    input.clinicType ? `- Type: ${input.clinicType}` : '',
+    input.clinicAddress ? `- Address: ${input.clinicAddress}` : '',
+    input.clinicPhone ? `- Phone: ${input.clinicPhone}` : '',
+  ].filter(Boolean)
   return [
     `You are the AI agent for ${input.clinicName}, deciding how to route this WhatsApp conversation.`,
+    clinicFacts.length ? `Clinic info:\n${clinicFacts.join('\n')}` : '',
     `Tone: ${toneInstruction(input.style)}`,
     input.personality ? `Personality: ${input.personality}` : '',
     input.customInstructions ? `Instructions: ${input.customInstructions}` : '',
@@ -930,7 +939,17 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const kbMatches: KbMatch[] = await searchKb(message, kbChunks, resolveEmbedder(clinic.settings))
       ctx['ai_agent_kb_hit'] = kbMatches.length > 0
 
-      const system = buildAiAgentSystemPrompt({ clinicName: clinic.name, personality, customInstructions, style, scenarios, kbMatches })
+      const system = buildAiAgentSystemPrompt({
+        clinicName: clinic.name,
+        personality,
+        customInstructions,
+        style,
+        scenarios,
+        kbMatches,
+        clinicAddress: clinic.address,
+        clinicPhone: clinic.phone,
+        clinicType: clinic.clinicType,
+      })
       const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
       const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
 

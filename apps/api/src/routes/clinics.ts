@@ -240,6 +240,9 @@ const createSchema = z.object({
   plan: z.enum(['starter', 'pro', 'enterprise']).optional(),
   status: z.enum(['active', 'suspended', 'cancelled']).optional(),
   timezone: z.string().min(1).optional(),
+  address: z.string().optional(),
+  phone: z.string().optional(),
+  clinicType: z.string().optional(),
 })
 
 const patchSchema = z
@@ -248,6 +251,9 @@ const patchSchema = z
     plan: z.enum(['starter', 'pro', 'enterprise']).optional(),
     status: z.enum(['active', 'suspended', 'cancelled']).optional(),
     timezone: z.string().min(1).optional(),
+    address: z.string().optional(),
+    phone: z.string().optional(),
+    clinicType: z.string().optional(),
     settings: z.record(z.unknown()).optional(),
     // P14 — Facebook Messenger connection. Token is write-only; omit to keep it.
     messengerPageId: z.string().optional(),

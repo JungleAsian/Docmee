@@ -105,13 +105,19 @@ function GeneralSection({ clinic }: { clinic: Clinic }) {
   const [plan, setPlan] = useState<ClinicPlan>(clinic.plan)
   const [status, setStatus] = useState<ClinicStatus>(clinic.status)
   const [timezone, setTimezone] = useState(clinic.timezone)
+  const [address, setAddress] = useState(clinic.address ?? '')
+  const [phone, setPhone] = useState(clinic.phone ?? '')
+  const [clinicType, setClinicType] = useState(clinic.clinicType ?? '')
   const save = useSaveClinic(clinic.id)
 
   const dirty =
     name !== clinic.name ||
     plan !== clinic.plan ||
     status !== clinic.status ||
-    timezone !== clinic.timezone
+    timezone !== clinic.timezone ||
+    address !== (clinic.address ?? '') ||
+    phone !== (clinic.phone ?? '') ||
+    clinicType !== (clinic.clinicType ?? '')
 
   return (
     <Section title={t('clinic.section.general')}>
@@ -147,12 +153,26 @@ function GeneralSection({ clinic }: { clinic: Clinic }) {
         <Field label={t('studio.clinics.timezone')}>
           <input value={timezone} onChange={(e) => setTimezone(e.target.value)} className={`w-full ${inputCls}`} />
         </Field>
+        <Field label={t('studio.clinics.address')}>
+          <input value={address} onChange={(e) => setAddress(e.target.value)} className={`w-full ${inputCls}`} />
+        </Field>
+        <Field label={t('studio.clinics.phone')}>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} className={`w-full ${inputCls}`} />
+        </Field>
+        <Field label={t('studio.clinics.clinicType')}>
+          <input
+            value={clinicType}
+            onChange={(e) => setClinicType(e.target.value)}
+            placeholder={t('studio.clinics.clinicTypePlaceholder')}
+            className={`w-full ${inputCls}`}
+          />
+        </Field>
       </div>
       <SaveBar
         dirty={dirty}
         pending={save.isPending}
         saved={save.isSuccess && !dirty}
-        onSave={() => save.mutate({ name, plan, status, timezone })}
+        onSave={() => save.mutate({ name, plan, status, timezone, address, phone, clinicType })}
       />
     </Section>
   )

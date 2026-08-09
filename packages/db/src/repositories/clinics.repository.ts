@@ -9,6 +9,9 @@ export interface CreateClinicInput {
   status?: ClinicStatus
   settings?: Record<string, unknown>
   timezone?: string
+  address?: string
+  phone?: string
+  clinicType?: string
 }
 
 export interface UpdateClinicInput {
@@ -17,6 +20,9 @@ export interface UpdateClinicInput {
   status?: ClinicStatus
   settings?: Record<string, unknown>
   timezone?: string
+  address?: string
+  phone?: string
+  clinicType?: string
   // P14 — Messenger connection. `messengerPageAccessToken` maps to the
   // *_encrypted column; pass it only when (re)setting the token.
   messengerPageId?: string
@@ -160,14 +166,17 @@ export function createClinicsRepository(sql: Sql): ClinicsRepository {
 
     async create(data) {
       const rows = await sql<Clinic[]>`
-        INSERT INTO clinics (name, slug, plan, status, settings, timezone)
+        INSERT INTO clinics (name, slug, plan, status, settings, timezone, address, phone, clinic_type)
         VALUES (
           ${data.name},
           ${data.slug},
           ${data.plan ?? 'starter'},
           ${data.status ?? 'active'},
           ${sql.json(toJson(data.settings ?? {}))},
-          ${data.timezone ?? 'America/Guatemala'}
+          ${data.timezone ?? 'America/Guatemala'},
+          ${data.address ?? null},
+          ${data.phone ?? null},
+          ${data.clinicType ?? null}
         )
         RETURNING *
       `
@@ -177,10 +186,13 @@ export function createClinicsRepository(sql: Sql): ClinicsRepository {
     async update(id, data) {
       const rows = await sql<Clinic[]>`
         UPDATE clinics SET
-          name     = COALESCE(${data.name     ?? null}, name),
-          plan     = COALESCE(${data.plan     ?? null}, plan),
-          status   = COALESCE(${data.status   ?? null}, status),
-          timezone = COALESCE(${data.timezone ?? null}, timezone),
+          name        = COALESCE(${data.name       ?? null}, name),
+          plan        = COALESCE(${data.plan       ?? null}, plan),
+          status      = COALESCE(${data.status     ?? null}, status),
+          timezone    = COALESCE(${data.timezone   ?? null}, timezone),
+          address     = COALESCE(${data.address    ?? null}, address),
+          phone       = COALESCE(${data.phone      ?? null}, phone),
+          clinic_type = COALESCE(${data.clinicType ?? null}, clinic_type),
           messenger_page_id                     = COALESCE(${data.messengerPageId          ?? null}, messenger_page_id),
           messenger_page_access_token_encrypted = COALESCE(${data.messengerPageAccessToken ?? null}, messenger_page_access_token_encrypted),
           messenger_webhook_verify_token        = COALESCE(${data.messengerWebhookVerifyToken ?? null}, messenger_webhook_verify_token),

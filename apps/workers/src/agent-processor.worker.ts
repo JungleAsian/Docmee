@@ -126,7 +126,15 @@ export function getClinicBotConfig(clinic: Clinic): ClinicBotConfig {
   const rulesText =
     typeof rulesRaw === 'string' && rulesRaw.trim() !== '' ? rulesRaw.trim() : null
 
-  return { name: clinic.name, language, tone, rulesText }
+  return {
+    name: clinic.name,
+    language,
+    tone,
+    rulesText,
+    address: clinic.address,
+    phone: clinic.phone,
+    clinicType: clinic.clinicType,
+  }
 }
 
 function getPatientLanguage(patient: Patient | null): Language {

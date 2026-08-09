@@ -29,6 +29,12 @@ export interface ClinicBotConfig {
   language: BotLanguage
   tone: BotTone
   rulesText: string | null
+  /** Physical address/location — stated to patients who ask where the clinic is. */
+  address?: string | null
+  /** Contact phone number — stated to patients who ask how to call the clinic. */
+  phone?: string | null
+  /** Free-text clinic type/specialty (e.g. "Dental", "Pediatric"). */
+  clinicType?: string | null
 }
 
 export interface ClinicBotInput {
@@ -139,9 +145,15 @@ function buildSystemPrompt(input: ClinicBotInput, language: Language, kbMatches:
   const kbContext = kbMatches.length
     ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
     : ''
+  const clinicFacts = [
+    input.clinic.clinicType ? `- Type: ${input.clinic.clinicType}` : '',
+    input.clinic.address ? `- Address: ${input.clinic.address}` : '',
+    input.clinic.phone ? `- Phone: ${input.clinic.phone}` : '',
+  ].filter(Boolean)
 
   return [
     `You are the AI assistant for ${input.clinic.name}.`,
+    clinicFacts.length ? `Clinic info:\n${clinicFacts.join('\n')}` : '',
     `Language: Respond ONLY in ${language === 'es' ? 'Spanish' : 'English'}.`,
     `Tone: ${TONE_INSTRUCTIONS[input.clinic.tone]}`,
     input.clinic.rulesText

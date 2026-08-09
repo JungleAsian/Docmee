@@ -373,6 +373,9 @@ export interface Clinic {
   status: ClinicStatus
   timezone: string
   settings: Record<string, unknown>
+  address?: string | null
+  phone?: string | null
+  clinicType?: string | null
   // P14 — Facebook Messenger connection. The access token is write-only and is
   // never sent back to the panel, so it is not exposed here.
   messengerPageId?: string | null

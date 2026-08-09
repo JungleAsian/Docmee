@@ -18,6 +18,11 @@ export interface Clinic {
   status: ClinicStatus
   settings: Record<string, unknown>
   timezone: string
+  // Profile info surfaced to patients via the bot (address/location, contact
+  // phone, and a free-text clinic type/specialty like "Dental" or "Pediatric").
+  address: string | null
+  phone: string | null
+  clinicType: string | null
   // P14 — Facebook Messenger connection (one Page per clinic).
   messengerPageId: string | null
   messengerPageAccessTokenEncrypted: string | null

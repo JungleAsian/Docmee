@@ -23,8 +23,12 @@ import {
   screenPromptLeak,
   promptSafetyDeferral,
   injectionGuard,
+  wrapUntrustedKb,
   toneInstruction,
   detectLanguage,
+  searchKb,
+  scopeKbToMessage,
+  hasDoctorScopedChunks,
   type BookingGrid,
   type CalendarOps,
   type GoogleCalendarConfig,
@@ -33,6 +37,7 @@ import {
   type SlotMenuReplyOutcome,
   type AiAgentOutcome,
   type BotTone,
+  type KbMatch,
   type WorkflowCaptureState,
   type WorkflowContext,
   type WorkflowExecutors,
@@ -42,7 +47,7 @@ import { randomUUID } from 'node:crypto'
 import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
 import { activeWhatsAppAccount, resolveWhatsAppInteractiveSender, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
-import { resolveClinicAiKey } from './clinic-ai-key.js'
+import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
@@ -61,6 +66,7 @@ import {
   createWorkflowsRepository,
   createWorkflowExecutionsRepository,
   createWorkflowApprovalsRepository,
+  createKnowledgeRepository,
   type Patient,
   type PatientContact,
   type MessageTemplateCategory,
@@ -500,15 +506,21 @@ export function buildAiAgentSystemPrompt(input: {
   customInstructions: string
   style: BotTone
   scenarios: { id: string; description: string }[]
+  kbMatches?: KbMatch[]
 }): string {
   const scenarioLines = input.scenarios.length
     ? input.scenarios.map((s) => `- ${s.id}: ${s.description}`).join('\n')
     : '(no scenarios configured)'
+  const kbMatches = input.kbMatches ?? []
+  const kbContext = kbMatches.length
+    ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
+    : ''
   return [
     `You are the AI agent for ${input.clinicName}, deciding how to route this WhatsApp conversation.`,
     `Tone: ${toneInstruction(input.style)}`,
     input.personality ? `Personality: ${input.personality}` : '',
     input.customInstructions ? `Instructions: ${input.customInstructions}` : '',
+    kbContext ? wrapUntrustedKb(kbContext) : '',
     injectionGuard(input.clinicName),
     'Scenarios you can match the patient\'s message against (id: description):',
     scenarioLines,
@@ -905,7 +917,20 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const personality = String(node.config?.['personality'] ?? '').trim()
       const customInstructions = String(node.config?.['customInstructions'] ?? '').trim()
 
-      const system = buildAiAgentSystemPrompt({ clinicName: clinic.name, personality, customInstructions, style, scenarios })
+      // Ground the agent in the clinic's Docmee Knowledge Base — same retrieval
+      // (embed + cosine-rank over knowledge_chunks, doctor-scoped when applicable)
+      // the main clinic bot already uses, so answers stay grounded in real clinic
+      // facts instead of whatever the model already "knows".
+      const allChunks = await createKnowledgeRepository(sql).listEmbeddedChunks(clinicId)
+      let kbChunks = allChunks
+      if (hasDoctorScopedChunks(allChunks)) {
+        const doctors = await createDoctorsRepository(sql).listByClinic(clinicId)
+        kbChunks = scopeKbToMessage(message, allChunks, doctors)
+      }
+      const kbMatches: KbMatch[] = await searchKb(message, kbChunks, resolveEmbedder(clinic.settings))
+      ctx['ai_agent_kb_hit'] = kbMatches.length > 0
+
+      const system = buildAiAgentSystemPrompt({ clinicName: clinic.name, personality, customInstructions, style, scenarios, kbMatches })
       const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
       const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
 

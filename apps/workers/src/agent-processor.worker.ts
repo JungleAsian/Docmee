@@ -1,8 +1,10 @@
-// Consumes: agent queue.
-// Classifies intent, routes to the correct platform agent (P03), then for the
-// botbase route runs the clinic bot and replies on WhatsApp; for an outside-hours
-// silence it collects the patient's name + reason (Decision 1). calbot/alertflow
-// routes stay fan-out to their downstream queues.
+﻿// Consumes: agent queue.
+// Classifies intent, routes to the correct platform agent (P03); the botbase
+// route (general/unclear intent, inside business hours) sends a static nudge
+// toward the clinic's structured keyword entry points instead of a free-form
+// LLM answer. For an outside-hours silence it collects the patient's name +
+// reason (Decision 1). calbot/alertflow routes stay fan-out to their
+// downstream queues.
 import { z } from 'zod'
 import {
   classifyIntent,
@@ -11,14 +13,10 @@ import {
   type ChatProvider,
   type IntentProvider,
 } from '@docmee/llm'
-import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
+import { resolveClinicAiKey } from './clinic-ai-key.js'
 import { enqueueInboundWorkflowRuns, enqueueWorkflowRuns } from './workflow-run.js'
 import {
   orchestrateConversation,
-  runClinicBot,
-  searchKb,
-  scopeKbToMessage,
-  hasDoctorScopedChunks,
   isInsideBusinessHours,
   detectLanguage,
   matchCustomFlow,
@@ -30,7 +28,6 @@ import {
   isBotPaused,
   detectHumanRequest,
   isEmergencyMessage,
-  isLikelyQuestion,
   emergencyNotice,
   handoffNotice,
   isOptOutMessage,
@@ -54,8 +51,6 @@ import {
   createClinicsRepository,
   createChannelAccountsRepository,
   createPatientsRepository,
-  createKnowledgeRepository,
-  createDoctorsRepository,
   createErrorReviewsRepository,
   createConversationsRepository,
   createMessagesRepository,
@@ -238,6 +233,19 @@ function outsideHoursMessage(language: Language): string {
   return language === 'es'
     ? 'Estamos fuera de horario. Déjame tu nombre y el motivo de tu consulta y te contactamos mañana.'
     : 'We are outside business hours. Please leave your name and reason for your inquiry and we will contact you tomorrow.'
+}
+
+// Sent when an inbound message matches no configured workflow/custom-flow keyword
+// trigger at all — independent of business hours, and independent of whatever the
+// LLM intent classifier would have guessed. Replaces the general J.zel/botbase
+// fallback for this turn: the patient is funneled toward the clinic's structured
+// entry points instead of getting a free-form AI answer. The pre-LLM emergency and
+// human-handoff keyword guards run earlier in this function and are unaffected —
+// only the *general* Q&A fallback is replaced here.
+function unmatchedKeywordMessage(language: Language): string {
+  return language === 'es'
+    ? 'Por favor, inicia tu mensaje escribiendo Menú o Reserva.'
+    : 'Please start message by sending Menu or Booking.'
 }
 
 // Metadata key holding the in-progress flow cursor between turns (Rev1 #28).
@@ -501,7 +509,6 @@ export async function processAgentJob(job: Job): Promise<void> {
     const clinics = createClinicsRepository(sql)
     const channelAccounts = createChannelAccountsRepository(sql)
     const patients = createPatientsRepository(sql)
-    const knowledge = createKnowledgeRepository(sql)
     const errorReviews = createErrorReviewsRepository(sql)
 
     const clinic = await clinics.findById(data.clinicId)
@@ -890,225 +897,16 @@ export async function processAgentJob(job: Job): Promise<void> {
         break
 
       case 'botbase': {
-        if (!sendReply) {
+        // The general AI Q&A fallback (greeting / general_question / out_of_scope
+        // intent, inside business hours -- the only way this route is ever reached)
+        // is replaced with a static nudge toward the clinic's structured entry
+        // points instead of a free-form LLM answer. Emergency, human-handoff,
+        // booking, opt-out and outside-hours routing all happen upstream of this
+        // switch and are completely unaffected.
+        if (sendReply) {
+          await sendReply(unmatchedKeywordMessage(patientLanguage))
+        } else {
           console.warn(`[agent] no reply transport for clinic ${data.clinicId} on ${data.channel}; cannot reply`)
-          break
-        }
-        const allChunks = await knowledge.listEmbeddedChunks(data.clinicId)
-        // Per-doctor FAQs (Req 30): when any document is doctor-scoped, restrict the
-        // retrievable chunks to clinic-wide ones plus the doctor the patient named ?
-        // so "Does Dr. Garc?a do video calls?" pulls Garc?a's FAQ but not L?pez's,
-        // and a generic question never surfaces a doctor-specific FAQ. Only load the
-        // doctor list when scoping is actually in play (back-compat / no extra query).
-        let chunks = allChunks
-        if (hasDoctorScopedChunks(allChunks)) {
-          const doctors = await createDoctorsRepository(sql).listByClinic(data.clinicId)
-          chunks = scopeKbToMessage(data.message, allChunks, doctors)
-        }
-        let kbHit = false
-
-        // J.zel per-clinic identity for the AI fallback: the clinic's chosen model
-        // and persona (Studio ? Automations ? AI Assistant). Flows, templates,
-        // handoff and the medical-safety/anti-injection screens are unchanged ? this
-        // only shapes the MODEL and VOICE of an AI-generated reply, never the control.
-        const JZEL_PROVIDERS = ['claude', 'openai', 'custom', 'gemini']
-        const jzelCfg = ((
-          clinic.settings as {
-            aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string; persona?: string }
-          }
-        ).aiAssistant ?? {}) as {
-          chatProvider?: string
-          model?: string
-          baseURL?: string
-          persona?: string
-        }
-        const jzelProvider: ChatProvider =
-          typeof jzelCfg.chatProvider === 'string' && JZEL_PROVIDERS.includes(jzelCfg.chatProvider)
-            ? (jzelCfg.chatProvider as ChatProvider)
-            : 'claude'
-        const jzelModel =
-          typeof jzelCfg.model === 'string' && jzelCfg.model.trim() !== ''
-            ? jzelCfg.model.trim()
-            : defaultChatModel(jzelProvider)
-        const jzelBaseURL = typeof jzelCfg.baseURL === 'string' ? jzelCfg.baseURL.trim() : ''
-        const jzelPersona = typeof jzelCfg.persona === 'string' ? jzelCfg.persona.trim() : ''
-        const jzelKey = resolveClinicAiKey(clinic.settings, jzelProvider)
-        const jzelBase = (
-          system: string,
-          userMessage: string,
-          maxTokens?: number,
-          h?: Array<{ role: 'user' | 'assistant'; content: string }>,
-        ) =>
-          chatComplete({
-            provider: jzelProvider,
-            system,
-            message: userMessage,
-            history: h ?? [],
-            maxTokens,
-            apiKey: jzelKey,
-            model: jzelModel,
-            baseURL: jzelBaseURL,
-          })
-        // Append the clinic persona AFTER the bot's own system prompt so the built-in
-        // KB-grounding / medical-safety / anti-injection rules stay authoritative; the
-        // persona only adds clinic-specific tone and phrasing.
-        const jzelComplete = jzelPersona
-          ? (
-              system: string,
-              userMessage: string,
-              maxTokens?: number,
-              h?: Array<{ role: 'user' | 'assistant'; content: string }>,
-            ) =>
-              jzelBase(
-                `${system}\n\nClinic voice (tone and clinic-specific phrasing only ? keep every rule above):\n${jzelPersona}`,
-                userMessage,
-                maxTokens,
-                h,
-              )
-          : jzelBase
-
-        // CRE-45: short-term memory. Load the recent turns of this conversation so
-        // the bot can resolve follow-ups ("and the price?", "what about Tuesday?")
-        // against context. The current inbound message is excluded (it is passed as
-        // input.message) and each turn is capped to keep the prompt bounded.
-        let history: Array<{ role: 'user' | 'assistant'; content: string }> = []
-        if (data.conversationId) {
-          const recent = await createMessagesRepository(sql).listByConversation(
-            data.clinicId,
-            data.conversationId,
-          )
-          history = recent
-            .filter((m) => m.channelMessageId !== data.waMessageId)
-            .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'agent')
-            .slice(-10)
-            .map((m) => ({
-              role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-              content: (m.content ?? '').slice(0, 1000),
-            }))
-            .filter((m) => m.content.trim().length > 0)
-        }
-
-        const botResult = await runClinicBot(
-          {
-            clinicId: data.clinicId,
-            conversationId: data.conversationId ?? null,
-            patientName: patient?.fullName ?? null,
-            patientLanguage: getPatientLanguage(patient),
-            isFirstMessage: data.isNewPatient ?? false,
-            message: data.message,
-            history,
-            clinic: getClinicBotConfig(clinic),
-          },
-          {
-            searchKb: async (query) => {
-              const matches = await searchKb(query, chunks, resolveEmbedder(clinic.settings))
-              if (matches.length > 0) kbHit = true
-              return matches
-            },
-            complete: jzelComplete,
-            sendText: (text) => sendReply(text),
-            logError: (info) =>
-              errorReviews
-                .create({
-                  clinicId: info.clinicId,
-                  errorType: info.errorType,
-                  errorMessage: info.message,
-                  context: { conversationId: info.conversationId, rawMessage: info.rawMessage },
-                })
-                .then(() => {}),
-          },
-        )
-
-        // Bilingual bot (Req 22): persist the language the bot actually replied in
-        // (resolveLanguage honors a clinic-forced language over raw detection) so
-        // subsequent turns stay consistent.
-        await persistPatientLanguage(patients, data.clinicId, patient, botResult.language)
-
-        // Medical-safety handoff (Req 20): the output screen inside runClinicBot
-        // tripped ? the unsafe LLM reply was suppressed and a safe deferral sent
-        // in its place. Pause the bot for a human, tag the conversation, and raise
-        // a handoff alert so a person takes over (and the safety event is already
-        // logged to the Error Review area by the bot). We re-read the conversation
-        // so the pause merges onto the latest metadata (the sentiment block above
-        // just wrote to it).
-        if (botResult.triggeredHandoff) {
-          const handoffReason = botResult.handoffReason ?? 'medical_safety'
-          if (data.conversationId && conversation) {
-            const latest = await conversations.findById(data.clinicId, data.conversationId)
-            // Only a real safety event carries the medical_safety tag; a knowledge-gap
-            // (low-confidence) handoff is a routine "couldn't answer ? human" case.
-            if (handoffReason === 'medical_safety') {
-              const tag = await conversations.createTag({ clinicId: data.clinicId, name: 'medical_safety' })
-              await conversations.addTag(data.clinicId, data.conversationId, tag.id)
-            }
-            await pauseBotForHandoff(
-              sql,
-              data.clinicId,
-              data.conversationId,
-              latest?.metadata ?? conversation.metadata,
-              'medical_safety',
-            )
-          }
-          await notificationQueue.add('notify', {
-            clinicId: data.clinicId,
-            conversationId: data.conversationId,
-            reason: 'human_handoff',
-            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
-          })
-          // ? Knowledge-gap handoff: the bot found no KB grounding for a real
-          // question and deferred to a human. Log it for the Add-to-KB queue (Req 29)
-          // ? the reply path's unanswered logging is skipped because we break here.
-          if (handoffReason === 'low_confidence') {
-            await errorReviews
-              .create({
-                clinicId: data.clinicId,
-                errorType: 'unanswered_question',
-                errorMessage: data.message,
-                context: {
-                  conversationId: data.conversationId,
-                  channel: data.channel,
-                  language: botResult.language,
-                  kbChunks: chunks.length,
-                  reason: 'low_confidence_handoff',
-                },
-              })
-              .catch((err) => console.error('[agent] failed to log low-confidence handoff:', err))
-          }
-          break
-        }
-
-        // Unanswered question (Req 29 Error Review): the bot replied but found NO
-        // clinic-KB match, so the answer was ungrounded ? exactly the case an
-        // operator should review and (via the Add-to-KB path) turn into approved
-        // content. Gated by isLikelyQuestion so greetings/thanks don't flood the
-        // queue. Best-effort: a logging failure never affects the patient reply.
-        if (botResult.replied && !kbHit && isLikelyQuestion(data.message)) {
-          await errorReviews
-            .create({
-              clinicId: data.clinicId,
-              errorType: 'unanswered_question',
-              errorMessage: data.message,
-              context: {
-                conversationId: data.conversationId,
-                channel: data.channel,
-                language: botResult.language,
-                kbChunks: chunks.length,
-              },
-            })
-            .catch((err) => console.error('[agent] failed to log unanswered question:', err))
-        }
-
-        // Record KB usage for the analytics KB-hit rate (Gap #39). Re-read so we
-        // merge onto the metadata the sentiment block just persisted.
-        if (kbHit && data.conversationId) {
-          const existing = await conversations.findById(data.clinicId, data.conversationId)
-          if (existing) {
-            await conversations.update(data.clinicId, data.conversationId, {
-              // ? Citations: record which KB entries grounded the bot's reply so the
-              // inbox can show "grounded in ?" for trust + audit.
-              metadata: { ...existing.metadata, kbHit: true, kbCitations: botResult.citations },
-            })
-          }
         }
         break
       }

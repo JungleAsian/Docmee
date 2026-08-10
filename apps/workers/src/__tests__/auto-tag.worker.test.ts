@@ -169,6 +169,11 @@ describe('agent worker — new_patient auto-tag (Req 11)', () => {
   })
 
   it('does NOT tag when the job carries no conversationId', async () => {
+    // No active account -> no reply transport, so the botbase fallback (reached
+    // via the default 'general_question' classification) just warns instead of
+    // attempting a send that the missing-conversationId guard would reject.
+    // Irrelevant to what this test actually asserts (tagging).
+    h.listAccounts.mockResolvedValue([])
     const noConvo = {
       clinicId: CLINIC,
       channel: 'whatsapp' as const,

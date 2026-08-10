@@ -228,7 +228,7 @@ describe('processAgentJob — custom flow engine', () => {
     expect(h.listEnabledFlows).not.toHaveBeenCalled()
   })
 
-  it('clears a stale cursor and falls through to the LLM when the flow is disabled', async () => {
+  it('clears a stale cursor and falls through to intent classification when the flow is disabled', async () => {
     h.findConversation.mockResolvedValue({
       id: CONVO,
       status: 'open',
@@ -243,9 +243,12 @@ describe('processAgentJob — custom flow engine', () => {
       (c) => c[2]?.metadata && !('customFlowState' in c[2].metadata),
     )
     expect(cleared).toBeTruthy()
-    // normal processing resumed
+    // normal processing resumed: intent classification still runs (so emergency/
+    // handoff/booking intents keep working), but a general question now gets the
+    // static structured-entry-point nudge instead of an LLM-generated answer.
     expect(h.classifyIntent).toHaveBeenCalled()
-    expect(h.runClinicBot).toHaveBeenCalled()
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText.mock.calls[0]![3]).toContain('Menú')
   })
 
   it('uses the LLM only to map an off-script reply onto a configured branch', async () => {

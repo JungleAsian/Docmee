@@ -141,10 +141,12 @@ describe('processAgentJob — bot interruption rule', () => {
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
   })
 
-  it('runs the bot when the conversation is open', async () => {
+  it('replies with the structured-entry-point nudge when the conversation is open', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     await processAgentJob(makeJob(baseJob))
-    expect(h.runClinicBot).toHaveBeenCalledTimes(1)
+    expect(h.classifyIntent).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.runClinicBot).not.toHaveBeenCalled()
   })
 })
 
@@ -282,49 +284,15 @@ describe('processAgentJob — outbound reply persistence (Req 4)', () => {
   })
 })
 
-describe('processAgentJob — medical-safety handoff (Req 20)', () => {
-  it('bot reply tripped the safety screen → pauses the bot, tags, alerts a human', async () => {
-    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
-    // The bot suppressed the unsafe reply itself and signals a handoff.
-    h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: true, language: 'es' })
-
-    await processAgentJob(makeJob(baseJob))
-
-    // The bot ran (deferral already sent inside runClinicBot via sendText).
-    expect(h.runClinicBot).toHaveBeenCalledTimes(1)
-
-    // Conversation paused (handoff) with the medical_safety reason + tagged.
-    const handoffUpdate = h.updateConversation.mock.calls.find(
-      ([, , u]) => u?.status === 'handoff',
-    )
-    expect(handoffUpdate).toBeDefined()
-    expect(handoffUpdate![2].metadata.handoffReason).toBe('medical_safety')
-    expect(h.createTag).toHaveBeenCalledWith(expect.objectContaining({ name: 'medical_safety' }))
-
-    // A human handoff alert is queued.
-    expect(h.notificationAdd).toHaveBeenCalledWith(
-      'notify',
-      expect.objectContaining({ reason: 'human_handoff', conversationId: CONVO }),
-    )
-  })
-
-  it('a clean bot reply does NOT pause the bot or alert a human', async () => {
-    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
-    h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: false, language: 'es' })
-
-    await processAgentJob(makeJob(baseJob))
-
-    expect(h.runClinicBot).toHaveBeenCalledTimes(1)
-    const handoffUpdate = h.updateConversation.mock.calls.find(
-      ([, , u]) => u?.status === 'handoff',
-    )
-    expect(handoffUpdate).toBeUndefined()
-    expect(h.notificationAdd).not.toHaveBeenCalledWith(
-      'notify',
-      expect.objectContaining({ reason: 'human_handoff' }),
-    )
-  })
-})
+// The old "medical-safety handoff" describe block that lived here tested
+// runClinicBot's own output-side safety screen tripping a pause — that
+// integration point no longer exists (the general botbase fallback no longer
+// calls runClinicBot at all, see the routing-change note at the top of
+// agent-processor.worker.ts). The underlying screen itself
+// (screenMedicalSafety) is still fully covered at the unit level in
+// packages/agents/src/__tests__/clinic-bot.test.ts and medical-safety.test.ts,
+// and the AI Agent workflow node runs the same screen before any of its own
+// auto-sent replies (see workflow-runner-ai-agent.test.ts).
 
 describe('processAgentJob — explicit human request (#5)', () => {
   it('acks the patient, pauses the bot, and alerts a human', async () => {
@@ -472,13 +440,17 @@ describe('processAgentJob — AI conversation orchestration', () => {
     )
   })
 
-  it('routes a general question to the grounded inquiry agent', async () => {
+  it('routes a general question to the structured-entry-point nudge', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.classifyIntent.mockResolvedValueOnce('general_question')
 
     await processAgentJob(makeJob(baseJob))
 
-    expect(h.runClinicBot).toHaveBeenCalledTimes(1)
+    // The general/unclear-intent route no longer calls the free-form LLM bot;
+    // it sends the static structured-entry-point nudge instead.
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText.mock.calls[0]![3]).toContain('Menú')
     expect(h.schedulingAdd).not.toHaveBeenCalled()
     expect(h.updateConversation).toHaveBeenCalledWith(
       CLINIC,

@@ -67,7 +67,10 @@ vi.mock('@docmee/db', () => ({
     createTag: h.createTag,
     addTag: h.addTag,
   }),
-  createMessagesRepository: () => ({ create: vi.fn(), listByConversation: vi.fn().mockResolvedValue([]) }),
+  createMessagesRepository: () => ({
+    create: vi.fn().mockResolvedValue({ id: 'm1' }),
+    listByConversation: vi.fn().mockResolvedValue([]),
+  }),
   createWorkflowsRepository: () => ({ listEnabled: vi.fn().mockResolvedValue([]), listActiveByTrigger: vi.fn().mockResolvedValue([]) }),
   createCustomFlowsRepository: () => ({ listEnabled: h.listEnabledFlows }),
 }))
@@ -101,47 +104,23 @@ beforeEach(() => {
   h.classifyIntent.mockResolvedValue('general_question')
   h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
   h.createTag.mockResolvedValue({ id: 'tag1' })
+  h.sendWhatsAppText.mockResolvedValue('wamid.reply')
   // Bot replies in the same language resolveLanguage picks (English here).
   h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: false, language: 'en' })
 })
 
+// Only the FIRST-turn persist (unconditional for isNewPatient, using the raw
+// detectLanguage(message) result) still exists after the botbase route stopped
+// calling runClinicBot. The second, botResult.language-based re-persist that used
+// to run inside the old botbase case is gone along with runClinicBot itself, so
+// there is no more "resolve/re-write language for a returning patient" behavior
+// to test here — a returning patient's stored language is simply left as-is.
 describe('processAgentJob — bilingual language persistence (Req 22)', () => {
   it('persists the detected language for a new English-speaking patient', async () => {
     h.findPatient.mockResolvedValue({ id: PATIENT, fullName: null, metadata: {} })
     await processAgentJob(makeJob({ ...baseJob, isNewPatient: true }))
 
     // Language is written to patients.metadata so message 2+ stays English.
-    expect(h.updatePatient).toHaveBeenCalledWith(
-      CLINIC,
-      PATIENT,
-      expect.objectContaining({ metadata: expect.objectContaining({ language: 'en' }) }),
-    )
-  })
-
-  it('a returning patient stored as English is answered in English', async () => {
-    h.findPatient.mockResolvedValue({ id: PATIENT, fullName: null, metadata: { language: 'en' } })
-    await processAgentJob(makeJob({ ...baseJob, isNewPatient: false }))
-
-    // The bot is invoked with the stored language, not the 'es' default.
-    expect(h.runClinicBot).toHaveBeenCalledWith(
-      expect.objectContaining({ patientLanguage: 'en' }),
-      expect.anything(),
-    )
-  })
-
-  it('does not re-write when the stored language already matches', async () => {
-    h.findPatient.mockResolvedValue({ id: PATIENT, fullName: null, metadata: { language: 'en' } })
-    await processAgentJob(makeJob({ ...baseJob, isNewPatient: false }))
-
-    // botResult.language === stored 'en' → idempotent, no patient update.
-    expect(h.updatePatient).not.toHaveBeenCalled()
-  })
-
-  it('persists the bot-resolved language when it changes (Spanish patient switches)', async () => {
-    h.findPatient.mockResolvedValue({ id: PATIENT, fullName: null, metadata: { language: 'es' } })
-    await processAgentJob(makeJob({ ...baseJob, isNewPatient: false }))
-
-    // Stored 'es' but the bot resolved/replied 'en' → metadata is updated.
     expect(h.updatePatient).toHaveBeenCalledWith(
       CLINIC,
       PATIENT,

@@ -510,3 +510,52 @@ export function branchRows(wf: WorkflowNode): { key: string; tone: string; label
       return []
   }
 }
+
+// --- Routing-line colors (canvas edges) --------------------------------------
+// Every branching node type's edges get a sensible default color from its
+// branchRows() tone (see TONE_DEFAULT_COLOR below) so tracing a graph works
+// out of the box. An admin can override any individual branch's color -- e.g.
+// to keep two condition nodes' "true" paths visually distinct in a busy
+// canvas -- stored as a flat JSON map on the node's own config, keyed by
+// sourceHandle, so it round-trips through the exact same
+// onPatchConfig(key, value) contract every other config field already uses.
+
+const TONE_DEFAULT_COLOR: Record<string, string> = {
+  emerald: '#10b981',
+  red: '#ef4444',
+  amber: '#f59e0b',
+  sky: '#0ea5e9',
+  slate: '#94a3b8',
+  teal: '#14b8a6',
+}
+
+/** Parse a node's `config.branchColors` (JSON string, object, or missing) into
+ *  a plain `{ [sourceHandle]: '#rrggbb' }` map. Malformed input -> `{}`. */
+export function parseBranchColors(raw: unknown): Record<string, string> {
+  let value: unknown = raw
+  if (typeof value === 'string') {
+    if (!value.trim()) return {}
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return {}
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, string> = {}
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string' && v) out[key] = v
+  }
+  return out
+}
+
+/** The color to draw a node's outgoing edge/line for one branch handle: the
+ *  admin's own override if set, else the tone-based default that matches
+ *  branchRows()'s own tone for that same row, else a neutral gray fallback
+ *  (e.g. for a stale sourceHandle that no longer matches any current row). */
+export function resolveBranchColor(node: WorkflowNode, handleKey: string): string {
+  const custom = parseBranchColors(node.config?.branchColors)[handleKey]
+  if (custom) return custom
+  const row = branchRows(node).find((r) => r.key === handleKey)
+  return (row && TONE_DEFAULT_COLOR[row.tone]) || TONE_DEFAULT_COLOR.slate!
+}

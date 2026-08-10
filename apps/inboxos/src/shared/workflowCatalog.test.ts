@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
-import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, branchRows } from './workflowNodes'
+import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, branchRows, parseBranchColors, resolveBranchColor } from './workflowNodes'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 import type { WorkflowNode } from './types'
@@ -334,5 +334,47 @@ describe('validateWorkflowDefinition + reserved options as real buttons', () => 
       { requireTrigger: true },
     )
     expect(errors.some((e) => e.includes('option "restart" has no successor'))).toBe(true)
+  })
+})
+
+describe('parseBranchColors / resolveBranchColor (routing-line colors)', () => {
+  it('parses a well-formed JSON color map', () => {
+    expect(parseBranchColors(JSON.stringify({ true: '#123456' }))).toEqual({ true: '#123456' })
+  })
+
+  it('treats missing, blank, or malformed input as no overrides', () => {
+    expect(parseBranchColors(undefined)).toEqual({})
+    expect(parseBranchColors('')).toEqual({})
+    expect(parseBranchColors('not json')).toEqual({})
+    expect(parseBranchColors('[1,2,3]')).toEqual({})
+  })
+
+  it('drops non-string values from an otherwise-valid map', () => {
+    expect(parseBranchColors(JSON.stringify({ true: '#123456', false: 42 }))).toEqual({ true: '#123456' })
+  })
+
+  it('falls back to the tone-based default color when nothing is configured', () => {
+    const cond = node('cond', 'logic', 'logic.condition')
+    expect(resolveBranchColor(cond, 'true')).toBe('#10b981')
+    expect(resolveBranchColor(cond, 'false')).toBe('#ef4444')
+  })
+
+  it("uses the admin's own override once one is set", () => {
+    const cond = node('cond', 'logic', 'logic.condition', { branchColors: JSON.stringify({ true: '#ff00ff' }) })
+    expect(resolveBranchColor(cond, 'true')).toBe('#ff00ff')
+    // The untouched branch still falls back to its own tone default.
+    expect(resolveBranchColor(cond, 'false')).toBe('#ef4444')
+  })
+
+  it('resolves a color for every interactive_menu row, real or synthesized fallback', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', { options: JSON.stringify([{ optionId: 'a', title: 'A' }]) })
+    expect(resolveBranchColor(menu, 'a')).toBe('#14b8a6')
+    // 'restart' is an unconfigured synthesized fallback row (tone: slate).
+    expect(resolveBranchColor(menu, 'restart')).toBe('#94a3b8')
+  })
+
+  it('falls back to a neutral gray for a stale handle matching no current row', () => {
+    const cond = node('cond', 'logic', 'logic.condition')
+    expect(resolveBranchColor(cond, 'not_a_real_handle')).toBe('#94a3b8')
   })
 })

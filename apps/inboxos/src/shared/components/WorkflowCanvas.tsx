@@ -39,6 +39,7 @@ import {
   parseAiAgentScenarioList,
   branchRows,
   parseMenuOptionsSafe,
+  resolveBranchColor,
   type NodeTypeDef,
 } from '../workflowNodes'
 import { findFreePosition, nextNodePosition } from '../workflowLayout'
@@ -523,6 +524,7 @@ function WorkflowCanvasInner({
   )
 
   const graph = useMemo(() => {
+    const nodeById = new Map(nodes.map((n) => [n.id, n]))
     const rfNodes: Node[] = nodes.map((n) => ({
       id: n.id,
       type: 'wf',
@@ -542,13 +544,21 @@ function WorkflowCanvasInner({
           markerEnd: { type: MarkerType.ArrowClosed, color: '#9ca3af', width: 14, height: 14 },
         }
       }
-      const color = edgeColor(e.sourceHandle)
+      // The admin's own routing-color override (resolveBranchColor) wins over
+      // the tone-based default; a matched real option's own title (branchRows'
+      // `label`) wins over the fixed i18n branch label for the same reason —
+      // both fall back to the pre-existing generic behavior when the source
+      // node can't be found or carries no override.
+      const sourceNode = nodeById.get(e.source)
+      const row = sourceNode && e.sourceHandle ? branchRows(sourceNode).find((r) => r.key === e.sourceHandle) : undefined
+      const color = sourceNode && e.sourceHandle ? resolveBranchColor(sourceNode, e.sourceHandle) : edgeColor(e.sourceHandle)
+      const edgeLabel = e.sourceHandle ? (row?.label ?? t(`wf.branch.${e.sourceHandle}` as Parameters<typeof t>[0])) : undefined
       return {
         id: e.id,
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle ?? undefined,
-        label: e.sourceHandle ? t(`wf.branch.${e.sourceHandle}` as Parameters<typeof t>[0]) : undefined,
+        label: edgeLabel,
         type: 'smoothstep',
         style: { stroke: color, strokeWidth: 2 },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },

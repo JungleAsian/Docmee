@@ -30,6 +30,9 @@ import {
   humanize,
   parseMenuOptionsSafe,
   nextMenuOptionId,
+  branchRows,
+  parseBranchColors,
+  resolveBranchColor,
   type MenuOption,
   type AiAgentScenarioLike,
   type AiAgentScenarioAction,
@@ -196,6 +199,32 @@ export function NodeConfigPanel({
   )
 
   const isAiAgent = node.type === 'action.ai_agent'
+
+  // --- Routing-line color picker -----------------------------------------
+  // Any branching node (condition, ai_classify_intent, interactive_menu,
+  // ai_agent) gets one color swatch per branchRows() row here, so the
+  // canvas edge for that branch can be recolored for easier tracing in a
+  // busy graph. Stored as a flat { [handle]: '#rrggbb' } map on the node's
+  // own config -- resolveBranchColor() is the single source both this
+  // picker and the canvas's edge renderer read from.
+  const branchColorRows = useMemo(() => branchRows(node), [node])
+  const configuredBranchColors = useMemo(() => parseBranchColors(node.config.branchColors), [node])
+  const setBranchColor = useCallback(
+    (key: string, color: string) => {
+      onPatchConfig('branchColors', JSON.stringify({ ...configuredBranchColors, [key]: color }))
+    },
+    [configuredBranchColors, onPatchConfig],
+  )
+  const clearBranchColor = useCallback(
+    (key: string) => {
+      const next = { ...configuredBranchColors }
+      delete next[key]
+      onPatchConfig('branchColors', JSON.stringify(next))
+    },
+    [configuredBranchColors, onPatchConfig],
+  )
+  const branchRowLabel = (row: { key: string; label?: string }) =>
+    row.label ?? t(`wf.branch.${row.key}` as Parameters<typeof t>[0])
 
   /** Translated field label; humanize if a key is still missing. */
   const fieldLabel = (key: string) => {
@@ -601,6 +630,39 @@ export function NodeConfigPanel({
           <button type="button" onClick={addAiAgentScenario} className="text-xs text-violet-700 hover:underline dark:text-violet-300">
             + {t('wf.addScenario')}
           </button>
+        </div>
+      )}
+
+      {/* Routing-line colors — any branching node's edges can be recolored. */}
+      {branchColorRows.length > 0 && (
+        <div className="mb-3 space-y-1.5 rounded border border-gray-200 bg-gray-50/60 p-2 dark:border-gray-700 dark:bg-gray-800/40">
+          <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.branchColors.title')}</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">{t('wf.branchColors.hint')}</p>
+          <div className="space-y-1">
+            {branchColorRows.map((row) => (
+              <div key={row.key} className="flex items-center gap-1.5">
+                <span className="flex-1 truncate text-[10px] text-gray-600 dark:text-gray-300" title={branchRowLabel(row)}>
+                  {branchRowLabel(row)}
+                </span>
+                <input
+                  type="color"
+                  value={resolveBranchColor(node, row.key)}
+                  onChange={(e) => setBranchColor(row.key, e.target.value)}
+                  className="h-5 w-7 shrink-0 cursor-pointer rounded border border-gray-300 bg-transparent p-0 dark:border-gray-700"
+                />
+                {configuredBranchColors[row.key] && (
+                  <button
+                    type="button"
+                    onClick={() => clearBranchColor(row.key)}
+                    title={t('wf.branchColors.reset')}
+                    className="shrink-0 text-[10px] text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

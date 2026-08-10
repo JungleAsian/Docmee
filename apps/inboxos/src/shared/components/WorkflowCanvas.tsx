@@ -135,12 +135,19 @@ function OptionRow({
   text,
   handleClass,
   textClass,
+  dotColor,
   onAdd,
 }: {
   handleId: string
   text: string
   handleClass: string
   textClass?: string
+  /** Inline background color for the row's connection dot -- when given,
+   *  this wins over `handleClass`'s own background (the dot then matches
+   *  this branch's configured/resolved routing-line color, same as the
+   *  edge it anchors). Callers that don't care about per-branch color
+   *  (e.g. the Classic card's neutral ring handles) simply omit this. */
+  dotColor?: string
   onAdd?: (handleId: string) => void
 }) {
   return (
@@ -164,8 +171,8 @@ function OptionRow({
         type="source"
         position={Position.Right}
         title={handleId}
-        className={`!absolute !right-[-9px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 ${handleClass}`}
-        style={{ position: 'absolute' }}
+        className={`!absolute !right-[-9px] !top-1/2 !h-2 !w-2 !-translate-y-1/2 ${dotColor ? '' : handleClass}`}
+        style={dotColor ? { position: 'absolute', backgroundColor: dotColor } : { position: 'absolute' }}
       />
     </div>
   )
@@ -365,6 +372,7 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
                   handleId={r.key}
                   text={rowText(r.key)}
                   handleClass={TEAL_HANDLE}
+                  dotColor={resolveBranchColor(wf, r.key)}
                   textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
                 />
               ))}
@@ -387,6 +395,7 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
                   handleId={r.key}
                   text={rowText(r.key)}
                   handleClass={TEAL_HANDLE}
+                  dotColor={resolveBranchColor(wf, r.key)}
                   textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
                 />
               ))}

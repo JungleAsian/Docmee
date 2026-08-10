@@ -27,7 +27,7 @@ vi.mock('@docmee/db', () => ({
   createConversationsRepository: vi.fn(),
 }))
 
-import { detectUpsetTone, getClinicBotConfig } from '../agent-processor.worker.js'
+import { detectUpsetTone, getClinicBotConfig, resolveUnmatchedKeywordMessage } from '../agent-processor.worker.js'
 import type { Clinic } from '@docmee/db'
 
 const clinic = (settings: Record<string, unknown>): Clinic =>
@@ -60,6 +60,45 @@ describe('getClinicBotConfig', () => {
   it('flat keys win over the legacy nested shape', () => {
     const cfg = getClinicBotConfig(clinic({ botTone: 'friendly', bot: { tone: 'brief' } }))
     expect(cfg.tone).toBe('friendly')
+  })
+})
+
+describe('resolveUnmatchedKeywordMessage', () => {
+  it('falls back to the built-in default text when nothing is configured', () => {
+    expect(resolveUnmatchedKeywordMessage(clinic({}), 'es')).toBe(
+      'Por favor, inicia tu mensaje escribiendo Menú o Reserva.',
+    )
+    expect(resolveUnmatchedKeywordMessage(clinic({}), 'en')).toBe(
+      'Please start message by sending Menu or Booking.',
+    )
+  })
+
+  it('uses the Studio-configured override for the matching language', () => {
+    const c = clinic({ unmatchedKeywordMessage: { es: 'Escribe MENU o RESERVA.', en: 'Type MENU or BOOK.' } })
+    expect(resolveUnmatchedKeywordMessage(c, 'es')).toBe('Escribe MENU o RESERVA.')
+    expect(resolveUnmatchedKeywordMessage(c, 'en')).toBe('Type MENU or BOOK.')
+  })
+
+  it('treats a blank override as unset and falls back to the default', () => {
+    const c = clinic({ unmatchedKeywordMessage: { es: '   ', en: '' } })
+    expect(resolveUnmatchedKeywordMessage(c, 'es')).toBe(
+      'Por favor, inicia tu mensaje escribiendo Menú o Reserva.',
+    )
+    expect(resolveUnmatchedKeywordMessage(c, 'en')).toBe(
+      'Please start message by sending Menu or Booking.',
+    )
+  })
+
+  it('trims a configured override', () => {
+    const c = clinic({ unmatchedKeywordMessage: { es: '  Escribe Menú.  ' } })
+    expect(resolveUnmatchedKeywordMessage(c, 'es')).toBe('Escribe Menú.')
+  })
+
+  it('a configured language falls back independently when only the other is set', () => {
+    const c = clinic({ unmatchedKeywordMessage: { es: 'Escribe Menú.' } })
+    expect(resolveUnmatchedKeywordMessage(c, 'en')).toBe(
+      'Please start message by sending Menu or Booking.',
+    )
   })
 })
 

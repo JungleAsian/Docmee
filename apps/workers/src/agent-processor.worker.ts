@@ -237,10 +237,25 @@ export function detectUpsetTone(message: string): boolean {
 // keyword guards run earlier in this function and are unaffected — only the
 // *general* Q&A fallback (business hours) and the *general* silence fallback
 // (outside business hours) are replaced here.
-function unmatchedKeywordMessage(language: Language): string {
+function defaultUnmatchedKeywordMessage(language: Language): string {
   return language === 'es'
     ? 'Por favor, inicia tu mensaje escribiendo Menú o Reserva.'
     : 'Please start message by sending Menu or Booking.'
+}
+
+/**
+ * Studio-configurable per-language override for the unmatched-keyword nudge,
+ * stored as flat clinic.settings.unmatchedKeywordMessage.{es,en} (mirrors how
+ * getClinicBotConfig reads settings.clinicRules). A blank/whitespace-only or
+ * missing override falls back to the built-in default text so clinics that
+ * never touch this field see no behavior change.
+ */
+export function resolveUnmatchedKeywordMessage(clinic: Clinic, language: Language): string {
+  const settings = clinic.settings as {
+    unmatchedKeywordMessage?: { es?: unknown; en?: unknown }
+  }
+  const raw = settings.unmatchedKeywordMessage?.[language]
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : defaultUnmatchedKeywordMessage(language)
 }
 
 // Metadata key holding the in-progress flow cursor between turns (Rev1 #28).
@@ -878,7 +893,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         // nudge toward the clinic's structured entry points instead of the old
         // "we're closed, leave your name" notice. Opt-out silence stays fully silent.
         if (route.reason === 'outside_hours' && sendReply) {
-          await sendReply(unmatchedKeywordMessage(patientLanguage))
+          await sendReply(resolveUnmatchedKeywordMessage(clinic, patientLanguage))
         } else if (route.reason === 'opted_out') {
           // An opt-out the keyword guard missed but the classifier caught ? persist
           // it (Req 19) so it sticks, then stay silent.
@@ -900,7 +915,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         // booking, opt-out and outside-hours routing all happen upstream of this
         // switch and are completely unaffected.
         if (sendReply) {
-          await sendReply(unmatchedKeywordMessage(patientLanguage))
+          await sendReply(resolveUnmatchedKeywordMessage(clinic, patientLanguage))
         } else {
           console.warn(`[agent] no reply transport for clinic ${data.clinicId} on ${data.channel}; cannot reply`)
         }

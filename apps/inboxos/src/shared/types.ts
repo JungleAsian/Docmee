@@ -465,6 +465,11 @@ export interface ClinicSettings {
   clinicRules?: string
   // Structured editor state (text + active flag, incl. inactive rules) — Screen 8.
   clinicRulesList?: ClinicRule[]
+  // Sent verbatim (no LLM) when a patient's message matches no configured
+  // workflow/custom-flow keyword — any time of day. A blank field falls back
+  // to the built-in default text; see resolveUnmatchedKeywordMessage in
+  // apps/workers/src/agent-processor.worker.ts.
+  unmatchedKeywordMessage?: { es?: string; en?: string }
   businessHours?: BusinessHours
   bookingGrid?: { startHour: number; endHour: number; slotMinutes: number }
   stalledConversation?: { stallMinutes?: number; maxReannouncements?: number; closeGraceMinutes?: number }

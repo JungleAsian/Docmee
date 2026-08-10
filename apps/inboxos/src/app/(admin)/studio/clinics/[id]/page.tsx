@@ -188,6 +188,8 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
   // so the section flips back to "saved" after the clinic refetches.
   const persistedRules = parseClinicRules(settings)
   const [rules, setRules] = useState<ClinicRule[]>(persistedRules)
+  const [unmatchedEs, setUnmatchedEs] = useState(settings.unmatchedKeywordMessage?.es ?? '')
+  const [unmatchedEn, setUnmatchedEn] = useState(settings.unmatchedKeywordMessage?.en ?? '')
   const save = useSaveClinic(clinic.id)
   // The preview reflects the BOT's configured language; on 'auto' it mirrors the
   // patient, so we show one example in the operator's panel language.
@@ -196,7 +198,9 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
   const dirty =
     tone !== (settings.botTone ?? 'professional') ||
     language !== (settings.botLanguage ?? 'auto') ||
-    rulesChanged(rules, persistedRules)
+    rulesChanged(rules, persistedRules) ||
+    unmatchedEs !== (settings.unmatchedKeywordMessage?.es ?? '') ||
+    unmatchedEn !== (settings.unmatchedKeywordMessage?.en ?? '')
 
   function updateRule(id: string, patch: Partial<ClinicRule>) {
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -218,6 +222,10 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
         // inactive rule disappears from the prompt without losing its text.
         clinicRules: compileActiveRules(rules),
         clinicRulesList: rules,
+        // Blank fields fall back to the built-in default text at send time
+        // (resolveUnmatchedKeywordMessage), so an empty string is a valid,
+        // intentional "use the default" value, not an error.
+        unmatchedKeywordMessage: { es: unmatchedEs.trim(), en: unmatchedEn.trim() },
       },
     })
   }
@@ -319,6 +327,40 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
         )}
 
         <AddRuleForm onAdd={addRule} />
+      </div>
+
+      {/* Unmatched-keyword nudge (Req 34) — the literal, non-LLM message sent when a
+          patient's message matches no configured workflow/custom-flow keyword, any
+          time of day. Editable per language; a blank field keeps the built-in default. */}
+      <div className="mt-4">
+        <p className="mb-1 text-xs font-medium text-gray-500">{t('bot.unmatched.title')}</p>
+        <p className="mb-2 text-xs text-gray-400">{t('bot.unmatched.hint')}</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-gray-400">
+              {t('bot.unmatched.esLabel')}
+            </label>
+            <textarea
+              value={unmatchedEs}
+              onChange={(e) => setUnmatchedEs(e.target.value)}
+              placeholder={t('bot.unmatched.esDefault')}
+              rows={2}
+              className={`${inputCls} w-full resize-y`}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-gray-400">
+              {t('bot.unmatched.enLabel')}
+            </label>
+            <textarea
+              value={unmatchedEn}
+              onChange={(e) => setUnmatchedEn(e.target.value)}
+              placeholder={t('bot.unmatched.enDefault')}
+              rows={2}
+              className={`${inputCls} w-full resize-y`}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Mode & handoff summary (Req 20) — bot mode, human takeover, and the always-on

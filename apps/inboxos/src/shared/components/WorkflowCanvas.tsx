@@ -202,10 +202,26 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
       <SectionBlock key={key} caption={t(`wf.field.${key}` as Parameters<typeof t>[0])} value={value} />
     ) : null
   }
-  const rowText = (key: string) =>
-    isMenu && !['restart', 'livechat', 'default'].includes(key)
-      ? menuOpts.find((o) => o.optionId === key)?.title || key
-      : t(`wf.branch.${key}` as Parameters<typeof t>[0])
+  // A real option's title wins even for the three reserved ids (restart/
+  // livechat/default) once the admin has turned one into a real, visible
+  // button -- only an unconfigured reserved id falls back to the fixed i18n
+  // branch label.
+  const rowText = (key: string) => {
+    if (isMenu) {
+      const opt = menuOpts.find((o) => o.optionId === key)
+      if (opt) return opt.title || key
+    }
+    return t(`wf.branch.${key}` as Parameters<typeof t>[0])
+  }
+  // The visible "Options" list on the card face should look exactly like
+  // WhatsApp will render it -- i.e. only real, configured options -- so an
+  // unconfigured reserved handle (restart/livechat/default) never appears as
+  // if it were a tappable button by default. `rows` (the full branchRows()
+  // set, including synthesized fallback entries for unconfigured reserved
+  // handles) is still used everywhere else on this card for wiring purposes.
+  const visibleRows = isMenu
+    ? rows.filter((r) => !['restart', 'livechat', 'default'].includes(r.key) || menuOpts.some((o) => o.optionId === r.key))
+    : rows
 
   // Classic Builder face — BotPenguin card anatomy on the themed canvas:
   // icon + type-name header, structured Header/Message/Footer sections,
@@ -234,10 +250,10 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
             {section('header')}
             {section('message')}
             {section('footer')}
-            {rows.length > 0 && (
+            {visibleRows.length > 0 && (
               <div>
                 <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
-                {rows.map((r) => (
+                {visibleRows.map((r) => (
                   <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} handleClass={RING_HANDLE} onAdd={add} />
                 ))}
               </div>
@@ -246,9 +262,9 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
         ) : (
           <>
             {face && <p className="line-clamp-3 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>}
-            {rows.length > 0 ? (
+            {visibleRows.length > 0 ? (
               <div className="mt-1">
-                {rows.map((r) => (
+                {visibleRows.map((r) => (
                   <OptionRow key={r.key} handleId={r.key} text={rowText(r.key)} handleClass={RING_HANDLE} onAdd={add} />
                 ))}
               </div>
@@ -339,10 +355,10 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
           {section('header')}
           {section('message')}
           {section('footer')}
-          {rows.length > 0 && (
+          {visibleRows.length > 0 && (
             <div>
               <p className="mt-1 text-[9px] text-gray-400 dark:text-gray-500">{t('wf.field.options')}</p>
-              {rows.map((r) => (
+              {visibleRows.map((r) => (
                 <OptionRow
                   key={r.key}
                   handleId={r.key}
@@ -362,9 +378,9 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
               <p className="line-clamp-3 text-[10px] text-gray-500 dark:text-gray-400">{face}</p>
             </>
           )}
-          {rows.length > 0 && (
+          {visibleRows.length > 0 && (
             <div className="mt-1">
-              {rows.map((r) => (
+              {visibleRows.map((r) => (
                 <OptionRow
                   key={r.key}
                   handleId={r.key}

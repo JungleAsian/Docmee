@@ -418,3 +418,95 @@ export function collectFieldValueOptions(nodes: WorkflowNode[], fieldName: strin
   for (const value of FIXED_FIELD_VALUES[field] ?? []) push(value)
   return out
 }
+
+// --- Shared canvas + editor helpers ------------------------------------------
+// Moved out of WorkflowCanvas.tsx so the linear (Guided) editor can reuse the
+// exact same node-face/branch/label logic instead of drifting out of sync with
+// the canvas over time.
+
+/** Humanize a config key/value into a display label ("doctorIdField" -> "Doctor
+ *  Id Field"). Used wherever a config value doubles as its own label (no i18n
+ *  key covers arbitrary admin-entered field/tag names). */
+export function humanize(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase())
+}
+
+export interface MenuOption {
+  optionId: string
+  title: string
+  description?: string
+}
+
+/** Parse an interactive_menu node's `config.options` (JSON string or array),
+ *  keeping `description` (unlike the leaner MenuOptionLike/parseMenuOptionList
+ *  above, which only the dependent condition-value dropdown needs). */
+export function parseMenuOptionsSafe(raw: unknown): MenuOption[] {
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (o): o is MenuOption =>
+        typeof o === 'object' && o !== null && typeof (o as MenuOption).optionId === 'string' && typeof (o as MenuOption).title === 'string',
+    )
+  }
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((o): o is MenuOption => typeof o === 'object' && o !== null && typeof o.optionId === 'string' && typeof o.title === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/** Next default optionId ("option_1", "option_2", …) for a new menu option. */
+export function nextMenuOptionId(existing: MenuOption[]): string {
+  let n = existing.length + 1
+  while (existing.some((o) => o.optionId === `option_${n}`)) n++
+  return `option_${n}`
+}
+
+/** Branch output rows per node type. `key` is the sourceHandle id used on both
+ *  the canvas edges and the Guided editor's per-branch "go to step" dropdowns. */
+export function branchRows(wf: WorkflowNode): { key: string; tone: string; label?: string }[] {
+  const cfg = wf.config ?? {}
+  switch (wf.type) {
+    case 'logic.condition':
+      return [
+        { key: 'true', tone: 'emerald' },
+        { key: 'false', tone: 'red' },
+      ]
+    case 'logic.ai_classify_intent':
+      return [
+        { key: 'high', tone: 'emerald' },
+        { key: 'low', tone: 'amber' },
+        { key: 'error', tone: 'red' },
+      ]
+    case 'action.interactive_menu': {
+      // A reserved handle (restart/livechat/default) the admin has turned into
+      // a real, visible option already comes through here with its own
+      // configured title (same as any other option). Only the ones the admin
+      // hasn't made visible still need a synthesized row, so routing to them
+      // (via the '0'/'1' shortcut or an unmatched reply) stays wireable even
+      // when there's no button for them.
+      const opts = parseMenuOptionsSafe(cfg.options).map((o) => ({ key: o.optionId, tone: 'teal', label: o.title }))
+      const configuredIds = new Set(opts.map((o) => o.key))
+      const RESERVED_TONE: Record<string, string> = { restart: 'slate', livechat: 'sky', default: 'slate' }
+      const fallbackReserved = (['restart', 'livechat', 'default'] as const)
+        .filter((id) => !configuredIds.has(id))
+        .map((id) => ({ key: id, tone: RESERVED_TONE[id]! }))
+      return [...opts, ...fallbackReserved]
+    }
+    case 'action.ai_agent':
+      return [
+        { key: 'replied', tone: 'emerald' },
+        { key: 'handoff', tone: 'sky' },
+        { key: 'no_match', tone: 'slate' },
+        { key: 'error', tone: 'red' },
+      ]
+    default:
+      return []
+  }
+}

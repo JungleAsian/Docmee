@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
-import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS } from './workflowNodes'
+import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, branchRows } from './workflowNodes'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 import type { WorkflowNode } from './types'
@@ -229,5 +229,110 @@ describe('slugifyOptionId / uniqueOptionId (no-code doctor picker)', () => {
     if (!doctorMenu) return
     const options = JSON.parse(String(doctorMenu.config?.['options'])) as { optionId: string; title: string }[]
     for (const opt of options) expect(opt.optionId).toBe(slugifyOptionId(opt.title))
+  })
+})
+
+describe('branchRows (interactive_menu reserved handles)', () => {
+  it('synthesizes fallback rows for restart/livechat/default when none is a real option', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', { options: JSON.stringify([{ optionId: 'yes', title: 'Yes' }]) })
+    const rows = branchRows(menu)
+    expect(rows.map((r) => r.key)).toEqual(['yes', 'restart', 'livechat', 'default'])
+    // Synthesized fallback rows carry no label -- callers fall back to the fixed i18n branch label.
+    expect(rows.find((r) => r.key === 'restart')?.label).toBeUndefined()
+  })
+
+  it('uses the configured title once a reserved handle is added as a real option', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', {
+      options: JSON.stringify([
+        { optionId: 'yes', title: 'Yes' },
+        { optionId: 'restart', title: 'Start over' },
+      ]),
+    })
+    const rows = branchRows(menu)
+    // 'restart' now comes from the options list itself -- not duplicated, and
+    // its label is the admin's own text instead of the fixed i18n default.
+    expect(rows.filter((r) => r.key === 'restart')).toHaveLength(1)
+    expect(rows.find((r) => r.key === 'restart')?.label).toBe('Start over')
+    expect(rows.map((r) => r.key)).toEqual(['yes', 'restart', 'livechat', 'default'])
+  })
+
+  it('a reserved handle configured as a real option is still exactly one row when ALL three are configured', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', {
+      options: JSON.stringify([
+        { optionId: 'restart', title: 'Start over' },
+        { optionId: 'livechat', title: 'Talk to a person' },
+        { optionId: 'default', title: 'Something else' },
+      ]),
+    })
+    const rows = branchRows(menu)
+    expect(rows).toHaveLength(3)
+    expect(rows.map((r) => r.label)).toEqual(['Start over', 'Talk to a person', 'Something else'])
+  })
+})
+
+describe('validateWorkflowDefinition + reserved options as real buttons', () => {
+  // Interactive-menu structural checks (option count vs. variant, duplicate/
+  // unwired handles) only run under requireTrigger: true -- draft canvases are
+  // allowed to be incomplete (see the function's own doc comment); these tests
+  // exercise the "ready to activate" path, matching the pre-existing
+  // guided_whatsapp_booking template test above.
+  const trigger = node('t', 'trigger', 'trigger.message_keyword', { keywords: 'menu' })
+
+  it('accepts a button-variant menu with the reserved option filling the third slot', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', {
+      variant: 'button',
+      options: JSON.stringify([
+        { optionId: 'a', title: 'A' },
+        { optionId: 'b', title: 'B' },
+        { optionId: 'default', title: 'Other' },
+      ]),
+    })
+    const edges = [
+      { id: 'e0', source: 't', target: 'menu' },
+      { id: 'e1', source: 'menu', target: 't', sourceHandle: 'a' },
+      { id: 'e2', source: 'menu', target: 't', sourceHandle: 'b' },
+      { id: 'e3', source: 'menu', target: 't', sourceHandle: 'default' },
+    ]
+    expect(validateWorkflowDefinition([trigger, menu], edges, { requireTrigger: true })).toEqual([])
+  })
+
+  it('rejects a button-variant menu once real options + a visible reserved one exceed the 3-button cap', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', {
+      variant: 'button',
+      options: JSON.stringify([
+        { optionId: 'a', title: 'A' },
+        { optionId: 'b', title: 'B' },
+        { optionId: 'c', title: 'C' },
+        { optionId: 'default', title: 'Other' },
+      ]),
+    })
+    const edges = [
+      { id: 'e0', source: 't', target: 'menu' },
+      { id: 'e1', source: 'menu', target: 't', sourceHandle: 'a' },
+      { id: 'e2', source: 'menu', target: 't', sourceHandle: 'b' },
+      { id: 'e3', source: 'menu', target: 't', sourceHandle: 'c' },
+      { id: 'e4', source: 'menu', target: 't', sourceHandle: 'default' },
+    ]
+    const errors = validateWorkflowDefinition([trigger, menu], edges, { requireTrigger: true })
+    expect(errors.some((e) => e.includes('too many options'))).toBe(true)
+  })
+
+  it('still requires a successor edge for a reserved option once it is a real, visible button', () => {
+    const menu = node('menu', 'action', 'action.interactive_menu', {
+      variant: 'button',
+      options: JSON.stringify([
+        { optionId: 'a', title: 'A' },
+        { optionId: 'restart', title: 'Start over' },
+      ]),
+    })
+    const errors = validateWorkflowDefinition(
+      [trigger, menu],
+      [
+        { id: 'e0', source: 't', target: 'menu' },
+        { id: 'e1', source: 'menu', target: 't', sourceHandle: 'a' },
+      ],
+      { requireTrigger: true },
+    )
+    expect(errors.some((e) => e.includes('option "restart" has no successor'))).toBe(true)
   })
 })

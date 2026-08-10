@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // Rev 5 — BotPenguin-aligned automation canvas.
 // - Self-documenting node cards: kind badge, live config preview, per-branch
@@ -8,7 +8,6 @@
 //   on the pane opens the same palette and auto-wires the picked node.
 // - Branch-colored edges with translated labels; hover toolbar on nodes.
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import {
   ReactFlow as ReactFlowBase,
   Background as BackgroundBase,
@@ -31,27 +30,20 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
-import { api } from '../api/client'
-import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge, Doctor, MessageTemplate, Workflow } from '../types'
+import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
 import {
   WORKFLOW_NODE_TYPES,
   nodeDef,
   NODE_KIND_TONE,
   NODE_KIND_BADGE,
-  FIELD_REFERENCE_KEYS,
-  collectWorkflowFields,
-  collectWorkflowTags,
-  collectFieldValueOptions,
-  slugifyOptionId,
-  uniqueOptionId,
-  ENUM_FIELD_OPTIONS,
   parseAiAgentScenarioList,
+  branchRows,
+  parseMenuOptionsSafe,
   type NodeTypeDef,
-  type AiAgentScenarioLike,
-  type AiAgentScenarioAction,
 } from '../workflowNodes'
-import { TAG_TYPES, tagLabel } from '../tagTypes'
 import { findFreePosition, nextNodePosition } from '../workflowLayout'
+import { NodeConfigPanel } from './NodeConfigPanel'
+import { WorkflowLinearEditor } from './WorkflowLinearEditor'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -72,63 +64,10 @@ type WfNodeData = {
   onAddFrom: (id: string, handleId?: string) => void
 }
 
-interface MenuOption {
-  optionId: string
-  title: string
-  description?: string
-}
-
-function parseMenuOptionsSafe(raw: unknown): MenuOption[] {
-  if (Array.isArray(raw)) return raw.filter((o): o is MenuOption => typeof o === 'object' && o !== null && typeof (o as MenuOption).optionId === 'string' && typeof (o as MenuOption).title === 'string')
-  if (typeof raw !== 'string' || !raw.trim()) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((o): o is MenuOption => typeof o === 'object' && o !== null && typeof o.optionId === 'string' && typeof o.title === 'string') : []
-  } catch {
-    return []
-  }
-}
-
 const KIND_ICON: Record<string, string> = {
   trigger: '▶',
   logic: '◈',
   action: '⚡',
-}
-
-/** Branch output rows per node type. `key` is the sourceHandle id. */
-function branchRows(wf: WfNode): { key: string; tone: string }[] {
-  const cfg = wf.config ?? {}
-  switch (wf.type) {
-    case 'logic.condition':
-      return [
-        { key: 'true', tone: 'emerald' },
-        { key: 'false', tone: 'red' },
-      ]
-    case 'logic.ai_classify_intent':
-      return [
-        { key: 'high', tone: 'emerald' },
-        { key: 'low', tone: 'amber' },
-        { key: 'error', tone: 'red' },
-      ]
-    case 'action.interactive_menu': {
-      const opts = parseMenuOptionsSafe(cfg.options).map((o) => ({ key: o.optionId, tone: 'teal', label: o.title }))
-      return [
-        ...opts,
-        { key: 'restart', tone: 'slate' },
-        { key: 'livechat', tone: 'sky' },
-        { key: 'default', tone: 'slate' },
-      ]
-    }
-    case 'action.ai_agent':
-      return [
-        { key: 'replied', tone: 'emerald' },
-        { key: 'handoff', tone: 'sky' },
-        { key: 'no_match', tone: 'slate' },
-        { key: 'error', tone: 'red' },
-      ]
-    default:
-      return []
-  }
 }
 
 /** Edge stroke per branch tone (sequential default = teal-gray). */
@@ -179,16 +118,12 @@ function nodeFaceText(wf: WfNode): string | undefined {
   }
 }
 
-function humanize(key: string): string {
-  return key
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .replace(/^\w/, (c) => c.toUpperCase())
-}
-
-/** A canvas mode: Enhanced (Docmee chrome) or Classic Builder (BotPenguin
- *  anatomy cards + "+" auto-wire buttons + floating toolbar, on the themed
- *  canvas — same background as Enhanced). */
+/** A builder mode: 'enhanced' renders the React Flow canvas below (unchanged).
+ *  'classic' is the internal value name (kept for localStorage-preference
+ *  compatibility) for what Studio now labels "Guided" -- WorkflowCanvasInner
+ *  returns a <WorkflowLinearEditor> instead of ever reaching the canvas JSX
+ *  when mode is 'classic', so the BotPenguin-face / mode-dependent styling
+ *  further down this file only ever renders with mode === 'enhanced'. */
 type CanvasMode = 'enhanced' | 'classic'
 
 /** BotPenguin-style option row: left-aligned title, a per-row source handle
@@ -455,16 +390,40 @@ const nodeTypes = { wf: WorkflowNodeView }
 
 const CANVAS_MODE_KEY = 'docmee.canvas.mode'
 
-function nextMenuOptionId(existing: MenuOption[]): string {
-  let n = existing.length + 1
-  while (existing.some((o) => o.optionId === `option_${n}`)) n++
-  return `option_${n}`
-}
-
 interface PendingWire {
   nodeId: string
   handleId?: string
   at: { x: number; y: number }
+}
+
+/** Enhanced/Guided toggle, top-right — visible regardless of which mode is
+ *  currently rendered so the admin can always switch back. 'classic' is the
+ *  Guided (fill-in-the-blank / linear-steps) editor; the internal mode value
+ *  and its localStorage key stay the literal string 'classic' to avoid
+ *  resetting anyone's saved preference -- only the label copy changed. */
+function BuilderModeSwitcher({
+  mode,
+  onSwitch,
+  t,
+}: {
+  mode: CanvasMode
+  onSwitch: (next: CanvasMode) => void
+  t: ReturnType<typeof useI18n>['t']
+}) {
+  return (
+    <div className="absolute right-3 top-3 z-10 flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+      {(['enhanced', 'classic'] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onSwitch(m)}
+          className={`px-2.5 py-1 ${mode === m ? 'bg-teal-600 text-white' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+        >
+          {m === 'enhanced' ? t('wf.enhancedBuilder') : t('wf.guidedBuilder')}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function WorkflowCanvasInner({
@@ -483,53 +442,9 @@ function WorkflowCanvasInner({
    *  to another workflow" target picker so it can't route to itself. */
   workflowId?: string
 }) {
-  const { t, language } = useI18n()
-  const { screenToFlowPosition, zoomIn, zoomOut, fitView } = useReactFlow()
+  const { t } = useI18n()
+  const { screenToFlowPosition } = useReactFlow()
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
-
-  // The clinic's active doctors, for the no-code optionId picker in the
-  // interactive-menu options editor: picking a doctor fills the option with
-  // the exact name the worker's resolveWorkflowDoctorId matches at runtime.
-  const doctorsQuery = useQuery({
-    queryKey: ['doctors', clinicId],
-    enabled: Boolean(clinicId),
-    queryFn: () => api.get<{ doctors: Doctor[] }>(`/clinics/${clinicId}/doctors`),
-  })
-  const activeDoctors = useMemo(
-    () => (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive),
-    [doctorsQuery.data],
-  )
-  // The clinic's message templates, for the send_template category dropdown:
-  // the worker sends the APPROVED template of the chosen category, so the
-  // panel marks which categories actually have one (anything else silently
-  // no-ops at runtime — findApprovedByCategory returns null and skips).
-  const templatesQuery = useQuery({
-    queryKey: ['message-templates', clinicId],
-    enabled: Boolean(clinicId),
-    queryFn: () => api.get<{ templates: MessageTemplate[] }>(`/clinics/${clinicId}/message-templates`),
-  })
-  const approvedTemplateCategories = useMemo(
-    () =>
-      new Set(
-        (templatesQuery.data?.templates ?? [])
-          .filter((tpl) => tpl.status === 'approved')
-          .map((tpl) => tpl.category),
-      ),
-    [templatesQuery.data],
-  )
-  // The clinic's other active workflows, for the AI Agent node's "route to a
-  // specific workflow" scenario target picker. Reuses the SAME query key +
-  // endpoint the Studio workflows list page already fetches with, so this is
-  // free cache reuse rather than an extra request.
-  const workflowsQuery = useQuery({
-    queryKey: ['workflows', clinicId],
-    enabled: Boolean(clinicId),
-    queryFn: () => api.get<{ workflows: Workflow[] }>(`/clinics/${clinicId}/workflows`),
-  })
-  const routableWorkflows = useMemo(
-    () => (workflowsQuery.data?.workflows ?? []).filter((wf) => wf.status === 'active' && wf.id !== workflowId),
-    [workflowsQuery.data, workflowId],
-  )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [paletteQuery, setPaletteQuery] = useState('')
@@ -781,151 +696,17 @@ function WorkflowCanvasInner({
     </button>
   )
 
-  // --- interactive_menu options editor helpers --------------------------------
-  const menuOptions = useMemo(() => {
-    if (!selected || selected.type !== 'action.interactive_menu') return []
-    return parseMenuOptionsSafe(selected.config.options)
-  }, [selected])
-
-  const setMenuOptions = useCallback(
-    (next: MenuOption[]) => {
-      if (!selected) return
-      const value = JSON.stringify(next)
-      onChange({
-        nodes: nodes.map((n) => (n.id === selected.id ? { ...n, config: { ...n.config, options: value } } : n)),
-        edges,
-      })
-    },
-    [selected, nodes, edges, onChange],
-  )
-
-  const patchMenuOption = useCallback(
-    (index: number, patch: Partial<MenuOption>) => {
-      const next = menuOptions.map((o, i) => (i === index ? { ...o, ...patch } : o))
-      setMenuOptions(next)
-    },
-    [menuOptions, setMenuOptions],
-  )
-
-  const addMenuOption = useCallback(() => {
-    setMenuOptions([...menuOptions, { optionId: nextMenuOptionId(menuOptions), title: '' }])
-  }, [menuOptions, setMenuOptions])
-
-  const removeMenuOption = useCallback(
-    (index: number) => {
-      setMenuOptions(menuOptions.filter((_, i) => i !== index))
-    },
-    [menuOptions, setMenuOptions],
-  )
-
-  const isMenu = selected?.type === 'action.interactive_menu'
-
-  // --- action.ai_agent scenarios editor helpers -------------------------------
-  const aiAgentScenarios = useMemo(() => {
-    if (!selected || selected.type !== 'action.ai_agent') return []
-    return parseAiAgentScenarioList(selected.config.scenarios)
-  }, [selected])
-
-  const setAiAgentScenarios = useCallback(
-    (next: AiAgentScenarioLike[]) => {
-      if (!selected) return
-      const value = JSON.stringify(next)
-      onChange({
-        nodes: nodes.map((n) => (n.id === selected.id ? { ...n, config: { ...n.config, scenarios: value } } : n)),
-        edges,
-      })
-    },
-    [selected, nodes, edges, onChange],
-  )
-
-  const patchAiAgentScenario = useCallback(
-    (index: number, patch: Partial<AiAgentScenarioLike>) => {
-      const next = aiAgentScenarios.map((s, i) => (i === index ? { ...s, ...patch } : s))
-      setAiAgentScenarios(next)
-    },
-    [aiAgentScenarios, setAiAgentScenarios],
-  )
-
-  const nextScenarioId = (existing: AiAgentScenarioLike[]): string => {
-    let n = existing.length + 1
-    while (existing.some((s) => s.id === `scenario_${n}`)) n++
-    return `scenario_${n}`
+  if (mode === 'classic') {
+    return (
+      <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+        <WorkflowLinearEditor nodes={nodes} edges={edges} onChange={onChange} clinicId={clinicId} workflowId={workflowId} />
+        <BuilderModeSwitcher mode={mode} onSwitch={switchMode} t={t} />
+      </div>
+    )
   }
-
-  const addAiAgentScenario = useCallback(() => {
-    setAiAgentScenarios([...aiAgentScenarios, { id: nextScenarioId(aiAgentScenarios), description: '', action: 'reply' }])
-  }, [aiAgentScenarios, setAiAgentScenarios])
-
-  const removeAiAgentScenario = useCallback(
-    (index: number) => {
-      setAiAgentScenarios(aiAgentScenarios.filter((_, i) => i !== index))
-    },
-    [aiAgentScenarios, setAiAgentScenarios],
-  )
-
-  const isAiAgent = selected?.type === 'action.ai_agent'
-
-  /** Translated field label; humanize if a key is still missing. */
-  const fieldLabel = (key: string) => {
-    const i18nKey = `wf.field.${key}`
-    const out = t(i18nKey as Parameters<typeof t>[0])
-    return out === i18nKey ? humanize(key) : out
-  }
-
-  // --- No-code Field / Tag selectors ---------------------------------------
-  // Every field name any node in the workflow could plausibly have written,
-  // and every tag value already used by an add_tag node, for the dropdowns
-  // below. Recomputed as the graph changes.
-  const availableFields = useMemo(() => collectWorkflowFields(nodes), [nodes])
-  const availableTags = useMemo(() => collectWorkflowTags(nodes), [nodes])
-  // Dependent value options for logic.condition: once the admin picks a
-  // field, the literals that field can actually hold at runtime (menu option
-  // titles, status enums, booleans) are offered as a dropdown. Empty when the
-  // field takes free text — the panel keeps a plain input then.
-  const conditionValueOptions = useMemo(
-    () =>
-      selected?.type === 'logic.condition'
-        ? collectFieldValueOptions(nodes, String(selected.config?.['field'] ?? ''))
-        : [],
-    [nodes, selected],
-  )
-  // Config keys the admin has explicitly opted to type by hand instead of
-  // picking from the list (e.g. a field no earlier node produces yet, or a
-  // one-off tag outside the canonical palette). Scoped by `${nodeId}:${key}`
-  // so switching nodes never carries it over.
-  const [manualFieldKeys, setManualFieldKeys] = useState<Set<string>>(new Set())
-  const setManualField = useCallback((manualKey: string, manual: boolean) => {
-    setManualFieldKeys((prev) => {
-      const next = new Set(prev)
-      if (manual) next.add(manualKey)
-      else next.delete(manualKey)
-      return next
-    })
-  }, [])
-  // A key is "pickable" when its value should come from a list of known
-  // names rather than free text: field references, or add_tag's own `tag`
-  // (picked from the canonical tag palette so it always renders with a
-  // label/colour elsewhere in the app — see tagTypes.ts).
-  const isPickableKey = (key: string) => FIELD_REFERENCE_KEYS.has(key) || key === 'tag'
-  /** Options for a pickable key: canonical tag palette (+ any custom tags
-   *  already used in this workflow) for `tag`, or the field pool otherwise.
-   *  Human-readable labels — never the raw technical name — per option. */
-  const pickableOptions = useCallback(
-    (key: string): { value: string; label: string }[] => {
-      if (key === 'tag') {
-        const canonical = TAG_TYPES.map((tt) => ({ value: tt.name, label: tagLabel(tt.name, language) }))
-        const extra = availableTags
-          .filter((tag) => !TAG_TYPES.some((tt) => tt.name === tag))
-          .map((tag) => ({ value: tag, label: humanize(tag) }))
-        return [...canonical, ...extra]
-      }
-      return availableFields.map((f) => ({ value: f, label: humanize(f) }))
-    },
-    [availableFields, availableTags, language],
-  )
 
   return (
-    <div className="flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+    <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       {/* Palette */}
       <div className="w-52 shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
         <input
@@ -967,39 +748,6 @@ function WorkflowCanvasInner({
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
 
-        {/* Builder-mode switcher (top-right) */}
-        <div className="absolute right-3 top-3 z-10 flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-          {(['enhanced', 'classic'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => switchMode(m)}
-              className={`px-2.5 py-1 ${
-                mode === m
-                  ? 'bg-teal-600 text-white'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
-              }`}
-            >
-              {m === 'enhanced' ? t('wf.enhancedBuilder') : t('wf.classicBuilder')}
-            </button>
-          ))}
-        </div>
-
-        {/* Classic Builder floating toolbar (bottom-center): zoom / fit */}
-        {mode === 'classic' && (
-          <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-gray-600 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-            <button type="button" title="−" onClick={() => zoomOut()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
-              −
-            </button>
-            <button type="button" title="+" onClick={() => zoomIn()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
-              +
-            </button>
-            <button type="button" title="⤢" onClick={() => fitView()} className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
-              ⤢
-            </button>
-          </div>
-        )}
-
         {/* Auto-wire node picker (opened by dropping a loose connection) */}
         {pendingWire && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
@@ -1038,310 +786,8 @@ function WorkflowCanvasInner({
           <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${selected.kind}` as Parameters<typeof t>[0])}</p>
           <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">{label(selected.type)}</p>
 
-          {/* Standard text fields */}
-          {(nodeDef(selected.type)?.fields ?? []).map((key) => {
-            const manualKey = `${selected.id}:${key}`
-            const isManual = manualFieldKeys.has(manualKey)
-            const value = String(selected.config[key] ?? '')
-            // logic.condition's `value` becomes a dependent dropdown once the
-            // chosen field has a known value vocabulary (menu option titles,
-            // status enums, booleans); free-text fields keep the plain input.
-            const isConditionValue = key === 'value' && selected.type === 'logic.condition'
-            const hasValueOptions = isConditionValue && conditionValueOptions.length > 0
-            return (
-            <label key={key} className="mb-2 block">
-              <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{fieldLabel(key)}</span>
-              {(key === 'options' && isMenu) || (key === 'scenarios' && isAiAgent) ? (
-                // edited via the richer editor below
-                <input
-                  value={value}
-                  readOnly
-                  className="w-full cursor-not-allowed rounded border border-gray-300 bg-gray-100 p-1.5 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-800"
-                />
-              ) : isPickableKey(key) && !isManual ? (
-                <div className="flex items-center gap-1">
-                  <select
-                    value={value}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') setManualField(manualKey, true)
-                      else patchConfig(key, e.target.value)
-                    }}
-                    className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  >
-                    <option value="">{t('wf.field.selectPlaceholder')}</option>
-                    {(() => {
-                      const options = pickableOptions(key)
-                      const known = options.some((o) => o.value === value)
-                      return value && !known ? [{ value, label: humanize(value) }, ...options] : options
-                    })().map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                    <option value="__custom__">{t('wf.field.customOption')}</option>
-                  </select>
-                </div>
-              ) : isPickableKey(key) && isManual ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    value={value}
-                    onChange={(e) => patchConfig(key, e.target.value)}
-                    placeholder={key === 'tag' ? 'tag_name' : 'field_name'}
-                    className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setManualField(manualKey, false)}
-                    title={t('wf.field.backToList')}
-                    className="shrink-0 rounded border border-gray-300 px-1.5 py-1.5 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
-                  >
-                    ↩
-                  </button>
-                </div>
-              ) : hasValueOptions && !isManual ? (
-                <div>
-                  <select
-                    value={value}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') setManualField(manualKey, true)
-                      else patchConfig(key, e.target.value)
-                    }}
-                    className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  >
-                    <option value="">{t('wf.field.selectPlaceholder')}</option>
-                    {(() => {
-                      const options = conditionValueOptions.map((o) => ({ value: o.value, label: o.label ?? humanize(o.value) }))
-                      const known = options.some((o) => o.value === value)
-                      return value && !known ? [{ value, label: humanize(value) }, ...options] : options
-                    })().map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                    <option value="__custom__">{t('wf.field.customOption')}</option>
-                  </select>
-                  <span className="mt-0.5 block text-[10px] text-gray-400 dark:text-gray-500">{t('wf.hint.valueFromField')}</span>
-                </div>
-              ) : hasValueOptions && isManual ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    value={value}
-                    onChange={(e) => patchConfig(key, e.target.value)}
-                    placeholder={t('wf.field.value')}
-                    className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setManualField(manualKey, false)}
-                    title={t('wf.field.backToList')}
-                    className="shrink-0 rounded border border-gray-300 px-1.5 py-1.5 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
-                  >
-                    ↩
-                  </button>
-                </div>
-              ) : ENUM_FIELD_OPTIONS[key] ? (
-                <div>
-                  <select
-                    value={value}
-                    onChange={(e) => patchConfig(key, e.target.value)}
-                    className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  >
-                    {ENUM_FIELD_OPTIONS[key]!.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {t(o.labelKey as Parameters<typeof t>[0])}
-                        {key === 'category' && templatesQuery.data && approvedTemplateCategories.has(o.value as MessageTemplate['category']) ? ' ✓' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {key === 'category' && value && templatesQuery.data && !approvedTemplateCategories.has(value as MessageTemplate['category']) && (
-                    <span className="mt-0.5 block text-[10px] text-amber-600 dark:text-amber-400">{t('wf.hint.noApprovedTemplate')}</span>
-                  )}
-                </div>
-              ) : key === 'validation' ? (
-                <select
-                  value={String(selected.config[key] ?? '')}
-                  onChange={(e) => patchConfig(key, e.target.value)}
-                  className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                >
-                  {['', 'text', 'date', 'time', 'phone', 'number', 'email'].map((v) => (
-                    <option key={v} value={v}>
-                      {v || '—'}
-                    </option>
-                  ))}
-                </select>
-              ) : key === 'message' || key === 'prompt' || key === 'question' || key === 'text' || key === 'personality' || key === 'customInstructions' ? (
-                <textarea
-                  value={String(selected.config[key] ?? '')}
-                  onChange={(e) => patchConfig(key, e.target.value)}
-                  rows={3}
-                  className="w-full resize-none rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                />
-              ) : (
-                <input
-                  value={String(selected.config[key] ?? '')}
-                  onChange={(e) => patchConfig(key, e.target.value)}
-                  className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                />
-              )}
-            </label>
-            )
-          })}
+          <NodeConfigPanel node={selected} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={patchConfig} />
 
-          {/* Interactive menu options editor */}
-          {isMenu && (
-            <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
-              <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.field.options')}</p>
-              <div className="space-y-2">
-                {menuOptions.map((opt, oi) => (
-                  <div key={oi} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
-                    <input
-                      value={opt.title}
-                      onChange={(e) => patchMenuOption(oi, { title: e.target.value })}
-                      maxLength={24}
-                      placeholder={t('wf.optionTitle')}
-                      className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                    />
-                    <input
-                      value={opt.description ?? ''}
-                      onChange={(e) => patchMenuOption(oi, { description: e.target.value || undefined })}
-                      maxLength={72}
-                      placeholder={t('wf.optionDescription')}
-                      className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                    />
-                    <div className="flex items-center gap-1">
-                      {(() => {
-                        // No-code optionId: pick a real clinic doctor instead of
-                        // hand-typing an id. The option's id becomes a readable
-                        // slug (branch handle); its title — what the worker's
-                        // resolveWorkflowDoctorId actually matches at runtime —
-                        // is filled with the doctor's registered name when empty.
-                        const optManualKey = `${selected.id}:optionId:${oi}`
-                        const isOptManual = manualFieldKeys.has(optManualKey)
-                        const matchedDoctor = activeDoctors.find((d) => slugifyOptionId(d.name) === opt.optionId)
-                        if (!isOptManual) {
-                          return (
-                            <div className="w-full">
-                              <select
-                                value={matchedDoctor ? matchedDoctor.id : opt.optionId ? '__current__' : ''}
-                                onChange={(e) => {
-                                  const picked = e.target.value
-                                  if (picked === '__custom__') {
-                                    setManualField(optManualKey, true)
-                                    return
-                                  }
-                                  const doc = activeDoctors.find((d) => d.id === picked)
-                                  if (!doc) return
-                                  const otherIds = menuOptions.filter((_, i) => i !== oi).map((o) => o.optionId)
-                                  patchMenuOption(oi, {
-                                    optionId: uniqueOptionId(slugifyOptionId(doc.name), otherIds),
-                                    ...(opt.title.trim() ? {} : { title: doc.name }),
-                                  })
-                                }}
-                                className="w-full rounded border border-gray-300 bg-white p-1 text-[10px] text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                              >
-                                <option value="">{t('wf.field.pickDoctor')}</option>
-                                {opt.optionId && !matchedDoctor && <option value="__current__">{opt.optionId}</option>}
-                                {activeDoctors.map((d) => (
-                                  <option key={d.id} value={d.id}>
-                                    {d.name}
-                                    {d.specialty ? ` · ${d.specialty}` : ''}
-                                  </option>
-                                ))}
-                                <option value="__custom__">{t('wf.field.customOption')}</option>
-                              </select>
-                              <span className="mt-0.5 block text-[10px] text-gray-400 dark:text-gray-500">{t('wf.hint.doctorOptionId')}</span>
-                            </div>
-                          )
-                        }
-                        return (
-                          <>
-                            <input
-                              value={opt.optionId}
-                              onChange={(e) => patchMenuOption(oi, { optionId: e.target.value })}
-                              placeholder="optionId"
-                              className="w-full rounded border border-gray-300 p-1 text-[10px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-800"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setManualField(optManualKey, false)}
-                              title={t('wf.field.backToList')}
-                              className="shrink-0 rounded border border-gray-300 px-1.5 py-1 text-[10px] text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:hover:bg-gray-800"
-                            >
-                              ↩
-                            </button>
-                          </>
-                        )
-                      })()}
-                      <button type="button" onClick={() => removeMenuOption(oi)} className="shrink-0 text-[10px] text-red-600 hover:underline">
-                        {t('common.delete')}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button type="button" onClick={addMenuOption} className="text-xs text-violet-700 hover:underline dark:text-violet-300">
-                + {t('wf.addOption')}
-              </button>
-            </div>
-          )}
-
-          {/* AI Agent scenarios editor */}
-          {isAiAgent && (
-            <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
-              <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.field.scenarios')}</p>
-              <div className="space-y-2">
-                {aiAgentScenarios.map((sc, si) => (
-                  <div key={si} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
-                    <textarea
-                      value={sc.description}
-                      onChange={(e) => patchAiAgentScenario(si, { description: e.target.value })}
-                      rows={2}
-                      placeholder={t('wf.scenario.description')}
-                      className="w-full resize-none rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                    />
-                    <select
-                      value={sc.action}
-                      onChange={(e) => {
-                        const action = e.target.value as AiAgentScenarioAction
-                        patchAiAgentScenario(si, { action, ...(action === 'route' ? {} : { targetWorkflowId: undefined }) })
-                      }}
-                      className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                    >
-                      <option value="reply">{t('wf.scenario.actionReply')}</option>
-                      <option value="route">{t('wf.scenario.actionRoute')}</option>
-                      <option value="handoff">{t('wf.scenario.actionHandoff')}</option>
-                    </select>
-                    {sc.action === 'route' && (
-                      <select
-                        value={sc.targetWorkflowId ?? ''}
-                        onChange={(e) => patchAiAgentScenario(si, { targetWorkflowId: e.target.value })}
-                        className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                      >
-                        <option value="">{t('wf.scenario.targetWorkflow')}</option>
-                        {routableWorkflows.map((wf) => (
-                          <option key={wf.id} value={wf.id}>
-                            {wf.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <div className="flex justify-end">
-                      <button type="button" onClick={() => removeAiAgentScenario(si)} className="shrink-0 text-[10px] text-red-600 hover:underline">
-                        {t('common.delete')}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button type="button" onClick={addAiAgentScenario} className="text-xs text-violet-700 hover:underline dark:text-violet-300">
-                + {t('wf.addScenario')}
-              </button>
-            </div>
-          )}
-
-          {(nodeDef(selected.type)?.fields ?? []).length === 0 && !isMenu && !isAiAgent && (
-            <p className="mb-3 text-gray-400">{t('wf.noConfig')}</p>
-          )}
           <button
             type="button"
             onClick={deleteSelected}
@@ -1351,6 +797,8 @@ function WorkflowCanvasInner({
           </button>
         </aside>
       )}
+
+      <BuilderModeSwitcher mode={mode} onSwitch={switchMode} t={t} />
     </div>
   )
 }

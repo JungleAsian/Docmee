@@ -1,10 +1,9 @@
 ﻿// Consumes: agent queue.
 // Classifies intent, routes to the correct platform agent (P03); the botbase
-// route (general/unclear intent, inside business hours) sends a static nudge
-// toward the clinic's structured keyword entry points instead of a free-form
-// LLM answer. For an outside-hours silence it collects the patient's name +
-// reason (Decision 1). calbot/alertflow routes stay fan-out to their
-// downstream queues.
+// route (general/unclear intent, inside business hours) and the outside-hours
+// silence route both send the same static nudge toward the clinic's structured
+// keyword entry points instead of a free-form LLM answer or a "we're closed"
+// notice. calbot/alertflow routes stay fan-out to their downstream queues.
 import { z } from 'zod'
 import {
   classifyIntent,
@@ -229,19 +228,15 @@ export function detectUpsetTone(message: string): boolean {
   return UPSET_KEYWORDS.some((k) => lower.includes(k))
 }
 
-function outsideHoursMessage(language: Language): string {
-  return language === 'es'
-    ? 'Estamos fuera de horario. Déjame tu nombre y el motivo de tu consulta y te contactamos mañana.'
-    : 'We are outside business hours. Please leave your name and reason for your inquiry and we will contact you tomorrow.'
-}
-
 // Sent when an inbound message matches no configured workflow/custom-flow keyword
 // trigger at all — independent of business hours, and independent of whatever the
 // LLM intent classifier would have guessed. Replaces the general J.zel/botbase
-// fallback for this turn: the patient is funneled toward the clinic's structured
-// entry points instead of getting a free-form AI answer. The pre-LLM emergency and
-// human-handoff keyword guards run earlier in this function and are unaffected —
-// only the *general* Q&A fallback is replaced here.
+// fallback AND the old outside-hours notice for this turn: the patient is funneled
+// toward the clinic's structured entry points instead of getting a free-form AI
+// answer or a "we're closed" message. The pre-LLM emergency and human-handoff
+// keyword guards run earlier in this function and are unaffected — only the
+// *general* Q&A fallback (business hours) and the *general* silence fallback
+// (outside business hours) are replaced here.
 function unmatchedKeywordMessage(language: Language): string {
   return language === 'es'
     ? 'Por favor, inicia tu mensaje escribiendo Menú o Reserva.'
@@ -879,10 +874,11 @@ export async function processAgentJob(job: Job): Promise<void> {
         break
 
       case 'silence':
-        // Outside-hours: collect name + reason so a human can follow up (Decision 1).
-        // Opt-out silence stays fully silent.
+        // Outside-hours (and, same as botbase, any other unmatched-keyword turn):
+        // nudge toward the clinic's structured entry points instead of the old
+        // "we're closed, leave your name" notice. Opt-out silence stays fully silent.
         if (route.reason === 'outside_hours' && sendReply) {
-          await sendReply(outsideHoursMessage(patientLanguage))
+          await sendReply(unmatchedKeywordMessage(patientLanguage))
         } else if (route.reason === 'opted_out') {
           // An opt-out the keyword guard missed but the classifier caught ? persist
           // it (Req 19) so it sticks, then stay silent.

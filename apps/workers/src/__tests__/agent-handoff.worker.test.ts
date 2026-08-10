@@ -200,6 +200,30 @@ describe('processAgentJob — medical emergency (Req 20)', () => {
     }
   })
 
+  it('an unmatched general message outside business hours gets the structured-entry-point nudge, not the old closed notice', async () => {
+    const { isInsideBusinessHours } = await import('@docmee/agents')
+    const hoursMock = isInsideBusinessHours as ReturnType<typeof vi.fn>
+    hoursMock.mockReturnValue(false)
+    try {
+      h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+      h.classifyIntent.mockResolvedValueOnce('general_question')
+
+      await processAgentJob(makeJob(baseJob))
+
+      // Outside hours, a general/unmatched-keyword message is routed to
+      // 'silence'/'outside_hours' by the router -- this used to send the old
+      // "we're closed, leave your name" notice; it must now send the same
+      // structured-entry-point nudge as the business-hours botbase route.
+      expect(h.runClinicBot).not.toHaveBeenCalled()
+      expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+      const text = h.sendWhatsAppText.mock.calls[0]![3]
+      expect(text).toContain('Menú')
+      expect(text).not.toContain('fuera de horario')
+    } finally {
+      hoursMock.mockReturnValue(true)
+    }
+  })
+
   it('classifier-detected emergency (no keyword) still reassures and pauses', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.classifyIntent.mockResolvedValueOnce('emergency')

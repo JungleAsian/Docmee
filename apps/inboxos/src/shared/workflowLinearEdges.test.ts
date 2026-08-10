@@ -69,12 +69,6 @@ describe('resequenceLinearEdges', () => {
   })
 
   it('leaves a branching node\'s hand-wired edges untouched across a reorder', () => {
-    const steps = [
-      node('t', 'trigger.message_keyword'),
-      node('cond', 'logic.condition'),
-      node('yes_step', 'action.send_message'),
-      node('no_step', 'action.send_message'),
-    ]
     const handWired = [
       edge('e1', 'cond', 'yes_step', 'true'),
       edge('e2', 'cond', 'no_step', 'false'),

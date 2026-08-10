@@ -17,7 +17,7 @@
 import { useState } from 'react'
 import { useI18n } from '../hooks/useI18n'
 import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
-import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, branchRows, type NodeTypeDef } from '../workflowNodes'
+import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, branchRows, parseMenuOptionsSafe, type NodeTypeDef } from '../workflowNodes'
 import { isBranchingNode, resequenceLinearEdges } from '../workflowLinearEdges'
 import { NodeConfigPanel } from './NodeConfigPanel'
 
@@ -267,7 +267,15 @@ function StepFooter({
   const nodeDefLabel = (n: WfNode) => t((nodeDef(n.type)?.labelKey ?? n.type) as Parameters<typeof t>[0])
 
   if (isBranchingNode(step)) {
-    const rows = branchRows(step)
+    // Same rule as the Enhanced canvas card: a reserved routing outcome
+    // (restart/livechat/default) only gets a "go to step" row here once the
+    // admin has explicitly added it as a real option -- otherwise it stays
+    // invisible instead of always appearing as if it were active by default.
+    const isMenu = step.type === 'action.interactive_menu'
+    const configuredIds = isMenu ? new Set(parseMenuOptionsSafe(step.config.options).map((o) => o.optionId)) : null
+    const rows = branchRows(step).filter(
+      (row) => !isMenu || !['restart', 'livechat', 'default'].includes(row.key) || configuredIds!.has(row.key),
+    )
     return (
       <div className="mt-2 space-y-1.5 border-t border-gray-100 pt-2 dark:border-gray-800">
         {rows.map((row) => {

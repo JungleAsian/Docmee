@@ -99,6 +99,15 @@ export function validateWorkflowDefinition(
       }
       if (handles.size !== next.length) errors.push(`Intent classifier ${node.id} has an unlabeled or ambiguous branch`)
     }
+    if (node.type === 'action.interactive_menu') {
+      const handles = new Set(next.map((edge) => edge.sourceHandle).filter((handle): handle is string => Boolean(handle)))
+      for (const edge of next) {
+        if (edge.sourceHandle !== 'selected') {
+          errors.push(`Interactive menu edge ${edge.id} must use the selected handle`)
+        }
+      }
+      if (!handles.has('selected')) errors.push(`Interactive menu ${node.id} requires a selected successor`)
+    }
     if (node.type === 'logic.delay') {
       const amount = Number(node.config?.['amount'])
       if (!Number.isFinite(amount) || amount <= 0) errors.push(`Delay node ${node.id} requires a positive amount`)

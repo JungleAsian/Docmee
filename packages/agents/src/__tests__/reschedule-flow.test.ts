@@ -160,3 +160,48 @@ describe('advanceRescheduleFlow — service duration (Req 30)', () => {
     )
   })
 })
+
+describe('DB-first reschedule: Calendar is best-effort, never blocks the move', () => {
+  const confirmState: RescheduleState = {
+    step: 'confirm_details',
+    appointmentId: 'appt-1',
+    preferredDate: DATE,
+    preferredTime: '11:00',
+    confirmedSlot: { start: `${DATE}T11:00:00`, end: `${DATE}T11:30:00` },
+  }
+
+  it('Calendar updateEvent fails → the Docmee move still applies, flagged failed for retry', async () => {
+    const calendar = makeCalendar({ updateEvent: vi.fn().mockRejectedValue(new Error('token expired')) })
+    const deps = makeDeps(calendar)
+    const r = await advanceRescheduleFlow(confirmState, 'sí', baseCtx(), deps)
+
+    expect(r.done).toBe(true)
+    expect(deps.applyReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({ calendarSyncResult: 'failed', calendarSyncError: 'token expired' }),
+    )
+  })
+
+  it('Calendar updateEvent succeeds → synced with no error', async () => {
+    const calendar = makeCalendar()
+    const deps = makeDeps(calendar)
+    const r = await advanceRescheduleFlow(confirmState, 'sí', baseCtx(), deps)
+
+    expect(r.done).toBe(true)
+    expect(deps.applyReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({ calendarSyncResult: 'synced', calendarSyncError: null }),
+    )
+  })
+
+  it('appointment never had a Calendar event → skips the update, no Calendar call', async () => {
+    const calendar = makeCalendar()
+    const deps = makeDeps(calendar)
+    const ctx = baseCtx({ appointment: { ...appointment, googleEventId: null } })
+    const r = await advanceRescheduleFlow(confirmState, 'sí', ctx, deps)
+
+    expect(r.done).toBe(true)
+    expect(calendar.updateEvent).not.toHaveBeenCalled()
+    expect(deps.applyReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({ calendarSyncResult: 'skipped', calendarSyncError: null }),
+    )
+  })
+})

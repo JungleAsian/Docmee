@@ -20,6 +20,12 @@ export {
 } from './google-calendar-client.js'
 
 export {
+  resolveCalendarConfig,
+  calendarOpsFor,
+  type ResolvedCalendar,
+} from './calendar-config.js'
+
+export {
   parseDate,
   parseTime,
   isAffirmative,

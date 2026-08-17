@@ -139,6 +139,22 @@ function UrgentTag() {
   )
 }
 
+// Deliberately neutral (gray, not amber/red) — the appointment itself is saved
+// and confirmed; this only means Google Calendar hasn't picked it up yet, which
+// resolves on its own via the background retry sweep.
+function CalendarSyncPendingTag() {
+  const { t } = useI18n()
+  return (
+    <span
+      title={t('cal.syncPendingHint')}
+      className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+    >
+      <span aria-hidden>⟳</span>
+      {t('cal.syncPending')}
+    </span>
+  )
+}
+
 function AppointmentLifecycleRail({ appt }: { appt: AppointmentWithNames }) {
   const { t } = useI18n()
   const currentIndex =
@@ -242,6 +258,7 @@ function AppointmentCard({
         {urgent && <UrgentTag />}
         <SourceTag source={source} />
         <StatusBadge status={appt.status} />
+        {appt.calendarSyncPending && <CalendarSyncPendingTag />}
         {appt.doctorName && (
           <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
             <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-teal-600 text-[9px] font-bold text-white">
@@ -269,7 +286,7 @@ export default function CalendarPage() {
   const [booking, setBooking] = useState(false)
   const [prefill, setPrefill] = useState<{ doctorId?: string; start?: string }>({})
   const [manageId, setManageId] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [success, setSuccess] = useState<{ patient: string; calendarPending: boolean } | null>(null)
 
   // A clinic switch invalidates the previously-picked doctor — fall back to all.
   useEffect(() => {
@@ -452,8 +469,11 @@ export default function CalendarPage() {
       {/* Success banner */}
       {success && (
         <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-          ✓ {t('cal.bookSuccess', { patient: success })}{' '}
+          ✓ {t('cal.bookSuccess', { patient: success.patient })}{' '}
           <span className="text-emerald-600 dark:text-emerald-400">{t('cal.bookSuccessHint')}</span>
+          {success.calendarPending && (
+            <p className="mt-0.5 text-emerald-700/80 dark:text-emerald-400/80">{t('cal.bookSuccessSyncPending')}</p>
+          )}
         </div>
       )}
 
@@ -574,9 +594,9 @@ export default function CalendarPage() {
           initialDoctorId={prefill.doctorId}
           initialStart={prefill.start}
           onClose={() => setBooking(false)}
-          onSuccess={(patient) => {
+          onSuccess={(patient, calendarPending) => {
             setBooking(false)
-            setSuccess(patient)
+            setSuccess({ patient, calendarPending })
           }}
         />
       </SlideOver>
@@ -1009,7 +1029,7 @@ function BookingPanel({
   initialDoctorId?: string
   initialStart?: string
   onClose: () => void
-  onSuccess: (patientName: string) => void
+  onSuccess: (patientName: string, calendarPending: boolean) => void
 }) {
   const { t } = useI18n()
   const qc = useQueryClient()
@@ -1037,7 +1057,7 @@ function BookingPanel({
 
   const mutation = useMutation({
     mutationFn: () =>
-      api.post(`/clinics/${clinicId}/appointments`, {
+      api.post<{ appointment: AppointmentWithNames }>(`/clinics/${clinicId}/appointments`, {
         patientId,
         doctorId,
         serviceId: serviceId || undefined,
@@ -1047,11 +1067,11 @@ function BookingPanel({
         urgent: urgent || undefined,
       }),
     onMutate: () => setErrorKey(null),
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['appointments', clinicId] })
       qc.invalidateQueries({ queryKey: ['appt-events', clinicId] })
       qc.invalidateQueries({ queryKey: ['slots', clinicId] })
-      onSuccess(patientName)
+      onSuccess(patientName, data.appointment.calendarSyncPending)
     },
     onError: (e) =>
       setErrorKey(e instanceof ApiError && e.status === 409 ? 'cal.slotTaken' : 'cal.bookError'),

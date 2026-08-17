@@ -493,3 +493,46 @@ describe('double-booking protection', () => {
     expect(deps.saveAppointment).not.toHaveBeenCalled()
   })
 })
+
+describe('DB-first booking: Calendar is best-effort, never blocks the save', () => {
+  const confirmState: BookingState = {
+    step: 'confirm_details',
+    providerId: 'prov-1',
+    doctorName: 'Dra. García',
+    specialty: 'Pediatría',
+    serviceId: 's1',
+    serviceName: 'Consulta general',
+    reason: 'control',
+    preferredDate: DATE,
+    preferredTime: '10:00',
+    confirmedSlot: { start: `${DATE}T10:00:00`, end: `${DATE}T10:30:00` },
+  }
+
+  it('Calendar createEvent fails → appointment is still saved, with the sync error recorded', async () => {
+    const calendar = makeCalendar({ createEvent: vi.fn().mockRejectedValue(new Error('Calendar not connected')) })
+    const deps = makeDeps(calendar)
+    const r = await advanceBookingFlow(confirmState, 'sí, confirmo', ctx, deps)
+
+    expect(r.done).toBe(true)
+    expect(r.nextState.googleEventId).toBeUndefined()
+    expect(deps.saveAppointment).toHaveBeenCalledTimes(1)
+    expect((deps.saveAppointment as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
+      googleEventId: null,
+      calendarSyncError: 'Calendar not connected',
+    })
+    // The patient still gets the normal confirmation — Docmee saved the booking.
+    expect(r.reply).toMatch(/quedó agendada/)
+  })
+
+  it('Calendar createEvent succeeds → no sync error recorded', async () => {
+    const calendar = makeCalendar()
+    const deps = makeDeps(calendar)
+    const r = await advanceBookingFlow(confirmState, 'sí, confirmo', ctx, deps)
+
+    expect(r.done).toBe(true)
+    expect((deps.saveAppointment as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatchObject({
+      googleEventId: 'evt_123',
+      calendarSyncError: null,
+    })
+  })
+})

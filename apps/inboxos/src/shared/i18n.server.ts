@@ -1703,6 +1703,9 @@ const es: Dict = {
   'cal.disconnectedHint':
     'Las citas se guardan en Docmee pero no se sincronizarán con Google Calendar hasta reconectar.',
   'cal.disconnectedDoctor': 'El calendario de este doctor no está conectado.',
+  'cal.syncPending': 'Sync pendiente',
+  'cal.syncPendingHint':
+    'Aún no se ha sincronizado con Google Calendar. Se reintentará automáticamente.',
   'cal.withDoctor': 'con {doctor}',
   'cal.unknownPatient': 'Paciente sin nombre',
   'cal.bookingClosed': 'Cerrar',
@@ -1745,6 +1748,8 @@ const es: Dict = {
     'Estados: Pendiente · Confirmada · Llegó · En curso · Atendida · Cancelada · No asistió',
   'cal.bookSuccess': 'Cita confirmada para {patient}.',
   'cal.bookSuccessHint': 'Se envió una confirmación al paciente.',
+  'cal.bookSuccessSyncPending':
+    'La sincronización con Google Calendar está pendiente y se completará automáticamente.',
   'cal.feed.bookedAi': 'La IA agendó a {patient}',
   'cal.feed.bookedStaff': 'El equipo agendó a {patient}',
   'cal.feed.confirmed': 'Confirmada — {patient}',
@@ -3756,6 +3761,8 @@ const en: Dict = {
   'cal.disconnectedHint':
     'Appointments are saved in Docmee but will not sync to Google Calendar until reconnected.',
   'cal.disconnectedDoctor': "This doctor's calendar is not connected.",
+  'cal.syncPending': 'Sync pending',
+  'cal.syncPendingHint': 'Not yet synced to Google Calendar. This will retry automatically.',
   'cal.withDoctor': 'with {doctor}',
   'cal.unknownPatient': 'Unnamed patient',
   'cal.bookingClosed': 'Close',
@@ -3798,6 +3805,7 @@ const en: Dict = {
     'Statuses: Pending · Confirmed · Arrived · In progress · Completed · Cancelled · No-show',
   'cal.bookSuccess': 'Booking confirmed for {patient}.',
   'cal.bookSuccessHint': 'A confirmation is queued to the patient.',
+  'cal.bookSuccessSyncPending': 'Google Calendar sync is pending and will complete automatically.',
   'cal.feed.bookedAi': 'AI booked {patient}',
   'cal.feed.bookedStaff': 'Staff booked {patient}',
   'cal.feed.confirmed': 'Confirmed — {patient}',

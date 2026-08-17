@@ -16,8 +16,9 @@ export interface CancelContext {
 }
 
 export interface CancelDeps {
+  /** May throw (e.g. token expired, event already gone) — the flow catches it and cancels in Docmee regardless. */
   deleteEvent(eventId: string): Promise<void>
-  markCancelled(appointmentId: string): Promise<void>
+  markCancelled(appointmentId: string, calendar: { eventDeleted: boolean; error: string | null }): Promise<void>
 }
 
 export interface CancelResult {
@@ -49,8 +50,20 @@ export async function advanceCancelFlow(
   const appt = ctx.appointment
 
   if (isAffirmative(message)) {
-    if (appt.googleEventId) await deps.deleteEvent(appt.googleEventId)
-    await deps.markCancelled(appt.id)
+    // The Docmee-side cancellation always applies — deleting the Calendar event
+    // is best-effort. A failure here (or no event to begin with) is recorded and
+    // retried in the background rather than blocking the cancellation.
+    let eventDeleted = false
+    let calendarError: string | null = null
+    if (appt.googleEventId) {
+      try {
+        await deps.deleteEvent(appt.googleEventId)
+        eventDeleted = true
+      } catch (err) {
+        calendarError = err instanceof Error ? err.message : String(err)
+      }
+    }
+    await deps.markCancelled(appt.id, { eventDeleted, error: calendarError })
     return {
       nextState: { step: 'done' },
       reply: pick(

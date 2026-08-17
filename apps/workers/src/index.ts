@@ -24,6 +24,8 @@ import { processReviewRequestJob } from './review-request.worker.js'
 import { processWorkflowRunJob } from './workflow-runner.worker.js'
 import { runTimeoutChecks } from './timeout-monitor.js'
 import { bootstrapReportsScheduler } from './reports.scheduler.js'
+import { runCalendarSyncRetry } from './calendar-sync-retry.js'
+import { createServiceDbClient } from '@docmee/db'
 
 export const conversationWorker = createWorker(
   'whatsapp.inbound',
@@ -101,6 +103,21 @@ export const licenseHeartbeatScheduler = setInterval(() => {
 }, LICENSE_HEARTBEAT_INTERVAL_MS)
 if (typeof licenseHeartbeatScheduler.unref === 'function') licenseHeartbeatScheduler.unref()
 
+// Calendar sync retry: the Docmee appointment row is always saved regardless of
+// Google Calendar state; this sweep catches up any row still flagged
+// calendar_sync_pending (no calendar was connected yet, or a live API call
+// failed) once a working Calendar connection exists — see calendar-sync-retry.ts.
+const CALENDAR_SYNC_RETRY_INTERVAL_MS = 10 * 60 * 1000
+export const calendarSyncRetryScheduler = setInterval(() => {
+  const sql = createServiceDbClient({ url: process.env['DATABASE_URL'] ?? '' })
+  void runCalendarSyncRetry(sql)
+    .catch((err) => console.error('[calendar-sync-retry] tick failed:', err))
+    .finally(() => {
+      void sql.end()
+    })
+}, CALENDAR_SYNC_RETRY_INTERVAL_MS)
+if (typeof calendarSyncRetryScheduler.unref === 'function') calendarSyncRetryScheduler.unref()
+
 // P18 — Reports use a durable BullMQ scheduler. Sheets and review requests keep
 // their existing process-local cadence pending their own scheduler work.
 void bootstrapReportsScheduler(reportsQueue).catch((err) => console.error('[reports] durable scheduler bootstrap failed:', err))
@@ -133,6 +150,7 @@ async function shutdownWorkers(signal: string): Promise<void> {
   clearInterval(timeoutMonitor)
   clearInterval(licenseHeartbeatScheduler)
   clearInterval(phase3Scheduler)
+  clearInterval(calendarSyncRetryScheduler)
   await Promise.allSettled(allWorkers.map((w) => w.close()))
   console.log('[workers] shutdown complete')
   process.exit(0)

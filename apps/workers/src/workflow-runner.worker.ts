@@ -1418,10 +1418,20 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         if (!appointmentId) throw new Error('An appointment ID is required to reschedule a booking')
         const appointment = await appointments.findById(clinicId, appointmentId)
         if (!appointment) throw new Error(`Appointment not found: ${appointmentId}`)
+        // The Docmee-side move always applies — Google Calendar is best-effort. A
+        // failed/skipped sync doesn't block the reschedule; it's flagged for the
+        // background calendar-sync-retry job instead.
         if (appointment.googleEventId) {
-          await calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration })
+          try {
+            await calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration })
+            await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed', calendarSyncPending: false, calendarSyncError: null })
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed', calendarSyncPending: true, calendarSyncError: message })
+          }
+        } else {
+          await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed' })
         }
-        await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed' })
         await appointments.addEvent(clinicId, appointmentId, 'rescheduled')
         ctx['appointment_id'] = appointmentId
         ctx['booking_status'] = 'rescheduled'
@@ -1429,28 +1439,30 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       }
 
       if (!doctorId) throw new Error('A unique active doctor is required to create a booking')
-      const googleEventId = await calendar.createEvent({ title, date, time, durationMinutes: duration })
-      let created: import('@docmee/db').Appointment
+      // The Docmee appointment is always saved — Google Calendar is a best-effort
+      // attachment. A failed/unavailable Calendar create no longer discards the
+      // booking; it's flagged pending for the background retry sweep instead.
+      const created = await appointments.create({
+        clinicId,
+        patientId: ctx.patientId,
+        doctorId,
+        ...(serviceId ? { serviceId } : {}),
+        ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+        startTime,
+        endTime,
+        metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
+      })
+      let googleEventId: string | null = null
       try {
-        created = await appointments.create({
-          clinicId,
-          patientId: ctx.patientId,
-          doctorId,
-          ...(serviceId ? { serviceId } : {}),
-          ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
-          startTime,
-          endTime,
-          metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
-        })
-        await appointments.update(clinicId, created.id, { status: 'confirmed', googleEventId })
-      } catch (error) {
-        await calendar.deleteEvent(googleEventId).catch((cleanupError) => {
-          console.error('[workflow] failed to roll back Google Calendar event after appointment persistence failed', cleanupError)
-        })
-        throw error
+        googleEventId = await calendar.createEvent({ title, date, time, durationMinutes: duration })
+        await appointments.update(clinicId, created.id, { status: 'confirmed', googleEventId, calendarSyncPending: false, calendarSyncError: null })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        await appointments.update(clinicId, created.id, { status: 'confirmed', calendarSyncPending: true, calendarSyncError: message })
+        console.error('[workflow] Google Calendar event creation failed; appointment kept, will retry sync:', message)
       }
       ctx['appointment_id'] = created.id
-      ctx['google_event_id'] = googleEventId
+      if (googleEventId) ctx['google_event_id'] = googleEventId
       ctx['booking_status'] = 'created'
     },
 

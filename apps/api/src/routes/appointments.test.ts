@@ -34,9 +34,21 @@ const store = vi.hoisted(() => ({
         calendarConnected: false,
       },
     ],
+    [
+      'doc-2',
+      {
+        id: 'doc-2',
+        clinicId: 'c-3',
+        name: 'Dr. Ruiz',
+        availableDays: { mon: [{ start: '09:00', end: '11:00' }] },
+        isActive: true,
+        calendarConnected: false,
+      },
+    ],
   ]),
   patients: new Map<string, Record<string, unknown>>([
     ['pat-1', { id: 'pat-1', clinicId: 'c-1', fullName: 'Juan Pérez' }],
+    ['pat-2', { id: 'pat-2', clinicId: 'c-3', fullName: 'María López' }],
   ]),
   services: [{ id: 'svc-1', clinicId: 'c-1', name: 'Limpieza', durationMinutes: 60 }] as Record<string, unknown>[],
   appts: new Map<string, Record<string, unknown>>(),
@@ -46,8 +58,9 @@ const store = vi.hoisted(() => ({
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({
-    findById: async (id: string) => id === 'c-1'
-      ? {
+    findById: async (id: string) => {
+      if (id === 'c-1') {
+        return {
           id,
           timezone: 'America/Guatemala',
           settings: {
@@ -58,7 +71,11 @@ vi.mock('@docmee/db', () => ({
             },
           },
         }
-      : null,
+      }
+      // c-3: a clinic that has never connected Google Calendar at all.
+      if (id === 'c-3') return { id, timezone: 'America/Guatemala', settings: {} }
+      return null
+    },
     update: async () => undefined,
   }),
   createDoctorsRepository: () => ({
@@ -90,7 +107,8 @@ vi.mock('@docmee/db', () => ({
     },
     create: async (data: Record<string, unknown>) => {
       const id = `appt-${nextId++}`
-      const row = { id, status: 'pending', ...data }
+      // Mirrors the real repository: every new row starts calendar_sync_pending = TRUE.
+      const row = { id, status: 'pending', calendarSyncPending: true, calendarSyncError: null, ...data }
       store.appts.set(id, row)
       return row
     },
@@ -143,6 +161,8 @@ import { signAccessToken } from '../auth/jwt.js'
 const secretaryToken = signAccessToken({ userId: 'u-1', clinicId: 'c-1', role: 'secretary', email: 'ana@demo.test' })
 const auth = { authorization: `Bearer ${secretaryToken}` }
 const otherClinicToken = signAccessToken({ userId: 'u-2', clinicId: 'c-2', role: 'secretary', email: 'b@demo.test' })
+const noCalendarToken = signAccessToken({ userId: 'u-3', clinicId: 'c-3', role: 'secretary', email: 'c@demo.test' })
+const noCalendarAuth = { authorization: `Bearer ${noCalendarToken}` }
 
 describe('Appointment routes (Screen 2 — Req 9/30)', () => {
   let app: Awaited<ReturnType<typeof buildApp>>
@@ -375,5 +395,76 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       headers: { authorization: `Bearer ${otherClinicToken}` },
     })
     expect(cross.statusCode).toBe(403)
+  })
+
+  describe('DB-first booking: the appointment is always saved, Calendar is best-effort', () => {
+    it('POST succeeds and clears the sync-pending flag when Calendar creates the event', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/clinics/c-1/appointments',
+        headers: auth,
+        payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-08-03', start: '09:00' },
+      })
+      expect(res.statusCode).toBe(201)
+      const { appointment } = JSON.parse(res.body)
+      expect(appointment.googleEventId).toBe('google-event-1')
+      expect(appointment.calendarSyncPending).toBe(false)
+      expect(appointment.calendarSyncError).toBeNull()
+    })
+
+    it('POST when Calendar.createEvent fails → still 201, appointment saved, flagged pending for retry', async () => {
+      calendarOps.createEvent.mockRejectedValueOnce(new Error('token expired'))
+      const res = await app.inject({
+        method: 'POST',
+        url: '/clinics/c-1/appointments',
+        headers: auth,
+        payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-08-04', start: '09:00' },
+      })
+      expect(res.statusCode).toBe(201)
+      const { appointment } = JSON.parse(res.body)
+      expect(appointment.googleEventId).toBeUndefined()
+      expect(appointment.calendarSyncPending).toBe(true)
+      expect(appointment.calendarSyncError).toBe('token expired')
+      // The row is genuinely persisted, not just returned in the response.
+      const stored = store.appts.get(appointment.id)
+      expect(stored).toBeDefined()
+    })
+
+    it('POST for a clinic with no Google Calendar connected at all → still 201, saved and flagged pending', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/clinics/c-3/appointments',
+        headers: noCalendarAuth,
+        payload: { patientId: 'pat-2', doctorId: 'doc-2', date: '2026-08-05', start: '09:00' },
+      })
+      expect(res.statusCode).toBe(201)
+      const { appointment } = JSON.parse(res.body)
+      expect(appointment.googleEventId).toBeUndefined()
+      expect(appointment.calendarSyncPending).toBe(true)
+      expect(store.appts.get(appointment.id)).toBeDefined()
+    })
+
+    it('PATCH cancel when Calendar.deleteEvent fails → still 200, Docmee status still applies', async () => {
+      const created = await app.inject({
+        method: 'POST',
+        url: '/clinics/c-1/appointments',
+        headers: auth,
+        payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-08-06', start: '09:00' },
+      })
+      const id = JSON.parse(created.body).appointment.id
+
+      calendarOps.deleteEvent.mockRejectedValueOnce(new Error('event already deleted'))
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/clinics/c-1/appointments/${id}`,
+        headers: auth,
+        payload: { status: 'cancelled' },
+      })
+      expect(res.statusCode).toBe(200)
+      const appt = JSON.parse(res.body).appointment
+      expect(appt.status).toBe('cancelled')
+      expect(appt.calendarSyncPending).toBe(true)
+      expect(appt.calendarSyncError).toBe('event already deleted')
+    })
   })
 })

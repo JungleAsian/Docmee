@@ -280,9 +280,15 @@ importers:
 
   packages/agents:
     dependencies:
+      '@docmee/db':
+        specifier: workspace:*
+        version: link:../db
       '@docmee/llm':
         specifier: workspace:*
         version: link:../llm
+      '@docmee/shared':
+        specifier: workspace:*
+        version: link:../shared
       googleapis:
         specifier: ^173.0.0
         version: 173.0.0

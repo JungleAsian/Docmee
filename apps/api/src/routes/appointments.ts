@@ -308,33 +308,44 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         // flag lives on metadata so the calendar can colour the card red.
         metadata: urgent ? { urgent: true } : undefined,
       })
+      // The Docmee appointment above is always saved — Google Calendar sync is a
+      // best-effort attachment, not a precondition. A clinic with no Calendar
+      // connected, or a live API failure, must never lose the booking; the row is
+      // flagged pending and picked up by the background calendar-sync-retry job.
       const calendar = await clinicCalendar(sql, clinicId)
-      if (!calendar) return { error: 'calendar' as const }
-
-      let googleEventId: string
-      try {
-        googleEventId = await calendar.createEvent({
-          title: eventTitle(patient.fullName),
-          date,
-          time: start,
-          durationMinutes: duration,
-          description: notes,
-        })
-      } catch (error) {
-        await sql`DELETE FROM appointment_events WHERE appointment_id = ${appointment.id}`
-        await sql`DELETE FROM appointments WHERE id = ${appointment.id} AND clinic_id = ${clinicId}`
-        request.log.error({ err: error }, 'manual booking Google Calendar create failed')
-        return { error: 'calendar_create' as const }
+      let syncedAppointment = appointment
+      if (calendar) {
+        try {
+          const googleEventId = await calendar.createEvent({
+            title: eventTitle(patient.fullName),
+            date,
+            time: start,
+            durationMinutes: duration,
+            description: notes,
+          })
+          syncedAppointment = await appts.update(clinicId, appointment.id, {
+            googleEventId,
+            calendarSyncPending: false,
+            calendarSyncError: null,
+          })
+        } catch (error) {
+          request.log.error({ err: error }, 'manual booking Google Calendar create failed')
+          const message = error instanceof Error ? error.message : String(error)
+          syncedAppointment = await appts.update(clinicId, appointment.id, {
+            calendarSyncPending: true,
+            calendarSyncError: message,
+          })
+        }
       }
-      const syncedAppointment = await appts.update(clinicId, appointment.id, { googleEventId })
+      // No calendar configured at all → the row already has calendar_sync_pending
+      // = TRUE from creation; nothing more to do here, the retry sweep picks it up
+      // automatically once a calendar is connected.
       await appts.addEvent(clinicId, syncedAppointment.id, 'confirmed', request.user?.userId)
       return { appointment: syncedAppointment }
     })
 
     if ('error' in result) {
       if (result.error === 'clash') return reply.code(409).send({ error: 'Slot no longer available' })
-      if (result.error === 'calendar') return reply.code(409).send({ error: 'Google Calendar is not connected' })
-      if (result.error === 'calendar_create') return reply.code(502).send({ error: 'Google Calendar event could not be created' })
       return reply
         .code(404)
         .send({ error: result.error === 'doctor' ? 'Doctor not found' : 'Patient not found' })
@@ -378,12 +389,19 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         if (status !== undefined && STATUS_EVENT[status]) {
           await appts.addEvent(clinicId, updated.id, STATUS_EVENT[status]!, request.user?.userId)
         }
+        // The Docmee-side status/time change above always applies. Google Calendar
+        // is a best-effort attachment: if it's not connected or the call fails, the
+        // row is flagged for the background calendar-sync-retry job instead of the
+        // whole request failing — the reschedule/cancel already happened in Docmee.
         if ((date !== undefined && start !== undefined && updated.googleEventId) || (status === 'cancelled' && existing.googleEventId)) {
           const calendar = await clinicCalendar(sql, clinicId)
-          if (!calendar) return { error: 'calendar' as const }
+          if (!calendar) {
+            return appts.update(clinicId, updated.id, { calendarSyncPending: true })
+          }
           try {
             if (status === 'cancelled' && existing.googleEventId) {
               await calendar.deleteEvent(existing.googleEventId)
+              return appts.update(clinicId, updated.id, { googleEventId: null, calendarSyncPending: false, calendarSyncError: null })
             } else if (date !== undefined && start !== undefined && updated.googleEventId) {
               await calendar.updateEvent({
                 eventId: updated.googleEventId,
@@ -392,20 +410,18 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
                 time: start,
                 durationMinutes: durationMinutes(updated.startTime, updated.endTime),
               })
+              return appts.update(clinicId, updated.id, { calendarSyncPending: false, calendarSyncError: null })
             }
           } catch (error) {
             request.log.error({ err: error }, 'manual booking Google Calendar update failed')
-            return { error: 'calendar_update' as const }
+            const message = error instanceof Error ? error.message : String(error)
+            return appts.update(clinicId, updated.id, { calendarSyncPending: true, calendarSyncError: message })
           }
         }
         return updated
       })
 
       if (!result) return reply.code(404).send({ error: 'Appointment not found' })
-      if ('error' in result) {
-        if (result.error === 'calendar') return reply.code(409).send({ error: 'Google Calendar is not connected' })
-        return reply.code(502).send({ error: 'Google Calendar event could not be updated' })
-      }
       return { appointment: result }
     },
   )

@@ -27,11 +27,16 @@ export interface CreateAppointmentInput {
 
 export interface UpdateAppointmentInput {
   status?: AppointmentStatus
-  googleEventId?: string
+  /** string = set, null = explicitly clear (e.g. after a Calendar delete), omit = untouched. */
+  googleEventId?: string | null
   startTime?: string
   endTime?: string
   notes?: string
   metadata?: Record<string, unknown>
+  calendarSyncPending?: boolean
+  /** string = set, null = explicitly clear (on sync success), omit = untouched. */
+  calendarSyncError?: string | null
+  calendarSyncAttempts?: number
 }
 
 /**
@@ -110,6 +115,13 @@ export interface AppointmentsRepository {
   listCompletedForReview(clinicId: string, from: string, to: string): Promise<Appointment[]>
   /** Count appointments created in [from, to] — powers the automatic reports (P18). */
   countCreatedBetween(clinicId: string, from: string, to: string): Promise<number>
+  /**
+   * Rows whose Google Calendar state doesn't yet match their Docmee state
+   * (calendar_sync_pending = TRUE), oldest-touched first, bounded to the last
+   * `maxAgeDays` — powers the background retry sweep. Joined with patient/doctor
+   * names so a CREATE retry has a human-readable event title.
+   */
+  listCalendarSyncCandidates(limit: number, maxAgeDays: number): Promise<AppointmentWithNames[]>
   create(data: CreateAppointmentInput): Promise<Appointment>
   update(clinicId: string, id: string, data: UpdateAppointmentInput): Promise<Appointment>
   addEvent(clinicId: string, appointmentId: string, eventType: AppointmentEventType, actorId?: string): Promise<AppointmentEvent>
@@ -231,7 +243,7 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
     async create(data) {
       const rows = await sql<Appointment[]>`
         INSERT INTO appointments
-          (clinic_id, patient_id, provider_id, doctor_id, service_id, conversation_id, start_time, end_time, notes, metadata)
+          (clinic_id, patient_id, provider_id, doctor_id, service_id, conversation_id, start_time, end_time, notes, metadata, calendar_sync_pending)
         VALUES (
           ${data.clinicId},
           ${data.patientId},
@@ -242,7 +254,8 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
           ${data.startTime}::timestamptz,
           ${data.endTime}::timestamptz,
           ${data.notes          ?? null},
-          ${sql.json(toJson(data.metadata ?? {}))}
+          ${sql.json(toJson(data.metadata ?? {}))},
+          TRUE
         )
         RETURNING *
       `
@@ -254,17 +267,39 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
     async update(clinicId, id, data) {
       const rows = await sql<Appointment[]>`
         UPDATE appointments SET
-          status          = COALESCE(${data.status          ?? null}, status),
-          google_event_id = COALESCE(${data.googleEventId  ?? null}, google_event_id),
-          start_time      = COALESCE(${data.startTime      ?? null}::timestamptz, start_time),
-          end_time        = COALESCE(${data.endTime        ?? null}::timestamptz, end_time),
-          notes           = COALESCE(${data.notes          ?? null}, notes),
-          metadata        = CASE WHEN ${data.metadata !== undefined} THEN ${sql.json(toJson(data.metadata ?? {}))} ELSE metadata END
+          status                 = COALESCE(${data.status ?? null}, status),
+          google_event_id        = CASE WHEN ${data.googleEventId !== undefined} THEN ${data.googleEventId ?? null} ELSE google_event_id END,
+          start_time             = COALESCE(${data.startTime ?? null}::timestamptz, start_time),
+          end_time               = COALESCE(${data.endTime ?? null}::timestamptz, end_time),
+          notes                  = COALESCE(${data.notes ?? null}, notes),
+          metadata               = CASE WHEN ${data.metadata !== undefined} THEN ${sql.json(toJson(data.metadata ?? {}))} ELSE metadata END,
+          calendar_sync_pending  = COALESCE(${data.calendarSyncPending ?? null}, calendar_sync_pending),
+          calendar_sync_error    = CASE WHEN ${data.calendarSyncError !== undefined} THEN ${data.calendarSyncError ?? null} ELSE calendar_sync_error END,
+          calendar_sync_attempts = COALESCE(${data.calendarSyncAttempts ?? null}, calendar_sync_attempts)
         WHERE clinic_id = ${clinicId} AND id = ${id}
         RETURNING *
       `
       if (!rows[0]) throw new Error(`Appointment not found: ${id}`)
       return rows[0]
+    },
+
+    async listCalendarSyncCandidates(limit, maxAgeDays) {
+      return sql<AppointmentWithNames[]>`
+        SELECT
+          a.*,
+          p.full_name        AS patient_name,
+          d.name              AS doctor_name,
+          s.name              AS service_name,
+          s.duration_minutes AS service_duration_minutes
+        FROM appointments a
+        LEFT JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN doctors  d ON d.id = a.doctor_id
+        LEFT JOIN services s ON s.id = a.service_id
+        WHERE a.calendar_sync_pending = TRUE
+          AND a.updated_at > NOW() - (${maxAgeDays} || ' days')::interval
+        ORDER BY a.updated_at ASC
+        LIMIT ${limit}
+      `
     },
 
     async addEvent(clinicId, appointmentId, eventType, actorId) {

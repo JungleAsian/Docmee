@@ -89,7 +89,10 @@ export interface BookingDeps {
     reason: string
     preferredDate: string
     preferredTime: string
-    googleEventId: string
+    /** Null when the Calendar event couldn't be created (not connected, or the API call failed) — the appointment is saved in Docmee regardless. */
+    googleEventId: string | null
+    /** The Calendar failure message, if any. Null when sync succeeded or there was simply no calendar configured. */
+    calendarSyncError: string | null
   }): Promise<void>
 }
 
@@ -710,13 +713,24 @@ export async function advanceBookingFlow(
           done: false,
         }
       }
-      const eventId = await deps.calendar.createEvent({
-        title,
-        date: state.preferredDate,
-        time: state.preferredTime,
-        durationMinutes: duration,
-        description: state.reason,
-      })
+      // The Docmee appointment is always saved — Google Calendar is a best-effort
+      // attachment, not a precondition. A clinic that doesn't use Calendar at all,
+      // or a live API failure (expired token, quota, outage), must never lose the
+      // booking; a failed/unavailable sync is recorded and retried in the
+      // background instead (see calendar-sync-retry.ts).
+      let eventId: string | null = null
+      let calendarSyncError: string | null = null
+      try {
+        eventId = await deps.calendar.createEvent({
+          title,
+          date: state.preferredDate,
+          time: state.preferredTime,
+          durationMinutes: duration,
+          description: state.reason,
+        })
+      } catch (err) {
+        calendarSyncError = err instanceof Error ? err.message : String(err)
+      }
       await deps.saveAppointment({
         providerId: state.providerId,
         doctorName: state.doctorName ?? null,
@@ -728,10 +742,11 @@ export async function advanceBookingFlow(
         preferredDate: state.preferredDate,
         preferredTime: state.preferredTime,
         googleEventId: eventId,
+        calendarSyncError,
       })
 
       return {
-        nextState: { ...state, step: 'send_confirmation', googleEventId: eventId },
+        nextState: { ...state, step: 'send_confirmation', googleEventId: eventId ?? undefined },
         reply: pick(
           L,
           `¡Listo! Su cita con ${state.doctorName} quedó agendada para el ${state.preferredDate} a las ${state.preferredTime}. Le esperamos en ${ctx.clinic.name}.`,

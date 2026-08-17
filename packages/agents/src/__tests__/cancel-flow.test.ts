@@ -41,7 +41,30 @@ describe('advanceCancelFlow', () => {
     const r = await advanceCancelFlow({ step: 'confirm' }, 'sí, cancela', ctx, deps)
     expect(r.done).toBe(true)
     expect(deps.deleteEvent).toHaveBeenCalledWith('evt_123')
-    expect(deps.markCancelled).toHaveBeenCalledWith('appt-1')
+    expect(deps.markCancelled).toHaveBeenCalledWith('appt-1', { eventDeleted: true, error: null })
+  })
+
+  it('Calendar delete fails → Docmee cancellation still applies, flagged for retry', async () => {
+    const deps: CancelDeps = {
+      deleteEvent: vi.fn().mockRejectedValue(new Error('token expired')),
+      markCancelled: vi.fn().mockResolvedValue(undefined),
+    }
+    const ctx: CancelContext = { language: 'es', appointment }
+    const r = await advanceCancelFlow({ step: 'confirm' }, 'sí, cancela', ctx, deps)
+    expect(r.done).toBe(true)
+    expect(deps.markCancelled).toHaveBeenCalledWith('appt-1', { eventDeleted: false, error: 'token expired' })
+  })
+
+  it('no prior Calendar event → cancels in Docmee without attempting a delete', async () => {
+    const deps = makeDeps()
+    const ctx: CancelContext = {
+      language: 'es',
+      appointment: { ...appointment, googleEventId: null },
+    }
+    const r = await advanceCancelFlow({ step: 'confirm' }, 'sí, cancela', ctx, deps)
+    expect(r.done).toBe(true)
+    expect(deps.deleteEvent).not.toHaveBeenCalled()
+    expect(deps.markCancelled).toHaveBeenCalledWith('appt-1', { eventDeleted: false, error: null })
   })
 
   it('declining keeps the appointment', async () => {

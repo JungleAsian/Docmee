@@ -45,7 +45,15 @@ export interface RescheduleContext {
 
 export interface RescheduleDeps {
   calendar: CalendarOps
-  applyReschedule(input: { appointmentId: string; eventId: string | null; startTime: string; endTime: string }): Promise<void>
+  applyReschedule(input: {
+    appointmentId: string
+    eventId: string | null
+    startTime: string
+    endTime: string
+    /** 'skipped' = there was no prior Calendar event to move (never synced yet) — the background sweep will pick up the new time as a CREATE. */
+    calendarSyncResult: 'synced' | 'failed' | 'skipped'
+    calendarSyncError: string | null
+  }): Promise<void>
 }
 
 export interface RescheduleResult {
@@ -210,14 +218,25 @@ export async function advanceRescheduleFlow(
           done: false,
         }
       }
+      // The Docmee-side move always applies — Google Calendar is best-effort. If
+      // there's no prior event, or moving it fails, the row is still updated and
+      // flagged for the background sync sweep instead of blocking the reschedule.
+      let calendarSyncResult: 'synced' | 'failed' | 'skipped' = 'skipped'
+      let calendarSyncError: string | null = null
       if (appt.googleEventId) {
-        await deps.calendar.updateEvent({
-          eventId: appt.googleEventId,
-          title: `Cita: ${appt.providerName}`,
-          date: state.preferredDate,
-          time: state.preferredTime,
-          durationMinutes: duration,
-        })
+        try {
+          await deps.calendar.updateEvent({
+            eventId: appt.googleEventId,
+            title: `Cita: ${appt.providerName}`,
+            date: state.preferredDate,
+            time: state.preferredTime,
+            durationMinutes: duration,
+          })
+          calendarSyncResult = 'synced'
+        } catch (err) {
+          calendarSyncResult = 'failed'
+          calendarSyncError = err instanceof Error ? err.message : String(err)
+        }
       }
       await deps.applyReschedule({
         appointmentId: state.appointmentId,
@@ -226,6 +245,8 @@ export async function advanceRescheduleFlow(
         // Preserve the service's real length (Req 30); slot.end is the calendar's
         // fixed 30-min grid, which would shrink a longer appointment.
         endTime: slotEnd(slot.start, duration),
+        calendarSyncResult,
+        calendarSyncError,
       })
       return {
         nextState: { ...state, step: 'done' },

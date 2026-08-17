@@ -430,6 +430,11 @@ export interface Appointment {
   endTime: string
   notes: string | null
   metadata: Record<string, unknown>
+  /** True when the Docmee row doesn't yet reflect its intended Google Calendar state (create/update/delete owed). The Docmee row is always saved regardless — this only tracks the Calendar side-effect. */
+  calendarSyncPending: boolean
+  /** Last Calendar sync error message, if any. Null while pending-but-never-attempted or once synced. */
+  calendarSyncError: string | null
+  calendarSyncAttempts: number
   createdAt: string
   updatedAt: string
 }

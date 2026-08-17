@@ -231,6 +231,11 @@ export interface Appointment {
   notes: string | null
   // Screen 2: metadata.urgent flags an urgent appointment (red card + tag).
   metadata: Record<string, unknown>
+  // True while the row doesn't yet reflect its intended Google Calendar state
+  // (create/update/delete owed) — the appointment itself is always saved
+  // regardless; this only tracks the best-effort Calendar side-effect.
+  calendarSyncPending: boolean
+  calendarSyncError: string | null
   createdAt: string
 }
 

@@ -354,11 +354,15 @@ export async function processSchedulingJob(job: Job): Promise<void> {
 
     let nextFlow: StoredFlow | null = null
 
-    // Calendar failures (Req 29 Error Review): a Google Calendar call inside any
-    // scheduling flow can throw (expired/revoked OAuth token, API outage, quota).
-    // Rather than let the job fail and retry — which risks a double-book or a
-    // double-send — we record the failure to error_reviews for operator review,
-    // tell the patient a human will follow up, and hand off. Best-effort logging.
+    // Generic turn-processing safety net (Req 29 Error Review). Calendar API
+    // failures no longer land here — booking/reschedule/cancel-flow each catch
+    // their own Calendar errors internally and keep the Docmee write, flagging
+    // it for the background calendar-sync-retry job instead (see calbot's
+    // booking-flow/reschedule-flow/cancel-flow.ts). This catch is now for
+    // everything ELSE that can go wrong mid-turn (a DB error, a malformed row,
+    // etc.) — rather than let the job fail and retry, which risks a double-book
+    // or a double-send, we record the failure to error_reviews for operator
+    // review, tell the patient a human will follow up, and hand off.
     try {
       switch (data.action) {
       case 'status': {
@@ -376,10 +380,15 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         const state = stored?.action === 'cancel' ? stored.state : initialCancelState()
         const result = await advanceCancelFlow(state, data.message, { language, appointment: upcoming[0] ? toUpcoming(upcoming[0], providers) : null }, {
           deleteEvent: async (eventId) => {
-            if (calendar) await calendar.deleteEvent(eventId)
+            if (!calendar) throw new Error('No calendar configured for this clinic')
+            await calendar.deleteEvent(eventId)
           },
-          markCancelled: async (appointmentId) => {
-            await appointments.update(data.clinicId, appointmentId, { status: 'cancelled' })
+          markCancelled: async (appointmentId, { eventDeleted, error }) => {
+            await appointments.update(data.clinicId, appointmentId, {
+              status: 'cancelled',
+              ...(eventDeleted ? { googleEventId: null, calendarSyncPending: false, calendarSyncError: null } : {}),
+              ...(error ? { calendarSyncPending: true, calendarSyncError: error } : {}),
+            })
             await appointments.addEvent(data.clinicId, appointmentId, 'cancelled')
           },
         })
@@ -435,8 +444,14 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           ...(target ? { serviceDurationMinutes: apptDurationMinutes(target) } : {}),
         }, {
           calendar: rescheduleCalendar,
-          applyReschedule: async ({ appointmentId, startTime, endTime }) => {
-            await appointments.update(data.clinicId, appointmentId, { startTime, endTime, status: 'confirmed' })
+          applyReschedule: async ({ appointmentId, startTime, endTime, calendarSyncResult, calendarSyncError }) => {
+            await appointments.update(data.clinicId, appointmentId, {
+              startTime,
+              endTime,
+              status: 'confirmed',
+              ...(calendarSyncResult === 'synced' ? { calendarSyncPending: false, calendarSyncError: null } : {}),
+              ...(calendarSyncResult !== 'synced' ? { calendarSyncPending: true, calendarSyncError } : {}),
+            })
             await appointments.addEvent(data.clinicId, appointmentId, 'rescheduled')
           },
         })
@@ -517,7 +532,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           patientName: patient?.fullName ?? null,
         }, {
           calendar: bookingCalendar ?? unconfiguredCalendar,
-          saveAppointment: async ({ providerId, doctorName, specialty, serviceId, startTime, endTime, reason, preferredDate, preferredTime, googleEventId }) => {
+          saveAppointment: async ({ providerId, doctorName, specialty, serviceId, startTime, endTime, reason, preferredDate, preferredTime, googleEventId, calendarSyncError }) => {
             // Req 10: the full intake captured during the flow (reason, the
             // patient's preferred date/time, the chosen doctor + specialty + service
             // and the originating source channel) is persisted onto the appointment...
@@ -542,7 +557,12 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               notes: reason,
               metadata: { intake },
             })
-            await appointments.update(data.clinicId, created.id, { status: 'confirmed', googleEventId })
+            await appointments.update(data.clinicId, created.id, {
+              status: 'confirmed',
+              googleEventId,
+              calendarSyncPending: googleEventId == null,
+              calendarSyncError,
+            })
             await appointments.addEvent(data.clinicId, created.id, 'confirmed')
             // ...and merged onto the patient record so it is queryable from the
             // patient view, not only buried in the appointment. Best-effort: a

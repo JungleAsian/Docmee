@@ -24,6 +24,8 @@ function appt(id: string, startTime: string, status: Appointment['status'] = 'co
     endTime: startTime,
     notes: null,
     metadata: {},
+    calendarSyncPending: false,
+    calendarSyncError: null,
     createdAt: startTime,
   }
 }

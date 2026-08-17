@@ -77,14 +77,5 @@ describe('workflow trigger catalog', () => {
       timeField: 'preferred_time',
       bookingKeyField: 'selected_booking_key',
     })
-
-    const selectedMenuEdges = template?.edges.filter((edge) => ['doctor_menu', 'service_menu', 'date_menu', 'time_menu', 'confirm_menu'].includes(edge.source))
-    expect(selectedMenuEdges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: 'doctor_menu', sourceHandle: 'selected' }),
-      expect.objectContaining({ source: 'service_menu', sourceHandle: 'selected' }),
-      expect.objectContaining({ source: 'date_menu', sourceHandle: 'selected' }),
-      expect.objectContaining({ source: 'time_menu', sourceHandle: 'selected' }),
-      expect.objectContaining({ source: 'confirm_menu', sourceHandle: 'selected' }),
-    ]))
   })
 })

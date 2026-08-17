@@ -39,9 +39,7 @@ function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
     ? ['true', 'false']
     : wf.type === 'logic.ai_classify_intent'
       ? ['high', 'low', 'error']
-      : wf.type === 'action.interactive_menu'
-        ? ['selected']
-        : []
+      : []
   return (
     <div
       className={`w-44 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${

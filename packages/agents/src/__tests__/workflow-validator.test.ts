@@ -25,9 +25,9 @@ describe('validateWorkflowDefinition', () => {
       node('end', 'action', 'action.end'),
     ], [
       edge('one', 'trigger', 'doctor'),
-      edge('two', 'doctor', 'slots', 'selected'),
+      edge('two', 'doctor', 'slots'),
       edge('three', 'slots', 'time'),
-      edge('four', 'time', 'revalidate', 'selected'),
+      edge('four', 'time', 'revalidate'),
       edge('five', 'revalidate', 'book'),
       edge('six', 'book', 'end'),
     ], { requireTrigger: true })).toEqual([])
@@ -72,19 +72,5 @@ describe('validateWorkflowDefinition', () => {
     expect(errors.join('\n')).toMatch(/requires true and false successors/)
     expect(errors.join('\n')).toMatch(/must have exactly one successor/)
     expect(errors.join('\n')).toMatch(/requires a positive amount/)
-  })
-
-  it('rejects interactive menu edges without the selected handle', () => {
-    const errors = validateWorkflowDefinition([
-      node('trigger', 'trigger', 'trigger.message_keyword'),
-      node('menu', 'action', 'action.interactive_menu', { menuType: 'date' }),
-      node('end', 'action', 'action.end'),
-    ], [
-      edge('one', 'trigger', 'menu'),
-      edge('two', 'menu', 'end'),
-    ], { requireTrigger: true })
-
-    expect(errors).toContain('Interactive menu edge two must use the selected handle')
-    expect(errors).toContain('Interactive menu menu requires a selected successor')
   })
 })

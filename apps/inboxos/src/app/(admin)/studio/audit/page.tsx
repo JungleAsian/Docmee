@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
+import { BackButton } from '@/shared/components/BackButton'
 
 type Clinic = { id: string; name: string }
 type AuditEvent = {
@@ -57,7 +58,7 @@ function DetailList({ details }: { details?: Record<string, unknown> | null }) {
 }
 
 export default function AuditPage() {
-  const { language } = useI18n()
+  const { language, t } = useI18n()
   const [clinicId, setClinicId] = useState('')
   const clinicsQuery = useQuery({
     queryKey: ['clinics'],
@@ -78,6 +79,7 @@ export default function AuditPage() {
       <div className="clinic-page clinic-page-lg space-y-4">
         <div className="clinic-page-header">
           <div>
+            <BackButton href="/studio" label={t('nav.studio')} />
             <p className="clinic-eyebrow">Security and change history</p>
             <h1 className="clinic-title">Audit log</h1>
             <p className="clinic-subtitle">Review clinic, credential, governance, role, and sensitive setting changes.</p>

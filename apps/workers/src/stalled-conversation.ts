@@ -30,12 +30,17 @@ const MIN_CANDIDATE_MINUTES = 1
 
 export interface StalledConversationConfig {
   stallMinutes: number
+  /** Wait between one re-announcement and the next — separate from stallMinutes
+   *  (the wait before the FIRST one), so admins can space repeats out
+   *  differently than the initial silence-detection window. */
+  reannounceIntervalMinutes: number
   maxReannouncements: number
   closeGraceMinutes: number
 }
 
 export const DEFAULT_STALLED_CONVERSATION_CONFIG: StalledConversationConfig = {
   stallMinutes: 10,
+  reannounceIntervalMinutes: 10,
   maxReannouncements: 3,
   closeGraceMinutes: 5,
 }
@@ -49,6 +54,10 @@ export function resolveStalledConversationConfig(settings: unknown): StalledConv
     typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
   return {
     stallMinutes: positiveInt(raw?.['stallMinutes'], DEFAULT_STALLED_CONVERSATION_CONFIG.stallMinutes),
+    reannounceIntervalMinutes: positiveInt(
+      raw?.['reannounceIntervalMinutes'],
+      DEFAULT_STALLED_CONVERSATION_CONFIG.reannounceIntervalMinutes,
+    ),
     maxReannouncements: positiveInt(
       raw?.['maxReannouncements'],
       DEFAULT_STALLED_CONVERSATION_CONFIG.maxReannouncements,
@@ -72,6 +81,11 @@ export interface StalledConversationState {
   /** How many re-announcements have been sent for this cursorId so far. */
   reannounceCount: number
   finalNoticeAt: string | null
+  /** When the most recent re-announcement was actually sent — null before the
+   *  first one, or when read back from a state persisted before this field
+   *  existed (treated as "measure from lastMessageAt instead", matching the
+   *  original behavior exactly, never a forced immediate re-announce). */
+  lastReannounceAt: string | null
 }
 
 export function readStalledConversationState(
@@ -85,6 +99,7 @@ export function readStalledConversationState(
     cursorId: s['cursorId'],
     reannounceCount: Math.max(0, Math.floor(s['reannounceCount'])),
     finalNoticeAt: typeof s['finalNoticeAt'] === 'string' ? s['finalNoticeAt'] : null,
+    lastReannounceAt: typeof s['lastReannounceAt'] === 'string' ? s['lastReannounceAt'] : null,
   }
 }
 
@@ -156,7 +171,7 @@ export function decideStalledConversationAction(
   const state: StalledConversationState =
     priorState && priorState.cursorId === cursor.cursorId
       ? priorState
-      : { cursorId: cursor.cursorId, reannounceCount: 0, finalNoticeAt: null }
+      : { cursorId: cursor.cursorId, reannounceCount: 0, finalNoticeAt: null, lastReannounceAt: null }
 
   if (state.finalNoticeAt) {
     const graceSilentMs = nowMs - Date.parse(state.finalNoticeAt)
@@ -164,12 +179,25 @@ export function decideStalledConversationAction(
     return graceSilentMs >= graceMs ? { kind: 'close' } : { kind: 'none' }
   }
 
-  const silentMs = nowMs - Date.parse(lastMessageAt)
-  const stallMs = config.stallMinutes * 60_000
-  if (silentMs < stallMs) return { kind: 'none' }
+  // After at least one re-announcement has already gone out, space the NEXT
+  // one using reannounceIntervalMinutes measured from when that one was sent
+  // — decoupled from stallMinutes, which only governs the wait before the
+  // very first re-announcement. A legacy state with reannounceCount > 0 but
+  // no lastReannounceAt (persisted before this field existed) falls back to
+  // the original stallMinutes/lastMessageAt measurement, so in-flight
+  // conversations don't get a forced immediate re-announce on deploy.
+  const usingReannounceInterval = state.reannounceCount > 0 && state.lastReannounceAt !== null
+  const thresholdMs = (usingReannounceInterval ? config.reannounceIntervalMinutes : config.stallMinutes) * 60_000
+  const sinceMs = usingReannounceInterval
+    ? nowMs - Date.parse(state.lastReannounceAt!)
+    : nowMs - Date.parse(lastMessageAt)
+  if (sinceMs < thresholdMs) return { kind: 'none' }
 
   if (state.reannounceCount < config.maxReannouncements) {
-    return { kind: 'reannounce', nextState: { ...state, reannounceCount: state.reannounceCount + 1 } }
+    return {
+      kind: 'reannounce',
+      nextState: { ...state, reannounceCount: state.reannounceCount + 1, lastReannounceAt: new Date(nowMs).toISOString() },
+    }
   }
 
   return { kind: 'final_notice', nextState: { ...state, finalNoticeAt: new Date(nowMs).toISOString() } }

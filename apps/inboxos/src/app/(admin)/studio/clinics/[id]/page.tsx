@@ -5,12 +5,12 @@
 // connection, and license. Bot/hours live in clinic.settings; we always PATCH a
 // MERGED settings object so unrelated keys are never dropped.
 import { use, useState, type FormEvent } from 'react'
-import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, API_BASE } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { LicenseBadge } from '@/shared/components/LicenseBadge'
 import { PillToggle } from '@/shared/components/PillToggle'
+import { BackButton } from '@/shared/components/BackButton'
 import { WEEKDAYS, toBusinessHours } from '@/shared/businessHours'
 import { tonePreview, SAFETY_RULE_KEYS } from '@/shared/botPreview'
 import {
@@ -50,9 +50,7 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{clinic?.name ?? t('studio.clinics.detail')}</h1>
-        <Link href="/studio/clinics" className="text-xs text-gray-500 hover:text-teal-600">
-          ← {t('nav.clinics')}
-        </Link>
+        <BackButton href="/studio/clinics" label={t('nav.clinics')} />
       </div>
 
       {query.isLoading ? (
@@ -666,15 +664,14 @@ function BusinessHoursSection({ clinic }: { clinic: Clinic }) {
           return (
             <div key={day} className="flex flex-wrap items-center gap-2 text-sm">
               <span className="w-24 text-gray-600 dark:text-gray-400">{t(`hours.day.${day}` as const)}</span>
-              <label className="flex items-center gap-2 text-xs text-gray-500">
-                <span>{t('hours.closed')}</span>
-                <PillToggle
-                  checked={Boolean(d.closed)}
-                  label={`${t(`hours.day.${day}` as const)} ${t('hours.closed')}`}
-                  onChange={(closed) => update(day, { closed })}
-                  size="sm"
-                />
-              </label>
+              <PillToggle
+                checked={!d.closed}
+                label={`${t(`hours.day.${day}` as const)} ${d.closed ? t('hours.closed') : t('hours.open')}`}
+                onChange={(isOpen) => update(day, { closed: !isOpen })}
+                onLabel={t('hours.open')}
+                offLabel={t('hours.closed')}
+                size="sm"
+              />
               <input
                 type="time"
                 value={d.open}

@@ -12,6 +12,7 @@ import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { StudioIntegrationsPanel } from '@/shared/components/StudioIntegrationsPanel'
+import { BackButton } from '@/shared/components/BackButton'
 import { AUTOMATION_DEFS } from '@/shared/automations'
 import {
   summarizeAiProviderReadiness,
@@ -140,6 +141,7 @@ interface SuperuserClinicSettingsForm {
   bookingEndHour: string
   bookingSlotMinutes: string
   stallMinutes: string
+  reannounceIntervalMinutes: string
   maxReannouncements: string
   closeGraceMinutes: string
   googleCalendarId: string
@@ -253,7 +255,10 @@ export default function ChannelsPage() {
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('studio.channels.title')}</h1>
+        <div>
+          <BackButton href="/studio" label={t('nav.studio')} />
+          <h1 className="text-xl font-bold">{t('studio.channels.title')}</h1>
+        </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />
       </div>
       <p className="mb-4 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
@@ -331,6 +336,7 @@ function buildSuperuserSettingsForm(settings: ClinicSettings | undefined): Super
     bookingEndHour: String(settings?.bookingGrid?.endHour ?? 17),
     bookingSlotMinutes: String(settings?.bookingGrid?.slotMinutes ?? 30),
     stallMinutes: String(settings?.stalledConversation?.stallMinutes ?? 10),
+    reannounceIntervalMinutes: String(settings?.stalledConversation?.reannounceIntervalMinutes ?? 10),
     maxReannouncements: String(settings?.stalledConversation?.maxReannouncements ?? 3),
     closeGraceMinutes: String(settings?.stalledConversation?.closeGraceMinutes ?? 5),
     googleCalendarId: settings?.googleCalendar?.calendarId ? String(settings.googleCalendar.calendarId) : '',
@@ -374,10 +380,14 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
       }
 
       const stallMinutes = integerFromForm(form.stallMinutes, 10)
+      const reannounceIntervalMinutes = integerFromForm(form.reannounceIntervalMinutes, 10)
       const maxReannouncements = integerFromForm(form.maxReannouncements, 3)
       const closeGraceMinutes = integerFromForm(form.closeGraceMinutes, 5)
       if (stallMinutes < 5 || stallMinutes > 120) {
         throw new Error('Stall wait must be between 5 and 120 minutes.')
+      }
+      if (reannounceIntervalMinutes < 5 || reannounceIntervalMinutes > 120) {
+        throw new Error('Re-announcement interval must be between 5 and 120 minutes.')
       }
       if (maxReannouncements < 0 || maxReannouncements > 10) {
         throw new Error('Max re-announcements must be between 0 and 10.')
@@ -395,6 +405,7 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
         stalledConversation: {
           ...(current.stalledConversation ?? {}),
           stallMinutes,
+          reannounceIntervalMinutes,
           maxReannouncements,
           closeGraceMinutes,
         },
@@ -516,12 +527,23 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
 
         <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
           <h3 className="text-xs font-semibold uppercase text-gray-400">Stalled conversation timer</h3>
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <label className="block text-xs font-medium text-gray-500">
               Stall wait (min)
               <input
                 value={form.stallMinutes}
                 onChange={(event) => updateField('stallMinutes', event.target.value)}
+                type="number"
+                min={5}
+                max={120}
+                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
+              />
+            </label>
+            <label className="block text-xs font-medium text-gray-500">
+              Re-announce interval (min)
+              <input
+                value={form.reannounceIntervalMinutes}
+                onChange={(event) => updateField('reannounceIntervalMinutes', event.target.value)}
                 type="number"
                 min={5}
                 max={120}

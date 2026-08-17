@@ -26,10 +26,14 @@ import {
   slugifyOptionId,
   uniqueOptionId,
   ENUM_FIELD_OPTIONS,
+  ALLOWED_BOOKING_FIELDS,
+  changeableNodeTypes,
+  nodeHasStructuredData,
   parseAiAgentScenarioList,
   humanize,
   parseMenuOptionsSafe,
   nextMenuOptionId,
+  parseBulkMenuOptionLines,
   branchRows,
   parseBranchColors,
   resolveBranchColor,
@@ -62,6 +66,7 @@ export function NodeConfigPanel({
   clinicId,
   workflowId,
   onPatchConfig,
+  onChangeType,
 }: {
   node: WfNode
   /** Every node in the workflow (including `node` itself) — powers the
@@ -73,8 +78,14 @@ export function NodeConfigPanel({
    *  to another workflow" target picker so it can't route to itself. */
   workflowId?: string
   onPatchConfig: (key: string, value: string) => void
+  /** Reassigns this node's type in place (same id, edges survive) — omitted
+   *  entirely by a caller that doesn't want type-changing available (none do
+   *  today, but keeps the panel usable standalone). */
+  onChangeType?: (newType: string) => void
 }) {
   const { t, language } = useI18n()
+  const [changingType, setChangingType] = useState(false)
+  const typeOptions = useMemo(() => changeableNodeTypes(node), [node])
 
   // The clinic's active doctors, for the no-code optionId picker in the
   // interactive-menu options editor: picking a doctor fills the option with
@@ -142,6 +153,16 @@ export function NodeConfigPanel({
   const addMenuOption = useCallback(() => {
     setMenuOptions([...menuOptions, { optionId: nextMenuOptionId(menuOptions), title: '' }])
   }, [menuOptions, setMenuOptions])
+
+  const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false)
+  const [bulkOptionsText, setBulkOptionsText] = useState('')
+  const addBulkOptions = useCallback(() => {
+    const added = parseBulkMenuOptionLines(bulkOptionsText, menuOptions)
+    if (added.length === 0) return
+    setMenuOptions([...menuOptions, ...added])
+    setBulkOptionsText('')
+    setBulkOptionsOpen(false)
+  }, [bulkOptionsText, menuOptions, setMenuOptions])
 
   /** Turns a reserved routing outcome into a real, visible button/row by
    *  appending it to the same options array, pre-filled with its familiar
@@ -274,16 +295,17 @@ export function NodeConfigPanel({
     })
   }, [])
   // A key is "pickable" when its value should come from a list of known
-  // names rather than free text: field references, or add_tag's own `tag`
-  // (picked from the canonical tag palette so it always renders with a
-  // label/colour elsewhere in the app — see tagTypes.ts).
-  const isPickableKey = (key: string) => FIELD_REFERENCE_KEYS.has(key) || key === 'tag'
+  // names rather than free text: field references, add_tag's own `tag`, or
+  // extract_booking_details/transcribe_booking_voice's `reviewTag` — same
+  // semantic as `tag`, reusing the identical canonical tag palette (picked
+  // from tagTypes.ts) rather than a second hand-typed input.
+  const isPickableKey = (key: string) => FIELD_REFERENCE_KEYS.has(key) || key === 'tag' || key === 'reviewTag'
   /** Options for a pickable key: canonical tag palette (+ any custom tags
-   *  already used in this workflow) for `tag`, or the field pool otherwise.
-   *  Human-readable labels — never the raw technical name — per option. */
+   *  already used in this workflow) for `tag`/`reviewTag`, or the field pool
+   *  otherwise. Human-readable labels — never the raw technical name — per option. */
   const pickableOptions = useCallback(
     (key: string): { value: string; label: string }[] => {
-      if (key === 'tag') {
+      if (key === 'tag' || key === 'reviewTag') {
         const canonical = TAG_TYPES.map((tt) => ({ value: tt.name, label: tagLabel(tt.name, language) }))
         const extra = availableTags
           .filter((tag) => !TAG_TYPES.some((tt) => tt.name === tag))
@@ -297,6 +319,58 @@ export function NodeConfigPanel({
 
   return (
     <>
+      {/* Custom node name — purely cosmetic (node.config.customLabel), falls
+          back to the type's fixed label everywhere it's shown when empty. */}
+      <label className="mb-3 block">
+        <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{t('wf.customLabel')}</span>
+        <input
+          value={String(node.config['customLabel'] ?? '')}
+          onChange={(e) => onPatchConfig('customLabel', e.target.value)}
+          placeholder={t(nodeDef(node.type)?.labelKey as Parameters<typeof t>[0])}
+          className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+        />
+      </label>
+
+      {/* Change node type — same id, edges survive; only same-kind swaps offered */}
+      {onChangeType && typeOptions.length > 0 && (
+        <div className="mb-3 rounded border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900">
+          {!changingType ? (
+            <button
+              type="button"
+              onClick={() => setChangingType(true)}
+              className="text-[11px] font-medium text-teal-700 hover:underline dark:text-teal-300"
+            >
+              {t('wf.changeType')}
+            </button>
+          ) : (
+            <label className="block">
+              <span className="mb-0.5 block font-medium text-gray-600 dark:text-gray-300">{t('wf.changeType')}</span>
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  const newType = e.target.value
+                  if (!newType) return
+                  if (nodeHasStructuredData(node) && !window.confirm(t('wf.changeType.confirmDataLoss'))) {
+                    setChangingType(false)
+                    return
+                  }
+                  onChangeType(newType)
+                  setChangingType(false)
+                }}
+                className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              >
+                <option value="">{t('wf.field.selectPlaceholder')}</option>
+                {typeOptions.map((d) => (
+                  <option key={d.type} value={d.type}>
+                    {t(d.labelKey as Parameters<typeof t>[0])}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
+
       {/* Standard text fields */}
       {(nodeDef(node.type)?.fields ?? []).map((key) => {
         const manualKey = `${node.id}:${key}`
@@ -356,7 +430,7 @@ export function NodeConfigPanel({
               <input
                 value={value}
                 onChange={(e) => onPatchConfig(key, e.target.value)}
-                placeholder={key === 'tag' ? 'tag_name' : 'field_name'}
+                placeholder={key === 'tag' || key === 'reviewTag' ? 'tag_name' : 'field_name'}
                 className="w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
               />
               <button
@@ -416,6 +490,7 @@ export function NodeConfigPanel({
                 onChange={(e) => onPatchConfig(key, e.target.value)}
                 className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
               >
+                <option value="">{t('wf.field.selectPlaceholder')}</option>
                 {ENUM_FIELD_OPTIONS[key]!.map((o) => (
                   <option key={o.value} value={o.value}>
                     {t(o.labelKey as Parameters<typeof t>[0])}
@@ -426,6 +501,31 @@ export function NodeConfigPanel({
               {key === 'category' && value && templatesQuery.data && !approvedTemplateCategories.has(value as MessageTemplate['category']) && (
                 <span className="mt-0.5 block text-[10px] text-amber-600 dark:text-amber-400">{t('wf.hint.noApprovedTemplate')}</span>
               )}
+            </div>
+          ) : key === 'allowedFields' ? (
+            <div className="flex flex-wrap gap-1.5">
+              {ALLOWED_BOOKING_FIELDS.map((f) => {
+                const selected = new Set(value.split(',').map((v) => v.trim()).filter(Boolean))
+                const checked = selected.has(f)
+                return (
+                  <label
+                    key={f}
+                    className="flex items-center gap-1 rounded border border-gray-300 px-1.5 py-1 text-[10px] dark:border-gray-700"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = new Set(selected)
+                        if (e.target.checked) next.add(f)
+                        else next.delete(f)
+                        onPatchConfig(key, ALLOWED_BOOKING_FIELDS.filter((x) => next.has(x)).join(','))
+                      }}
+                    />
+                    {t(`wf.allowedField.${f}` as Parameters<typeof t>[0])}
+                  </label>
+                )
+              })}
             </div>
           ) : key === 'validation' ? (
             <select
@@ -461,6 +561,49 @@ export function NodeConfigPanel({
       {isMenu && (
         <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
           <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.field.options')}</p>
+
+          <div className="rounded border border-violet-200 bg-white p-1.5 dark:border-violet-900 dark:bg-gray-900">
+            {!bulkOptionsOpen ? (
+              <button
+                type="button"
+                onClick={() => setBulkOptionsOpen(true)}
+                className="text-[11px] font-medium text-violet-700 hover:underline dark:text-violet-300"
+              >
+                {t('wf.bulkAddOptions')}
+              </button>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">{t('wf.bulkAddOptions.hint')}</p>
+                <textarea
+                  value={bulkOptionsText}
+                  onChange={(e) => setBulkOptionsText(e.target.value)}
+                  rows={4}
+                  placeholder={t('wf.bulkAddOptions.placeholder')}
+                  className="w-full resize-none rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={addBulkOptions}
+                    className="rounded bg-violet-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-violet-700"
+                  >
+                    {t('wf.bulkAddOptions.submit')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkOptionsOpen(false)
+                      setBulkOptionsText('')
+                    }}
+                    className="text-[11px] text-gray-500 hover:underline dark:text-gray-400"
+                  >
+                    {t('common.cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
             {menuOptions.map((opt, oi) => (
               <div key={oi} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">

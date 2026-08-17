@@ -1036,6 +1036,8 @@ function BookingPanel({
   const [doctorId, setDoctorId] = useState(initialDoctorId ?? doctors[0]?.id ?? '')
   const [serviceId, setServiceId] = useState('')
   const [patientId, setPatientId] = useState('')
+  const [patientMode, setPatientMode] = useState<'existing' | 'new'>('existing')
+  const [newPatientName, setNewPatientName] = useState('')
   const [date, setDate] = useState(initialDate)
   const [start, setStart] = useState(initialStart ?? '')
   const [notes, setNotes] = useState('')
@@ -1053,12 +1055,13 @@ function BookingPanel({
   })
   const services = servicesQuery.data?.services ?? []
   const patients = patientsQuery.data?.patients ?? []
-  const patientName = patients.find((p) => p.id === patientId)?.fullName || t('cal.unknownPatient')
+  const selectedPatientDisplayName = patients.find((p) => p.id === patientId)?.fullName || t('cal.unknownPatient')
+  const patientDisplayName = patientMode === 'new' ? newPatientName.trim() : selectedPatientDisplayName
 
   const mutation = useMutation({
     mutationFn: () =>
       api.post<{ appointment: AppointmentWithNames }>(`/clinics/${clinicId}/appointments`, {
-        patientId,
+        ...(patientMode === 'new' ? { patientName: newPatientName.trim() } : { patientId }),
         doctorId,
         serviceId: serviceId || undefined,
         date,
@@ -1071,34 +1074,67 @@ function BookingPanel({
       qc.invalidateQueries({ queryKey: ['appointments', clinicId] })
       qc.invalidateQueries({ queryKey: ['appt-events', clinicId] })
       qc.invalidateQueries({ queryKey: ['slots', clinicId] })
-      onSuccess(patientName, data.appointment.calendarSyncPending)
+      qc.invalidateQueries({ queryKey: ['booking-patients', clinicId] })
+      onSuccess(patientDisplayName, data.appointment.calendarSyncPending)
     },
     onError: (e) =>
       setErrorKey(e instanceof ApiError && e.status === 409 ? 'cal.slotTaken' : 'cal.bookError'),
   })
 
-  const canSubmit = Boolean(doctorId && patientId && date && start) && !mutation.isPending
+  const canSubmit =
+    Boolean(doctorId && date && start) &&
+    (patientMode === 'existing' ? Boolean(patientId) : Boolean(newPatientName.trim())) &&
+    !mutation.isPending
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm">
+      <div className="text-sm">
         <span className="text-gray-500">{t('cal.patient')}</span>
-        <select
-          value={patientId}
-          onChange={(e) => setPatientId(e.target.value)}
-          className={`${field} mt-1`}
-        >
-          <option value="">{t('cal.selectPatient')}</option>
-          {patients.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.fullName || t('cal.unknownPatient')}
-            </option>
-          ))}
-        </select>
-        {patients.length === 0 && !patientsQuery.isLoading && (
-          <span className="mt-1 block text-xs text-gray-400">{t('cal.noPatients')}</span>
+        <div className="mt-1 flex gap-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setPatientMode('existing')}
+            className={`rounded px-2 py-1 font-medium ${patientMode === 'existing' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}
+          >
+            {t('cal.selectPatient')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPatientMode('new')}
+            className={`rounded px-2 py-1 font-medium ${patientMode === 'new' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`}
+          >
+            {t('cal.newPatient')}
+          </button>
+        </div>
+        {patientMode === 'existing' ? (
+          <label className="mt-1 block">
+            <select
+              value={patientId}
+              onChange={(e) => setPatientId(e.target.value)}
+              className={field}
+            >
+              <option value="">{t('cal.selectPatient')}</option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.fullName || t('cal.unknownPatient')}
+                </option>
+              ))}
+            </select>
+            {patients.length === 0 && !patientsQuery.isLoading && (
+              <span className="mt-1 block text-xs text-gray-400">{t('cal.noPatients')}</span>
+            )}
+          </label>
+        ) : (
+          <label className="mt-1 block">
+            <input
+              value={newPatientName}
+              onChange={(e) => setNewPatientName(e.target.value)}
+              placeholder={t('cal.newPatientNamePlaceholder')}
+              className={field}
+            />
+          </label>
         )}
-      </label>
+      </div>
 
       <label className="block text-sm">
         <span className="text-gray-500">{t('cal.doctor')}</span>

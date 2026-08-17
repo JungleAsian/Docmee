@@ -17,9 +17,10 @@
 import { useState } from 'react'
 import { useI18n } from '../hooks/useI18n'
 import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
-import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, branchRows, parseMenuOptionsSafe, type NodeTypeDef } from '../workflowNodes'
+import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, branchRows, parseMenuOptionsSafe, changeNodeType, type NodeTypeDef } from '../workflowNodes'
 import { isBranchingNode, resequenceLinearEdges } from '../workflowLinearEdges'
 import { NodeConfigPanel } from './NodeConfigPanel'
+import { WorkflowNodeIcon } from './WorkflowNodeIcon'
 
 const TRIGGER_DEFS = WORKFLOW_NODE_TYPES.filter((d) => d.kind === 'trigger')
 const ADDABLE_DEFS = WORKFLOW_NODE_TYPES.filter((d) => d.kind !== 'trigger')
@@ -96,6 +97,10 @@ export function WorkflowLinearEditor({
     onChange({ nodes: nodes.map((n) => (n.id === id ? { ...n, config: { ...n.config, [key]: value } } : n)), edges })
   }
 
+  const changeStepType = (id: string, newType: string) => {
+    onChange({ nodes: nodes.map((n) => (n.id === id ? changeNodeType(n, newType) : n)), edges })
+  }
+
   const setBranchTarget = (sourceId: string, handleKey: string, targetId: string) => {
     const withoutOld = edges.filter((e) => !(e.source === sourceId && e.sourceHandle === handleKey))
     const nextEdges = targetId
@@ -122,9 +127,12 @@ export function WorkflowLinearEditor({
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${NODE_KIND_BADGE.trigger}`}>
                 {t('wf.linear.start')}
               </span>
-              <span className="font-semibold text-gray-800 dark:text-gray-100">{label(trigger.type)}</span>
+              <WorkflowNodeIcon icon={nodeDef(trigger.type)?.icon ?? ''} className="h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400" />
+              <span className="font-semibold text-gray-800 dark:text-gray-100">
+                {String(trigger.config?.customLabel ?? '').trim() || label(trigger.type)}
+              </span>
             </div>
-            <NodeConfigPanel node={trigger} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={(key, value) => patchNodeConfig(trigger.id, key, value)} />
+            <NodeConfigPanel node={trigger} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={(key, value) => patchNodeConfig(trigger.id, key, value)} onChangeType={(newType) => changeStepType(trigger.id, newType)} />
             <StepFooter step={trigger} steps={steps} bodySteps={bodySteps} edges={edges} t={t} branchLabel={branchLabel} targetOptions={targetOptions} setBranchTarget={setBranchTarget} />
           </div>
         ) : (
@@ -160,7 +168,10 @@ export function WorkflowLinearEditor({
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${NODE_KIND_BADGE[step.kind]}`}>
                     {t('wf.linear.stepLabel', { n: i + 1 })}
                   </span>
-                  <span className="font-semibold text-gray-800 dark:text-gray-100">{label(step.type)}</span>
+                  <WorkflowNodeIcon icon={nodeDef(step.type)?.icon ?? ''} className="h-3.5 w-3.5 shrink-0 text-gray-500 dark:text-gray-400" />
+                  <span className="font-semibold text-gray-800 dark:text-gray-100">
+                    {String(step.config?.customLabel ?? '').trim() || label(step.type)}
+                  </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <button
@@ -191,7 +202,7 @@ export function WorkflowLinearEditor({
                   </button>
                 </div>
               </div>
-              <NodeConfigPanel node={step} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={(key, value) => patchNodeConfig(step.id, key, value)} />
+              <NodeConfigPanel node={step} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={(key, value) => patchNodeConfig(step.id, key, value)} onChangeType={(newType) => changeStepType(step.id, newType)} />
               <StepFooter step={step} steps={steps} bodySteps={bodySteps} edges={edges} t={t} branchLabel={branchLabel} targetOptions={targetOptions} setBranchTarget={setBranchTarget} />
             </div>
           ))

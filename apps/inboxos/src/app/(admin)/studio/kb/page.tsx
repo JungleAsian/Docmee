@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, API_BASE } from '@/shared/api/client'
 import { authSnapshot } from '@/shared/store/auth'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
+import { BackButton } from '@/shared/components/BackButton'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { trainingInfo, sourceInfo, needsReview, type TrainingState } from '@/shared/kbTraining'
@@ -178,6 +179,7 @@ export default function KbPage() {
     return (
       <div className="clinic-page clinic-page-md space-y-6">
         <div className="clinic-card p-6">
+          <BackButton href="/studio" label={t('nav.studio')} />
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Limited access</p>
           <h1 className="mt-2 text-xl font-bold">{t('studio.kb.title')}</h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -191,13 +193,16 @@ export default function KbPage() {
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2">
+        <div>
+          <BackButton href="/studio" label={t('nav.studio')} />
+          <div className="flex items-baseline gap-2">
           <h1 className="text-xl font-bold">{t('studio.kb.title')}</h1>
           {clinicId && !query.isLoading && (
             <span className="text-xs text-gray-400">
               {t('studio.kb.docCount', { n: documents.length })}
             </span>
           )}
+          </div>
         </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />
       </div>

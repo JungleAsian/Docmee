@@ -109,6 +109,25 @@ describe('validateWorkflowDefinition', () => {
     expect(errors.join('\n')).toMatch(/too many options for variant "button" \(max 3\)/)
   })
 
+  it('defaults an unset variant to "list", not "button" (regression — UI shows list selected on a fresh node)', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', {
+        // no `variant` key at all — matches a freshly-created node's config
+        options: menuOptions([
+          { optionId: 'a', title: 'A' }, { optionId: 'b', title: 'B' },
+          { optionId: 'c', title: 'C' }, { optionId: 'd', title: 'D' },
+        ]),
+      }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'menu'),
+      edge('ma', 'menu', 'end', 'a'), edge('mb', 'menu', 'end', 'b'),
+      edge('mc', 'menu', 'end', 'c'), edge('md', 'menu', 'end', 'd'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
   it('enforces WhatsApp\'s title-length cap per variant — 20 for buttons, 24 for lists (regression)', () => {
     // Production incident: confirm_menu's "Back to previous menu" (21 chars)
     // passed this check under a uniform 24-char limit, but WhatsApp rejects
@@ -209,6 +228,20 @@ describe('validateWorkflowDefinition', () => {
       edge('s3', 'slots', 'main', 'restart'),
       edge('s4', 'slots', 'human', 'livechat'),
       edge('hm', 'human', 'main'),
+    ], { requireTrigger: true })
+    expect(errors).toEqual([])
+  })
+
+  it('defaults an unset pickerMode to "date", not empty-string (regression — UI shows Date selected on a fresh node)', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', {}), // no pickerMode key at all
+      node('picked', 'action', 'action.end'),
+      node('none', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('s1', 'slots', 'picked', 'selected'),
+      edge('s2', 'slots', 'none', 'empty'),
     ], { requireTrigger: true })
     expect(errors).toEqual([])
   })

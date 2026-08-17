@@ -130,7 +130,10 @@ export function validateWorkflowDefinition(
     }
     if (node.type === 'action.interactive_menu') {
       const options = parseMenuOptions(node.config)
-      const variant = String(node.config?.['variant'] ?? 'button')
+      // Matches the worker's own default (workflow-runner.worker.ts) and the
+      // Studio dropdown's first/visually-selected enum entry — an untouched
+      // node must validate the same way it looks and the same way it'll run.
+      const variant = String(node.config?.['variant'] ?? 'list')
       const limit = variant === 'list' ? 10 : 3
       if (options.length === 0) {
         errors.push(`Interactive menu ${node.id} requires at least one option`)
@@ -163,7 +166,10 @@ export function validateWorkflowDefinition(
       }
     }
     if (node.type === 'action.offer_slot_menu') {
-      const mode = String(node.config?.['pickerMode'] ?? '')
+      // Matches the worker's three call sites (all default to 'date') — an
+      // untouched node must not fail validation before the admin ever touches
+      // the picker-mode dropdown.
+      const mode = String(node.config?.['pickerMode'] ?? 'date')
       if (mode !== 'date' && mode !== 'time') {
         errors.push(`Slot menu ${node.id} has an invalid pickerMode "${mode}" (must be "date" or "time")`)
       }

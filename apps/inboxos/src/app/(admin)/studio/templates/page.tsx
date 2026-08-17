@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { StudioMessagingTabs } from '@/shared/components/StudioMessagingTabs'
+import { BackButton } from '@/shared/components/BackButton'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import {
@@ -204,7 +205,10 @@ export default function TemplatesPage() {
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('studio.templates.title')}</h1>
+        <div>
+          <BackButton href="/studio" label={t('nav.studio')} />
+          <h1 className="text-xl font-bold">{t('studio.templates.title')}</h1>
+        </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />
       </div>
 

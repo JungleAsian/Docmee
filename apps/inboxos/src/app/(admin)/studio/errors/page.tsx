@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { SlideOver } from '@/shared/components/SlideOver'
+import { BackButton } from '@/shared/components/BackButton'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { formatDateTime } from '@/shared/format'
@@ -170,7 +171,10 @@ export default function ErrorsPage() {
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('studio.errors.title')}</h1>
+        <div>
+          <BackButton href="/studio" label={t('nav.studio')} />
+          <h1 className="text-xl font-bold">{t('studio.errors.title')}</h1>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           {types.length > 0 && (
             <select

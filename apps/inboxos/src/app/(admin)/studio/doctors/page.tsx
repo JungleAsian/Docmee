@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, API_BASE, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { PillToggle } from '@/shared/components/PillToggle'
+import { BackButton } from '@/shared/components/BackButton'
 import {
   WEEKDAYS,
   addShift,
@@ -54,7 +55,10 @@ export default function DoctorsPage() {
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{t('studio.doctors.title')}</h1>
+        <div>
+          <BackButton href="/studio" label={t('nav.studio')} />
+          <h1 className="text-xl font-bold">{t('studio.doctors.title')}</h1>
+        </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />
       </div>
 

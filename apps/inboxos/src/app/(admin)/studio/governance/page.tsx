@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { PillToggle } from '@/shared/components/PillToggle'
+import { BackButton } from '@/shared/components/BackButton'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 
 type ReviewState = 'trusted' | 'needs_review' | 'stale' | 'excluded' | 'archived'
@@ -169,6 +170,7 @@ export default function GovernancePage() {
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
+          <BackButton href="/studio" label="Admin Studio" />
           <p className="text-xs font-semibold uppercase text-teal-600">Configuration governance</p>
           <h1 className="text-xl font-bold tracking-tight">Clinic readiness and audit controls</h1>
           <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">

@@ -39,7 +39,7 @@ import {
 } from '../stalled-conversation.js'
 import { writePendingWorkflowRun } from '../workflow-run.js'
 
-const CONFIG = { stallMinutes: 10, maxReannouncements: 3, closeGraceMinutes: 5 }
+const CONFIG = { stallMinutes: 10, reannounceIntervalMinutes: 10, maxReannouncements: 3, closeGraceMinutes: 5 }
 const NOW = Date.parse('2026-08-09T12:00:00.000Z')
 
 describe('decideStalledConversationAction', () => {
@@ -47,7 +47,7 @@ describe('decideStalledConversationAction', () => {
     const result = decideStalledConversationAction({
       cursor: null,
       lastMessageAt: '2026-08-09T00:00:00.000Z',
-      priorState: { cursorId: 'workflow:a:b', reannounceCount: 5, finalNoticeAt: null },
+      priorState: { cursorId: 'workflow:a:b', reannounceCount: 5, finalNoticeAt: null, lastReannounceAt: null },
       config: CONFIG,
       nowMs: NOW,
     })
@@ -75,12 +75,12 @@ describe('decideStalledConversationAction', () => {
     })
     expect(result).toEqual({
       kind: 'reannounce',
-      nextState: { cursorId: 'workflow:a:b', reannounceCount: 1, finalNoticeAt: null },
+      nextState: { cursorId: 'workflow:a:b', reannounceCount: 1, finalNoticeAt: null, lastReannounceAt: new Date(NOW).toISOString() },
     })
   })
 
-  it('increments the reannounce count for the same cursor on each subsequent stall', () => {
-    const priorState: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 1, finalNoticeAt: null }
+  it('increments the reannounce count for the same cursor on each subsequent stall (legacy state, no lastReannounceAt yet — measured off lastMessageAt like before)', () => {
+    const priorState: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 1, finalNoticeAt: null, lastReannounceAt: null }
     const result = decideStalledConversationAction({
       cursor: { cursorId: 'workflow:a:b' },
       lastMessageAt: new Date(NOW - 10 * 60_000).toISOString(),
@@ -90,12 +90,44 @@ describe('decideStalledConversationAction', () => {
     })
     expect(result).toEqual({
       kind: 'reannounce',
-      nextState: { cursorId: 'workflow:a:b', reannounceCount: 2, finalNoticeAt: null },
+      nextState: { cursorId: 'workflow:a:b', reannounceCount: 2, finalNoticeAt: null, lastReannounceAt: new Date(NOW).toISOString() },
+    })
+  })
+
+  it('after a re-announcement, the NEXT one is gated by reannounceIntervalMinutes measured from lastReannounceAt, not stallMinutes/lastMessageAt', () => {
+    const priorState: StalledConversationState = {
+      cursorId: 'workflow:a:b',
+      reannounceCount: 1,
+      finalNoticeAt: null,
+      lastReannounceAt: new Date(NOW - 7 * 60_000).toISOString(),
+    }
+    // lastMessageAt is old enough to clear stallMinutes (10 min), but lastReannounceAt
+    // is only 7 min ago — under the 10-min reannounceIntervalMinutes — so still none.
+    const tooSoon = decideStalledConversationAction({
+      cursor: { cursorId: 'workflow:a:b' },
+      lastMessageAt: new Date(NOW - 30 * 60_000).toISOString(),
+      priorState,
+      config: CONFIG,
+      nowMs: NOW,
+    })
+    expect(tooSoon).toEqual({ kind: 'none' })
+
+    const readyState: StalledConversationState = { ...priorState, lastReannounceAt: new Date(NOW - 10 * 60_000).toISOString() }
+    const ready = decideStalledConversationAction({
+      cursor: { cursorId: 'workflow:a:b' },
+      lastMessageAt: new Date(NOW - 30 * 60_000).toISOString(),
+      priorState: readyState,
+      config: CONFIG,
+      nowMs: NOW,
+    })
+    expect(ready).toEqual({
+      kind: 'reannounce',
+      nextState: { cursorId: 'workflow:a:b', reannounceCount: 2, finalNoticeAt: null, lastReannounceAt: new Date(NOW).toISOString() },
     })
   })
 
   it('reaching maxReannouncements sends the final notice instead of another reannounce', () => {
-    const priorState: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 3, finalNoticeAt: null }
+    const priorState: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 3, finalNoticeAt: null, lastReannounceAt: new Date(NOW - 10 * 60_000).toISOString() }
     const result = decideStalledConversationAction({
       cursor: { cursorId: 'workflow:a:b' },
       lastMessageAt: new Date(NOW - 10 * 60_000).toISOString(),
@@ -115,6 +147,7 @@ describe('decideStalledConversationAction', () => {
       cursorId: 'workflow:a:b',
       reannounceCount: 3,
       finalNoticeAt: new Date(NOW - 2 * 60_000).toISOString(),
+      lastReannounceAt: new Date(NOW - 12 * 60_000).toISOString(),
     }
     const result = decideStalledConversationAction({
       cursor: { cursorId: 'workflow:a:b' },
@@ -131,6 +164,7 @@ describe('decideStalledConversationAction', () => {
       cursorId: 'workflow:a:b',
       reannounceCount: 3,
       finalNoticeAt: new Date(NOW - 5 * 60_000).toISOString(),
+      lastReannounceAt: new Date(NOW - 15 * 60_000).toISOString(),
     }
     const result = decideStalledConversationAction({
       cursor: { cursorId: 'workflow:a:b' },
@@ -143,7 +177,7 @@ describe('decideStalledConversationAction', () => {
   })
 
   it('a changed cursorId resets the counter (a new question started)', () => {
-    const priorState: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 3, finalNoticeAt: null }
+    const priorState: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 3, finalNoticeAt: null, lastReannounceAt: new Date(NOW - 10 * 60_000).toISOString() }
     const belowThreshold = decideStalledConversationAction({
       cursor: { cursorId: 'workflow:a:c' },
       lastMessageAt: new Date(NOW - 1 * 60_000).toISOString(),
@@ -162,7 +196,7 @@ describe('decideStalledConversationAction', () => {
     })
     expect(atThreshold).toEqual({
       kind: 'reannounce',
-      nextState: { cursorId: 'workflow:a:c', reannounceCount: 1, finalNoticeAt: null },
+      nextState: { cursorId: 'workflow:a:c', reannounceCount: 1, finalNoticeAt: null, lastReannounceAt: new Date(NOW).toISOString() },
     })
   })
 
@@ -196,18 +230,20 @@ describe('resolveStalledConversationConfig', () => {
   })
 
   it('fully-valid settings are passed through', () => {
-    const settings = { stalledConversation: { stallMinutes: 15, maxReannouncements: 2, closeGraceMinutes: 8 } }
+    const settings = { stalledConversation: { stallMinutes: 15, reannounceIntervalMinutes: 20, maxReannouncements: 2, closeGraceMinutes: 8 } }
     expect(resolveStalledConversationConfig(settings)).toEqual({
       stallMinutes: 15,
+      reannounceIntervalMinutes: 20,
       maxReannouncements: 2,
       closeGraceMinutes: 8,
     })
   })
 
   it('an invalid field falls back to default while siblings are honored', () => {
-    const settings = { stalledConversation: { stallMinutes: -5, maxReannouncements: 7, closeGraceMinutes: 'nope' } }
+    const settings = { stalledConversation: { stallMinutes: -5, reannounceIntervalMinutes: 'nope', maxReannouncements: 7, closeGraceMinutes: 'nope' } }
     expect(resolveStalledConversationConfig(settings)).toEqual({
       stallMinutes: DEFAULT_STALLED_CONVERSATION_CONFIG.stallMinutes,
+      reannounceIntervalMinutes: DEFAULT_STALLED_CONVERSATION_CONFIG.reannounceIntervalMinutes,
       maxReannouncements: 7,
       closeGraceMinutes: DEFAULT_STALLED_CONVERSATION_CONFIG.closeGraceMinutes,
     })
@@ -225,9 +261,14 @@ describe('read/writeStalledConversationState', () => {
   })
 
   it('round-trips a valid state', () => {
-    const state: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 2, finalNoticeAt: null }
+    const state: StalledConversationState = { cursorId: 'workflow:a:b', reannounceCount: 2, finalNoticeAt: null, lastReannounceAt: new Date().toISOString() }
     const metadata = writeStalledConversationState({}, state)
     expect(readStalledConversationState(metadata)).toEqual(state)
+  })
+
+  it('reads a legacy state persisted before lastReannounceAt existed as lastReannounceAt: null', () => {
+    const legacy = { cursorId: 'workflow:a:b', reannounceCount: 2, finalNoticeAt: null }
+    expect(readStalledConversationState({ stalledConversation: legacy })).toEqual({ ...legacy, lastReannounceAt: null })
   })
 
   it('write(..., null) deletes the key without touching sibling metadata', () => {

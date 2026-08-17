@@ -36,15 +36,20 @@ import {
   nodeDef,
   NODE_KIND_TONE,
   NODE_KIND_BADGE,
+  NODE_KIND_RING,
   parseAiAgentScenarioList,
   branchRows,
   parseMenuOptionsSafe,
   resolveBranchColor,
+  changeNodeType,
+  nodeHasIssue,
   type NodeTypeDef,
 } from '../workflowNodes'
 import { findFreePosition, nextNodePosition } from '../workflowLayout'
 import { NodeConfigPanel } from './NodeConfigPanel'
 import { WorkflowLinearEditor } from './WorkflowLinearEditor'
+import { WorkflowNodeIcon } from './WorkflowNodeIcon'
+import { PencilSimple, CopySimple, TrashSimple } from '@phosphor-icons/react'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -63,6 +68,12 @@ type WfNodeData = {
   /** bp mode's "+" buttons: open the node picker and auto-wire from this node
    *  (and this exact output handle when given). */
   onAddFrom: (id: string, handleId?: string) => void
+  /** Every edge in the workflow — used to resolve each branch row's CURRENT
+   *  target for the "connect to existing node" dropdown. */
+  edges: WfEdge[]
+  /** Every other node in the workflow, for the same dropdown's option list. */
+  allTargets: { id: string; label: string }[]
+  onSetBranchTarget: (sourceId: string, handleKey: string | undefined, targetId: string) => void
 }
 
 const KIND_ICON: Record<string, string> = {
@@ -70,6 +81,11 @@ const KIND_ICON: Record<string, string> = {
   logic: '◈',
   action: '⚡',
 }
+
+/** Custom drag-and-drop MIME key for palette → canvas node drops, distinct
+ *  from `text/plain` to avoid ambiguity with the browser's own default drag
+ *  behaviors (e.g. dragging selected text). */
+const PALETTE_DRAG_MIME = 'application/x-docmee-node-type'
 
 /** Edge stroke per branch tone (sequential default = teal-gray). */
 function edgeColor(sourceHandle: string | null | undefined): string {
@@ -137,6 +153,10 @@ function OptionRow({
   textClass,
   dotColor,
   onAdd,
+  targetValue,
+  targetOptions,
+  onSetTarget,
+  notSetLabel,
 }: {
   handleId: string
   text: string
@@ -149,10 +169,34 @@ function OptionRow({
    *  (e.g. the Classic card's neutral ring handles) simply omit this. */
   dotColor?: string
   onAdd?: (handleId: string) => void
+  /** "Connect to existing node" dropdown -- additive to hand-drawn
+   *  connections, not a replacement. Omitted entirely (Classic mode) when
+   *  any of these three props is missing. */
+  targetValue?: string
+  targetOptions?: { id: string; label: string }[]
+  onSetTarget?: (targetId: string) => void
+  notSetLabel?: string
 }) {
   return (
-    <div className="relative flex items-center border-t border-gray-100 py-1 dark:border-gray-800">
+    <div
+      className={`relative flex flex-wrap items-center gap-x-2 border-t border-gray-100 py-1.5 pl-1.5 dark:border-gray-800 ${dotColor ? 'border-l-2' : ''}`}
+      style={dotColor ? { borderLeftColor: dotColor } : undefined}
+    >
       <span className={`truncate text-[10px] ${textClass ?? 'text-gray-600 dark:text-gray-300'}`}>{text}</span>
+      {targetOptions && onSetTarget && (
+        <select
+          value={targetValue ?? ''}
+          onChange={(e) => onSetTarget(e.target.value)}
+          className="nodrag ml-auto w-24 shrink-0 rounded border border-gray-200 bg-white p-0.5 text-[9px] dark:border-gray-700 dark:bg-gray-800"
+        >
+          <option value="">{notSetLabel}</option>
+          {targetOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
       {onAdd && (
         <button
           type="button"
@@ -161,7 +205,7 @@ function OptionRow({
             e.stopPropagation()
             onAdd(handleId)
           }}
-          className="nodrag ml-auto mr-1.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold leading-none text-white shadow-sm hover:bg-blue-600"
+          className={`nodrag ${targetOptions ? '' : 'ml-auto'} mr-1.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold leading-none text-white shadow-sm hover:bg-blue-600`}
         >
           +
         </button>
@@ -196,10 +240,11 @@ const RING_HANDLE = '!rounded-full !border !border-gray-300 !bg-white dark:!bord
 const TEAL_HANDLE = '!bg-teal-500'
 
 const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
-  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom } = data
+  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom, edges: allEdges, allTargets, onSetBranchTarget } = data
   const face = nodeFaceText(wf)
   const rows = branchRows(wf)
   const { t } = useI18n()
+  const targetOf = (handleKey: string | undefined) => allEdges.find((e) => e.source === wf.id && (e.sourceHandle ?? undefined) === handleKey)?.target ?? ''
 
   const cfg = wf.config ?? {}
   const isMenu = wf.type === 'action.interactive_menu'
@@ -301,14 +346,27 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
     )
   }
 
+  const nodeIcon = nodeDef(wf.type)?.icon ?? ''
+  const customLabel = String(cfg.customLabel ?? '').trim()
+  const displayLabel = customLabel || label
+  const issueKey = nodeHasIssue(wf)
+
   return (
     <div
-      className={`group w-52 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
-        selected ? 'ring-2 ring-teal-300' : ''
+      className={`group relative w-52 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm transition-shadow dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
+        selected ? NODE_KIND_RING[wf.kind] : 'hover:shadow-md'
       }`}
     >
       {wf.kind !== 'trigger' && (
         <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-gray-400" />
+      )}
+
+      {/* Issue indicator: cheap, node-local validation hint (see nodeHasIssue) */}
+      {issueKey && (
+        <span
+          title={t(issueKey as Parameters<typeof t>[0])}
+          className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-amber-400 shadow-sm ring-2 ring-white dark:ring-gray-900"
+        />
       )}
 
       {/* Hover toolbar */}
@@ -320,9 +378,9 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
             e.stopPropagation()
             onConfigure(wf.id)
           }}
-          className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          className="rounded border border-gray-300 bg-white p-1 leading-none text-gray-600 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
         >
-          ✎
+          <PencilSimple className="h-2.5 w-2.5" weight="bold" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -331,9 +389,9 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
             e.stopPropagation()
             onDuplicate(wf.id)
           }}
-          className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-none text-gray-600 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          className="rounded border border-gray-300 bg-white p-1 leading-none text-gray-600 shadow-sm hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
         >
-          ⧉
+          <CopySimple className="h-2.5 w-2.5" weight="bold" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -342,18 +400,20 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
             e.stopPropagation()
             onDelete(wf.id)
           }}
-          className="rounded border border-red-300 bg-white px-1.5 py-0.5 text-[10px] leading-none text-red-600 shadow-sm hover:bg-red-50 dark:border-red-800 dark:bg-gray-800 dark:text-red-300"
+          className="rounded border border-red-300 bg-white p-1 leading-none text-red-600 shadow-sm hover:bg-red-50 dark:border-red-800 dark:bg-gray-800 dark:text-red-300"
         >
-          ✕
+          <TrashSimple className="h-2.5 w-2.5" weight="bold" aria-hidden="true" />
         </button>
       </div>
 
-      {/* Header: kind badge + type label */}
+      {/* Header: icon badge + kind label */}
       <div className="mb-0.5 flex items-center gap-1.5">
-        <span className={`rounded px-1 py-0.5 text-[10px] leading-none ${NODE_KIND_BADGE[wf.kind]}`}>{KIND_ICON[wf.kind] ?? '•'}</span>
+        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${NODE_KIND_BADGE[wf.kind]}`}>
+          <WorkflowNodeIcon icon={nodeIcon} className="h-3 w-3" />
+        </span>
         <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
       </div>
-      <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{label}</p>
+      <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{displayLabel}</p>
 
       {/* Full BotPenguin-style anatomy (R9): menu cards show structured
           Header/Message/Footer sections; options/branches are left-aligned
@@ -374,6 +434,10 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
                   handleClass={TEAL_HANDLE}
                   dotColor={resolveBranchColor(wf, r.key)}
                   textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
+                  targetValue={targetOf(r.key)}
+                  targetOptions={allTargets}
+                  onSetTarget={(targetId) => onSetBranchTarget(wf.id, r.key, targetId)}
+                  notSetLabel={t('wf.linear.notSet')}
                 />
               ))}
             </div>
@@ -397,6 +461,10 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
                   handleClass={TEAL_HANDLE}
                   dotColor={resolveBranchColor(wf, r.key)}
                   textClass={r.tone === 'red' ? 'text-red-600 dark:text-red-400' : r.tone === 'emerald' ? 'text-emerald-700 dark:text-emerald-300' : undefined}
+                  targetValue={targetOf(r.key)}
+                  targetOptions={allTargets}
+                  onSetTarget={(targetId) => onSetBranchTarget(wf.id, r.key, targetId)}
+                  notSetLabel={t('wf.linear.notSet')}
                 />
               ))}
             </div>
@@ -404,9 +472,24 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
         </>
       )}
 
-      {/* Default single output */}
+      {/* Default single output -- a plain "connect to existing node" dropdown
+          alongside the hand-drawn Handle, same as branching rows get. */}
       {wf.type !== 'action.end' && rows.length === 0 && (
-        <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />
+        <div className="relative mt-1 flex items-center border-t border-gray-100 pt-1 dark:border-gray-800">
+          <select
+            value={targetOf(undefined)}
+            onChange={(e) => onSetBranchTarget(wf.id, undefined, e.target.value)}
+            className="nodrag w-full rounded border border-gray-200 bg-white p-0.5 text-[9px] dark:border-gray-700 dark:bg-gray-800"
+          >
+            <option value="">{t('wf.linear.notSet')}</option>
+            {allTargets.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <Handle type="source" position={Position.Right} className="!h-2 !w-2 !bg-teal-500" />
+        </div>
       )}
     </div>
   )
@@ -532,13 +615,48 @@ function WorkflowCanvasInner({
     [nodes],
   )
 
+  /** "Connect to existing node" dropdown, alongside hand-drawn connections —
+   *  upserts (or, when targetId is empty, removes) the edge identified by
+   *  (sourceId, handleKey). Mirrors WorkflowLinearEditor.tsx's setBranchTarget
+   *  so the two editors behave identically for this operation. */
+  const setBranchTarget = useCallback(
+    (sourceId: string, handleKey: string | undefined, targetId: string) => {
+      const withoutOld = edges.filter((e) => !(e.source === sourceId && (e.sourceHandle ?? undefined) === handleKey))
+      const nextEdges = targetId
+        ? [
+            ...withoutOld,
+            {
+              id: `e_${sourceId}_${targetId}_${handleKey ?? 'default'}_${edges.length}`,
+              source: sourceId,
+              target: targetId,
+              ...(handleKey ? { sourceHandle: handleKey } : {}),
+            },
+          ]
+        : withoutOld
+      onChange({ nodes, edges: nextEdges })
+    },
+    [nodes, edges, onChange],
+  )
+
   const graph = useMemo(() => {
     const nodeById = new Map(nodes.map((n) => [n.id, n]))
+    const allTargets = nodes.map((n) => ({ id: n.id, label: label(n.type) }))
     const rfNodes: Node[] = nodes.map((n) => ({
       id: n.id,
       type: 'wf',
       position: { x: n.x, y: n.y },
-      data: { wf: n, label: label(n.type), mode, onConfigure: configureNode, onDuplicate: duplicateNodeById, onDelete: deleteNodeById, onAddFrom: openAddFrom },
+      data: {
+        wf: n,
+        label: label(n.type),
+        mode,
+        onConfigure: configureNode,
+        onDuplicate: duplicateNodeById,
+        onDelete: deleteNodeById,
+        onAddFrom: openAddFrom,
+        edges,
+        allTargets: allTargets.filter((t) => t.id !== n.id),
+        onSetBranchTarget: setBranchTarget,
+      },
     }))
     const rfEdges: Edge[] = edges.map((e) => {
       if (mode !== 'enhanced') {
@@ -574,7 +692,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, label, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom])
+  }, [nodes, edges, label, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -658,17 +776,23 @@ function WorkflowCanvasInner({
   )
 
   const addNode = useCallback(
-    (def: NodeTypeDef, wire?: PendingWire | null) => {
+    (def: NodeTypeDef, wire?: PendingWire | null, dropAt?: { x: number; y: number }) => {
       const base = def.type.split('.')[1] ?? 'node'
       let n = nodes.length + 1
       while (nodes.some((x) => x.id === `${base}_${n}`)) n++
       const id = `${base}_${n}`
       // Wired adds (dropped-connection / bp "+" button) center the new card on
-      // the drop point; unwired palette clicks land below the lowest existing
-      // node instead of the old nodes.length % 4/8 scatter, which wrapped back
-      // over earlier positions and guaranteed overlap after a handful of adds.
-      // Either way, findFreePosition nudges clear of anything already there.
-      const at = wire ? findFreePosition(nodes, { x: Math.round(wire.at.x - 104), y: Math.round(wire.at.y - 30) }) : nextNodePosition(nodes)
+      // the drop point; a drag-and-drop from the palette (dropAt) centers on
+      // the cursor's release point the same way; unwired palette clicks land
+      // below the lowest existing node instead of the old nodes.length % 4/8
+      // scatter, which wrapped back over earlier positions and guaranteed
+      // overlap after a handful of adds. All three still run through
+      // findFreePosition, which nudges clear of anything already there.
+      const at = wire
+        ? findFreePosition(nodes, { x: Math.round(wire.at.x - 104), y: Math.round(wire.at.y - 30) })
+        : dropAt
+          ? findFreePosition(nodes, { x: Math.round(dropAt.x - 104), y: Math.round(dropAt.y - 30) })
+          : nextNodePosition(nodes)
       const nextEdges = wire
         ? [...edges, {
             id: `e_${wire.nodeId}_${id}_${wire.handleId ?? 'default'}_${edges.length}`,
@@ -691,6 +815,14 @@ function WorkflowCanvasInner({
     (key: string, value: string) => {
       if (!selected) return
       onChange({ nodes: nodes.map((n) => (n.id === selected.id ? { ...n, config: { ...n.config, [key]: value } } : n)), edges })
+    },
+    [selected, nodes, edges, onChange],
+  )
+
+  const changeSelectedNodeType = useCallback(
+    (newType: string) => {
+      if (!selected) return
+      onChange({ nodes: nodes.map((n) => (n.id === selected.id ? changeNodeType(n, newType) : n)), edges })
     },
     [selected, nodes, edges, onChange],
   )
@@ -720,11 +852,18 @@ function WorkflowCanvasInner({
     <button
       key={def.type}
       type="button"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(PALETTE_DRAG_MIME, def.type)
+        e.dataTransfer.effectAllowed = 'move'
+      }}
       onClick={() => onPick(def)}
-      className={`block w-full rounded border-l-2 bg-white px-2 py-1.5 text-left hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 ${NODE_KIND_TONE[def.kind]}`}
+      className={`block w-full cursor-grab rounded border-l-2 bg-white px-2 py-1.5 text-left hover:bg-gray-100 active:cursor-grabbing dark:bg-gray-800 dark:hover:bg-gray-700 ${NODE_KIND_TONE[def.kind]}`}
     >
       <span className="flex items-center gap-1.5">
-        <span className={`rounded px-1 text-[10px] leading-none ${NODE_KIND_BADGE[def.kind]}`}>{KIND_ICON[def.kind] ?? '•'}</span>
+        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${NODE_KIND_BADGE[def.kind]}`}>
+          <WorkflowNodeIcon icon={def.icon} className="h-2.5 w-2.5" />
+        </span>
         <span className="font-medium text-gray-800 dark:text-gray-100">{t(def.labelKey as Parameters<typeof t>[0])}</span>
       </span>
       <span className="mt-0.5 block text-[10px] leading-snug text-gray-400">{t(def.descKey as Parameters<typeof t>[0])}</span>
@@ -763,7 +902,22 @@ function WorkflowCanvasInner({
       </div>
 
       {/* Canvas */}
-      <div className="relative flex-1">
+      <div
+        className="relative flex-1"
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+        }}
+        onDrop={(e) => {
+          const type = e.dataTransfer.getData(PALETTE_DRAG_MIME)
+          if (!type) return
+          e.preventDefault()
+          const def = WORKFLOW_NODE_TYPES.find((d) => d.type === type)
+          if (!def) return
+          addNode(def, undefined, screenToFlowPosition({ x: e.clientX, y: e.clientY }))
+        }}
+      >
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}
@@ -819,9 +973,11 @@ function WorkflowCanvasInner({
       {selected && (
         <aside className="w-64 shrink-0 overflow-y-auto border-l border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-800 dark:bg-gray-900">
           <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${selected.kind}` as Parameters<typeof t>[0])}</p>
-          <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">{label(selected.type)}</p>
+          <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">
+            {String(selected.config?.customLabel ?? '').trim() || label(selected.type)}
+          </p>
 
-          <NodeConfigPanel node={selected} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={patchConfig} />
+          <NodeConfigPanel node={selected} allNodes={nodes} clinicId={clinicId} workflowId={workflowId} onPatchConfig={patchConfig} onChangeType={changeSelectedNodeType} />
 
           <button
             type="button"

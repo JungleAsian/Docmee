@@ -4,18 +4,19 @@
 // graph (trigger → logic → action) on the visual canvas; active workflows run via
 // the workflow-runner worker when their trigger fires. List / create / edit /
 // activate / delete.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
+import { BackButton } from '@/shared/components/BackButton'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from '@/shared/workflowTemplates'
 import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
 import { layoutWorkflow } from '@/shared/workflowLayout'
+import { serializeWorkflowExport, parseWorkflowExport } from '@/shared/workflowImport'
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus } from '@/shared/types'
 
 const btn = 'rounded-md px-3 py-1.5 text-sm font-medium'
@@ -138,9 +139,7 @@ export default function WorkflowsPage() {
       />
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <Link href="/studio/automations" className="text-xs font-medium text-cyan-700 hover:underline dark:text-cyan-300">
-            ← {t('hub.backToHub')}
-          </Link>
+          <BackButton href="/studio/automations" label={t('hub.backToHub')} />
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('wf.title')}</h1>
           <p className="text-sm text-gray-500">{t('wf.subtitle')}</p>
         </div>
@@ -276,6 +275,8 @@ function WorkflowEditor({
   const lastPushAtRef = useRef(0)
   const nodes = hist.present.nodes
   const edges = hist.present.edges
+  const [importError, setImportError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const applyCanvasChange = useCallback((next: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => {
     const now = Date.now()
@@ -311,6 +312,40 @@ function WorkflowEditor({
     lastPushAtRef.current = Date.now()
     setDirty(true)
   }, [])
+
+  const handleExport = useCallback(() => {
+    const raw = serializeWorkflowExport(name.trim() || t('wf.untitled'), nodes, edges)
+    const blob = new Blob([raw], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const filename = `${(name.trim() || 'workflow').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workflow'}.json`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [name, nodes, edges, t])
+
+  const handleImportFile = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      e.target.value = '' // allow re-importing the same filename twice in a row
+      if (!file) return
+      const raw = await file.text()
+      const result = parseWorkflowExport(raw)
+      if (!result.ok) {
+        setImportError(t(result.error))
+        return
+      }
+      setImportError(null)
+      setHist((h) => pushHistory(h, { nodes: layoutWorkflow(result.nodes, result.edges), edges: result.edges }))
+      lastPushAtRef.current = Date.now()
+      setDirty(true)
+      // Only prefill the name if the admin hasn't already typed one -- never
+      // clobber an in-progress rename with whatever the imported file was called.
+      if (result.name && !name.trim()) setName(result.name)
+    },
+    [name, t],
+  )
 
   // Ctrl/Cmd+Z, Ctrl+Shift+Z, Ctrl+Y — skipped while typing in a form field so
   // native text undo keeps working there.
@@ -363,9 +398,7 @@ function WorkflowEditor({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
-        <button type="button" onClick={requestClose} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
-          ← {t('wf.backToWorkflows')}
-        </button>
+        <BackButton onClick={requestClose} label={t('wf.backToWorkflows')} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`} />
         <input
           value={name}
           onChange={(e) => {
@@ -412,10 +445,31 @@ function WorkflowEditor({
         >
           ▦ {t('wf.autoLayout')}
         </button>
+        <button
+          type="button"
+          onClick={handleExport}
+          disabled={nodes.length === 0}
+          className={`${btn} border border-gray-300 text-gray-700 disabled:opacity-40 dark:text-gray-200`}
+        >
+          ⭳ {t('wf.export')}
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}
+        >
+          ⭱ {t('wf.import')}
+        </button>
+        <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
         <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
         </button>
       </div>
+      {importError && (
+        <div role="alert" className="mx-4 mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {importError}
+        </div>
+      )}
       {save.isError && (
         <div role="alert" className="mx-4 mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           <p className="font-medium">

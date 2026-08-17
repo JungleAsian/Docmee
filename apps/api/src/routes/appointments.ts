@@ -50,17 +50,24 @@ const slotsQuerySchema = z.object({
   serviceId: z.string().min(1).optional(),
 })
 
-const bookSchema = z.object({
-  patientId: z.string().min(1),
-  doctorId: z.string().min(1),
-  serviceId: z.string().min(1).optional(),
-  date: isoDate,
-  start: hhmm,
-  notes: z.string().max(2000).optional(),
-  // Screen 2: flag a booking urgent (drives the red card + "Urgent" tag). Stored
-  // on metadata so no schema migration is needed.
-  urgent: z.boolean().optional(),
-})
+// Staff can either pick an existing patient (patientId) or type a brand-new
+// patient's name inline (patientName) — exactly one of the two, never both/neither.
+const bookSchema = z
+  .object({
+    patientId: z.string().min(1).optional(),
+    patientName: z.string().min(1).max(200).optional(),
+    doctorId: z.string().min(1),
+    serviceId: z.string().min(1).optional(),
+    date: isoDate,
+    start: hhmm,
+    notes: z.string().max(2000).optional(),
+    // Screen 2: flag a booking urgent (drives the red card + "Urgent" tag). Stored
+    // on metadata so no schema migration is needed.
+    urgent: z.boolean().optional(),
+  })
+  .refine((data) => Boolean(data.patientId) !== Boolean(data.patientName), {
+    message: 'Provide exactly one of patientId or patientName',
+  })
 
 // Either reschedule (date + start), change status, or toggle urgency — at least one
 // actionable field is required.
@@ -266,12 +273,15 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     if (!parsed.ok) return
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-    const { patientId, doctorId, serviceId, date, start, notes, urgent } = parsed.data
+    const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent } = parsed.data
 
     const result = await withDb(async (sql) => {
       const doctor = await createDoctorsRepository(sql).findById(clinicId, doctorId)
       if (!doctor) return { error: 'doctor' as const }
-      const patient = await createPatientsRepository(sql).findById(clinicId, patientId)
+      const patients = createPatientsRepository(sql)
+      const patient = patientName
+        ? await patients.create({ clinicId, fullName: patientName })
+        : await patients.findById(clinicId, patientId!)
       if (!patient) return { error: 'patient' as const }
 
       const appts = createAppointmentsRepository(sql)
@@ -298,7 +308,10 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
 
       const appointment = await appts.create({
         clinicId,
-        patientId,
+        // Always the resolved patient's id — patientId (the raw request param)
+        // is undefined on the patientName/walk-in branch, which would silently
+        // create the patient row but never link it to this appointment.
+        patientId: patient.id,
         doctorId,
         serviceId,
         startTime: `${date}T${start}:00`,

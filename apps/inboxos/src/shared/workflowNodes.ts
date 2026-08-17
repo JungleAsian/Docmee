@@ -12,45 +12,52 @@ export interface NodeTypeDef {
   descKey: string
   /** config keys the editor exposes (rendered as text inputs, key = label). */
   fields: string[]
+  /** Semantic icon key, resolved to an actual Phosphor icon component by
+   *  WorkflowNodeIcon.tsx (kept as a string here, not a component, so this
+   *  file stays JSX-free and importable from pure vitest tests). */
+  icon: string
 }
 
 export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
   // Triggers - what starts the workflow (exactly one per workflow).
   // Only list events which the worker currently produces. Do not let a clinic
   // activate a workflow that would remain inert.
-  { type: 'trigger.message_keyword', kind: 'trigger', labelKey: 'wf.node.messageKeyword', descKey: 'wf.desc.messageKeyword', fields: ['keywords'] },
-  { type: 'trigger.patient_upset', kind: 'trigger', labelKey: 'wf.node.patientUpset', descKey: 'wf.desc.patientUpset', fields: [] },
+  { type: 'trigger.message_keyword', kind: 'trigger', labelKey: 'wf.node.messageKeyword', descKey: 'wf.desc.messageKeyword', fields: ['keywords'], icon: 'keyword' },
+  { type: 'trigger.patient_upset', kind: 'trigger', labelKey: 'wf.node.patientUpset', descKey: 'wf.desc.patientUpset', fields: [], icon: 'alert' },
   // Logic - routing + timing.
-  { type: 'logic.condition', kind: 'logic', labelKey: 'wf.node.condition', descKey: 'wf.desc.condition', fields: ['field', 'op', 'value'] },
-  { type: 'logic.delay', kind: 'logic', labelKey: 'wf.node.delay', descKey: 'wf.desc.delay', fields: ['amount', 'unit'] },
-  { type: 'logic.wait_for_reply', kind: 'logic', labelKey: 'wf.node.waitForReply', descKey: 'wf.desc.waitForReply', fields: ['timeoutMinutes'] },
+  { type: 'logic.condition', kind: 'logic', labelKey: 'wf.node.condition', descKey: 'wf.desc.condition', fields: ['field', 'op', 'value'], icon: 'branch' },
+  { type: 'logic.delay', kind: 'logic', labelKey: 'wf.node.delay', descKey: 'wf.desc.delay', fields: ['amount', 'unit'], icon: 'clock' },
+  { type: 'logic.wait_for_reply', kind: 'logic', labelKey: 'wf.node.waitForReply', descKey: 'wf.desc.waitForReply', fields: ['timeoutMinutes'], icon: 'hourglass' },
   {
     type: 'logic.ai_classify_intent',
     kind: 'logic',
     labelKey: 'wf.node.aiClassifyIntent',
     descKey: 'wf.desc.aiClassifyIntent',
     fields: ['confidenceField', 'highThreshold', 'lowThreshold', 'prompt'],
+    icon: 'brain',
   },
   // Actions - what the workflow does.
-  { type: 'action.send_message', kind: 'action', labelKey: 'wf.node.sendMessage', descKey: 'wf.desc.sendMessage', fields: ['text'] },
-  { type: 'action.send_template', kind: 'action', labelKey: 'wf.node.sendTemplate', descKey: 'wf.desc.sendTemplate', fields: ['category'] },
-  { type: 'action.notify_secretary', kind: 'action', labelKey: 'wf.node.notify', descKey: 'wf.desc.notify', fields: [] },
-  { type: 'action.add_tag', kind: 'action', labelKey: 'wf.node.addTag', descKey: 'wf.desc.addTag', fields: ['tag'] },
-  { type: 'action.ai_draft', kind: 'action', labelKey: 'wf.node.aiDraft', descKey: 'wf.desc.aiDraft', fields: ['prompt', 'queryLimit', 'responseBuffer'] },
+  { type: 'action.send_message', kind: 'action', labelKey: 'wf.node.sendMessage', descKey: 'wf.desc.sendMessage', fields: ['text'], icon: 'message' },
+  { type: 'action.send_template', kind: 'action', labelKey: 'wf.node.sendTemplate', descKey: 'wf.desc.sendTemplate', fields: ['category'], icon: 'file' },
+  { type: 'action.notify_secretary', kind: 'action', labelKey: 'wf.node.notify', descKey: 'wf.desc.notify', fields: [], icon: 'bell' },
+  { type: 'action.add_tag', kind: 'action', labelKey: 'wf.node.addTag', descKey: 'wf.desc.addTag', fields: ['tag'], icon: 'tag' },
+  { type: 'action.ai_draft', kind: 'action', labelKey: 'wf.node.aiDraft', descKey: 'wf.desc.aiDraft', fields: ['prompt', 'queryLimit', 'responseBuffer'], icon: 'sparkle' },
   {
     type: 'action.interactive_menu',
     kind: 'action',
     labelKey: 'wf.node.interactiveMenu',
     descKey: 'wf.desc.interactiveMenu',
     fields: ['variant', 'header', 'message', 'footer', 'options', 'field'],
+    icon: 'list',
   },
-  { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', descKey: 'wf.desc.approval', fields: [] },
+  { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', descKey: 'wf.desc.approval', fields: [], icon: 'check' },
   {
     type: 'action.ask_capture',
     kind: 'action',
     labelKey: 'wf.node.askCapture',
     descKey: 'wf.desc.askCapture',
     fields: ['field', 'question', 'validation', 'retryQuestion', 'maxAttempts'],
+    icon: 'question',
   },
   {
     type: 'action.extract_booking_details',
@@ -58,6 +65,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     labelKey: 'wf.node.extractBookingDetails',
     descKey: 'wf.desc.extractBookingDetails',
     fields: ['provider', 'allowedFields', 'reviewTag'],
+    icon: 'extract',
   },
   {
     type: 'action.check_availability',
@@ -65,6 +73,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     labelKey: 'wf.node.checkAvailability',
     descKey: 'wf.desc.checkAvailability',
     fields: ['doctorIdField', 'dateField', 'days', 'slotsField'],
+    icon: 'calendarCheck',
   },
   {
     type: 'action.offer_slots',
@@ -72,6 +81,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     labelKey: 'wf.node.offerSlots',
     descKey: 'wf.desc.offerSlots',
     fields: ['slotsField', 'count', 'message'],
+    icon: 'calendar',
   },
   {
     type: 'action.offer_slot_menu',
@@ -79,6 +89,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     labelKey: 'wf.node.offerSlotMenu',
     descKey: 'wf.desc.offerSlotMenu',
     fields: ['pickerMode', 'slotsField', 'dateField', 'selectField', 'pageSize', 'header', 'message', 'footer'],
+    icon: 'calendarMenu',
   },
   {
     type: 'action.create_or_reschedule_booking',
@@ -95,6 +106,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
       'durationMinutes',
       'title',
     ],
+    icon: 'calendarPlus',
   },
   {
     type: 'action.transcribe_booking_voice',
@@ -102,6 +114,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     labelKey: 'wf.node.transcribeBookingVoice',
     descKey: 'wf.desc.transcribeBookingVoice',
     fields: ['provider', 'allowedFields', 'reviewTag'],
+    icon: 'voice',
   },
   {
     type: 'action.ai_agent',
@@ -109,12 +122,71 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     labelKey: 'wf.node.aiAgent',
     descKey: 'wf.desc.aiAgent',
     fields: ['personality', 'customInstructions', 'communicationStyle', 'scenarios'],
+    icon: 'robot',
   },
-  { type: 'action.end', kind: 'action', labelKey: 'wf.node.end', descKey: 'wf.desc.end', fields: [] },
+  { type: 'action.end', kind: 'action', labelKey: 'wf.node.end', descKey: 'wf.desc.end', fields: [], icon: 'end' },
 ]
 
 export const nodeDef = (type: string): NodeTypeDef | undefined =>
   WORKFLOW_NODE_TYPES.find((n) => n.type === type)
+
+// --- In-place node type changing ---------------------------------------------
+// Reassigning `node.type` on an EXISTING node (keeping its id, so every edge
+// pointing at it survives) instead of forcing delete-and-re-add. Restricted to
+// same-kind swaps (trigger↔trigger, logic↔logic, action↔action) — a trigger
+// becoming an action (or vice versa) would change the node's structural role
+// in the graph (triggers sit at the root, everything else doesn't), which is
+// a different operation than "this node should now behave differently."
+
+/** Config keys whose value is tied to the OLD type's specific shape (option
+ *  list, AI scenarios, per-branch colors) — always cleared on a type change,
+ *  even if the new type happens to declare a field with the same key name,
+ *  since the value's internal shape (JSON keyed by the old handles) would be
+ *  meaningless for the new type's own handles. */
+const STRUCTURED_DATA_KEYS = new Set(['options', 'scenarios', 'branchColors'])
+
+/** Every OTHER node type the given node could switch to (same kind only). */
+export function changeableNodeTypes(node: WorkflowNode): NodeTypeDef[] {
+  const current = nodeDef(node.type)
+  if (!current) return []
+  return WORKFLOW_NODE_TYPES.filter((d) => d.kind === current.kind && d.type !== node.type)
+}
+
+/** True when the node has any structured data that a type change would
+ *  discard — used to decide whether to confirm with the admin first. `options`
+ *  and `scenarios` are JSON arrays (empty array = nothing configured yet, not
+ *  "has data"); `branchColors` is a JSON object (empty object = same). A
+ *  malformed/unparseable value is treated as "has data" — safer to confirm
+ *  unnecessarily than to silently discard something real. */
+export function nodeHasStructuredData(node: WorkflowNode): boolean {
+  for (const key of STRUCTURED_DATA_KEYS) {
+    const raw = node.config?.[key]
+    if (raw === undefined) continue
+    const text = String(raw).trim()
+    if (!text) continue
+    try {
+      const parsed = JSON.parse(text)
+      if (Array.isArray(parsed) ? parsed.length > 0 : Object.keys(parsed ?? {}).length > 0) return true
+    } catch {
+      return true
+    }
+  }
+  return false
+}
+
+/** Pure: returns a new node with `type` reassigned. Config keys present in
+ *  BOTH the old and new type's `fields` list carry over (best-effort);
+ *  everything else — including all STRUCTURED_DATA_KEYS — is dropped. */
+export function changeNodeType(node: WorkflowNode, newType: string): WorkflowNode {
+  const oldFields = new Set(nodeDef(node.type)?.fields ?? [])
+  const newFields = new Set(nodeDef(newType)?.fields ?? [])
+  const nextConfig: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(node.config ?? {})) {
+    if (STRUCTURED_DATA_KEYS.has(key)) continue
+    if (oldFields.has(key) && newFields.has(key)) nextConfig[key] = value
+  }
+  return { ...node, type: newType, config: nextConfig }
+}
 
 /** Canvas tone per node kind. */
 export const NODE_KIND_TONE: Record<WorkflowNodeKind, string> = {
@@ -128,6 +200,38 @@ export const NODE_KIND_BADGE: Record<WorkflowNodeKind, string> = {
   trigger: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200',
   logic: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
   action: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-200',
+}
+
+/** Selected-card ring color per node kind — so a selected card visually
+ *  confirms its kind at a glance, instead of every selection looking the
+ *  same regardless of what type of node it is. */
+export const NODE_KIND_RING: Record<WorkflowNodeKind, string> = {
+  trigger: 'ring-2 ring-emerald-300 dark:ring-emerald-700',
+  logic: 'ring-2 ring-amber-300 dark:ring-amber-700',
+  action: 'ring-2 ring-teal-300 dark:ring-teal-700',
+}
+
+/** Cheap, node-local subset of workflow-validator.ts's rules — fast enough to
+ *  run on every render for an inline "this node has an issue" indicator.
+ *  Deliberately NOT a reimplementation of the full validator (no graph
+ *  traversal, no edge-wiring checks) — those stay exclusively in the
+ *  save/activate error list; this is just an early, local hint. Returns an
+ *  i18n key (not a message) so the caller renders it via `t()`. */
+export function nodeHasIssue(node: WorkflowNode): string | undefined {
+  const cfg = node.config ?? {}
+  if (node.type === 'action.interactive_menu') {
+    const options = parseMenuOptionsSafe(cfg.options)
+    if (options.length === 0) return 'wf.issue.menuNoOptions'
+  }
+  if (node.type === 'action.offer_slot_menu') {
+    const mode = String(cfg.pickerMode ?? 'date')
+    if (mode !== 'date' && mode !== 'time') return 'wf.issue.slotMenuBadMode'
+  }
+  if (node.type === 'action.ai_agent') {
+    const scenarios = parseAiAgentScenarioList(cfg.scenarios)
+    if (scenarios.length === 0) return 'wf.issue.aiAgentNoScenarios'
+  }
+  return undefined
 }
 
 // --- No-code "Field" selector -------------------------------------------------
@@ -267,7 +371,41 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
     { value: 'human_handoff_notification', labelKey: 'studio.templates.category.human_handoff_notification' },
     { value: 'review_request', labelKey: 'studio.templates.category.review_request' },
   ],
+  // logic.delay's time unit — worker default is 'hour' (workflow-engine.ts), listed first.
+  unit: [
+    { value: 'hour', labelKey: 'wf.unit.hour' },
+    { value: 'minute', labelKey: 'wf.unit.minute' },
+    { value: 'day', labelKey: 'wf.unit.day' },
+  ],
+  // action.create_or_reschedule_booking's mode — worker default is 'create'
+  // (workflow-runner.worker.ts), listed first.
+  mode: [
+    { value: 'create', labelKey: 'wf.mode.create' },
+    { value: 'reschedule', labelKey: 'wf.mode.reschedule' },
+  ],
+  // action.extract_booking_details / action.transcribe_booking_voice's AI
+  // provider — worker falls back to 'claude' for anything unrecognized
+  // (voice-booking.ts), listed first.
+  provider: [
+    { value: 'claude', labelKey: 'wf.provider.claude' },
+    { value: 'openai', labelKey: 'wf.provider.openai' },
+    { value: 'gemini', labelKey: 'wf.provider.gemini' },
+    { value: 'custom', labelKey: 'wf.provider.custom' },
+  ],
 }
+
+/** Fixed vocabulary for action.extract_booking_details / action.transcribe_
+ *  booking_voice's `allowedFields` (comma-separated) — mirrors
+ *  DEFAULT_ALLOWED_FIELDS in apps/workers/src/voice-booking.ts. Keep in sync
+ *  manually (same cross-package boundary as the rest of this file). */
+export const ALLOWED_BOOKING_FIELDS = [
+  'patient_name',
+  'phone_number',
+  'preferred_date',
+  'preferred_time',
+  'clinic_location',
+  'doctor_preference',
+] as const
 
 // --- No-code dependent "value" selector --------------------------------------
 // logic.condition compares a context field against a literal `value`. Once the
@@ -466,6 +604,31 @@ export function nextMenuOptionId(existing: MenuOption[]): string {
   let n = existing.length + 1
   while (existing.some((o) => o.optionId === `option_${n}`)) n++
   return `option_${n}`
+}
+
+/** Parses the "Bulk add options" textarea: one option per line, either
+ *  `Title` or `Title | Description`. Blank lines and lines with an empty
+ *  title (after trimming) are skipped. optionIds are slugified from the
+ *  title and de-duplicated against `existing` (and against each other,
+ *  since a bulk paste can itself contain repeated titles) using the exact
+ *  same `slugifyOptionId`/`uniqueOptionId` pair the one-at-a-time doctor
+ *  picker already uses — pure, so a bulk paste never collides with a
+ *  hand-added option's id. Returns only the NEW options to append. */
+export function parseBulkMenuOptionLines(text: string, existing: MenuOption[]): MenuOption[] {
+  const takenIds = existing.map((o) => o.optionId)
+  const added: MenuOption[] = []
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const [titlePart, ...descParts] = line.split('|')
+    const title = (titlePart ?? '').trim()
+    if (!title) continue
+    const description = descParts.join('|').trim()
+    const optionId = uniqueOptionId(slugifyOptionId(title), takenIds)
+    takenIds.push(optionId)
+    added.push({ optionId, title, ...(description ? { description } : {}) })
+  }
+  return added
 }
 
 /** Branch output rows per node type. `key` is the sourceHandle id used on both

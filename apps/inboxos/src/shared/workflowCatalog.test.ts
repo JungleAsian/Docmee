@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
-import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, branchRows, parseBranchColors, resolveBranchColor } from './workflowNodes'
+import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, ALLOWED_BOOKING_FIELDS, branchRows, parseBranchColors, resolveBranchColor, changeableNodeTypes, nodeHasStructuredData, changeNodeType, parseBulkMenuOptionLines, nodeHasIssue, type MenuOption } from './workflowNodes'
 import { isBranchingNode, resequenceLinearEdges } from './workflowLinearEdges'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
@@ -130,6 +130,166 @@ describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
     for (const o of ENUM_FIELD_OPTIONS.category ?? []) {
       expect(o.labelKey).toMatch(/^studio\.templates\.category\./)
     }
+  })
+
+  it('offers exactly the delay units workflow-engine.ts understands, worker default first', () => {
+    expect(ENUM_FIELD_OPTIONS.unit?.map((o) => o.value)).toEqual(['hour', 'minute', 'day'])
+  })
+
+  it('offers exactly the booking modes workflow-runner.worker.ts understands, worker default first', () => {
+    expect(ENUM_FIELD_OPTIONS.mode?.map((o) => o.value)).toEqual(['create', 'reschedule'])
+  })
+
+  it('offers exactly the AI providers voice-booking.ts understands, worker fallback first', () => {
+    expect(ENUM_FIELD_OPTIONS.provider?.map((o) => o.value)).toEqual(['claude', 'openai', 'gemini', 'custom'])
+  })
+})
+
+describe('ALLOWED_BOOKING_FIELDS (must stay in lockstep with voice-booking.ts)', () => {
+  it('matches DEFAULT_ALLOWED_FIELDS exactly', () => {
+    expect(ALLOWED_BOOKING_FIELDS).toEqual([
+      'patient_name',
+      'phone_number',
+      'preferred_date',
+      'preferred_time',
+      'clinic_location',
+      'doctor_preference',
+    ])
+  })
+})
+
+describe('in-place node type changing', () => {
+  it('changeableNodeTypes offers only same-kind types, excluding the current one', () => {
+    const menu = node('m', 'action', 'action.interactive_menu')
+    const types = changeableNodeTypes(menu).map((d) => d.type)
+    expect(types).not.toContain('action.interactive_menu')
+    expect(types).toContain('action.send_message')
+    expect(types.every((t) => WORKFLOW_NODE_TYPES.find((d) => d.type === t)?.kind === 'action')).toBe(true)
+  })
+
+  it('changeableNodeTypes never offers a different kind (trigger cannot become an action)', () => {
+    const trigger = node('t', 'trigger', 'trigger.message_keyword')
+    const types = changeableNodeTypes(trigger).map((d) => d.type)
+    expect(types).toEqual(['trigger.patient_upset'])
+  })
+
+  it('changeableNodeTypes returns nothing for an unknown type', () => {
+    expect(changeableNodeTypes(node('x', 'action', 'action.does_not_exist'))).toEqual([])
+  })
+
+  it('nodeHasStructuredData is true when options/scenarios/branchColors are populated, false otherwise', () => {
+    const emptyMenu = node('m1', 'action', 'action.interactive_menu', { options: '[]' })
+    const populatedMenu = node('m2', 'action', 'action.interactive_menu', { options: '[{"optionId":"a","title":"A"}]' })
+    const agent = node('a', 'action', 'action.ai_agent', { scenarios: '[{"id":"s1"}]' })
+    expect(nodeHasStructuredData(emptyMenu)).toBe(false)
+    expect(nodeHasStructuredData(populatedMenu)).toBe(true)
+    expect(nodeHasStructuredData(agent)).toBe(true)
+    expect(nodeHasStructuredData(node('s', 'action', 'action.send_message', { text: 'hi' }))).toBe(false)
+  })
+
+  it('changeNodeType keeps the id, sets the new type, and always drops structured-data keys', () => {
+    const menu = node('m', 'action', 'action.interactive_menu', {
+      options: '[{"optionId":"a","title":"A"}]',
+      message: 'Pick one',
+    })
+    const next = changeNodeType(menu, 'action.send_message')
+    expect(next.id).toBe('m')
+    expect(next.type).toBe('action.send_message')
+    expect(next.config['options']).toBeUndefined()
+    // 'message' is not in action.send_message's own field list (it uses 'text'),
+    // so it is correctly dropped too — only keys present in BOTH field lists survive.
+    expect(next.config['message']).toBeUndefined()
+  })
+
+  it('changeNodeType carries over a config key present in both the old and new type\'s fields', () => {
+    // Both logic.ai_classify_intent and action.ai_draft declare a 'prompt' field.
+    const classify = node('c', 'logic', 'logic.ai_classify_intent', { prompt: 'Is this urgent?' })
+    const next = changeNodeType(classify, 'action.ai_draft')
+    expect(next.config['prompt']).toBe('Is this urgent?')
+  })
+})
+
+describe('node catalog icons (regression guard for WorkflowNodeIcon.tsx\'s lookup table)', () => {
+  // Kept in sync manually with the ICONS map in components/WorkflowNodeIcon.tsx
+  // (that file is JSX and can't be imported from this plain vitest file).
+  const KNOWN_ICON_KEYS = new Set([
+    'keyword', 'alert', 'branch', 'clock', 'hourglass', 'brain', 'message', 'file',
+    'bell', 'tag', 'sparkle', 'list', 'check', 'question', 'extract', 'calendarCheck',
+    'calendar', 'calendarMenu', 'calendarPlus', 'voice', 'robot', 'end',
+  ])
+
+  it('every node type declares a non-empty icon key', () => {
+    for (const def of WORKFLOW_NODE_TYPES) {
+      expect(def.icon, `${def.type} is missing an icon key`).toBeTruthy()
+    }
+  })
+
+  it('every declared icon key resolves in WorkflowNodeIcon.tsx\'s lookup table', () => {
+    for (const def of WORKFLOW_NODE_TYPES) {
+      expect(KNOWN_ICON_KEYS.has(def.icon), `${def.type}'s icon "${def.icon}" has no entry in WorkflowNodeIcon.tsx`).toBe(true)
+    }
+  })
+})
+
+describe('nodeHasIssue (cheap node-local validation hint)', () => {
+  it('flags an interactive_menu with no options', () => {
+    expect(nodeHasIssue(node('m', 'action', 'action.interactive_menu', { options: '[]' }))).toBe('wf.issue.menuNoOptions')
+  })
+
+  it('does not flag an interactive_menu with at least one option', () => {
+    expect(nodeHasIssue(node('m', 'action', 'action.interactive_menu', { options: '[{"optionId":"a","title":"A"}]' }))).toBeUndefined()
+  })
+
+  it('flags an offer_slot_menu with an invalid pickerMode', () => {
+    expect(nodeHasIssue(node('s', 'action', 'action.offer_slot_menu', { pickerMode: 'weekday' }))).toBe('wf.issue.slotMenuBadMode')
+  })
+
+  it('does not flag an offer_slot_menu with no pickerMode set (defaults to date)', () => {
+    expect(nodeHasIssue(node('s', 'action', 'action.offer_slot_menu', {}))).toBeUndefined()
+  })
+
+  it('flags an ai_agent with no scenarios', () => {
+    expect(nodeHasIssue(node('a', 'action', 'action.ai_agent', {}))).toBe('wf.issue.aiAgentNoScenarios')
+  })
+
+  it('does not flag node types the helper does not cover', () => {
+    expect(nodeHasIssue(node('s', 'action', 'action.send_message', {}))).toBeUndefined()
+  })
+})
+
+describe('parseBulkMenuOptionLines', () => {
+  it('parses "Title" and "Title | Description" lines', () => {
+    const result = parseBulkMenuOptionLines('Horas\nAgendar cita | Reserva con un doctor', [])
+    expect(result).toEqual([
+      { optionId: 'horas', title: 'Horas' },
+      { optionId: 'agendar_cita', title: 'Agendar cita', description: 'Reserva con un doctor' },
+    ])
+  })
+
+  it('skips blank lines and lines with an empty title', () => {
+    const result = parseBulkMenuOptionLines('Horas\n\n   \n| no title here\nAgendar', [])
+    expect(result.map((o) => o.title)).toEqual(['Horas', 'Agendar'])
+  })
+
+  it('de-duplicates optionIds against existing options', () => {
+    const existing: MenuOption[] = [{ optionId: 'horas', title: 'Horas (old)' }]
+    const result = parseBulkMenuOptionLines('Horas', existing)
+    expect(result).toEqual([{ optionId: 'horas_2', title: 'Horas' }])
+  })
+
+  it('de-duplicates optionIds against each other within the same paste', () => {
+    const result = parseBulkMenuOptionLines('Horas\nHoras\nHoras', [])
+    expect(result.map((o) => o.optionId)).toEqual(['horas', 'horas_2', 'horas_3'])
+  })
+
+  it('a title containing a literal "|" character after the first split keeps the rest as description text', () => {
+    const result = parseBulkMenuOptionLines('Precios | $10 | $20', [])
+    expect(result).toEqual([{ optionId: 'precios', title: 'Precios', description: '$10 | $20' }])
+  })
+
+  it('returns an empty array for empty/whitespace-only input', () => {
+    expect(parseBulkMenuOptionLines('', [])).toEqual([])
+    expect(parseBulkMenuOptionLines('   \n  \n', [])).toEqual([])
   })
 })
 

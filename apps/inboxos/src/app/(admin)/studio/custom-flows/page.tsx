@@ -6,13 +6,13 @@
 // enable, plus one-click instantiation of the prebuilt templates.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
+import { BackButton } from '@/shared/components/BackButton'
 import type {
   CustomFlow,
   CustomFlowAction,
@@ -259,9 +259,7 @@ export default function CustomFlowsPage() {
     <div className="clinic-page space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/studio/automations" className="text-xs font-medium text-cyan-700 hover:underline dark:text-cyan-300">
-            ← {t('hub.backToHub')}
-          </Link>
+          <BackButton href="/studio/automations" label={t('hub.backToHub')} />
           <h1 className="text-xl font-bold">{t('studio.customFlows.title')}</h1>
         </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />

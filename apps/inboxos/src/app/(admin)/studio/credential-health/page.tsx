@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { NavIcon } from '@/shared/components/NavIcon'
+import { BackButton } from '@/shared/components/BackButton'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 
 type CredentialState = 'pass' | 'warning' | 'fail' | 'manual'
@@ -94,6 +95,7 @@ export default function CredentialHealthPage() {
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="clinic-page-header">
         <div>
+          <BackButton href="/studio" label="Admin Studio" />
           <p className="clinic-eyebrow">Superuser only</p>
           <h1 className="clinic-title">Security & credential health</h1>
           <p className="clinic-subtitle">

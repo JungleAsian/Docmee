@@ -446,3 +446,73 @@ describe('validateWorkflowDefinition + action.offer_slot_menu (regression)', () 
     expect(resequenced).toContainEqual({ id: 'e2', source: 'date_menu', target: 't', sourceHandle: 'empty' })
   })
 })
+
+// --- Sustainable guard against the WHOLE CLASS of bug behind the offer_slot_menu
+// regression -----------------------------------------------------------------
+//
+// The root cause wasn't a one-off typo: workflow-validator.ts (packages/agents,
+// a different package) hardcodes which handles each branching node type
+// requires/allows, entirely independently of branchRows() here (apps/inboxos).
+// Nothing forced the two to agree, so adding a validator requirement (or a new
+// branching node type) without also updating branchRows() fails silently in
+// dev/typecheck/lint -- it only surfaces as a data-corrupting runtime bug once
+// an admin actually edits that node type in Studio.
+//
+// Rather than hand-copy the validator's rules into a second list here (which
+// could itself drift from the validator exactly like branchRows() already
+// did), this test runs the REAL validator: for every node type in the
+// catalog, wire up a minimal workflow using EXACTLY the handles branchRows()
+// reports for it (or one generic unlabeled edge if it reports none, mirroring
+// exactly what the Guided editor's resequenceLinearEdges does for a node it
+// doesn't recognize as branching), then assert the validator raises no
+// handle-shape complaint for that node. Deliberately does NOT import
+// anything new from @docmee/agents beyond the existing test-only
+// validateWorkflowDefinition import -- apps/inboxos stays runtime-dependency-
+// free of that package, per this file's and workflowNodes.ts's existing
+// convention (see the "dependency-free" comments there).
+describe('branchRows() stays in lockstep with the real validator (regression guard)', () => {
+  // Substrings covering every way workflow-validator.ts currently complains
+  // about an edge/handle shape being wrong for a node, across all five
+  // branching node types (condition, ai_classify_intent, interactive_menu,
+  // offer_slot_menu, ai_agent). Deliberately broad: a handle-shaped problem on
+  // any node type, present or future, matches without needing a per-type
+  // regex. NOT matched: unrelated content warnings (e.g. an invalid
+  // pickerMode, a missing AI Agent scenario) -- this guard is scoped to edge
+  // wiring, the exact dimension that broke.
+  const HANDLE_ERROR_PATTERNS = [
+    /uses an unknown handle/,
+    /requires .* successor/,
+    /has an (ambiguous|unlabeled or ambiguous)/,
+    /must use the true or false handle/,
+    /must have exactly one successor/,
+    /cannot have outgoing edges/,
+  ]
+
+  for (const def of WORKFLOW_NODE_TYPES) {
+    if (def.kind === 'trigger') continue // triggers have no outgoing branch handles to validate
+
+    it(`${def.type}: wiring exactly what branchRows() reports satisfies the validator`, () => {
+      const trigger = node('t', 'trigger', 'trigger.message_keyword', { keywords: 'x' })
+      const subject = node('subject', def.kind, def.type, {})
+      const target = node('target', 'action', 'action.send_message', { text: 'ok' })
+      const end = node('end', 'action', 'action.end')
+      const rows = branchRows(subject)
+
+      const outgoing =
+        def.type === 'action.end'
+          ? [] // the only node type required to have ZERO outgoing edges
+          : rows.length > 0
+            ? rows.map((r, i) => ({ id: `e_out_${i}`, source: 'subject', target: 'target', sourceHandle: r.key }))
+            : [{ id: 'e_out_0', source: 'subject', target: 'target' }]
+
+      const nodes = [trigger, subject, target, end]
+      const edges = [{ id: 'e_in', source: 't', target: 'subject' }, ...outgoing, { id: 'e_end', source: 'target', target: 'end' }]
+
+      const errors = validateWorkflowDefinition(nodes, edges, { requireTrigger: true })
+      // trigger/target/end are all minimal-but-valid, so any handle-shape
+      // error here can only be about `subject` or its own outgoing edges.
+      const handleErrors = errors.filter((e) => HANDLE_ERROR_PATTERNS.some((p) => p.test(e)))
+      expect(handleErrors).toEqual([])
+    })
+  }
+})

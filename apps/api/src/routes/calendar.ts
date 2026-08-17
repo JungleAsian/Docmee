@@ -141,13 +141,62 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
     return reply.redirect(url)
   })
 
-  // 2. OAuth callback — exchange the code and persist encrypted tokens.
+  // 1b. Begin OAuth for a single doctor's own calendar — same shared OAuth app
+  // and callback route as the clinic flow above; the `state` prefix ("doctor:")
+  // is what lets the shared callback route each connection to the right place.
+  app.get<{ Params: { clinicId: string; doctorId: string } }>(
+    '/clinics/:clinicId/doctors/:doctorId/calendar/auth',
+    async (request, reply) => {
+      const { clinicId, doctorId } = request.params
+      const sql = dbClient()
+      let doctorExists = false
+      try {
+        doctorExists = (await createDoctorsRepository(sql).findById(clinicId, doctorId)) !== null
+      } finally {
+        await sql.end()
+      }
+      if (!doctorExists) return reply.code(404).send({ error: 'Doctor not found' })
+
+      const oauth2Client = await getOAuth2Client(clinicId)
+      const url = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        // Doctor-level connections only ever power calendar booking — no
+        // spreadsheets/CRM export scope, that stays clinic-only.
+        scope: ['https://www.googleapis.com/auth/calendar.events'],
+        state: `doctor:${clinicId}:${doctorId}`,
+        prompt: 'consent',
+      })
+      if (await googleRejectsRedirectUri(url)) {
+        return reply
+          .code(409)
+          .header('content-type', 'text/html; charset=utf-8')
+          .send(
+            googleOAuthSetupPage({
+              redirectUri: process.env['GOOGLE_REDIRECT_URI']?.trim() || null,
+              clientId: process.env['GOOGLE_CLIENT_ID']?.trim() || null,
+            }),
+          )
+      }
+      return reply.redirect(url)
+    },
+  )
+
+  // 2. OAuth callback — exchange the code and persist encrypted tokens. Shared
+  // by both the clinic flow (state = bare clinicId) and the doctor flow
+  // (state = "doctor:<clinicId>:<doctorId>") since both reuse the one
+  // registered Google Cloud redirect URI.
   app.get<{ Querystring: { code?: string; state?: string; error?: string; error_description?: string } }>(
     '/clinic/calendar/callback',
     async (request, reply) => {
-      const { code, state: clinicId, error } = request.query
+      const { code, state, error } = request.query
+      const doctorMatch = state?.match(/^doctor:([^:]+):([^:]+)$/)
+      const clinicId = doctorMatch ? doctorMatch[1] : state
+
       if (error) {
-        const target = clinicId ? `/studio/channels?calendar=error&clinic=${encodeURIComponent(clinicId)}&reason=${encodeURIComponent(error)}` : `/studio/channels?calendar=error&reason=${encodeURIComponent(error)}`
+        if (doctorMatch) return reply.redirect(`/studio/doctors?calendar=error&reason=${encodeURIComponent(error)}`)
+        const target = clinicId
+          ? `/studio/channels?calendar=error&clinic=${encodeURIComponent(clinicId)}&reason=${encodeURIComponent(error)}`
+          : `/studio/channels?calendar=error&reason=${encodeURIComponent(error)}`
         return reply.redirect(target)
       }
       if (!code || !clinicId) {
@@ -161,6 +210,20 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
 
       const sql = dbClient()
       try {
+        if (doctorMatch) {
+          const doctorId = doctorMatch[2]!
+          const doctors = createDoctorsRepository(sql)
+          const doctor = await doctors.findById(clinicId, doctorId)
+          if (!doctor) return reply.code(404).send({ error: 'Doctor not found' })
+
+          await doctors.update(clinicId, doctorId, {
+            googleCalendarId: 'primary',
+            googleCalendarAccessTokenEncrypted: encryptValue(tokens.access_token),
+            googleCalendarRefreshTokenEncrypted: encryptValue(tokens.refresh_token),
+          })
+          return reply.redirect(`/studio/doctors?calendar=connected&doctor=${encodeURIComponent(doctorId)}`)
+        }
+
         const clinics = createClinicsRepository(sql)
         const clinic = await clinics.findById(clinicId)
         if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
@@ -305,6 +368,24 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
       await sql.end()
     }
   })
+
+  // 4b. Disconnect a single doctor's own calendar connection.
+  app.delete<{ Params: { clinicId: string; doctorId: string } }>(
+    '/clinics/:clinicId/doctors/:doctorId/calendar/disconnect',
+    async (request, reply) => {
+      const sql = dbClient()
+      try {
+        const doctors = createDoctorsRepository(sql)
+        const doctor = await doctors.findById(request.params.clinicId, request.params.doctorId)
+        if (!doctor) return reply.code(404).send({ error: 'Doctor not found' })
+
+        await doctors.disconnectCalendar(request.params.clinicId, request.params.doctorId)
+        return reply.code(200).send({ disconnected: true })
+      } finally {
+        await sql.end()
+      }
+    },
+  )
 }
 
 export default calendarRoute

@@ -5,9 +5,9 @@
 // credentials (so the booking flow checks and books against that doctor's calendar)
 // AND their own weekly working hours (so the bot only offers slots when that doctor
 // actually works).
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '@/shared/api/client'
+import { api, API_BASE, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { PillToggle } from '@/shared/components/PillToggle'
 import {
@@ -24,6 +24,7 @@ import type { Doctor, DoctorAvailability, Service } from '@/shared/types'
 export default function DoctorsPage() {
   const { t } = useI18n()
   const { clinicId, switchClinic } = useActiveClinic()
+  const qc = useQueryClient()
 
   const key = ['doctors', clinicId]
   const query = useQuery({
@@ -34,12 +35,42 @@ export default function DoctorsPage() {
 
   const doctors = query.data?.doctors ?? []
 
+  // Post-OAuth redirect banner from /clinics/:id/doctors/:doctorId/calendar/auth.
+  // Client-side query-param read avoids a useSearchParams Suspense requirement
+  // on this page (same convention as the workflows page's deep-link handling).
+  const [calendarBanner, setCalendarBanner] = useState<{ kind: 'connected' | 'error'; doctorId?: string } | null>(null)
+  const bannerHandledRef = useRef(false)
+  useEffect(() => {
+    if (bannerHandledRef.current) return
+    const params = new URLSearchParams(window.location.search)
+    const calendar = params.get('calendar')
+    if (calendar !== 'connected' && calendar !== 'error') return
+    bannerHandledRef.current = true
+    setCalendarBanner({ kind: calendar, doctorId: params.get('doctor') ?? undefined })
+    window.history.replaceState(null, '', window.location.pathname)
+    qc.invalidateQueries({ queryKey: ['doctors', clinicId] })
+  }, [clinicId, qc])
+
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{t('studio.doctors.title')}</h1>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('analytics.selectClinic')} />
       </div>
+
+      {calendarBanner && (
+        <div
+          className={
+            calendarBanner.kind === 'connected'
+              ? 'rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300'
+          }
+        >
+          {calendarBanner.kind === 'connected'
+            ? t('studio.doctors.calendarConnectedBanner')
+            : t('studio.doctors.calendarErrorBanner')}
+        </div>
+      )}
 
       {!clinicId ? (
         <p className="text-sm text-gray-400">{t('studio.doctors.selectClinic')}</p>
@@ -639,9 +670,6 @@ function NewDoctorForm({ clinicId }: { clinicId: string }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
   const [specialty, setSpecialty] = useState('')
-  const [googleCalendarId, setGoogleCalendarId] = useState('')
-  const [accessToken, setAccessToken] = useState('')
-  const [refreshToken, setRefreshToken] = useState('')
   const [availableDays, setAvailableDays] = useState<DoctorAvailability>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -650,17 +678,11 @@ function NewDoctorForm({ clinicId }: { clinicId: string }) {
       api.post(`/clinics/${clinicId}/doctors`, {
         name,
         specialty: specialty || undefined,
-        googleCalendarId: googleCalendarId || undefined,
-        googleCalendarAccessToken: accessToken || undefined,
-        googleCalendarRefreshToken: refreshToken || undefined,
         availableDays,
       }),
     onSuccess: () => {
       setName('')
       setSpecialty('')
-      setGoogleCalendarId('')
-      setAccessToken('')
-      setRefreshToken('')
       setAvailableDays({})
       setError(null)
       qc.invalidateQueries({ queryKey: ['doctors', clinicId] })
@@ -680,20 +702,7 @@ function NewDoctorForm({ clinicId }: { clinicId: string }) {
     >
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('studio.doctors.name')} className={field} />
       <input value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder={t('studio.doctors.specialty')} className={field} />
-      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 sm:col-span-2">
-        <p className="font-semibold">Google Calendar</p>
-        <p className="mt-1">
-          Connect the clinic Google Calendar once from Channels. Only open the advanced fields if a developer asks for them.
-        </p>
-      </div>
-      <details className="rounded-md border border-gray-200 p-3 text-xs dark:border-gray-800 sm:col-span-2">
-        <summary className="cursor-pointer font-medium text-gray-600 dark:text-gray-300">Advanced calendar connection</summary>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <input value={googleCalendarId} onChange={(e) => setGoogleCalendarId(e.target.value)} placeholder={t('studio.doctors.calendarId')} className={field} />
-          <input value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder={t('studio.doctors.accessToken')} className={field} />
-          <input value={refreshToken} onChange={(e) => setRefreshToken(e.target.value)} placeholder={t('studio.doctors.refreshToken')} className={field} />
-        </div>
-      </details>
+      <p className="text-xs text-gray-500 sm:col-span-2">{t('studio.doctors.calendarConnectSaveFirst')}</p>
       <div className="sm:col-span-2">
         <WeeklyHoursEditor value={availableDays} onChange={setAvailableDays} />
       </div>
@@ -724,20 +733,15 @@ function EditDoctorForm({
   const qc = useQueryClient()
   const [name, setName] = useState(doctor.name)
   const [specialty, setSpecialty] = useState(doctor.specialty ?? '')
-  const [googleCalendarId, setGoogleCalendarId] = useState(doctor.googleCalendarId ?? '')
-  const [accessToken, setAccessToken] = useState('')
-  const [refreshToken, setRefreshToken] = useState('')
   const [isActive, setIsActive] = useState(doctor.isActive)
   const [availableDays, setAvailableDays] = useState<DoctorAvailability>(doctor.availableDays ?? {})
+  const [disconnectMessage, setDisconnectMessage] = useState<string | null>(null)
 
   const mutation = useMutation({
     mutationFn: () =>
       api.patch(`/clinics/${clinicId}/doctors/${doctor.id}`, {
         name,
         specialty: specialty || undefined,
-        googleCalendarId: googleCalendarId || undefined,
-        googleCalendarAccessToken: accessToken || undefined,
-        googleCalendarRefreshToken: refreshToken || undefined,
         availableDays,
         isActive,
       }),
@@ -745,6 +749,12 @@ function EditDoctorForm({
       qc.invalidateQueries({ queryKey: ['doctors', clinicId] })
       onDone()
     },
+  })
+
+  const disconnectCalendar = useMutation({
+    mutationFn: () => api.del(`/clinics/${clinicId}/doctors/${doctor.id}/calendar/disconnect`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['doctors', clinicId] }),
+    onError: (e) => setDisconnectMessage(e instanceof ApiError ? e.message : t('common.error')),
   })
 
   function onSubmit(e: FormEvent) {
@@ -765,14 +775,29 @@ function EditDoctorForm({
           className="ml-auto"
         />
       </label>
-      <details className="rounded-md border border-gray-200 p-3 text-xs dark:border-gray-800 sm:col-span-2">
-        <summary className="cursor-pointer font-medium text-gray-600 dark:text-gray-300">Advanced calendar connection</summary>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <input value={googleCalendarId} onChange={(e) => setGoogleCalendarId(e.target.value)} placeholder={t('studio.doctors.calendarId')} className={field} />
-          <input value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder={t('studio.doctors.accessTokenReplace')} className={field} />
-          <input value={refreshToken} onChange={(e) => setRefreshToken(e.target.value)} placeholder={t('studio.doctors.refreshTokenReplace')} className={field} />
-        </div>
-      </details>
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-gray-200 p-3 text-xs dark:border-gray-800 sm:col-span-2">
+        <span className={doctor.calendarConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}>
+          {doctor.calendarConnected ? t('studio.doctors.connected') : t('studio.doctors.notConnected')}
+        </span>
+        {doctor.calendarConnected ? (
+          <button
+            type="button"
+            onClick={() => disconnectCalendar.mutate()}
+            disabled={disconnectCalendar.isPending}
+            className="ml-auto rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-300"
+          >
+            {disconnectCalendar.isPending ? t('common.loading') : t('studio.doctors.calendarDisconnect')}
+          </button>
+        ) : (
+          <a
+            href={`${API_BASE}/clinics/${clinicId}/doctors/${doctor.id}/calendar/auth`}
+            className="ml-auto rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700"
+          >
+            {t('studio.doctors.calendarConnect')}
+          </a>
+        )}
+        {disconnectMessage && <p className="w-full text-red-600">{disconnectMessage}</p>}
+      </div>
       <div className="sm:col-span-2">
         <WeeklyHoursEditor value={availableDays} onChange={setAvailableDays} />
       </div>

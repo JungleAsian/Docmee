@@ -31,6 +31,9 @@ export interface DoctorsRepository {
   create(data: CreateDoctorInput): Promise<Doctor>
   update(clinicId: string, id: string, data: UpdateDoctorInput): Promise<Doctor>
   delete(clinicId: string, id: string): Promise<void>
+  /** Clears the three Google Calendar columns to NULL — update()'s COALESCE
+   * pattern can only overwrite with a new value, never null one out. */
+  disconnectCalendar(clinicId: string, id: string): Promise<Doctor>
 }
 
 export function createDoctorsRepository(sql: Sql): DoctorsRepository {
@@ -88,6 +91,19 @@ export function createDoctorsRepository(sql: Sql): DoctorsRepository {
 
     async delete(clinicId, id) {
       await sql`DELETE FROM doctors WHERE clinic_id = ${clinicId} AND id = ${id}`
+    },
+
+    async disconnectCalendar(clinicId, id) {
+      const rows = await sql<Doctor[]>`
+        UPDATE doctors SET
+          google_calendar_id                      = NULL,
+          google_calendar_access_token_encrypted  = NULL,
+          google_calendar_refresh_token_encrypted = NULL
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+        RETURNING *
+      `
+      if (!rows[0]) throw new Error(`Doctor not found: ${id}`)
+      return rows[0]
     },
   }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateWorkflowDefinition } from '@docmee/agents'
 import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, branchRows, parseBranchColors, resolveBranchColor } from './workflowNodes'
+import { isBranchingNode, resequenceLinearEdges } from './workflowLinearEdges'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES } from './workflowTemplates'
 import type { WorkflowNode } from './types'
@@ -270,6 +271,23 @@ describe('branchRows (interactive_menu reserved handles)', () => {
   })
 })
 
+describe('branchRows (action.offer_slot_menu)', () => {
+  // Regression: this node type requires 'selected'/'empty' successors per
+  // workflow-validator.ts, but was missing from branchRows() entirely, so it
+  // was silently indistinguishable from a plain linear node to any
+  // branchRows()-driven consumer -- letting a linear-only editor auto-wipe
+  // its real handle-labeled edges down to one generic unlabeled edge.
+  it('exposes exactly the four handles workflow-validator.ts requires/allows', () => {
+    const slotMenu = node('date_menu', 'action', 'action.offer_slot_menu', { pickerMode: 'date' })
+    expect(branchRows(slotMenu).map((r) => r.key)).toEqual(['selected', 'empty', 'restart', 'livechat'])
+  })
+
+  it('is recognized as a branching node (not auto-chained as linear)', () => {
+    const slotMenu = node('date_menu', 'action', 'action.offer_slot_menu', { pickerMode: 'date' })
+    expect(isBranchingNode(slotMenu)).toBe(true)
+  })
+})
+
 describe('validateWorkflowDefinition + reserved options as real buttons', () => {
   // Interactive-menu structural checks (option count vs. variant, duplicate/
   // unwired handles) only run under requireTrigger: true -- draft canvases are
@@ -376,5 +394,55 @@ describe('parseBranchColors / resolveBranchColor (routing-line colors)', () => {
   it('falls back to a neutral gray for a stale handle matching no current row', () => {
     const cond = node('cond', 'logic', 'logic.condition')
     expect(resolveBranchColor(cond, 'not_a_real_handle')).toBe('#94a3b8')
+  })
+})
+
+describe('validateWorkflowDefinition + action.offer_slot_menu (regression)', () => {
+  // Reproduces the exact production error report: "Slot menu edge ... uses an
+  // unknown handle """ + "Slot menu date_menu requires a 'selected' successor" --
+  // caused by the Guided editor's resequenceLinearEdges treating an
+  // unrecognized-by-branchRows() offer_slot_menu node as linear and collapsing
+  // its real edges down to one auto-chained, unlabeled edge.
+  const trigger = node('t', 'trigger', 'trigger.message_keyword', { keywords: 'book' })
+
+  it('a properly wired slot menu (selected + empty) passes validation', () => {
+    const dateMenu = node('date_menu', 'action', 'action.offer_slot_menu', { pickerMode: 'date' })
+    const confirmMenu = node('confirm_menu', 'action', 'action.send_message', { text: 'Confirmed' })
+    const end = node('end', 'action', 'action.end')
+    const edges = [
+      { id: 'e0', source: 't', target: 'date_menu' },
+      { id: 'e1', source: 'date_menu', target: 'confirm_menu', sourceHandle: 'selected' },
+      { id: 'e2', source: 'date_menu', target: 't', sourceHandle: 'empty' },
+      { id: 'e3', source: 'confirm_menu', target: 'end' },
+    ]
+    expect(validateWorkflowDefinition([trigger, dateMenu, confirmMenu, end], edges, { requireTrigger: true })).toEqual([])
+  })
+
+  it('reproduces the reported errors for an unlabeled auto-chained edge', () => {
+    const dateMenu = node('date_menu', 'action', 'action.offer_slot_menu', { pickerMode: 'date' })
+    const confirmMenu = node('confirm_menu', 'action', 'action.send_message', { text: 'Confirmed' })
+    // No sourceHandle at all -- what resequenceLinearEdges used to produce
+    // for this node type before the branchRows() fix.
+    const edges = [
+      { id: 'e0', source: 't', target: 'date_menu' },
+      { id: 'e_date_menu_confirm_menu_default_42', source: 'date_menu', target: 'confirm_menu' },
+    ]
+    const errors = validateWorkflowDefinition([trigger, dateMenu, confirmMenu], edges, { requireTrigger: true })
+    expect(errors).toContain('Slot menu edge e_date_menu_confirm_menu_default_42 uses an unknown handle ""')
+    expect(errors).toContain('Slot menu date_menu requires a "selected" successor')
+  })
+
+  it('resequenceLinearEdges no longer touches (or collapses) a slot menu\'s own edges', () => {
+    const dateMenu = node('date_menu', 'action', 'action.offer_slot_menu', { pickerMode: 'date' })
+    const confirmMenu = node('confirm_menu', 'action', 'action.send_message', { text: 'Confirmed' })
+    const handWired = [
+      { id: 'e0', source: 't', target: 'date_menu' },
+      { id: 'e1', source: 'date_menu', target: 'confirm_menu', sourceHandle: 'selected' },
+      { id: 'e2', source: 'date_menu', target: 't', sourceHandle: 'empty' },
+    ]
+    const steps = [trigger, dateMenu, confirmMenu]
+    const resequenced = resequenceLinearEdges(steps, handWired)
+    expect(resequenced).toContainEqual({ id: 'e1', source: 'date_menu', target: 'confirm_menu', sourceHandle: 'selected' })
+    expect(resequenced).toContainEqual({ id: 'e2', source: 'date_menu', target: 't', sourceHandle: 'empty' })
   })
 })

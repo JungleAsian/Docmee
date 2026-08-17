@@ -506,6 +506,21 @@ export function branchRows(wf: WorkflowNode): { key: string; tone: string; label
         { key: 'no_match', tone: 'slate' },
         { key: 'error', tone: 'red' },
       ]
+    case 'action.offer_slot_menu':
+      // Matches workflow-validator.ts's own required handle set exactly
+      // (`selected`/`empty` mandatory, `restart`/`livechat` optional) — this
+      // node type was missing from branchRows() entirely until now, which
+      // made it silently indistinguishable from a plain linear node to every
+      // branchRows()-driven consumer (the canvas's option-row rendering, the
+      // Guided editor's linear-vs-branching classification). Both now treat
+      // it correctly as branching, matching what the engine has always
+      // required.
+      return [
+        { key: 'selected', tone: 'emerald' },
+        { key: 'empty', tone: 'amber' },
+        { key: 'restart', tone: 'slate' },
+        { key: 'livechat', tone: 'sky' },
+      ]
     default:
       return []
   }

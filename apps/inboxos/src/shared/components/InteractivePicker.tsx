@@ -54,7 +54,7 @@ export function InteractivePicker({
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-72 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+        <div className="fixed bottom-24 left-1/2 z-30 w-72 -translate-x-1/2 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-gray-900">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
               {t('interactive.title')}

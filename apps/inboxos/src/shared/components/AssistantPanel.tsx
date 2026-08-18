@@ -114,6 +114,10 @@ const ACTION_LABEL: Record<NextStepAction, `assistant.action.${NextStepAction}`>
 export function AssistantPanel({ conversationId }: { conversationId: string }) {
   const { t, language } = useI18n()
   const online = useOnline()
+  // Item 11 of the 25-item batch: a collapsible banner so the assistant panel can
+  // be tucked away to declutter the screen without losing the generated
+  // summary/suggestions (collapsing doesn't unmount the cards' mutation state).
+  const [collapsed, setCollapsed] = useState(false)
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [insertedIdx, setInsertedIdx] = useState<number | null>(null)
   const [summaryAt, setSummaryAt] = useState<string | null>(null)
@@ -157,7 +161,12 @@ export function AssistantPanel({ conversationId }: { conversationId: string }) {
     <section className="border-b border-gray-200 bg-gray-50/60 dark:border-gray-800 dark:bg-gray-900/40">
       {/* Header — spark mark, title, subtitle and the unmistakable staff-only badge
           so it's never confused with anything the patient can see. */}
-      <div className="border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900">
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
+        className="w-full border-b border-gray-200 bg-white px-4 py-3 text-left dark:border-gray-800 dark:bg-gray-900"
+      >
         <div className="flex items-center gap-2">
           <span
             aria-hidden
@@ -166,96 +175,105 @@ export function AssistantPanel({ conversationId }: { conversationId: string }) {
             ✦
           </span>
           <h3 className="text-sm font-bold">{t('assistant.title')}</h3>
+          <span aria-hidden className="ml-auto text-gray-400 transition-transform" style={{ transform: collapsed ? 'rotate(-90deg)' : undefined }}>
+            ▾
+          </span>
         </div>
-        <p className="mt-1 text-[11.5px] text-gray-500 dark:text-gray-400">{t('assistant.subtitle')}</p>
-        <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-700 dark:border-cyan-800/60 dark:bg-cyan-950/40 dark:text-cyan-300">
-          🔒 {t('assistant.staffOnly')}
-        </span>
-      </div>
-
-      <div className="space-y-3 p-3">
-        {!online && (
-          <p className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
-            <span aria-hidden>⚠</span>
-            <span>{t('assistant.offlineNote')}</span>
-          </p>
+        {!collapsed && (
+          <>
+            <p className="mt-1 text-[11.5px] text-gray-500 dark:text-gray-400">{t('assistant.subtitle')}</p>
+            <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-700 dark:border-cyan-800/60 dark:bg-cyan-950/40 dark:text-cyan-300">
+              🔒 {t('assistant.staffOnly')}
+            </span>
+          </>
         )}
+      </button>
 
-        {/* ── 1. Conversation summary ── */}
-        <Card
-          icon="≡"
-          iconClass="bg-teal-50 text-teal-600 dark:bg-teal-950/50 dark:text-teal-300"
-          title={t('assistant.summaryTitle')}
-          pill={summary.data ? t('assistant.updated', { time: summaryAt ?? '' }) : undefined}
-        >
-          <CardState
-            mutation={summary}
-            online={online}
-            loadingLabel={t('assistant.reading')}
-            emptyTitle={t('assistant.emptySummary')}
-            emptyHint={t('assistant.emptySummaryHint')}
-            cta={t('assistant.summarize')}
-            errorTitle={t('assistant.errSummary')}
-          >
-            {summary.data && (
-              <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700 dark:text-gray-200">
-                {summary.data.summary}
-              </p>
-            )}
-          </CardState>
-        </Card>
+      {!collapsed && (
+        <div className="space-y-3 p-3">
+          {!online && (
+            <p className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+              <span aria-hidden>⚠</span>
+              <span>{t('assistant.offlineNote')}</span>
+            </p>
+          )}
 
-        {/* ── 2. Suggested next step (colour-coded, exactly one action) ── */}
-        <Card
-          icon="➜"
-          iconClass="bg-teal-50 text-teal-600 dark:bg-teal-950/50 dark:text-teal-300"
-          title={t('assistant.nextStepLabel')}
-          pill={nextStep.data ? t('assistant.pill.advisory') : undefined}
-        >
-          <CardState
-            mutation={nextStep}
-            online={online}
-            loadingLabel={t('assistant.thinking')}
-            emptyTitle={t('assistant.emptyNextStep')}
-            emptyHint={t('assistant.emptyNextStepHint')}
-            cta={t('assistant.nextStep')}
-            errorTitle={t('assistant.errNextStep')}
+          {/* ── 1. Conversation summary ── */}
+          <Card
+            icon="≡"
+            iconClass="bg-teal-50 text-teal-600 dark:bg-teal-950/50 dark:text-teal-300"
+            title={t('assistant.summaryTitle')}
+            pill={summary.data ? t('assistant.updated', { time: summaryAt ?? '' }) : undefined}
           >
-            {nextStep.data && <NextStepCard data={nextStep.data} t={t} />}
-          </CardState>
-        </Card>
+            <CardState
+              mutation={summary}
+              online={online}
+              loadingLabel={t('assistant.reading')}
+              emptyTitle={t('assistant.emptySummary')}
+              emptyHint={t('assistant.emptySummaryHint')}
+              cta={t('assistant.summarize')}
+              errorTitle={t('assistant.errSummary')}
+            >
+              {summary.data && (
+                <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-700 dark:text-gray-200">
+                  {summary.data.summary}
+                </p>
+              )}
+            </CardState>
+          </Card>
 
-        {/* ── 3. KB-grounded reply draft ── */}
-        <Card
-          icon="✎"
-          iconClass="bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-300"
-          title={t('assistant.replyTitle')}
-          pill={suggestions.data ? t('assistant.pill.kbGrounded') : undefined}
-        >
-          <CardState
-            mutation={suggestions}
-            online={online}
-            loadingLabel={t('assistant.thinking')}
-            emptyTitle={t('assistant.emptyReply')}
-            emptyHint={t('assistant.emptyReplyHint')}
-            cta={t('assistant.suggest')}
-            errorTitle={t('assistant.errReply')}
+          {/* ── 2. Suggested next step (colour-coded, exactly one action) ── */}
+          <Card
+            icon="➜"
+            iconClass="bg-teal-50 text-teal-600 dark:bg-teal-950/50 dark:text-teal-300"
+            title={t('assistant.nextStepLabel')}
+            pill={nextStep.data ? t('assistant.pill.advisory') : undefined}
           >
-            {suggestions.data && (
-              <DraftList
-                data={suggestions.data}
-                online={online}
-                copiedIdx={copiedIdx}
-                insertedIdx={insertedIdx}
-                onInsert={insert}
-                onCopy={copy}
-                onRegenerate={() => suggestions.mutate()}
-                regenerating={suggestions.isPending}
-              />
-            )}
-          </CardState>
-        </Card>
-      </div>
+            <CardState
+              mutation={nextStep}
+              online={online}
+              loadingLabel={t('assistant.thinking')}
+              emptyTitle={t('assistant.emptyNextStep')}
+              emptyHint={t('assistant.emptyNextStepHint')}
+              cta={t('assistant.nextStep')}
+              errorTitle={t('assistant.errNextStep')}
+            >
+              {nextStep.data && <NextStepCard data={nextStep.data} t={t} />}
+            </CardState>
+          </Card>
+
+          {/* ── 3. KB-grounded reply draft ── */}
+          <Card
+            icon="✎"
+            iconClass="bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-300"
+            title={t('assistant.replyTitle')}
+            pill={suggestions.data ? t('assistant.pill.kbGrounded') : undefined}
+          >
+            <CardState
+              mutation={suggestions}
+              online={online}
+              loadingLabel={t('assistant.thinking')}
+              emptyTitle={t('assistant.emptyReply')}
+              emptyHint={t('assistant.emptyReplyHint')}
+              cta={t('assistant.suggest')}
+              errorTitle={t('assistant.errReply')}
+            >
+              {suggestions.data && (
+                <DraftList
+                  data={suggestions.data}
+                  online={online}
+                  copiedIdx={copiedIdx}
+                  insertedIdx={insertedIdx}
+                  onInsert={insert}
+                  onCopy={copy}
+                  onRegenerate={() => suggestions.mutate()}
+                  regenerating={suggestions.isPending}
+                />
+              )}
+            </CardState>
+          </Card>
+        </div>
+      )}
     </section>
   )
 }

@@ -90,6 +90,39 @@ export function ConversationList({
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [selectedRows, setSelectedRows] = useState<Set<string>>(() => new Set())
+  // Item 10a of the 25-item batch: a per-row hide button that declutters the queue
+  // without touching conversation status server-side — purely a local view
+  // preference for this browser tab. Safety-flagged threads are never hideable
+  // (matches the "always surfaces" invariant already documented below).
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const raw = window.sessionStorage.getItem('docmee-hidden-conversations')
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    } catch {
+      return new Set()
+    }
+  })
+  function hideRow(id: string) {
+    setHiddenIds((current) => {
+      const next = new Set(current)
+      next.add(id)
+      try {
+        window.sessionStorage.setItem('docmee-hidden-conversations', JSON.stringify([...next]))
+      } catch {
+        // sessionStorage unavailable — hide state just won't persist across reloads
+      }
+      return next
+    })
+  }
+  function unhideAll() {
+    setHiddenIds(new Set())
+    try {
+      window.sessionStorage.removeItem('docmee-hidden-conversations')
+    } catch {
+      // ignore
+    }
+  }
 
   const query = useQuery({
     queryKey: ['conversations', assignee, userId, search.trim()],
@@ -138,9 +171,11 @@ export function ConversationList({
   // never be able to hide an emergency/urgent thread (Req 20). The lens only narrows
   // the ordinary queue below the safety group.
   const safetyRows = conversations.filter((c) => assessSafety(c.tags).level)
-  const normalRows = conversations.filter(
+  const normalRowsAll = conversations.filter(
     (c) => !assessSafety(c.tags).level && matchesLens(c, lens),
   )
+  const normalRows = normalRowsAll.filter((c) => !hiddenIds.has(c.id))
+  const hiddenCount = normalRowsAll.length - normalRows.length
   const visibleCount = safetyRows.length + normalRows.length
 
   // CRE-62: keyboard navigation for the operator — j/k or arrow keys move through
@@ -238,6 +273,15 @@ export function ConversationList({
             </span>
           )}
         </div>
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={unhideAll}
+            className="mb-2 text-[11px] font-medium text-teal-700 hover:underline dark:text-teal-300"
+          >
+            {t('conv.showHidden', { n: String(hiddenCount) })}
+          </button>
+        )}
 
         {/* Find a thread by patient handle (client-side over the loaded set). */}
         <div className="relative mb-2">
@@ -435,6 +479,7 @@ export function ConversationList({
                 userId={userId}
                 checked={selectedRows.has(c.id)}
                 onCheck={toggleRow}
+                onHide={hideRow}
               />
             ))}
           </ul>
@@ -477,6 +522,7 @@ function ThreadRow({
   userId,
   checked,
   onCheck,
+  onHide,
 }: {
   conversation: Conversation
   selected: boolean
@@ -485,6 +531,7 @@ function ThreadRow({
   userId: string | undefined
   checked: boolean
   onCheck: (id: string, checked: boolean) => void
+  onHide?: (id: string) => void
 }) {
   const { t } = useI18n()
   const safety = assessSafety(c.tags).level
@@ -511,6 +558,25 @@ function ThreadRow({
           aria-label={`Select ${displayName}`}
           className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
         />
+        {onHide && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onHide(c.id)
+            }}
+            title={t('conv.hideRow')}
+            aria-label={t('conv.hideRow')}
+            className="mt-1 shrink-0 rounded p-0.5 text-gray-300 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-gray-800"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+              <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+              <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+              <line x1="2" y1="2" x2="22" y2="22" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onSelect(c.id)}

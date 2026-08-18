@@ -46,7 +46,7 @@ export function TemplatePicker({
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 max-h-72 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+        <div className="fixed bottom-24 left-1/2 z-30 max-h-72 w-72 -translate-x-1/2 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 dark:border-gray-800">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
               {t('template.title')}

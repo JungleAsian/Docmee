@@ -5,6 +5,7 @@
 // returning-patient signal (Req 16): a known patient is reassuringly distinct from a
 // brand-new first contact at a glance. Reuses the ['conversation', id] and
 // ['patient', id] queries (TanStack dedupes them) so it never adds a fetch.
+import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
@@ -31,6 +32,10 @@ const STATUS_BADGE: Record<PatientStatus, { className: string; glyph: string }> 
 
 export function PatientCard({ conversationId }: { conversationId: string }) {
   const { t } = useI18n()
+  // Item 11 of the 25-item batch: a hide toggle so the secretary can collapse this
+  // card to give the message thread more room. Local UI state only — collapsing
+  // doesn't change any patient/conversation data.
+  const [collapsed, setCollapsed] = useState(false)
 
   const conversationQuery = useQuery({
     queryKey: ['conversation', conversationId],
@@ -50,8 +55,32 @@ export function PatientCard({ conversationId }: { conversationId: string }) {
   const displayName = patient?.fullName ?? handle
   const badge = patient ? STATUS_BADGE[patient.status] : null
 
+  if (collapsed) {
+    return (
+      <section className="flex items-center justify-between gap-2 border-b border-[var(--crm-border-color)] px-5 py-2">
+        <span className="min-w-0 truncate text-xs font-bold text-[var(--crm-text-main)]">{displayName}</span>
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="shrink-0 text-[11px] font-medium text-[var(--crm-primary-color)] hover:underline"
+        >
+          {t('patient.show')}
+        </button>
+      </section>
+    )
+  }
+
   return (
-    <section className="border-b border-[var(--crm-border-color)] px-5 py-5 text-center">
+    <section className="relative border-b border-[var(--crm-border-color)] px-5 py-5 text-center">
+      <button
+        type="button"
+        onClick={() => setCollapsed(true)}
+        title={t('patient.hide')}
+        aria-label={t('patient.hide')}
+        className="absolute right-2 top-2 rounded p-1 text-[var(--crm-text-muted)] hover:bg-[var(--crm-elevated-bg)]"
+      >
+        ✕
+      </button>
       <div className="crm-conv-avatar mx-auto !h-20 !w-20 !text-2xl">
         {avatarLabel(handle)}
       </div>

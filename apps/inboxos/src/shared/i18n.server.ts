@@ -120,6 +120,8 @@ const es: Dict = {
   'login.signupSuccess': 'Solicitud enviada. Cuando un superadmin la apruebe, podrás iniciar sesión con tu correo y tu número de contacto.',
 
   'conv.title': 'Conversaciones',
+  'conv.hideRow': 'Ocultar conversación',
+  'conv.showHidden': 'Mostrar {n} ocultas',
   'conv.empty': 'No hay conversaciones',
   'conv.unassigned': 'Sin asignar',
   'conv.assignedToMe': 'Asignada a mí',
@@ -858,6 +860,8 @@ const es: Dict = {
   'reports.loadingOne': 'Cargando reporte…',
 
   'patient.title': 'Historial del paciente',
+  'patient.hide': 'Ocultar tarjeta de paciente',
+  'patient.show': 'Mostrar paciente',
   'patient.back': 'Volver a la bandeja',
   'patient.profile': 'Perfil',
   'patient.status.new': 'Nuevo',
@@ -2230,6 +2234,8 @@ const en: Dict = {
   'login.signupSuccess': 'Request submitted. Once a super admin approves it, you can sign in with your email and contact number.',
 
   'conv.title': 'Conversations',
+  'conv.hideRow': 'Hide conversation',
+  'conv.showHidden': 'Show {n} hidden',
   'conv.empty': 'No conversations',
   'conv.unassigned': 'Unassigned',
   'conv.assignedToMe': 'Assigned to me',
@@ -2967,6 +2973,8 @@ const en: Dict = {
   'reports.loadingOne': 'Loading report…',
 
   'patient.title': 'Patient history',
+  'patient.hide': 'Hide patient card',
+  'patient.show': 'Show patient',
   'patient.back': 'Back to inbox',
   'patient.profile': 'Profile',
   'patient.status.new': 'New',

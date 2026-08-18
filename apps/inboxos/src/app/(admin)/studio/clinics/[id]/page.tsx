@@ -4,7 +4,7 @@
 // settings, bot configuration (tone + rules), business hours, Google Calendar
 // connection, and license. Bot/hours live in clinic.settings; we always PATCH a
 // MERGED settings object so unrelated keys are never dropped.
-import { use, useState, type FormEvent } from 'react'
+import { use, useCallback, useContext, useEffect, useRef, useState, createContext, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, API_BASE } from '@/shared/api/client'
@@ -53,7 +53,7 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
       ) : !clinic ? (
         <p className="text-sm text-gray-400">{t('clinic.notFound')}</p>
       ) : (
-        <>
+        <ClinicDetailSaveProvider>
           <GeneralSection clinic={clinic} />
           <BotConfigSection clinic={clinic} />
           <BusinessHoursSection clinic={clinic} />
@@ -63,7 +63,7 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
           <MessengerSection clinic={clinic} />
           <InstagramSection clinic={clinic} />
           <LicenseSection clinicId={clinic.id} />
-        </>
+        </ClinicDetailSaveProvider>
       )}
     </div>
   )
@@ -76,6 +76,91 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </section>
   )
+}
+
+// Item 2 of the 25-item batch: a page-level "Save changes" bar pinned to the
+// bottom of Clinic Detail, so finishing the workflow doesn't mean hunting down
+// each section's own Save button. Each section keeps its own dirty/save
+// mutation exactly as before — this is a coordinating layer on top, not a
+// replacement. Local to this page since no other page needs it.
+interface SectionSaveState {
+  dirty: boolean
+  pending: boolean
+  label: string
+}
+interface SaveRegistry {
+  registerSave: (id: string, save: () => void) => void
+  registerState: (id: string, state: SectionSaveState) => void
+  unregister: (id: string) => void
+}
+const ClinicDetailSaveContext = createContext<SaveRegistry | null>(null)
+
+function ClinicDetailSaveProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n()
+  const [states, setStates] = useState<Record<string, SectionSaveState>>({})
+  const saveFns = useRef<Record<string, () => void>>({})
+
+  // Ref-only, called unconditionally on every render (safe — mutating a ref during
+  // render doesn't affect this render's output) so saveAll() always calls the
+  // LATEST save closure, never one captured back when dirty first flipped true.
+  const registerSave = useCallback((id: string, save: () => void) => {
+    saveFns.current[id] = save
+  }, [])
+  const registerState = useCallback((id: string, state: SectionSaveState) => {
+    setStates((prev) => {
+      const existing = prev[id]
+      if (existing && existing.dirty === state.dirty && existing.pending === state.pending && existing.label === state.label) {
+        return prev
+      }
+      return { ...prev, [id]: state }
+    })
+  }, [])
+  const unregister = useCallback((id: string) => {
+    delete saveFns.current[id]
+    setStates((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+
+  const dirtyEntries = Object.entries(states).filter(([, s]) => s.dirty)
+  const anyPending = Object.values(states).some((s) => s.pending)
+
+  function saveAll() {
+    dirtyEntries.forEach(([id]) => saveFns.current[id]?.())
+  }
+
+  return (
+    <ClinicDetailSaveContext.Provider value={{ registerSave, registerState, unregister }}>
+      {children}
+      {dirtyEntries.length > 0 && (
+        <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50/95 px-4 py-3 shadow-lg backdrop-blur dark:border-amber-900 dark:bg-amber-950/90">
+          <span className="text-xs font-medium text-amber-900 dark:text-amber-200">
+            {t('clinic.saveBar.unsaved', { sections: dirtyEntries.map(([, s]) => s.label).join(', ') })}
+          </span>
+          <button
+            type="button"
+            onClick={saveAll}
+            disabled={anyPending}
+            className="rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900"
+          >
+            {anyPending ? t('common.saving') : t('clinic.saveBar.saveAll')}
+          </button>
+        </div>
+      )}
+    </ClinicDetailSaveContext.Provider>
+  )
+}
+
+function useSectionSaveRegistration(id: string, label: string, dirty: boolean, pending: boolean, save: () => void) {
+  const ctx = useContext(ClinicDetailSaveContext)
+  ctx?.registerSave(id, save)
+  useEffect(() => {
+    ctx?.registerState(id, { dirty, pending, label })
+    return () => ctx?.unregister(id)
+  }, [ctx, id, label, dirty, pending])
 }
 
 const inputCls =
@@ -111,6 +196,10 @@ function GeneralSection({ clinic }: { clinic: Clinic }) {
     address !== (clinic.address ?? '') ||
     phone !== (clinic.phone ?? '') ||
     clinicType !== (clinic.clinicType ?? '')
+
+  useSectionSaveRegistration('general', t('clinic.section.general'), dirty, save.isPending, () =>
+    save.mutate({ name, plan, status, timezone, address, phone, clinicType }),
+  )
 
   return (
     <Section title={t('clinic.section.general')}>
@@ -187,6 +276,8 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
     rulesChanged(rules, persistedRules) ||
     unmatchedEs !== (settings.unmatchedKeywordMessage?.es ?? '') ||
     unmatchedEn !== (settings.unmatchedKeywordMessage?.en ?? '')
+
+  useSectionSaveRegistration('bot', t('clinic.section.bot'), dirty, save.isPending, () => onSave())
 
   function updateRule(id: string, patch: Partial<ClinicRule>) {
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -561,6 +652,8 @@ function BusinessHoursSection({ clinic }: { clinic: Clinic }) {
     setTouched(false)
   }
 
+  useSectionSaveRegistration('hours', t('clinic.section.hours'), touched, save.isPending, onSave)
+
   return (
     <Section title={t('clinic.section.hours')}>
       <div className="space-y-1.5">
@@ -627,6 +720,8 @@ function BookingGridSection({ clinic }: { clinic: Clinic }) {
     save.mutate({ settings: { ...clinic.settings, bookingGrid: { startHour, endHour, slotMinutes } } })
     setTouched(false)
   }
+
+  useSectionSaveRegistration('bookingGrid', t('clinic.section.bookingGrid'), touched && valid, save.isPending, onSave)
 
   return (
     <Section title={t('clinic.section.bookingGrid')}>
@@ -786,6 +881,8 @@ function SheetsSection({ clinic }: { clinic: Clinic }) {
     })
   }
 
+  useSectionSaveRegistration('sheets', t('clinic.section.sheets'), dirty, save.isPending, onSave)
+
   return (
     <Section title={t('clinic.section.sheets')}>
       <label className="flex items-center justify-between gap-3 text-sm">
@@ -856,6 +953,8 @@ function MessengerSection({ clinic }: { clinic: Clinic }) {
     if (token.trim()) body.messengerPageAccessToken = token.trim()
     save.mutate(body, { onSuccess: () => setToken('') })
   }
+
+  useSectionSaveRegistration('messenger', t('clinic.section.messenger'), dirty, save.isPending, onSave)
 
   // Local readiness check — confirms the connection is fully configured.
   async function onTest() {
@@ -965,6 +1064,8 @@ function InstagramSection({ clinic }: { clinic: Clinic }) {
     if (token.trim()) body.instagramPageAccessToken = token.trim()
     save.mutate(body, { onSuccess: () => setToken('') })
   }
+
+  useSectionSaveRegistration('instagram', t('clinic.section.instagram'), dirty, save.isPending, onSave)
 
   // Local readiness check — confirms the connection is fully configured.
   async function onTest() {

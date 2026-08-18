@@ -16,7 +16,7 @@ import {
   toJson,
 } from '@docmee/db'
 import { normalizeNotificationPrefs } from '@docmee/notifications'
-import { decryptValue, encryptValue } from '@docmee/shared'
+import { decryptValue, encryptValue, verifyPassword } from '@docmee/shared'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -276,6 +276,15 @@ const cloneSchema = z.object({
     .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers and dashes'),
 })
 
+// Item 1 of the 25-item batch — "delete a clinic" is a soft-delete (status →
+// 'cancelled', the same terminal status the existing PATCH /:id status dropdown
+// already supports) behind a fresh password check, not a hard cascade across
+// every table that references clinic_id. Reversible: an admin can flip the
+// status back to 'active' from Clinic Detail.
+const deleteClinicSchema = z.object({
+  password: z.string().min(1),
+})
+
 const clinicsRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
 
@@ -421,6 +430,44 @@ const clinicsRoute: FastifyPluginAsync = async (app) => {
     if (cloned.code === 409) return reply.code(409).send({ error: 'Slug already in use' })
     return reply.code(201).send({ clinic: redactClinic(cloned.clinic) })
   })
+
+  // ── Delete a clinic (Admin Studio, item 1 of the 25-item batch) ──
+  // Soft-delete via status='cancelled' behind a password re-check — the first
+  // step-up-auth check in the app. Requires the CALLER's own current password
+  // (not the target clinic's data), re-verified against their auth record.
+  app.delete<{ Params: { id: string } }>(
+    '/:id',
+    { preHandler: requireRole('ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(deleteClinicSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = request.params.id
+      const result = await withDb(async (sql) => {
+        const auth = await createUsersRepository(sql).findAuthByEmail(request.user!.email)
+        if (!auth || !auth.passwordHash || !verifyPassword(parsed.data.password, auth.passwordHash)) {
+          return { code: 'bad-password' as const }
+        }
+        const clinics = createClinicsRepository(sql)
+        const existing = await clinics.findById(clinicId)
+        if (!existing) return { code: 'not-found' as const }
+        const updated = await clinics.update(clinicId, { status: 'cancelled' })
+        await createAuditRepository(sql).log({
+          clinicId,
+          actorId: request.user?.userId,
+          actorEmail: request.user?.email,
+          action: 'clinic.deleted',
+          resourceType: 'clinic',
+          resourceId: clinicId,
+          metadata: { previousStatus: existing.status },
+          ipAddress: request.ip,
+        })
+        return { code: 'ok' as const, clinic: updated }
+      })
+      if (result.code === 'bad-password') return reply.code(401).send({ error: 'Incorrect password' })
+      if (result.code === 'not-found') return reply.code(404).send({ error: 'Clinic not found' })
+      return { clinic: redactClinic(result.clinic) }
+    },
+  )
 
   app.get<{ Params: { id: string } }>(
     '/:id',

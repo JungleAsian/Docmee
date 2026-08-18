@@ -332,6 +332,11 @@ const es: Dict = {
   'studio.clinics.slug': 'Identificador',
   'studio.clinics.plan': 'Plan',
   'studio.clinics.status': 'Estado',
+  'studio.clinics.delete': 'Eliminar',
+  'studio.clinics.deleteTitle': '¿Eliminar la clínica {name}?',
+  'studio.clinics.deleteHint':
+    'La clínica se desactivará (estado "cancelada") y desaparecerá de las vistas activas. Un superusuario puede reactivarla después desde Detalle de clínica.',
+  'studio.clinics.confirmPassword': 'Confirma tu contraseña para continuar',
   'studio.clinics.timezone': 'Zona horaria',
   'studio.clinics.address': 'Dirección',
   'studio.clinics.phone': 'Teléfono de contacto',
@@ -2454,6 +2459,11 @@ const en: Dict = {
   'studio.clinics.slug': 'Slug',
   'studio.clinics.plan': 'Plan',
   'studio.clinics.status': 'Status',
+  'studio.clinics.delete': 'Delete',
+  'studio.clinics.deleteTitle': 'Delete clinic {name}?',
+  'studio.clinics.deleteHint':
+    'The clinic will be deactivated (status "cancelled") and disappear from active views. A superuser can reactivate it later from Clinic Detail.',
+  'studio.clinics.confirmPassword': 'Confirm your password to continue',
   'studio.clinics.timezone': 'Timezone',
   'studio.clinics.address': 'Address',
   'studio.clinics.phone': 'Contact phone',

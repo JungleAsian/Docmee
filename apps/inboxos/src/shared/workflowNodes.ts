@@ -211,6 +211,15 @@ export const NODE_KIND_RING: Record<WorkflowNodeKind, string> = {
   action: 'ring-2 ring-teal-300 dark:ring-teal-700',
 }
 
+/** Item 22 of the 25-item batch: a solid light-tint card background per node
+ *  kind (light/dark aware), replacing the plain white/gray card fill so a
+ *  node's kind is legible even before reading its badge or border. */
+export const NODE_KIND_FILL: Record<WorkflowNodeKind, string> = {
+  trigger: 'bg-emerald-50 dark:bg-emerald-950/40',
+  logic: 'bg-amber-50 dark:bg-amber-950/40',
+  action: 'bg-teal-50 dark:bg-teal-950/40',
+}
+
 /** Cheap, node-local subset of workflow-validator.ts's rules — fast enough to
  *  run on every render for an inline "this node has an issue" indicator.
  *  Deliberately NOT a reimplementation of the full validator (no graph

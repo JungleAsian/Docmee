@@ -37,6 +37,7 @@ import {
   NODE_KIND_TONE,
   NODE_KIND_BADGE,
   NODE_KIND_RING,
+  NODE_KIND_FILL,
   parseAiAgentScenarioList,
   branchRows,
   parseMenuOptionsSafe,
@@ -284,7 +285,7 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
     const add = (handleId: string) => onAddFrom(wf.id, handleId)
     return (
       <div
-        className={`w-48 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md dark:border-gray-700 dark:bg-gray-900 ${
+        className={`w-48 rounded-lg border border-gray-200 px-3 py-2 text-xs shadow-md dark:border-gray-700 ${NODE_KIND_FILL[wf.kind]} ${
           selected ? 'ring-2 ring-teal-300' : ''
         }`}
       >
@@ -350,10 +351,11 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
   const customLabel = String(cfg.customLabel ?? '').trim()
   const displayLabel = customLabel || label
   const issueKey = nodeHasIssue(wf)
+  const descKey = nodeDef(wf.type)?.descKey
 
   return (
     <div
-      className={`group relative w-52 rounded-lg border-2 bg-white px-3 py-2 text-xs shadow-sm transition-shadow dark:bg-gray-900 ${NODE_KIND_TONE[wf.kind]} ${
+      className={`group relative w-52 rounded-lg border-2 px-3 py-2 text-xs shadow-sm transition-shadow ${NODE_KIND_FILL[wf.kind]} ${NODE_KIND_TONE[wf.kind]} ${
         selected ? NODE_KIND_RING[wf.kind] : 'hover:shadow-md'
       }`}
     >
@@ -412,6 +414,16 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
           <WorkflowNodeIcon icon={nodeIcon} className="h-3 w-3" />
         </span>
         <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
+        {/* Item 21 of the 25-item batch: hover the node type's existing
+            one-line description (already used in the palette) on the card itself. */}
+        {descKey && (
+          <span
+            title={t(descKey as Parameters<typeof t>[0])}
+            className="ml-auto flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-gray-300 text-[8px] font-bold text-gray-400 dark:border-gray-600"
+          >
+            i
+          </span>
+        )}
       </div>
       <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{displayLabel}</p>
 
@@ -704,6 +716,23 @@ function WorkflowCanvasInner({
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
 
+  // Item 23 of the 25-item batch: hovering an edge traces its connection with the
+  // flow-dash animation @xyflow/react already ships (the CSS keyframe is in the
+  // installed style.css) — just toggling `animated` per edge on hover/unhover,
+  // local-only state, never persisted via onChange.
+  const handleEdgeMouseEnter = useCallback(
+    (_event: unknown, edge: Edge) => {
+      setEdges((current) => current.map((e) => (e.id === edge.id ? { ...e, animated: true } : e)))
+    },
+    [setEdges],
+  )
+  const handleEdgeMouseLeave = useCallback(
+    (_event: unknown, edge: Edge) => {
+      setEdges((current) => current.map((e) => (e.id === edge.id ? { ...e, animated: false } : e)))
+    },
+    [setEdges],
+  )
+
   // Both handlers below apply the raw change to React Flow's own local
   // node/edge state first (so dragging and selection stay snappy), THEN
   // propagate anything that should actually persist — position-drag-end and
@@ -923,6 +952,8 @@ function WorkflowCanvasInner({
           edges={rfEdges}
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
+          onEdgeMouseEnter={handleEdgeMouseEnter}
+          onEdgeMouseLeave={handleEdgeMouseLeave}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           onNodeClick={(_event: unknown, node: Node) => setSelectedId(node.id)}

@@ -29,20 +29,52 @@ function boxesOverlap(a: { x: number; y: number }, b: { x: number; y: number }):
   return a.x < b.x + CARD_WIDTH && a.x + CARD_WIDTH > b.x && a.y < b.y + CARD_HEIGHT && a.y + CARD_HEIGHT > b.y
 }
 
+// Item 24 of the 25-item batch: the grid step a spiral search snaps to — a
+// node's collision box plus a fixed gap, so settled nodes sit a consistent
+// distance apart instead of however far a chain of diagonal nudges happened
+// to drift.
+const GRID_STEP_X = CARD_WIDTH + 40
+const GRID_STEP_Y = CARD_HEIGHT + 30
+
 /**
  * The nearest position to `desired` that doesn't overlap any existing node's
- * bounding box — cascades diagonally (a common "new item lands offset from a
- * collision" pattern) until it clears every other node. Pure and
+ * bounding box. Searches a square spiral (right, down, left, up, expanding)
+ * on a fixed grid around `desired`, snapping to the nearest free slot instead
+ * of the old diagonal-nudge walk, which could drift a dropped node far from
+ * where it was actually released once several collisions stacked up. Pure and
  * deterministic; capped so a pathological input can never loop forever.
  */
 export function findFreePosition(nodes: WorkflowNode[], desired: { x: number; y: number }): { x: number; y: number } {
-  let candidate = { ...desired }
-  let guard = 0
-  while (nodes.some((n) => boxesOverlap(candidate, n)) && guard < nodes.length + 50) {
-    candidate = { x: candidate.x + 40, y: candidate.y + 40 }
-    guard++
+  if (!nodes.some((n) => boxesOverlap(desired, n))) return { ...desired }
+
+  let x = 0
+  let y = 0
+  let dx = 1
+  let dy = 0
+  let segmentLength = 1
+  let segmentPassed = 0
+  let turns = 0
+  const maxSteps = (nodes.length + 25) * 8
+
+  for (let step = 0; step < maxSteps; step++) {
+    x += dx
+    y += dy
+    segmentPassed++
+    if (segmentPassed === segmentLength) {
+      segmentPassed = 0
+      // Rotate 90°: right → down → left → up → right… widening the spiral
+      // every other turn so it fully tiles the plane around `desired`.
+      const nextDx = -dy
+      const nextDy = dx
+      dx = nextDx
+      dy = nextDy
+      turns++
+      if (turns % 2 === 0) segmentLength++
+    }
+    const candidate = { x: desired.x + x * GRID_STEP_X, y: desired.y + y * GRID_STEP_Y }
+    if (!nodes.some((n) => boxesOverlap(candidate, n))) return candidate
   }
-  return candidate
+  return { ...desired }
 }
 
 /** Default landing spot for a brand-new, unwired node: below the lowest

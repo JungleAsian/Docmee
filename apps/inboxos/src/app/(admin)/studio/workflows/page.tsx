@@ -48,6 +48,8 @@ export default function WorkflowsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   // CRE-69: confirm before the irreversible delete.
   const [pendingDelete, setPendingDelete] = useState<Workflow | null>(null)
+  // Item 25 of the 25-item batch: the Q&A wizard entry point.
+  const [wizardOpen, setWizardOpen] = useState(false)
 
   const key = ['workflows', clinicId]
   const query = useQuery({
@@ -157,9 +159,28 @@ export default function WorkflowsPage() {
         <p className="text-sm text-gray-500">{t('analytics.selectClinicPrompt')}</p>
       ) : (
         <>
-          <button type="button" onClick={() => setEditing('new')} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700`}>
-            + {t('wf.new')}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setEditing('new')} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700`}>
+              + {t('wf.new')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              className={`${btn} border border-cyan-300 text-cyan-700 hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-200 dark:hover:bg-cyan-950/40`}
+            >
+              ✨ {t('wf.wizard.start')}
+            </button>
+          </div>
+
+          <AutomationWizard
+            open={wizardOpen}
+            onClose={() => setWizardOpen(false)}
+            onPick={(tpl) => {
+              setWizardOpen(false)
+              createFromTemplate.mutate(tpl)
+            }}
+            pending={createFromTemplate.isPending}
+          />
 
           <section>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">{t('wf.templates')}</p>
@@ -248,6 +269,73 @@ export default function WorkflowsPage() {
           />
         </div>
       )}
+    </div>
+  )
+}
+
+// Item 25 of the 25-item batch: a Q&A wizard that picks the closest-matching
+// entry from WORKFLOW_TEMPLATES and lands the admin in the editor with a
+// pre-filled starter graph instead of a blank canvas. One question (goal) —
+// the template library only has three entries today, so a longer
+// questionnaire would outrun what it can actually branch to.
+const WIZARD_GOALS: { key: string; templateKey: string; labelKey: Parameters<ReturnType<typeof useI18n>['t']>[0]; descKey: Parameters<ReturnType<typeof useI18n>['t']>[0] }[] = [
+  { key: 'guided', templateKey: 'guided_whatsapp_booking', labelKey: 'wf.wizard.goal.guided', descKey: 'wf.wizard.goal.guidedDesc' },
+  { key: 'quick', templateKey: 'single_turn_booking', labelKey: 'wf.wizard.goal.quick', descKey: 'wf.wizard.goal.quickDesc' },
+  { key: 'urgent', templateKey: 'urgent_keyword', labelKey: 'wf.wizard.goal.urgent', descKey: 'wf.wizard.goal.urgentDesc' },
+]
+
+function AutomationWizard({
+  open,
+  onClose,
+  onPick,
+  pending,
+}: {
+  open: boolean
+  onClose: () => void
+  onPick: (tpl: WorkflowTemplate) => void
+  pending: boolean
+}) {
+  const { t } = useI18n()
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t('wf.wizard.title')}</h2>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('wf.wizard.question')}</p>
+        <div className="mt-4 space-y-2">
+          {WIZARD_GOALS.map((goal) => {
+            const tpl = WORKFLOW_TEMPLATES.find((x) => x.key === goal.templateKey)
+            if (!tpl) return null
+            return (
+              <button
+                key={goal.key}
+                type="button"
+                disabled={pending}
+                onClick={() => onPick(tpl)}
+                className="block w-full rounded-lg border border-gray-200 p-3 text-left hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50 dark:border-gray-800 dark:bg-gray-950/40 dark:hover:border-cyan-800 dark:hover:bg-cyan-950/20"
+              >
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t(goal.labelKey)}</p>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t(goal.descKey)}</p>
+              </button>
+            )
+          })}
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

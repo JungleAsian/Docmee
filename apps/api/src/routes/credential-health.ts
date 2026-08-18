@@ -119,11 +119,21 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
           }
 
           try {
+            // "Connected" = access token AND refresh token present -- matches
+            // the ONLY predicate the runtime workers actually check before
+            // using a doctor's calendar (workflow-runner.worker.ts's
+            // doctorCalendarTokens, scheduling-processor.worker.ts's
+            // getDoctorCalendarConfig) and apps/api/src/routes/doctors.ts's
+            // UI badge. google_calendar_id is deliberately NOT required here:
+            // every runtime call site defaults a missing id to 'primary', so
+            // a doctor with valid tokens and no explicit calendar id is
+            // already fully functional -- requiring the id here would
+            // under-count doctors who are actually connected.
             const doctorRows = await sql<Array<{ total: string; connected: string }>>`
               SELECT
                 count(*)::text AS total,
                 count(*) FILTER (
-                  WHERE google_calendar_id IS NOT NULL
+                  WHERE google_calendar_access_token_encrypted IS NOT NULL
                     AND google_calendar_refresh_token_encrypted IS NOT NULL
                 )::text AS connected
               FROM doctors

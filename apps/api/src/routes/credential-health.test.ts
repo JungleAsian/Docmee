@@ -124,4 +124,13 @@ describe('credential health clinic scope', () => {
     expect(scopedQueries).toHaveLength(3)
     expect(scopedQueries.every(({ values }) => values.includes('clinic-1'))).toBe(true)
   })
+
+  it('counts a doctor as connected by access+refresh token, not google_calendar_id (regression — matches the runtime workers\' own predicate, which defaults a missing id to "primary")', async () => {
+    dbState.queries = []
+    await app.inject({ method: 'GET', url: '/credential-health', headers: auth })
+    const doctorsQuery = dbState.queries.find(({ text }) => text.includes('FROM doctors'))
+    expect(doctorsQuery?.text).toContain('google_calendar_access_token_encrypted IS NOT NULL')
+    expect(doctorsQuery?.text).toContain('google_calendar_refresh_token_encrypted IS NOT NULL')
+    expect(doctorsQuery?.text).not.toContain('google_calendar_id IS NOT NULL')
+  })
 })

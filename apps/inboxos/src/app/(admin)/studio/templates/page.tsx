@@ -9,9 +9,11 @@
 // error+retry / empty-for-filter states the global brief requires.
 import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Info } from '@phosphor-icons/react'
 import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { StudioMessagingTabs } from '@/shared/components/StudioMessagingTabs'
+import { Tooltip } from '@/shared/components/Tooltip'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import {
@@ -385,6 +387,15 @@ function TemplateRow({
             </option>
           ))}
         </select>
+        <Tooltip content={t(`studio.templates.categoryDesc.${tpl.category}` as const)}>
+          <button
+            type="button"
+            aria-label={t('studio.templates.categoryDescLabel')}
+            className="rounded-full p-0.5 text-gray-400 hover:text-teal-600 dark:hover:text-teal-300"
+          >
+            <Info size={14} weight="bold" />
+          </button>
+        </Tooltip>
       </div>
 
       <VariableChips analysis={analysis} />

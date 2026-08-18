@@ -172,7 +172,11 @@ export default function CostMonitoringPage() {
 
           <section className="clinic-card p-4">
             <h2 className="text-sm font-semibold">Cost assumptions</h2>
-            <div className="mt-3 grid gap-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300 md:grid-cols-3">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              This page monitors real usage counts, but the dollar figures below combine one live-billed category
+              with two fixed per-unit estimates and a fixed currency conversion — not a live pricing or FX feed.
+            </p>
+            <div className="mt-3 grid gap-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300 md:grid-cols-4">
               <p>
                 AI agent cost uses the actual values recorded in Docmee's <code>ai_usage_events.cost_usd</code>
                 table, together with the captured token counts for each model call. This is the most precise cost
@@ -186,6 +190,10 @@ export default function CostMonitoringPage() {
               <p>
                 Clinic usage is an operational estimate based on active conversations and patient volume. It represents
                 the storage, processing, and platform activity needed to keep the clinic workspace running.
+              </p>
+              <p>
+                CAD and GTQ figures use a fixed conversion rate ({USD_TO_CAD} CAD and {USD_TO_GTQ} GTQ per USD), not a
+                live exchange rate — switch to USD for the most accurate figure.
               </p>
             </div>
           </section>

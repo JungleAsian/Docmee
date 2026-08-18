@@ -512,7 +512,12 @@ function ClinicServicesPanel({ clinicId }: { clinicId: string }) {
       <h2 className="text-sm font-semibold">{t('studio.services.title')}</h2>
       <p className="mt-0.5 text-xs text-gray-400">{t('studio.services.hint')}</p>
 
-      <form onSubmit={onSubmit} className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_auto]">
+      <div className="mt-3 hidden gap-2 sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_auto]">
+        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{t('studio.services.name')}</span>
+        <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{t('studio.services.duration')}</span>
+        <span />
+      </div>
+      <form onSubmit={onSubmit} className="mt-1 grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_auto]">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -589,75 +594,66 @@ function WeeklyHoursEditor({
           <span className="rounded-full border border-gray-200 px-2.5 py-1 dark:border-gray-800">{totalShifts} shift{totalShifts === 1 ? '' : 's'}</span>
         </div>
       </div>
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <div className="divide-y divide-gray-100 dark:divide-gray-800">
         {WEEKDAYS.map((day) => {
           const shifts = value[day] ?? []
           const enabled = shifts.length > 0
           return (
-            <div
-              key={day}
-              className={`rounded-lg border p-3 ${
-                enabled
-                  ? 'border-cyan-300 bg-white shadow-sm ring-1 ring-cyan-100 dark:border-cyan-500/40 dark:bg-cyan-950/20 dark:ring-cyan-500/10'
-                  : 'border-gray-200 bg-white/40 dark:border-gray-800 dark:bg-gray-950/20'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <label
-                  className={`flex min-h-9 flex-1 items-center gap-2 text-sm font-semibold ${
-                    enabled ? 'text-cyan-900 dark:text-cyan-100' : 'text-gray-700 dark:text-gray-100'
-                  }`}
-                >
-                  <span className="truncate">{t(`studio.doctors.day.${day}`)}</span>
-                  <PillToggle
-                    checked={enabled}
-                    label={t(`studio.doctors.day.${day}`)}
-                    onChange={(checked) => onChange(setDayEnabled(value, day, checked))}
-                    size="sm"
-                    className="ml-auto"
-                  />
-                </label>
-              </div>
+            <div key={day} className="flex flex-wrap items-center gap-2 py-1.5">
+              <label
+                className={`flex w-28 shrink-0 items-center gap-2 text-xs font-semibold ${
+                  enabled ? 'text-cyan-900 dark:text-cyan-100' : 'text-gray-500 dark:text-gray-400'
+                }`}
+              >
+                <PillToggle
+                  checked={enabled}
+                  label={t(`studio.doctors.day.${day}`)}
+                  onChange={(checked) => onChange(setDayEnabled(value, day, checked))}
+                  size="sm"
+                />
+                <span className="truncate">{t(`studio.doctors.day.${day}`)}</span>
+              </label>
               {enabled ? (
-                <div className="mt-3 space-y-2">
+                <div className="flex flex-1 flex-wrap items-center gap-1.5">
                   {shifts.map((range, i) => (
-                    <div key={i} className="grid grid-cols-[1fr_auto_1fr_2rem] items-center gap-1.5 text-sm">
+                    <div
+                      key={i}
+                      className="flex items-center gap-1 rounded-md border border-cyan-100 bg-cyan-50/50 px-1.5 py-1 dark:border-cyan-800/60 dark:bg-cyan-950/20"
+                    >
                       <input
                         type="time"
                         value={range.start}
                         onChange={(e) => onChange(setShift(value, day, i, { start: e.target.value }))}
-                        className="min-w-0 rounded-md border border-cyan-100 bg-white px-2 py-1.5 text-xs font-semibold text-gray-800 shadow-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100 dark:border-cyan-800/60 dark:bg-gray-950/70 dark:text-gray-100 dark:focus:ring-cyan-900/40"
+                        className="w-[5.5rem] min-w-0 rounded border border-cyan-100 bg-white px-1 py-0.5 text-xs font-semibold text-gray-800 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-100 dark:border-cyan-800/60 dark:bg-gray-950/70 dark:text-gray-100"
                       />
-                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-300">to</span>
+                      <span className="text-[11px] font-semibold text-gray-400">–</span>
                       <input
                         type="time"
                         value={range.end}
                         onChange={(e) => onChange(setShift(value, day, i, { end: e.target.value }))}
-                        className="min-w-0 rounded-md border border-cyan-100 bg-white px-2 py-1.5 text-xs font-semibold text-gray-800 shadow-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100 dark:border-cyan-800/60 dark:bg-gray-950/70 dark:text-gray-100 dark:focus:ring-cyan-900/40"
+                        className="w-[5.5rem] min-w-0 rounded border border-cyan-100 bg-white px-1 py-0.5 text-xs font-semibold text-gray-800 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-100 dark:border-cyan-800/60 dark:bg-gray-950/70 dark:text-gray-100"
                       />
                       <button
                         type="button"
                         onClick={() => onChange(removeShift(value, day, i))}
                         aria-label={t('studio.doctors.removeShift')}
                         title={t('studio.doctors.removeShift')}
-                        className="rounded-md border border-red-200 px-2 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
+                        className="rounded px-1 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
                       >
-                        X
+                        ×
                       </button>
                     </div>
                   ))}
                   <button
                     type="button"
                     onClick={() => onChange(addShift(value, day))}
-                    className="w-full rounded-md border border-dashed border-cyan-300 bg-cyan-50/70 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100 dark:border-cyan-700 dark:bg-cyan-950/30 dark:text-cyan-100 dark:hover:bg-cyan-950/60"
+                    className="rounded-md border border-dashed border-cyan-300 px-2 py-1 text-[11px] font-semibold text-cyan-700 hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-200 dark:hover:bg-cyan-950/40"
                   >
                     + {t('studio.doctors.addShift')}
                   </button>
                 </div>
               ) : (
-                <div className="mt-3 rounded-md border border-dashed border-gray-200 px-3 py-3 text-center text-xs text-gray-400 dark:border-gray-800">
-                  {t('studio.doctors.dayOff')}
-                </div>
+                <span className="text-xs text-gray-400">{t('studio.doctors.dayOff')}</span>
               )}
             </div>
           )
@@ -702,8 +698,14 @@ function NewDoctorForm({ clinicId }: { clinicId: string }) {
       onSubmit={onSubmit}
       className="clinic-card mb-6 grid grid-cols-1 gap-2 p-3 sm:grid-cols-2"
     >
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('studio.doctors.name')} className={field} />
-      <input value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder={t('studio.doctors.specialty')} className={field} />
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">{t('studio.doctors.name')}</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('studio.doctors.name')} className={field} />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">{t('studio.doctors.specialty')}</span>
+        <input value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder={t('studio.doctors.specialty')} className={field} />
+      </label>
       <p className="text-xs text-gray-500 sm:col-span-2">{t('studio.doctors.calendarConnectSaveFirst')}</p>
       <div className="sm:col-span-2">
         <WeeklyHoursEditor value={availableDays} onChange={setAvailableDays} />
@@ -766,8 +768,14 @@ function EditDoctorForm({
 
   return (
     <form onSubmit={onSubmit} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('studio.doctors.name')} className={field} />
-      <input value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder={t('studio.doctors.specialty')} className={field} />
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">{t('studio.doctors.name')}</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('studio.doctors.name')} className={field} />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">{t('studio.doctors.specialty')}</span>
+        <input value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder={t('studio.doctors.specialty')} className={field} />
+      </label>
       <label className="flex min-h-11 items-center gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
         <span>{t('studio.doctors.active')}</span>
         <PillToggle

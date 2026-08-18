@@ -255,7 +255,7 @@ export default function StudioHomePage() {
                 ['App connections', '/studio/integrations', 'n8n, exports, third-party apps'],
                 ['Custom settings', '/studio/quick-replies', 'Quick replies, templates, automations'],
                 ['Governance', '/studio/governance', 'Consent, audit posture, policy checks'],
-                ['Audit log', '/studio/audit', 'Change history, credentials, role and clinic edits'],
+                ['Activities', '/studio/activities', 'Change history, credentials, role and clinic edits'],
               ].map(([label, href, detail]) => (
                 <Link
                   key={label}

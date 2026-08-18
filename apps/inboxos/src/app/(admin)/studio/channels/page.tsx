@@ -12,6 +12,7 @@ import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { StudioIntegrationsPanel } from '@/shared/components/StudioIntegrationsPanel'
+import { WabaTableModal } from '@/shared/components/WabaTableModal'
 import { AUTOMATION_DEFS } from '@/shared/automations'
 import {
   summarizeAiProviderReadiness,
@@ -1588,6 +1589,7 @@ function WhatsAppCard({
   const [registrationPin, setRegistrationPin] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [validation, setValidation] = useState<WhatsAppValidationResponse | null>(null)
+  const [wabaModalOpen, setWabaModalOpen] = useState(false)
 
   useEffect(() => {
     setAccountId(account?.accountId ?? '')
@@ -1778,58 +1780,48 @@ function WhatsAppCard({
         <div>
           <p className="text-xs font-semibold text-gray-900 dark:text-gray-50">WhatsApp Business accounts</p>
           <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-            Select one WABA to review, or add another. Existing accounts stay unchanged unless you explicitly update them.
+            View all connected WABAs in a table, select one to review, or add another.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={startNewAccount}
-          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-        >
-          Add another WABA
-        </button>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-2" role="list" aria-label="Connected WhatsApp Business accounts">
-        {accounts.length === 0 ? (
-          <span className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 dark:border-gray-700">
-            No WABA connected for this clinic.
-          </span>
-        ) : (
-          accounts.map((item) => {
-            const selected = account?.id === item.id
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="listitem"
-                aria-pressed={selected}
-                onClick={() => {
-                  onSelectAccount(item.id)
-                  setStep('credentials')
-                  setConfigOpen(true)
-                  setMessage(null)
-                }}
-                className={
-                  selected
-                    ? 'rounded-md border border-emerald-500 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100'
-                    : 'rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'
-                }
-              >
-                <span className="block font-semibold">{item.displayName || 'WhatsApp Business'}</span>
-                <span className="block text-[10px] opacity-75">Phone ID {item.accountId}</span>
-                <span className="block text-[10px] opacity-75">
-                  {item.status === 'active' ? 'Active' : item.status} · WABA {item.wabaId || 'not saved'}
-                </span>
-              </button>
-            )
-          })
-        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setWabaModalOpen(true)}
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            View WhatsApp Accounts ({accounts.length})
+          </button>
+          <button
+            type="button"
+            onClick={startNewAccount}
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+          >
+            Add another WABA
+          </button>
+        </div>
       </div>
       {isNewAccount && accounts.length > 0 && (
         <p className="mt-2 rounded-md bg-blue-50 px-2 py-1.5 text-[11px] text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
           Adding a separate WABA. No connected account will be replaced or disconnected.
         </p>
       )}
+      <WabaTableModal
+        open={wabaModalOpen}
+        accounts={accounts}
+        selectedId={account?.id ?? null}
+        onSelect={(id) => {
+          onSelectAccount(id)
+          setStep('credentials')
+          setConfigOpen(true)
+          setMessage(null)
+          setWabaModalOpen(false)
+        }}
+        onAddNew={() => {
+          setWabaModalOpen(false)
+          startNewAccount()
+        }}
+        onClose={() => setWabaModalOpen(false)}
+      />
     </div>
   )
   async function continueWithFacebook(modeOverride?: WhatsAppSetupMode) {

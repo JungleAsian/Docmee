@@ -377,6 +377,7 @@ const es: Dict = {
 
   'nav.license': 'Licencias',
   'nav.compliance': 'Cumplimiento',
+  'nav.activities': 'Actividades',
 
   'studio.breadcrumb.root': 'Admin Studio',
   'studio.clinics.detail': 'Detalle',
@@ -924,6 +925,14 @@ const es: Dict = {
   'studio.templates.category.appointment_reminder': 'Recordatorio de cita',
   'studio.templates.category.human_handoff_notification': 'Notificación de handoff',
   'studio.templates.category.review_request': 'Solicitud de reseña',
+  'studio.templates.categoryDescLabel': 'Qué hace esta plantilla',
+  'studio.templates.categoryDesc.appointment_confirmation':
+    'Se envía cuando se agenda una cita, para que el paciente la confirme o pida otro horario.',
+  'studio.templates.categoryDesc.appointment_reminder':
+    'Se envía antes de la cita para recordar al paciente la fecha y hora.',
+  'studio.templates.categoryDesc.human_handoff_notification':
+    'Avisa al paciente que un miembro del equipo va a continuar la conversación.',
+  'studio.templates.categoryDesc.review_request': 'Pide al paciente una reseña después de la cita.',
   'studio.templates.markApproved': 'Marcar aprobada',
   'studio.templates.markRejected': 'Marcar rechazada',
   'studio.templates.markPending': 'Marcar pendiente',
@@ -1822,6 +1831,10 @@ const es: Dict = {
   'hub.chip.workflow': 'Flujo visual',
   'hub.chip.replyFlow': 'Flujo de respuestas',
   'hub.chip.scheduled': 'Programado',
+  'hub.table.name': 'Nombre',
+  'hub.table.category': 'Categoría',
+  'hub.table.description': 'Descripción',
+  'hub.table.use': 'Usar',
   'hub.scratch': 'Empezar desde cero',
   'hub.scratch.workflowDesc': 'Control total: disparadores, ramificaciones y acciones en el lienzo visual.',
   'hub.scratch.flowDesc': 'Respuestas guiadas por palabras clave, sin lienzo.',
@@ -2468,6 +2481,7 @@ const en: Dict = {
 
   'nav.license': 'Licenses',
   'nav.compliance': 'Compliance',
+  'nav.activities': 'Activities',
 
   'studio.breadcrumb.root': 'Admin Studio',
   'studio.clinics.detail': 'Detail',
@@ -3015,6 +3029,14 @@ const en: Dict = {
   'studio.templates.category.appointment_reminder': 'Appointment reminder',
   'studio.templates.category.human_handoff_notification': 'Human handoff notification',
   'studio.templates.category.review_request': 'Review request',
+  'studio.templates.categoryDescLabel': 'What this template does',
+  'studio.templates.categoryDesc.appointment_confirmation':
+    'Sent when an appointment is booked, so the patient can confirm it or ask for another time.',
+  'studio.templates.categoryDesc.appointment_reminder':
+    'Sent ahead of the appointment to remind the patient of the date and time.',
+  'studio.templates.categoryDesc.human_handoff_notification':
+    'Lets the patient know a team member is taking over the conversation.',
+  'studio.templates.categoryDesc.review_request': 'Asks the patient for a review after their appointment.',
   'studio.templates.markApproved': 'Mark approved',
   'studio.templates.markRejected': 'Mark rejected',
   'studio.templates.markPending': 'Mark pending',
@@ -3911,6 +3933,10 @@ const en: Dict = {
   'hub.chip.workflow': 'Visual workflow',
   'hub.chip.replyFlow': 'Reply flow',
   'hub.chip.scheduled': 'Scheduled',
+  'hub.table.name': 'Name',
+  'hub.table.category': 'Category',
+  'hub.table.description': 'Description',
+  'hub.table.use': 'Use',
   'hub.scratch': 'Start from scratch',
   'hub.scratch.workflowDesc': 'Full power: triggers, branches and actions on the visual canvas.',
   'hub.scratch.flowDesc': 'Keyword-triggered scripted replies, no canvas needed.',

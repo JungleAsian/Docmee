@@ -46,7 +46,7 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
   const clinic = query.data?.clinic
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6">
+    <div className="clinic-page clinic-page-md space-y-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{clinic?.name ?? t('studio.clinics.detail')}</h1>
       </div>
@@ -117,7 +117,7 @@ function GeneralSection({ clinic }: { clinic: Clinic }) {
 
   return (
     <Section title={t('clinic.section.general')}>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Field label={t('studio.clinics.name')}>
           <input value={name} onChange={(e) => setName(e.target.value)} className={`w-full ${inputCls}`} />
         </Field>
@@ -968,7 +968,7 @@ function MessengerSection({ clinic }: { clinic: Clinic }) {
       </label>
       <p className="mb-3 text-xs text-gray-500">{t('messenger.enableHint')}</p>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label={t('messenger.pageId')}>
           <input value={pageId} onChange={(e) => setPageId(e.target.value)} className={`w-full ${inputCls}`} />
         </Field>
@@ -1077,7 +1077,7 @@ function InstagramSection({ clinic }: { clinic: Clinic }) {
       </label>
       <p className="mb-3 text-xs text-gray-500">{t('instagram.enableHint')}</p>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label={t('instagram.accountId')}>
           <input value={accountId} onChange={(e) => setAccountId(e.target.value)} className={`w-full ${inputCls}`} />
         </Field>

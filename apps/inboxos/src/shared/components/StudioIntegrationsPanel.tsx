@@ -317,18 +317,14 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
         title="Patient and clinic notifications"
         description="Configure outbound email delivery and reply handling for appointment alerts, reports, and clinic communication."
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <EmailDeliveryIntegration clinic={clinic} config={emailDelivery} provider={emailProvider} loading={providerStatus.isLoading} />
-      </div>
+      <EmailDeliveryIntegration clinic={clinic} config={emailDelivery} provider={emailProvider} loading={providerStatus.isLoading} />
 
       <IntegrationGroupBanner
         icon="n8n"
         title="Automation webhooks"
         description="Send Docmee events to external workflow automation tools when the clinic needs custom operations outside the app."
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <N8nIntegration clinic={clinic} config={n8n} />
-      </div>
+      <N8nIntegration clinic={clinic} config={n8n} />
 
       <IntegrationGroupBanner
         icon="claude"
@@ -701,7 +697,7 @@ function EmailDeliveryIntegration({
           )}
         </div>
 
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           <label className="block">
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">Sender name</span>
             <input value={fromName} onChange={(event) => setFromName(event.target.value)} className={field} placeholder="Docmee" />
@@ -726,7 +722,7 @@ function EmailDeliveryIntegration({
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">SMTP port</span>
             <input value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} disabled={emailProvider !== 'other'} className={field} placeholder="587" inputMode="numeric" />
           </label>
-          <label className="block md:col-span-2">
+          <label className="block md:col-span-2 xl:col-span-1">
             <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
               SMTP password or app password {saved.smtpPasswordSet ? '(saved - leave blank to keep)' : ''}
             </span>

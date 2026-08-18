@@ -82,6 +82,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             { href: '/studio/compliance', label: t('nav.compliance'), icon: <NavIcon name="compliance" /> },
             { href: '/studio/governance', label: 'Governance', icon: <NavIcon name="compliance" /> },
             { href: '/studio/credential-health', label: 'Credential Health', icon: <NavIcon name="shield" /> },
+            { href: '/studio/activities', label: t('nav.activities'), icon: <NavIcon name="clock" /> },
           ]
         : []
 

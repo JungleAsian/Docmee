@@ -32,7 +32,7 @@ export default function HelpHomePage() {
     <div className="h-full overflow-y-auto">
       {/* Hero */}
       <div className="docmee-help-hero px-4 py-12 text-white">
-        <div className="docmee-help-hero-inner mx-auto max-w-6xl">
+        <div className="docmee-help-hero-inner mx-auto w-full max-w-none">
           <div className="docmee-help-hero-copy">
             <p className="docmee-help-eyebrow">Docmee Support</p>
             <h1 className="text-2xl font-bold sm:text-3xl">{L(HELP_UI.title, language)}</h1>
@@ -63,7 +63,7 @@ export default function HelpHomePage() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-none px-4 py-8 sm:px-6 lg:px-8">
         {searching ? (
           <section aria-live="polite">
             <h2 className="mb-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -107,7 +107,7 @@ export default function HelpHomePage() {
               <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {L(HELP_UI.popular, language)}
               </h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                 {popular.map(({ category, article }) => (
                   <Link
                     key={`${category.slug}/${article.slug}`}
@@ -133,7 +133,7 @@ export default function HelpHomePage() {
               <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {L(HELP_UI.browse, language)}
               </h2>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                 {HELP_CATEGORIES.map((category) => (
                   <Link
                     key={category.slug}

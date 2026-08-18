@@ -18,7 +18,6 @@ import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
-import { useAuthStore } from '@/shared/store/auth'
 import { WORKFLOW_TEMPLATES } from '@/shared/workflowTemplates'
 import {
   AUTOMATION_DEFS,
@@ -33,18 +32,6 @@ import {
   type AutomationsConfig,
 } from '@/shared/automations'
 import type { Clinic, ClinicSettings, CustomFlow, FlowTemplate, FollowUpActivity, FollowUpStatus, Workflow } from '@/shared/types'
-import {
-  CHAT_PROVIDERS,
-  INTENT_PROVIDERS,
-  EMBED_PROVIDERS,
-  MODEL_SUGGESTIONS,
-  DEFAULT_CHAT_MODEL,
-  readAiAssistant,
-  type AiAssistantConfig,
-  type ChatProvider,
-  type IntentProvider,
-  type EmbedProvider,
-} from '@/shared/aiAssistant'
 
 const field =
   'w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800'
@@ -287,10 +274,8 @@ export default function AutomationsPage() {
 function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: string }) {
   const { t } = useI18n()
   const qc = useQueryClient()
-  const jzelConfigLocked = useAuthStore((s) => s.user?.jzelEnabled === false)
   const settings = clinic.settings as ClinicSettings
   const config = readAutomations(settings)
-  const ai = readAiAssistant(settings)
   const health = useQuery({
     queryKey: ['automation-health', clinicId],
     queryFn: () => api.get<{
@@ -312,12 +297,6 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
   /** Merge an automations patch onto the existing settings blob and persist. */
   function patchAutomations(next: AutomationsConfig) {
     save.mutate({ settings: { ...clinic.settings, automations: { ...config, ...next } } })
-  }
-
-  /** Merge an AI-assistant patch onto the existing settings blob and persist. */
-  function patchAiAssistant(next: Partial<AiAssistantConfig>) {
-    if (jzelConfigLocked) return
-    save.mutate({ settings: { ...clinic.settings, aiAssistant: { ...ai, ...next } } })
   }
 
   const { active, total } = activeCount(config)
@@ -346,8 +325,15 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
         </p>
       )}
 
-      {/* ── AI Assistant (J.zel) — per-clinic model / persona / KB+Help ──────── */}
-      <AiAssistantSection key={clinicId} ai={ai} saving={save.isPending} locked={jzelConfigLocked} onPatch={patchAiAssistant} />
+      {/* AI Assistant (J.zel) configuration moved to Studio → AI Settings
+          (items 3/9/16 of the 25-item batch). */}
+      <Link
+        href="/studio/ai-settings"
+        className="flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+      >
+        <span>{t('automations.aiAssistantMoved')}</span>
+        <span aria-hidden>→</span>
+      </Link>
 
       {/* ── Section A: Follow-up automation (Req 14) ─────────────────────────── */}
       <section id="follow-ups">
@@ -442,240 +428,6 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
       {/* ── Section D: graph workflows ───────────────────────────────────────── */}
       <WorkflowsSummary clinicId={clinicId} />
     </div>
-  )
-}
-
-// ── AI Assistant (J.zel) — per-clinic model / persona / knowledge sources ──────────
-function AiAssistantSection({
-  ai,
-  saving,
-  locked,
-  onPatch,
-}: {
-  ai: AiAssistantConfig
-  saving: boolean
-  locked: boolean
-  onPatch: (next: Partial<AiAssistantConfig>) => void
-}) {
-  const { t } = useI18n()
-  // Text fields (name, persona, model, base URL) use a local draft + Save button; the
-  // provider dropdown and the toggles auto-save on change, matching the rest of the page.
-  const [name, setName] = useState(ai.name)
-  const [persona, setPersona] = useState(ai.persona)
-  const [model, setModel] = useState(ai.model)
-  const [baseURL, setBaseURL] = useState(ai.baseURL)
-  const textDirty =
-    name.trim() !== ai.name.trim() ||
-    persona !== ai.persona ||
-    model.trim() !== ai.model.trim() ||
-    baseURL.trim() !== ai.baseURL.trim()
-
-  // Switching provider resets the model to that provider's default and clears the
-  // base URL for non-custom providers (auto-saved immediately).
-  function changeProvider(p: ChatProvider) {
-    if (locked) return
-    const nextModel = DEFAULT_CHAT_MODEL[p]
-    const nextBaseURL = p === 'custom' ? baseURL : ''
-    setModel(nextModel)
-    setBaseURL(nextBaseURL)
-    onPatch({ chatProvider: p, model: nextModel, baseURL: nextBaseURL })
-  }
-
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{t('aiAssistant.section.title')}</h2>
-        <PillToggle
-          checked={ai.enabled}
-          disabled={saving || locked}
-          label={t('aiAssistant.enable')}
-          onChange={(next) => onPatch({ enabled: next })}
-        />
-      </div>
-      <p className="mb-3 text-xs text-gray-500">{t('aiAssistant.section.desc')}</p>
-      {locked && (
-        <p className="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-          J.zel is hidden for your user account, so J.zel settings are locked.
-        </p>
-      )}
-
-      <div
-        aria-disabled={locked}
-        className={`space-y-4 rounded-lg border p-3 ${
-          locked
-            ? 'border-gray-200 bg-gray-50 opacity-60 dark:border-gray-800 dark:bg-gray-900/60'
-            : ai.enabled
-            ? 'border-gray-200 dark:border-gray-800'
-            : 'border-gray-200 opacity-70 dark:border-gray-800'
-        }`}
-      >
-        {/* Provider */}
-        <label className="block text-xs font-medium text-gray-500">
-          {t('aiAssistant.provider.label')}
-          <select
-            value={ai.chatProvider}
-            disabled={saving || locked}
-            onChange={(e) => changeProvider(e.target.value as ChatProvider)}
-            className={`${field} mt-1`}
-          >
-            {CHAT_PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} — {p.hint}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-[11px] font-normal text-gray-400">
-            {t('aiAssistant.provider.hint')}
-          </span>
-        </label>
-
-        {/* Model */}
-        <label className="block text-xs font-medium text-gray-500">
-          {t('aiAssistant.model.label')}
-          <input
-            type="text"
-            list="jzel-model-list"
-            value={model}
-            disabled={locked}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder={DEFAULT_CHAT_MODEL[ai.chatProvider] || 'model id'}
-            className={`${field} mt-1`}
-          />
-          <datalist id="jzel-model-list">
-            {MODEL_SUGGESTIONS[ai.chatProvider].map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-          <span className="mt-1 block text-[11px] font-normal text-gray-400">
-            {t('aiAssistant.model.hint')}
-          </span>
-        </label>
-
-        {/* Base URL — custom / OpenAI-compatible only */}
-        {ai.chatProvider === 'custom' && (
-          <label className="block text-xs font-medium text-gray-500">
-            {t('aiAssistant.baseURL.label')}
-            <input
-              type="url"
-              value={baseURL}
-              disabled={locked}
-              onChange={(e) => setBaseURL(e.target.value)}
-              placeholder={t('aiAssistant.baseURL.placeholder')}
-              className={`${field} mt-1`}
-            />
-            <span className="mt-1 block text-[11px] font-normal text-gray-400">
-              {t('aiAssistant.baseURL.hint')}
-            </span>
-          </label>
-        )}
-
-        {/* Intent provider — patient-message routing (DeepSeek by default) */}
-        <label className="block text-xs font-medium text-gray-500">
-          {t('aiAssistant.intent.label')}
-          <select
-            value={ai.intentProvider}
-            disabled={saving || locked}
-            onChange={(e) => onPatch({ intentProvider: e.target.value as IntentProvider })}
-            className={`${field} mt-1`}
-          >
-            {INTENT_PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} — {p.hint}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-[11px] font-normal text-gray-400">
-            {t('aiAssistant.intent.hint')}
-          </span>
-        </label>
-
-        {/* KB embedding provider — switching requires a KB re-index */}
-        <label className="block text-xs font-medium text-gray-500">
-          {t('aiAssistant.embed.label')}
-          <select
-            value={ai.embedProvider}
-            disabled={saving || locked}
-            onChange={(e) => onPatch({ embedProvider: e.target.value as EmbedProvider })}
-            className={`${field} mt-1`}
-          >
-            {EMBED_PROVIDERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label} — {p.hint}
-              </option>
-            ))}
-          </select>
-          <span className="mt-1 block text-[11px] font-normal text-amber-600 dark:text-amber-400">
-            {t('aiAssistant.embed.hint')}
-          </span>
-        </label>
-
-        {/* Name */}
-        <label className="block text-xs font-medium text-gray-500">
-          {t('aiAssistant.name.label')}
-          <input
-            type="text"
-            value={name}
-            disabled={locked}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('aiAssistant.name.placeholder')}
-            className={`${field} mt-1`}
-          />
-        </label>
-
-        {/* Persona */}
-        <label className="block text-xs font-medium text-gray-500">
-          {t('aiAssistant.persona.label')}
-          <textarea
-            value={persona}
-            disabled={locked}
-            onChange={(e) => setPersona(e.target.value)}
-            placeholder={t('aiAssistant.persona.placeholder')}
-            rows={4}
-            className={`${field} mt-1 resize-y`}
-          />
-          <span className="mt-1 block text-[11px] font-normal text-gray-400">
-            {t('aiAssistant.persona.hint')}
-          </span>
-        </label>
-
-        <div className="flex justify-end">
-          <button
-            type="button"
-            disabled={!textDirty || saving || locked}
-            onClick={() => onPatch({ name: name.trim() || 'J.zel', persona, model: model.trim(), baseURL: baseURL.trim() })}
-            className="rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-50"
-          >
-            {t('common.save')}
-          </button>
-        </div>
-
-        {/* Knowledge sources */}
-        <div>
-          <p className="text-xs font-medium text-gray-500">{t('aiAssistant.sources.label')}</p>
-          <div className="mt-2 space-y-2">
-            <label className="flex items-center justify-between gap-3 text-sm">
-              <span>{t('aiAssistant.sources.kb')}</span>
-              <PillToggle
-                checked={ai.useKb}
-                disabled={saving || locked}
-                label={t('aiAssistant.sources.kb')}
-                onChange={(next) => onPatch({ useKb: next })}
-              />
-            </label>
-            <label className="flex items-center justify-between gap-3 text-sm">
-              <span>{t('aiAssistant.sources.help')}</span>
-              <PillToggle
-                checked={ai.useHelp}
-                disabled={saving || locked}
-                label={t('aiAssistant.sources.help')}
-                onChange={(next) => onPatch({ useHelp: next })}
-              />
-            </label>
-          </div>
-          <p className="mt-1.5 text-[11px] text-gray-400">{t('aiAssistant.sources.hint')}</p>
-        </div>
-      </div>
-    </section>
   )
 }
 

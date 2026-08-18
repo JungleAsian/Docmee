@@ -415,11 +415,14 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
         </span>
         <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
         {/* Item 21 of the 25-item batch: hover the node type's existing
-            one-line description (already used in the palette) on the card itself. */}
+            one-line description (already used in the palette) on the card itself.
+            Kept inline next to the kind label (not flush right) so it never sits
+            under the hover toolbar's edit/duplicate/delete buttons, which occupy
+            the top-right corner on hover. */}
         {descKey && (
           <span
             title={t(descKey as Parameters<typeof t>[0])}
-            className="ml-auto flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-gray-300 text-[8px] font-bold text-gray-400 dark:border-gray-600"
+            className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-gray-300 text-[8px] font-bold text-gray-400 dark:border-gray-600"
           >
             i
           </span>

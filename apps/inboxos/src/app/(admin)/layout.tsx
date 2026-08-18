@@ -12,6 +12,7 @@ import { Sidebar, type NavGroup } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { HELP_UI, L } from '@/shared/help/content'
 import { Breadcrumbs } from '@/shared/components/Breadcrumbs'
+import { PlatformBackButton } from '@/shared/components/PlatformBackButton'
 import { PushOptIn } from '@/shared/components/PushOptIn'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
 import { DocmeeLoader } from '@/shared/components/DocmeeLoader'
@@ -150,6 +151,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           >
             <List size={22} />
           </button>
+          <PlatformBackButton />
           <div className="min-w-0 flex-1 basis-48">
             <Breadcrumbs />
           </div>

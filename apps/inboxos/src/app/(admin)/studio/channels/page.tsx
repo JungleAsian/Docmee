@@ -12,7 +12,6 @@ import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { StudioIntegrationsPanel } from '@/shared/components/StudioIntegrationsPanel'
-import { BackButton } from '@/shared/components/BackButton'
 import { AUTOMATION_DEFS } from '@/shared/automations'
 import {
   summarizeAiProviderReadiness,
@@ -256,7 +255,6 @@ export default function ChannelsPage() {
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <BackButton href="/studio" label={t('nav.studio')} />
           <h1 className="text-xl font-bold">{t('studio.channels.title')}</h1>
         </div>
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />

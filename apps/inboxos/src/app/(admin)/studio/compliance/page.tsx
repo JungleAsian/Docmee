@@ -17,7 +17,6 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useOnline } from '@/shared/hooks/useOnline'
-import { BackButton } from '@/shared/components/BackButton'
 import {
   useComplianceChecklist,
   type ComplianceState,
@@ -105,7 +104,6 @@ export default function CompliancePage() {
       {/* Page head */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start">
         <div>
-          <BackButton href="/studio" label={t('nav.studio')} />
           <h1 className="text-xl font-bold tracking-tight">{t('compliance.pageTitle')}</h1>
           <p className="mt-1 max-w-xl text-sm text-gray-500 dark:text-gray-400">{t('compliance.pageSubtitle')}</p>
         </div>

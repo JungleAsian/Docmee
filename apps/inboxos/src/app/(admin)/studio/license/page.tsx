@@ -7,7 +7,6 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { LicenseBadge } from '@/shared/components/LicenseBadge'
-import { BackButton } from '@/shared/components/BackButton'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'
 import { formatDateTime } from '@/shared/format'
@@ -28,7 +27,6 @@ export default function LicensePage() {
     return (
       <div className="clinic-page clinic-page-md space-y-6">
         <div className="clinic-card p-6">
-          <BackButton href="/studio" label={t('nav.studio')} />
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Limited access</p>
           <h1 className="mt-2 text-xl font-bold">{t('license.title')}</h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -41,7 +39,6 @@ export default function LicensePage() {
 
   return (
     <div className="clinic-page clinic-page-md space-y-6">
-      <BackButton href="/studio" label={t('nav.studio')} />
       <h1 className="mb-1 text-xl font-bold">{t('license.title')}</h1>
       <p className="mb-4 text-xs text-gray-400">{t('license.never')}</p>
 

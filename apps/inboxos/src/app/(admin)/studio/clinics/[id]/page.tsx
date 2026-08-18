@@ -10,7 +10,6 @@ import { api, ApiError, API_BASE } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { LicenseBadge } from '@/shared/components/LicenseBadge'
 import { PillToggle } from '@/shared/components/PillToggle'
-import { BackButton } from '@/shared/components/BackButton'
 import { WEEKDAYS, toBusinessHours } from '@/shared/businessHours'
 import { tonePreview, SAFETY_RULE_KEYS } from '@/shared/botPreview'
 import {
@@ -50,7 +49,6 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{clinic?.name ?? t('studio.clinics.detail')}</h1>
-        <BackButton href="/studio/clinics" label={t('nav.clinics')} />
       </div>
 
       {query.isLoading ? (

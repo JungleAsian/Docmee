@@ -14,7 +14,6 @@ import { api, ApiError } from '@/shared/api/client'
 import { QUICK_REPLY_VARS } from '@/shared/templateVars'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { StudioMessagingTabs } from '@/shared/components/StudioMessagingTabs'
-import { BackButton } from '@/shared/components/BackButton'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { useOnline } from '@/shared/hooks/useOnline'
@@ -70,7 +69,6 @@ export default function QuickRepliesPage() {
 
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <BackButton href="/studio" label={t('nav.studio')} />
           <h1 className="text-xl font-bold">{t('studio.quickReplies.title')}</h1>
           <p className="mt-0.5 max-w-2xl text-xs text-gray-500">{t('studio.quickReplies.subhead')}</p>
         </div>

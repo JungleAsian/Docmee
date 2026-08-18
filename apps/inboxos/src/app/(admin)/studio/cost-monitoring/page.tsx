@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
-import { BackButton } from '@/shared/components/BackButton'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { useAuthStore } from '@/shared/store/auth'
 import type { ClinicMetrics, ClinicStats, ClinicUsage, ClinicUsageRow } from '@/shared/types'
@@ -91,7 +90,6 @@ export default function CostMonitoringPage() {
     return (
       <div className="clinic-page clinic-page-md space-y-6">
         <div className="clinic-card p-6">
-          <BackButton href="/studio" label="Admin Studio" />
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Limited access</p>
           <h1 className="mt-2 text-xl font-bold">Usage</h1>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -106,7 +104,6 @@ export default function CostMonitoringPage() {
     <div className="clinic-page clinic-page-md space-y-8">
       <div className="clinic-page-header">
         <div>
-          <BackButton href="/studio" label="Admin Studio" />
           <p className="clinic-eyebrow">Cost operations</p>
           <h1 className="clinic-title">Cost monitoring</h1>
           <p className="clinic-subtitle">

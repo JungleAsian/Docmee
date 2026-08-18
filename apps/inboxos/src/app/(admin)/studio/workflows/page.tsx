@@ -139,7 +139,6 @@ export default function WorkflowsPage() {
       />
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <BackButton href="/studio/automations" label={t('hub.backToHub')} />
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('wf.title')}</h1>
           <p className="text-sm text-gray-500">{t('wf.subtitle')}</p>
         </div>

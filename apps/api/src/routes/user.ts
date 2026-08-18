@@ -8,7 +8,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { createUsersRepository, createPushSubscriptionsRepository } from '@docmee/db'
-import { ALERT_CATEGORY_KEYS, isNotificationType, normalizeNotificationPrefs } from '@docmee/notifications'
+import { ALERT_CATEGORY_KEYS, isNotificationType, isSoundPreset, normalizeNotificationPrefs } from '@docmee/notifications'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { requireAuth } from '../middleware/auth.js'
@@ -20,6 +20,15 @@ const alertCategoriesSchema = z.object(
   Object.fromEntries(ALERT_CATEGORY_KEYS.map((key) => [key, z.boolean()])) as Record<(typeof ALERT_CATEGORY_KEYS)[number], z.ZodBoolean>,
 )
 
+// Item 4 of the 25-item batch: which tone plays per alert category.
+const soundPresetSchema = z.string().refine(isSoundPreset, 'unknown sound preset')
+const soundPresetsSchema = z.object(
+  Object.fromEntries(ALERT_CATEGORY_KEYS.map((key) => [key, soundPresetSchema.optional()])) as Record<
+    (typeof ALERT_CATEGORY_KEYS)[number],
+    z.ZodOptional<typeof soundPresetSchema>
+  >,
+)
+
 const notificationPrefsSchema = z.object({
   emailEnabled: z.boolean().optional(),
   // Only known alert types may be muted; unknown values are rejected so a typo
@@ -27,6 +36,7 @@ const notificationPrefsSchema = z.object({
   mutedTypes: z.array(z.string().refine(isNotificationType, 'unknown alert type')).optional(),
   alertCategories: alertCategoriesSchema.optional(),
   soundEnabled: z.boolean().optional(),
+  soundPresets: soundPresetsSchema.optional(),
 })
 
 // A browser PushManager subscription (Req 39 — installed-PWA mobile alerts).

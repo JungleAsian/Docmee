@@ -10,10 +10,10 @@ import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { formatDateTime } from '../format'
-import { alertLabelKey, alertPriority, alertTitleText, formatAlertDetailText, PRIORITY_DOT } from '../notifications'
+import { alertCategoryFor, alertLabelKey, alertPriority, alertTitleText, formatAlertDetailText, PRIORITY_DOT } from '../notifications'
 import { SlideOver } from './SlideOver'
 import { NotificationPreferences } from './NotificationPreferences'
-import type { NotificationEvent, NotificationPrefs } from '../types'
+import type { NotificationEvent, NotificationPrefs, SoundPreset } from '../types'
 
 const POLL_MS = 30_000
 
@@ -22,7 +22,17 @@ function isUnread(n: NotificationEvent): boolean {
   return n.status !== 'acknowledged' && n.status !== 'skipped'
 }
 
-function playNotificationSound() {
+// Item 4 of the 25-item batch: a distinct two-tone chirp per preset, synthesized
+// with the Web Audio API (no audio files — no upload/storage backend exists for
+// user-provided sounds today). 'default' matches the original single tone.
+const SOUND_PRESET_TONES: Record<SoundPreset, readonly (readonly [number, number])[]> = {
+  default: [[0, 880], [0.14, 1174]],
+  chime: [[0, 1046], [0.12, 1318], [0.24, 1568]],
+  ping: [[0, 1568]],
+  bell: [[0, 659], [0.16, 988]],
+}
+
+function playNotificationSound(preset: SoundPreset = 'default') {
   try {
     const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!AudioContextClass) return
@@ -33,7 +43,7 @@ function playNotificationSound() {
     gain.gain.exponentialRampToValueAtTime(0.08, now + 0.015)
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42)
     gain.connect(ctx.destination)
-    for (const [offset, frequency] of [[0, 880], [0.14, 1174]] as const) {
+    for (const [offset, frequency] of SOUND_PRESET_TONES[preset] ?? SOUND_PRESET_TONES.default) {
       const osc = ctx.createOscillator()
       osc.type = 'sine'
       osc.frequency.setValueAtTime(frequency, now + offset)
@@ -80,10 +90,16 @@ export function NotificationBell() {
       seenUnreadIds.current = currentIds
       return
     }
-    const hasNewUnread = [...currentIds].some((id) => !seenUnreadIds.current?.has(id))
+    const newlyArrived = unread.filter((n) => !seenUnreadIds.current?.has(n.id))
     seenUnreadIds.current = currentIds
-    if (soundEnabled && hasNewUnread) playNotificationSound()
-  }, [clinicId, query.isLoading, query.isError, soundEnabled, unread])
+    if (soundEnabled && newlyArrived.length > 0) {
+      // Item 4 of the 25-item batch: play the tone assigned to the newest arrival's
+      // category (falls back to the 'default' preset when unset).
+      const category = alertCategoryFor(newlyArrived[0]!.alertType)
+      const preset = prefsQuery.data?.preferences.soundPresets?.[category] ?? 'default'
+      playNotificationSound(preset)
+    }
+  }, [clinicId, query.isLoading, query.isError, soundEnabled, unread, prefsQuery.data])
 
   const invalidate = () => qc.invalidateQueries({ queryKey: key })
 

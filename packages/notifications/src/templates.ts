@@ -58,6 +58,10 @@ export function buildNotificationEmail(
       subject: '🆕 New patient registered',
       html: `<h2>New Patient</h2><p>A new patient has contacted the clinic.</p>${details(data)}`,
     },
+    new_message: {
+      subject: '💬 New message from a new conversation',
+      html: `<h2>New Message</h2><p>A new patient has started a conversation.</p>${details(data)}`,
+    },
     booking_confirmed: {
       subject: '📅 Appointment confirmed',
       html: `<h2>Booking Confirmed</h2><p>An appointment has been scheduled.</p>${details(data)}`,

@@ -24,8 +24,8 @@ const P1_SAFETY_TYPES = [
 ]
 
 describe('notification priority mirror', () => {
-  it('carries the canonical 20 alert types', () => {
-    expect(ALERT_TYPES).toHaveLength(20)
+  it('carries the canonical 21 alert types', () => {
+    expect(ALERT_TYPES).toHaveLength(21)
   })
 
   it('classifies every p1 safety alert as p1', () => {

@@ -5,6 +5,7 @@
 // Used by the notification bell (priority → icon/colour) and the preferences panel
 // (only NON-p1 alerts can be muted; p1 safety alerts always email).
 import type { TranslationKey } from './i18n'
+import type { AlertCategoryKey } from './types'
 
 export type AlertPriority = 'p1' | 'p2' | 'standard'
 
@@ -17,6 +18,7 @@ export const NOTIFICATION_PRIORITY: Record<string, AlertPriority> = {
   secretary_escalated: 'p1',
   // P2 — important
   new_patient: 'p2',
+  new_message: 'p2',
   booking_confirmed: 'p2',
   booking_cancelled: 'p2',
   booking_rescheduled: 'p2',
@@ -36,6 +38,43 @@ export const NOTIFICATION_PRIORITY: Record<string, AlertPriority> = {
 
 /** All alert types, in display order. */
 export const ALERT_TYPES = Object.keys(NOTIFICATION_PRIORITY)
+
+// Item 4 of the 25-item batch: which alert category an alert type belongs to, for
+// picking its audible tone. Mirrors CATEGORY_TYPES in
+// @docmee/notifications/preferences.ts. Types with no category (daily_summary,
+// etc.) always play the 'internal' tone.
+export const ALERT_CATEGORY_FOR: Record<string, AlertCategoryKey> = {
+  emergency: 'internal',
+  human_handoff_requested: 'internal',
+  bot_failed: 'internal',
+  upset_patient: 'internal',
+  secretary_escalated: 'internal',
+  secretary_timeout: 'internal',
+  low_review_score: 'internal',
+  kb_miss_threshold: 'internal',
+  meta_token_expiring: 'internal',
+  license_expiring: 'internal',
+  license_expired: 'internal',
+  opted_out: 'internal',
+  booking_confirmed: 'newBooking',
+  booking_cancelled: 'cancellation',
+  booking_rescheduled: 'bookingRevision',
+  new_patient: 'newMessage',
+  new_message: 'newMessage',
+}
+export function alertCategoryFor(alertType: string | null | undefined): AlertCategoryKey {
+  return (alertType && ALERT_CATEGORY_FOR[alertType]) || 'internal'
+}
+
+/** Assignable sound-preset categories, in display order (for the settings UI). */
+export const SOUND_CATEGORY_KEYS: AlertCategoryKey[] = [
+  'newBooking',
+  'cancellation',
+  'bookingRevision',
+  'newMessage',
+  'internal',
+]
+export const SOUND_PRESETS = ['default', 'chime', 'ping', 'bell'] as const
 
 /** Alert types a user may mute (p1 safety alerts always email and are excluded). */
 export const MUTABLE_ALERT_TYPES = ALERT_TYPES.filter((t) => NOTIFICATION_PRIORITY[t] !== 'p1')
@@ -64,6 +103,7 @@ const ALERT_ICON: Record<string, string> = {
   upset_patient: '😟',
   secretary_escalated: '⏫',
   new_patient: '🧑',
+  new_message: '💬',
   booking_confirmed: '📅',
   booking_cancelled: '❌',
   booking_rescheduled: '🔁',
@@ -116,6 +156,7 @@ const HUMAN_HANDLED = new Set([
 ])
 const BOT_HANDLED = new Set([
   'new_patient',
+  'new_message',
   'booking_confirmed',
   'booking_cancelled',
   'booking_rescheduled',

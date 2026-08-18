@@ -356,6 +356,21 @@ export async function processConversationJob(job: Job): Promise<void> {
       // classification threaded onto that same conversation. `channel` tells the
       // agent worker which sender to reply through.
       const conversationId = await threadInboundMessage(sql, clinicId, channel, patientId, msg)
+      // Item 4 of the 25-item batch: secretary alert on a genuinely new
+      // conversation (not every message — that would be far too noisy). Fires
+      // once, on the first inbound message from a brand-new patient contact.
+      // Best-effort — never blocks message processing.
+      if (isNewPatient) {
+        try {
+          await notificationQueue.add('notify', {
+            clinicId,
+            conversationId: conversationId ?? undefined,
+            type: 'new_message',
+          })
+        } catch (err) {
+          console.error('[conversation] failed to enqueue new_message notification:', err)
+        }
+      }
       const resumedWorkflows = conversationId
         ? await resumePendingWorkflowRuns(sql, clinicId, conversationId, {
             patientId,

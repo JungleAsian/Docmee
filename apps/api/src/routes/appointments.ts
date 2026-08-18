@@ -28,6 +28,7 @@ import {
 } from '@docmee/db'
 import { createGoogleCalendarOps, type CalendarOps, type RefreshedTokens } from '@docmee/agents'
 import { decryptValue, encryptValue } from '@docmee/shared'
+import { notificationQueue } from '@docmee/queue'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -354,6 +355,17 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       // = TRUE from creation; nothing more to do here, the retry sweep picks it up
       // automatically once a calendar is connected.
       await appts.addEvent(clinicId, syncedAppointment.id, 'confirmed', request.user?.userId)
+      // Item 4 of the 25-item batch: secretary alert on a new confirmed booking.
+      // Best-effort — a queue failure never breaks the booking itself.
+      try {
+        await notificationQueue.add('notify', {
+          clinicId,
+          type: 'booking_confirmed',
+          idempotencyKey: `booking_confirmed:${syncedAppointment.id}`,
+        })
+      } catch (error) {
+        request.log.error({ err: error }, 'failed to enqueue booking_confirmed notification')
+      }
       return { appointment: syncedAppointment }
     })
 
@@ -396,11 +408,33 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         }
 
         const updated = await appts.update(clinicId, request.params.apptId, patch)
+        // Item 4 of the 25-item batch: secretary alert on a reschedule / cancellation.
+        // Best-effort — a queue failure never breaks the change itself.
         if (date !== undefined && start !== undefined) {
           await appts.addEvent(clinicId, updated.id, 'rescheduled', request.user?.userId)
+          try {
+            await notificationQueue.add('notify', {
+              clinicId,
+              type: 'booking_rescheduled',
+              idempotencyKey: `booking_rescheduled:${updated.id}:${updated.startTime}`,
+            })
+          } catch (error) {
+            request.log.error({ err: error }, 'failed to enqueue booking_rescheduled notification')
+          }
         }
         if (status !== undefined && STATUS_EVENT[status]) {
           await appts.addEvent(clinicId, updated.id, STATUS_EVENT[status]!, request.user?.userId)
+          if (status === 'cancelled') {
+            try {
+              await notificationQueue.add('notify', {
+                clinicId,
+                type: 'booking_cancelled',
+                idempotencyKey: `booking_cancelled:${updated.id}`,
+              })
+            } catch (error) {
+              request.log.error({ err: error }, 'failed to enqueue booking_cancelled notification')
+            }
+          }
         }
         // The Docmee-side status/time change above always applies. Google Calendar
         // is a best-effort attachment: if it's not connected or the call fails, the

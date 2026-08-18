@@ -9,7 +9,7 @@ vi.mock('@docmee/queue', () => ({
 }))
 vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
 
-const verifyPassword = vi.fn((plaintext: string) => plaintext === 'correct-password')
+const verifyPassword = vi.fn((plaintext: string, _hash: string) => plaintext === 'correct-password')
 vi.mock('@docmee/shared', () => ({
   encryptValue: (v: string) => `enc:${v}`,
   decryptValue: (v: string) => v,

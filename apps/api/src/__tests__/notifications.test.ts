@@ -64,6 +64,7 @@ const DEFAULT_PREFS = {
   emailEnabled: true,
   mutedTypes: [],
   soundEnabled: false,
+  soundPresets: {},
   jzelEnabled: true,
   alertCategories: {
     whatsapp: true,
@@ -71,6 +72,7 @@ const DEFAULT_PREFS = {
     cancellation: true,
     bookingRevision: true,
     internal: true,
+    newMessage: true,
   },
 }
 

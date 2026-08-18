@@ -8,7 +8,7 @@ describe('@docmee/notifications', () => {
     expect(typeof mod.dispatchNotification).toBe('function')
     expect(typeof mod.buildNotificationEmail).toBe('function')
     expect(mod.NOTIFICATION_PRIORITY.emergency).toBe('p1')
-    expect(Object.keys(mod.NOTIFICATION_TYPES)).toHaveLength(21)
+    expect(Object.keys(mod.NOTIFICATION_TYPES)).toHaveLength(22)
     expect(mod.NOTIFICATION_TYPES.LICENSE_EXPIRED).toBe('license_expired')
   })
 })

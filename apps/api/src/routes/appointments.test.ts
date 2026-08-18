@@ -4,6 +4,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
+  notificationQueue: { add: vi.fn() },
 }))
 const calendarOps = vi.hoisted(() => ({
   createEvent: vi.fn(async () => 'google-event-1'),

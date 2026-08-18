@@ -13,6 +13,7 @@ export const NOTIFICATION_TYPES = {
 
   // P2 — Important (< 5 min)
   NEW_PATIENT:             'new_patient',
+  NEW_MESSAGE:             'new_message',
   BOOKING_CONFIRMED:       'booking_confirmed',
   BOOKING_CANCELLED:       'booking_cancelled',
   BOOKING_RESCHEDULED:     'booking_rescheduled',
@@ -43,6 +44,7 @@ export const NOTIFICATION_PRIORITY: Record<NotificationType, NotificationPriorit
   upset_patient:           'p1',
   secretary_escalated:     'p1',
   new_patient:             'p2',
+  new_message:             'p2',
   booking_confirmed:       'p2',
   booking_cancelled:       'p2',
   booking_rescheduled:     'p2',

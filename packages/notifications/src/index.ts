@@ -56,8 +56,11 @@ export {
   DEFAULT_NOTIFICATION_PREFS,
   isAlertCategoryAllowedByPrefs,
   isEmailAllowedByPrefs,
+  isSoundPreset,
   normalizeNotificationPrefs,
+  SOUND_PRESETS,
   type AlertCategoryKey,
   type AlertCategoryPrefs,
   type NotificationPrefs,
+  type SoundPreset,
 } from './preferences.js'

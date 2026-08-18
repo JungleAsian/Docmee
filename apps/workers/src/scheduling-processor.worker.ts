@@ -390,6 +390,16 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               ...(error ? { calendarSyncPending: true, calendarSyncError: error } : {}),
             })
             await appointments.addEvent(data.clinicId, appointmentId, 'cancelled')
+            try {
+              await notificationQueue.add('notify', {
+                clinicId: data.clinicId,
+                conversationId: data.conversationId,
+                type: 'booking_cancelled',
+                idempotencyKey: `booking_cancelled:${appointmentId}`,
+              })
+            } catch (e) {
+              console.error(`[scheduling] failed to enqueue booking_cancelled notification for ${appointmentId}`, e)
+            }
           },
         })
         await reply(result.reply)
@@ -453,6 +463,16 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               ...(calendarSyncResult !== 'synced' ? { calendarSyncPending: true, calendarSyncError } : {}),
             })
             await appointments.addEvent(data.clinicId, appointmentId, 'rescheduled')
+            try {
+              await notificationQueue.add('notify', {
+                clinicId: data.clinicId,
+                conversationId: data.conversationId,
+                type: 'booking_rescheduled',
+                idempotencyKey: `booking_rescheduled:${appointmentId}:${startTime}`,
+              })
+            } catch (e) {
+              console.error(`[scheduling] failed to enqueue booking_rescheduled notification for ${appointmentId}`, e)
+            }
           },
         })
         await reply(result.reply)
@@ -564,6 +584,19 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               calendarSyncError,
             })
             await appointments.addEvent(data.clinicId, created.id, 'confirmed')
+            // Item 4 of the 25-item batch: secretary alert (bell + optional sound) on
+            // a new confirmed booking. Best-effort — a queue failure never breaks the
+            // booking confirmation itself.
+            try {
+              await notificationQueue.add('notify', {
+                clinicId: data.clinicId,
+                conversationId: data.conversationId,
+                type: 'booking_confirmed',
+                idempotencyKey: `booking_confirmed:${created.id}`,
+              })
+            } catch (e) {
+              console.error(`[scheduling] failed to enqueue booking_confirmed notification for ${created.id}`, e)
+            }
             // ...and merged onto the patient record so it is queryable from the
             // patient view, not only buried in the appointment. Best-effort: a
             // write failure is logged but never breaks the confirmation reply.

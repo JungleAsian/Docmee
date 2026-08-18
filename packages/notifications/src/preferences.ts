@@ -21,6 +21,7 @@ export const ALERT_CATEGORY_KEYS = [
   'newBooking',
   'cancellation',
   'bookingRevision',
+  'newMessage',
 ] as const
 
 export type AlertCategoryKey = (typeof ALERT_CATEGORY_KEYS)[number]
@@ -33,6 +34,7 @@ export const DEFAULT_ALERT_CATEGORIES: AlertCategoryPrefs = {
   newBooking: true,
   cancellation: true,
   bookingRevision: true,
+  newMessage: true,
 }
 
 const CATEGORY_TYPES: Record<Exclude<AlertCategoryKey, 'whatsapp'>, NotificationType[]> = {
@@ -53,6 +55,16 @@ const CATEGORY_TYPES: Record<Exclude<AlertCategoryKey, 'whatsapp'>, Notification
   newBooking: [NOTIFICATION_TYPES.BOOKING_CONFIRMED],
   cancellation: [NOTIFICATION_TYPES.BOOKING_CANCELLED],
   bookingRevision: [NOTIFICATION_TYPES.BOOKING_RESCHEDULED],
+  newMessage: [NOTIFICATION_TYPES.NEW_MESSAGE, NOTIFICATION_TYPES.NEW_PATIENT],
+}
+
+// Item 4 of the 25-item batch: which audible tone plays for a category's alerts.
+// Presets are synthesized tones (see NotificationBell.tsx), not uploaded files —
+// no file-storage backend exists for user-uploaded audio today.
+export const SOUND_PRESETS = ['default', 'chime', 'ping', 'bell'] as const
+export type SoundPreset = (typeof SOUND_PRESETS)[number]
+export function isSoundPreset(value: unknown): value is SoundPreset {
+  return typeof value === 'string' && (SOUND_PRESETS as readonly string[]).includes(value)
 }
 
 export interface NotificationPrefs {
@@ -64,6 +76,9 @@ export interface NotificationPrefs {
   alertCategories?: AlertCategoryPrefs
   /** Browser-side audible alerts for the panel. */
   soundEnabled: boolean
+  /** Which tone plays per alert category (item 4 of the 25-item batch). Missing
+   *  keys fall back to 'default'. */
+  soundPresets?: Partial<Record<AlertCategoryKey, SoundPreset>>
   /** Show the floating J.zel assistant for this user. */
   jzelEnabled?: boolean
 }
@@ -73,6 +88,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   mutedTypes: [],
   alertCategories: { ...DEFAULT_ALERT_CATEGORIES },
   soundEnabled: false,
+  soundPresets: {},
   jzelEnabled: true,
 }
 
@@ -101,7 +117,15 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
       if (categories[key] === true) alertCategories[key] = true
     }
   }
-  return { emailEnabled, mutedTypes: [...new Set(mutedTypes)], alertCategories, soundEnabled, jzelEnabled }
+  const soundPresetsRaw = obj['soundPresets']
+  const soundPresets: Partial<Record<AlertCategoryKey, SoundPreset>> = {}
+  if (soundPresetsRaw && typeof soundPresetsRaw === 'object') {
+    const presets = soundPresetsRaw as Record<string, unknown>
+    for (const key of ALERT_CATEGORY_KEYS) {
+      if (isSoundPreset(presets[key])) soundPresets[key] = presets[key]
+    }
+  }
+  return { emailEnabled, mutedTypes: [...new Set(mutedTypes)], alertCategories, soundEnabled, soundPresets, jzelEnabled }
 }
 
 /**

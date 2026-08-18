@@ -706,14 +706,23 @@ export interface NotificationEvent {
 }
 
 /** Per-user notification preferences (GET/PUT /user/notification-preferences). */
-export type AlertCategoryKey = 'whatsapp' | 'internal' | 'newBooking' | 'cancellation' | 'bookingRevision'
+export type AlertCategoryKey =
+  | 'whatsapp'
+  | 'internal'
+  | 'newBooking'
+  | 'cancellation'
+  | 'bookingRevision'
+  | 'newMessage'
 export type AlertCategories = Record<AlertCategoryKey, boolean>
+/** Item 4 of the 25-item batch: which synthesized tone plays per alert category. */
+export type SoundPreset = 'default' | 'chime' | 'ping' | 'bell'
 
 export interface NotificationPrefs {
   emailEnabled: boolean
   mutedTypes: string[]
   alertCategories?: AlertCategories
   soundEnabled: boolean
+  soundPresets?: Partial<Record<AlertCategoryKey, SoundPreset>>
   jzelEnabled?: boolean
 }
 

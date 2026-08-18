@@ -12,10 +12,12 @@ import { useI18n } from '../hooks/useI18n'
 import {
   ALERT_TYPES,
   MUTABLE_ALERT_TYPES,
+  SOUND_CATEGORY_KEYS,
+  SOUND_PRESETS,
   alertLabelKey,
   alertPriority,
 } from '../notifications'
-import type { NotificationPrefs } from '../types'
+import type { AlertCategoryKey, NotificationPrefs, SoundPreset } from '../types'
 
 const MUTABLE = new Set(MUTABLE_ALERT_TYPES)
 
@@ -31,6 +33,7 @@ export function NotificationPreferences() {
 
   const [emailEnabled, setEmailEnabled] = useState(true)
   const [soundEnabled, setSoundEnabled] = useState(false)
+  const [soundPresets, setSoundPresets] = useState<Partial<Record<AlertCategoryKey, SoundPreset>>>({})
   const [muted, setMuted] = useState<Set<string>>(new Set())
 
   // Seed the form once the saved prefs load.
@@ -39,6 +42,7 @@ export function NotificationPreferences() {
     if (!prefs) return
     setEmailEnabled(prefs.emailEnabled)
     setSoundEnabled(prefs.soundEnabled)
+    setSoundPresets(prefs.soundPresets ?? {})
     setMuted(new Set(prefs.mutedTypes))
   }, [query.data])
 
@@ -60,6 +64,7 @@ export function NotificationPreferences() {
     save.mutate({
       emailEnabled,
       soundEnabled,
+      soundPresets,
       // Only mutable (non-p1) types can be muted; never persist a p1 mute.
       mutedTypes: [...muted].filter((type) => MUTABLE.has(type)),
     })
@@ -93,6 +98,34 @@ export function NotificationPreferences() {
           onChange={setSoundEnabled}
         />
       </label>
+
+      {soundEnabled && (
+        <div className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {t('notif.prefs.soundsTitle')}
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {SOUND_CATEGORY_KEYS.map((category) => (
+              <li key={category} className="flex items-center justify-between gap-2 text-sm">
+                <span>{t(`notif.category.${category}` as const)}</span>
+                <select
+                  value={soundPresets[category] ?? 'default'}
+                  onChange={(e) =>
+                    setSoundPresets((prev) => ({ ...prev, [category]: e.target.value as SoundPreset }))
+                  }
+                  className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700"
+                >
+                  {SOUND_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {t(`notif.sound.${preset}` as const)}
+                    </option>
+                  ))}
+                </select>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">

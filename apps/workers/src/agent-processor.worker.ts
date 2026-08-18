@@ -612,6 +612,18 @@ export async function processAgentJob(job: Job): Promise<void> {
                 providerMessageId: channelMessageId,
               },
             }).catch((logErr) => console.error('[agent] failed to log acceptance persistence error:', logErr))
+            // Item 4 of the 25-item batch: secretary alert (bell + optional sound) on
+            // a bot-side error. Best-effort — never breaks the send path.
+            try {
+              await notificationQueue.add('notify', {
+                clinicId: data.clinicId,
+                conversationId: data.conversationId,
+                type: 'bot_failed',
+                idempotencyKey: `bot_failed:${attempt.id}`,
+              })
+            } catch (logErr) {
+              console.error('[agent] failed to enqueue bot_failed notification:', logErr)
+            }
           }
         }
       : null

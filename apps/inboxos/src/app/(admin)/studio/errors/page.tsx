@@ -33,6 +33,35 @@ function formatContextLabel(key: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+// Item 6 of the 25-item batch: a human-readable label for the raw errorType pill,
+// shown instead of the machine-cased string. Uses the exact same category
+// heuristic as guidanceKey so the label and the guidance callout always agree on
+// which category an error falls into; anything unmapped falls back to a plain
+// Title Case rendering of the raw type rather than a hardcoded "Unknown".
+function humanErrorLabel(errorType: string, t: ReturnType<typeof useI18n>['t']): string {
+  const v = errorType.toLowerCase()
+  if (v.includes('unanswered')) return t('errors.label.unanswered')
+  if (v.includes('bad_response') || v.includes('bad response')) return t('errors.label.badResponse')
+  if (v.includes('timeout') || v.includes('llm') || v.includes('provider')) return t('errors.label.timeout')
+  if (v.includes('calendar') || v.includes('oauth')) return t('errors.label.calendar')
+  if (v.includes('whatsapp') || v.includes('template') || v.includes('meta')) return t('errors.label.whatsapp')
+  if (v.includes('embed') || v.includes('kb') || v.includes('knowledge')) return t('errors.label.embedding')
+  return formatContextLabel(errorType)
+}
+
+// Item 6: a plain-language "where this happened" line, derived from whichever
+// well-known context key is present — direct the user to the part of the app the
+// error came from instead of leaving them to parse a raw context dump.
+function friendlyLocation(context: Record<string, unknown> | null | undefined, t: ReturnType<typeof useI18n>['t']): string | null {
+  if (!context) return null
+  if (context.conversationId) return t('errors.location.conversation')
+  if (context.outboundMessageId || context.providerMessageId) return t('errors.location.sending')
+  if (context.workflowId || context.workflowRunId) return t('errors.location.workflow')
+  if (context.doctorId || context.appointmentId) return t('errors.location.booking')
+  if (context.channel) return t('errors.location.channel', { channel: String(context.channel) })
+  return null
+}
+
 function isSensitiveContext(key: string) {
   return /secret|token|password|credential|private|apikey|api key|key/i.test(key)
 }
@@ -75,6 +104,7 @@ export default function ErrorsPage() {
   const [selected, setSelected] = useState<ErrorReview | null>(null)
   const [kbTitle, setKbTitle] = useState('')
   const [kbContent, setKbContent] = useState('')
+  const [showTechnical, setShowTechnical] = useState(false)
 
   // Build the shared status + date-range query string for both the list and the
   // CSV export so they always reflect the same filters (Req 36).
@@ -93,6 +123,7 @@ export default function ErrorsPage() {
   useEffect(() => {
     setKbTitle(selected ? selected.errorMessage.slice(0, 120) : '')
     setKbContent('')
+    setShowTechnical(false)
   }, [selected])
 
   const query = useQuery({
@@ -183,7 +214,7 @@ export default function ErrorsPage() {
               <option value="">{t('studio.errors.allTypes')}</option>
               {types.map((ty) => (
                 <option key={ty} value={ty}>
-                  {ty}
+                  {humanErrorLabel(ty, t)}
                 </option>
               ))}
             </select>
@@ -280,8 +311,11 @@ export default function ErrorsPage() {
                   )}
                   <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-red-700 dark:bg-red-950 dark:text-red-300">
-                      {e.errorType}
+                    <span
+                      title={e.errorType}
+                      className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300"
+                    >
+                      {humanErrorLabel(e.errorType, t)}
                     </span>
                     <span className="text-xs text-gray-400">{formatDateTime(e.createdAt, language)}</span>
                     {e.status !== 'open' && (
@@ -322,13 +356,22 @@ export default function ErrorsPage() {
         {selected && (
           <div className="space-y-4 text-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-red-700 dark:bg-red-950 dark:text-red-300">
-                {selected.errorType}
+              <span
+                title={selected.errorType}
+                className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300"
+              >
+                {humanErrorLabel(selected.errorType, t)}
               </span>
               <span className="text-xs text-gray-400">{formatDateTime(selected.createdAt, language)}</span>
             </div>
 
             <p className="break-words font-medium">{selected.errorMessage}</p>
+
+            {friendlyLocation(selected.context, t) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                📍 {friendlyLocation(selected.context, t)}
+              </p>
+            )}
 
             <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-900 dark:bg-teal-950/50">
               <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
@@ -339,10 +382,21 @@ export default function ErrorsPage() {
 
             {selected.stackTrace && (
               <div>
-                <p className="mb-1 text-xs font-semibold text-gray-500">{t('studio.errors.stackTrace')}</p>
-                <pre className="max-h-48 overflow-auto rounded-md bg-gray-900 p-2 text-[11px] text-gray-100">
-                  {selected.stackTrace}
-                </pre>
+                <button
+                  type="button"
+                  onClick={() => setShowTechnical((v) => !v)}
+                  className="text-xs font-medium text-gray-500 hover:underline dark:text-gray-400"
+                >
+                  {showTechnical ? t('studio.errors.hideTechnical') : t('studio.errors.showTechnical')}
+                </button>
+                {showTechnical && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-xs font-semibold text-gray-500">{t('studio.errors.stackTrace')}</p>
+                    <pre className="max-h-48 overflow-auto rounded-md bg-gray-900 p-2 text-[11px] text-gray-100">
+                      {selected.stackTrace}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
 

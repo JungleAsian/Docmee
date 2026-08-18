@@ -6,6 +6,7 @@
 // matching section of the clinic detail page to fix things. WhatsApp is shown as an
 // informational card because its config lives outside the clinic record.
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, API_BASE } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
@@ -135,8 +136,6 @@ interface ProviderReadiness {
 }
 
 interface SuperuserClinicSettingsForm {
-  botTone: NonNullable<ClinicSettings['botTone']>
-  botLanguage: NonNullable<ClinicSettings['botLanguage']>
   bookingStartHour: string
   bookingEndHour: string
   bookingSlotMinutes: string
@@ -329,8 +328,6 @@ const toDateInputValue = (value: unknown) => (typeof value === 'string' ? value.
 
 function buildSuperuserSettingsForm(settings: ClinicSettings | undefined): SuperuserClinicSettingsForm {
   return {
-    botTone: settings?.botTone ?? 'professional',
-    botLanguage: settings?.botLanguage ?? 'auto',
     bookingStartHour: String(settings?.bookingGrid?.startHour ?? 8),
     bookingEndHour: String(settings?.bookingGrid?.endHour ?? 17),
     bookingSlotMinutes: String(settings?.bookingGrid?.slotMinutes ?? 30),
@@ -398,8 +395,6 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
       const current = (clinic.settings ?? {}) as ClinicSettings
       const nextSettings: ClinicSettings = {
         ...current,
-        botTone: form.botTone,
-        botLanguage: form.botLanguage,
         bookingGrid: { ...(current.bookingGrid ?? {}), startHour, endHour, slotMinutes },
         stalledConversation: {
           ...(current.stalledConversation ?? {}),
@@ -453,37 +448,15 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
-          <h3 className="text-xs font-semibold uppercase text-gray-400">J.zel behavior</h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-medium text-gray-500">
-              Tone
-              <select
-                value={form.botTone}
-                onChange={(event) => updateField('botTone', event.target.value as SuperuserClinicSettingsForm['botTone'])}
-                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
-              >
-                <option value="professional">Professional</option>
-                <option value="friendly">Friendly</option>
-                <option value="brief">Brief</option>
-              </select>
-            </label>
-            <label className="block text-xs font-medium text-gray-500">
-              Reply language
-              <select
-                value={form.botLanguage}
-                onChange={(event) => updateField('botLanguage', event.target.value as SuperuserClinicSettingsForm['botLanguage'])}
-                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
-              >
-                <option value="auto">Auto-detect</option>
-                <option value="es">Spanish</option>
-                <option value="en">English</option>
-              </select>
-            </label>
-          </div>
-        </div>
+      <Link
+        href="/studio/ai-settings"
+        className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+      >
+        <span>J.zel tone, reply language, and AI provider keys now live in Studio → AI Settings.</span>
+        <span aria-hidden>→</span>
+      </Link>
 
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
           <h3 className="text-xs font-semibold uppercase text-gray-400">Booking grid</h3>
           <div className="mt-3 grid grid-cols-3 gap-2">

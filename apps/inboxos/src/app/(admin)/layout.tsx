@@ -48,6 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         { href: '/studio/quick-replies', label: t('nav.quickReplies'), icon: <NavIcon name="quickReplies" /> },
         { href: '/studio/templates', label: t('nav.templates'), icon: <NavIcon name="templates" /> },
         { href: '/studio/automations', label: t('automations.center.nav'), icon: <NavIcon name="automations" /> },
+        { href: '/studio/ai-settings', label: t('nav.aiSettings'), icon: <NavIcon name="bot" /> },
         {
           href: '/studio/kb',
           label: t('nav.kb'),

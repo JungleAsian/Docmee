@@ -5,13 +5,14 @@
 // connection, and license. Bot/hours live in clinic.settings; we always PATCH a
 // MERGED settings object so unrelated keys are never dropped.
 import { use, useState, type FormEvent } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, API_BASE } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { LicenseBadge } from '@/shared/components/LicenseBadge'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { WEEKDAYS, toBusinessHours } from '@/shared/businessHours'
-import { tonePreview, SAFETY_RULE_KEYS } from '@/shared/botPreview'
+import { SAFETY_RULE_KEYS } from '@/shared/botPreview'
 import {
   compileActiveRules,
   parseClinicRules,
@@ -20,8 +21,6 @@ import {
 } from '@/shared/clinicRules'
 import { formatDateTime } from '@/shared/format'
 import type {
-  BotLanguage,
-  BotTone,
   BusinessHours,
   Clinic,
   ClinicLicense,
@@ -32,8 +31,6 @@ import type {
 
 const PLANS: ClinicPlan[] = ['starter', 'pro', 'enterprise']
 const STATUSES: ClinicStatus[] = ['active', 'suspended', 'cancelled']
-const TONES: BotTone[] = ['professional', 'friendly', 'brief']
-const BOT_LANGUAGES: BotLanguage[] = ['auto', 'es', 'en']
 
 export default function ClinicDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -175,10 +172,8 @@ function GeneralSection({ clinic }: { clinic: Clinic }) {
 }
 
 function BotConfigSection({ clinic }: { clinic: Clinic }) {
-  const { t, language: panelLanguage } = useI18n()
+  const { t } = useI18n()
   const settings = clinic.settings as ClinicSettings
-  const [tone, setTone] = useState<BotTone>(settings.botTone ?? 'professional')
-  const [language, setLanguage] = useState<BotLanguage>(settings.botLanguage ?? 'auto')
   // Clinic rules as a structured list with a per-rule active/inactive toggle
   // (Screen 8 brief). Compare against the freshly-parsed persisted list each render
   // so the section flips back to "saved" after the clinic refetches.
@@ -187,13 +182,8 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
   const [unmatchedEs, setUnmatchedEs] = useState(settings.unmatchedKeywordMessage?.es ?? '')
   const [unmatchedEn, setUnmatchedEn] = useState(settings.unmatchedKeywordMessage?.en ?? '')
   const save = useSaveClinic(clinic.id)
-  // The preview reflects the BOT's configured language; on 'auto' it mirrors the
-  // patient, so we show one example in the operator's panel language.
-  const previewLanguage = language === 'auto' ? panelLanguage : language
 
   const dirty =
-    tone !== (settings.botTone ?? 'professional') ||
-    language !== (settings.botLanguage ?? 'auto') ||
     rulesChanged(rules, persistedRules) ||
     unmatchedEs !== (settings.unmatchedKeywordMessage?.es ?? '') ||
     unmatchedEn !== (settings.unmatchedKeywordMessage?.en ?? '')
@@ -212,8 +202,6 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
     save.mutate({
       settings: {
         ...clinic.settings,
-        botTone: tone,
-        botLanguage: language,
         // The bot reads the flat string; recompile it from the ACTIVE rules so an
         // inactive rule disappears from the prompt without losing its text.
         clinicRules: compileActiveRules(rules),
@@ -243,46 +231,16 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
         <p className="text-[11px] leading-snug text-emerald-800 dark:text-emerald-300">{t('bot.mode.banner')}</p>
       </div>
 
-      <p className="mb-2 text-xs font-medium text-gray-500">{t('bot.tone.title')}</p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {TONES.map((value) => {
-          const active = tone === value
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTone(value)}
-              className={`rounded-lg border p-3 text-left ${
-                active
-                  ? 'border-teal-500 bg-teal-50 dark:bg-teal-950'
-                  : 'border-gray-200 hover:border-gray-300 dark:border-gray-800'
-              }`}
-            >
-              <p className="text-sm font-semibold">{t(`bot.tone.${value}` as const)}</p>
-              <p className="mt-1 text-xs text-gray-500">{t(`bot.tone.${value}Hint` as const)}</p>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Live tone preview (Req 26/27) — a sample exchange in the selected tone + language. */}
-      <TonePreviewCard tone={tone} language={previewLanguage} showAutoNote={language === 'auto'} />
-
-      <div className="mt-4">
-        <p className="mb-1 text-xs font-medium text-gray-500">{t('bot.language.title')}</p>
-        <select
-          value={language}
-          onChange={(e) => setLanguage(e.target.value as BotLanguage)}
-          className={inputCls}
-        >
-          {BOT_LANGUAGES.map((value) => (
-            <option key={value} value={value}>
-              {t(`bot.language.${value}` as const)}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-xs text-gray-400">{t('bot.language.hint')}</p>
-      </div>
+      {/* Bot tone/language moved to Studio → AI Settings (items 3/9/16 of the 25-item
+          batch) — edit them there; this link keeps the connection discoverable from
+          the page an admin is used to looking at. */}
+      <Link
+        href="/studio/ai-settings"
+        className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+      >
+        <span>{t('clinic.aiSettingsMoved')}</span>
+        <span aria-hidden>→</span>
+      </Link>
 
       {/* Non-removable safety rules (Req 20) — presented before the editable rules so
           it is unmistakable that these are always enforced on top of clinic rules. */}
@@ -371,57 +329,6 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
         onSave={onSave}
       />
     </Section>
-  )
-}
-
-// Sample patient/bot exchange that re-renders as the tone or language changes.
-function TonePreviewCard({
-  tone,
-  language,
-  showAutoNote,
-}: {
-  tone: BotTone
-  language: 'es' | 'en'
-  showAutoNote: boolean
-}) {
-  const { t } = useI18n()
-  const sample = tonePreview(tone, language)
-  return (
-    <div className="clinic-card mt-3 bg-gray-50 p-3 dark:bg-gray-950/40">
-      <p className="mb-2 text-xs font-medium text-gray-500">{t('bot.preview.title')}</p>
-      <div className="space-y-1.5">
-        <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-white px-3 py-1.5 text-sm shadow-sm dark:bg-gray-800">
-            <span className="mb-0.5 block text-[10px] font-medium uppercase text-gray-400">
-              {t('bot.preview.patient')}
-            </span>
-            {sample.patient}
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-teal-600 px-3 py-1.5 text-sm text-white">
-            <span className="mb-0.5 block text-[10px] font-medium uppercase text-teal-200">
-              {t('bot.preview.bot')}
-            </span>
-            {sample.bot}
-          </div>
-        </div>
-      </div>
-      {/* Every sample reply routes to booking and never gives medical advice — the
-          tags make that safety posture explicit (Req 26/27/20). */}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          ✓ {t('bot.preview.tagBooking')}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          ✓ {t('bot.preview.tagNoAdvice')}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">
-          🔒 {t('bot.preview.tagSafe')}
-        </span>
-      </div>
-      {showAutoNote && <p className="mt-2 text-[11px] text-gray-400">{t('bot.preview.autoNote')}</p>}
-    </div>
   )
 }
 

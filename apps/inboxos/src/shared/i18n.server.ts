@@ -386,6 +386,7 @@ const es: Dict = {
   'clinic.notFound': 'Clínica no encontrada',
   'clinic.section.general': 'General',
   'clinic.section.bot': 'Configuración del bot',
+  'clinic.aiSettingsMoved': 'El tono y el idioma del bot ahora se configuran en Estudio → Configuración de IA.',
   'clinic.section.hours': 'Horario de atención',
   'clinic.section.calendar': 'Google Calendar',
   'clinic.section.sheets': 'CRM / Google Sheets',
@@ -1587,6 +1588,10 @@ const es: Dict = {
   'studio.kb.confidenceHint': 'Confianza de la fuente: el texto escrito a mano es más fiable que el extraído de documentos o escaneos.',
   'studio.kb.reviewBannerLow': '{n} entrada(s) provienen de un escaneo (OCR): revisa el texto antes de activarlas.',
 
+  // ── AI Settings (items 3, 9, 16 of the 25-item batch) ───────────────────────
+  'nav.aiSettings': 'Configuración de IA',
+  'aiSettings.desc': 'Tono, idioma y proveedores de IA usados por J.zel — todo lo relacionado con IA en un solo lugar.',
+
   // ── Screen 10 — Channels & integrations ─────────────────────────────────────
   'nav.channels': 'Canales e integraciones',
   'studio.channels.title': 'Canales e integraciones',
@@ -2490,6 +2495,7 @@ const en: Dict = {
   'clinic.notFound': 'Clinic not found',
   'clinic.section.general': 'General',
   'clinic.section.bot': 'Bot configuration',
+  'clinic.aiSettingsMoved': 'Bot tone and language now live in Studio → AI Settings.',
   'clinic.section.hours': 'Business hours',
   'clinic.section.calendar': 'Google Calendar',
   'clinic.section.sheets': 'CRM / Google Sheets',
@@ -3690,6 +3696,10 @@ const en: Dict = {
   'studio.kb.confidenceLow': 'Low confidence',
   'studio.kb.confidenceHint': 'Source confidence: hand-written text is more reliable than text extracted from documents or scans.',
   'studio.kb.reviewBannerLow': '{n} entries came from a scan (OCR): review the text before activating them.',
+
+  // ── AI Settings (items 3, 9, 16 of the 25-item batch) ───────────────────────
+  'nav.aiSettings': 'AI Settings',
+  'aiSettings.desc': 'Tone, language, and AI providers used by J.zel — everything AI-related in one place.',
 
   // ── Screen 10 — Channels & integrations ─────────────────────────────────────
   'nav.channels': 'Channels & Integrations',

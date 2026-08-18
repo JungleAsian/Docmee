@@ -266,7 +266,6 @@ function connectedEmbeddingProvider(statuses: AiProviderStatus[], current?: stri
 }
 
 export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
-  const jzelConfigLocked = useAuthStore((s) => s.user?.jzelEnabled === false)
   const settings = (clinic.settings ?? {}) as IntegrationSettings
   const calendarConnected = Boolean(settings.googleCalendar)
   const sheets = settings.googleSheets ?? {}
@@ -277,14 +276,6 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
     queryFn: () => api.get<{ providers: ProviderReadiness[] }>('/provider-status'),
   })
   const emailProvider = providerStatus.data?.providers.find((provider) => provider.key === 'email') ?? null
-
-  const aiStatus = useQuery({
-    queryKey: ['ai-status', clinic.id],
-    queryFn: () => api.get<{ providers: AiProviderStatus[] }>(`/clinic/${clinic.id}/ai/status`),
-  })
-  const statusFor = (provider: AiProvider) =>
-    aiStatus.data?.providers.find((p) => p.provider === provider) ?? null
-  const providerStatuses = aiStatus.data?.providers ?? []
 
   return (
     <div className="space-y-4">
@@ -325,7 +316,28 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
         description="Send Docmee events to external workflow automation tools when the clinic needs custom operations outside the app."
       />
       <N8nIntegration clinic={clinic} config={n8n} />
+    </div>
+  )
+}
 
+// Items 3/9/16 of the 25-item batch: J.zel AI provider connections moved out to
+// their own Studio → AI Settings page (was previously rendered inline at the
+// bottom of StudioIntegrationsPanel). Exported so that page can render it
+// directly — it reuses this file's shared IntegrationCard/IntegrationGroupBanner
+// plumbing and the ProviderLoginCard below, so it stays colocated here rather
+// than duplicating that machinery in a second file.
+export function AiProvidersPanel({ clinic }: { clinic: Clinic }) {
+  const jzelConfigLocked = useAuthStore((s) => s.user?.jzelEnabled === false)
+  const aiStatus = useQuery({
+    queryKey: ['ai-status', clinic.id],
+    queryFn: () => api.get<{ providers: AiProviderStatus[] }>(`/clinic/${clinic.id}/ai/status`),
+  })
+  const statusFor = (provider: AiProvider) =>
+    aiStatus.data?.providers.find((p) => p.provider === provider) ?? null
+  const providerStatuses = aiStatus.data?.providers ?? []
+
+  return (
+    <div className="space-y-4">
       <IntegrationGroupBanner
         icon="claude"
         title="J.zel AI providers"

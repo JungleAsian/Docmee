@@ -11,6 +11,8 @@ import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
+import { PillToggle } from '@/shared/components/PillToggle'
+import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from '@/shared/workflowTemplates'
@@ -39,7 +41,7 @@ const WorkflowCanvas = dynamic(
 )
 
 export default function WorkflowsPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const qc = useQueryClient()
   const { clinicId, switchClinic } = useActiveClinic()
   const [editing, setEditing] = useState<Workflow | 'new' | null>(null)
@@ -181,38 +183,53 @@ export default function WorkflowsPage() {
           ) : workflows.length === 0 ? (
             <p className="text-sm text-gray-500">{t('wf.empty')}</p>
           ) : (
-            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-              {workflows.map((wf) => (
-                <li key={wf.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
-                  <div>
-                    <p className="font-medium text-gray-800 dark:text-gray-100">{wf.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {wf.nodes.length} {t('wf.nodes')} ·{' '}
-                      <span className={wf.status === 'active' ? 'text-emerald-600' : 'text-gray-400'}>{t(`wf.status.${wf.status}`)}</span>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => toggleMutation.mutate({ id: wf.id, status: wf.status === 'active' ? 'draft' : 'active' })}
-                      className={`${btn} border ${wf.status === 'active' ? 'border-gray-300 text-gray-600' : 'border-emerald-300 text-emerald-700'}`}
-                    >
-                      {wf.status === 'active' ? t('wf.deactivate') : t('wf.activate')}
-                    </button>
-                    <button type="button" onClick={() => setEditing(wf)} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
-                      {t('common.edit')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(wf)}
-                      className={`${btn} border border-red-300 text-red-600`}
-                    >
-                      {t('common.delete')}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
+              <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+                <thead className="bg-gray-50 dark:bg-gray-950/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('wf.colName')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('wf.colUpdated')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('wf.colActive')}</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {workflows.map((wf) => (
+                    <tr key={wf.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-gray-800 dark:text-gray-100">{wf.name}</p>
+                        <p className="text-xs text-gray-500">{wf.nodes.length} {t('wf.nodes')}</p>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                        {formatDateTime(wf.updatedAt, language)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <PillToggle
+                          checked={wf.status === 'active'}
+                          label={wf.status === 'active' ? t('wf.deactivate') : t('wf.activate')}
+                          onChange={(next) => toggleMutation.mutate({ id: wf.id, status: next ? 'active' : 'draft' })}
+                          size="sm"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setEditing(wf)} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
+                            {t('common.edit')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDelete(wf)}
+                            className={`${btn} border border-red-300 text-red-600`}
+                          >
+                            {t('common.delete')}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

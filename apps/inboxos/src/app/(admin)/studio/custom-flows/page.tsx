@@ -12,6 +12,8 @@ import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
+import { PillToggle } from '@/shared/components/PillToggle'
+import { formatDateTime } from '@/shared/format'
 import type {
   CustomFlow,
   CustomFlowAction,
@@ -192,7 +194,7 @@ function editableToPayload(e: EditableFlow): Record<string, unknown> | null {
 }
 
 export default function CustomFlowsPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const qc = useQueryClient()
   const { clinicId, switchClinic } = useActiveClinic()
   // null = closed; flow = editing; initial = a template-backed unsaved draft.
@@ -343,59 +345,68 @@ export default function CustomFlowsPage() {
           ) : flows.length === 0 ? (
             <p className="text-sm text-gray-400">{t('studio.customFlows.empty')}</p>
           ) : (
-            <ul className="space-y-2">
-              {flows.map((flow) => {
-                const stepCount = flow.steps?.length ?? 0
-                return (
-                  <li
-                    key={flow.id}
-                    className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium">
-                          {flow.name}
-                          {!flow.enabled && (
-                            <span className="ml-2 text-xs text-gray-400">({t('studio.customFlows.disable')})</span>
-                          )}
-                          <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-normal text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
+              <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
+                <thead className="bg-gray-50 dark:bg-gray-950/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('studio.customFlows.colName')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('studio.customFlows.keywords')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('studio.customFlows.colUpdated')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">{t('studio.customFlows.colActive')}</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {flows.map((flow) => {
+                    const stepCount = flow.steps?.length ?? 0
+                    return (
+                      <tr key={flow.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-gray-900 dark:text-gray-100">{flow.name}</p>
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-normal text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                             {stepCount > 0
                               ? `${stepCount} ${t('studio.customFlows.stepCount')}`
                               : t('studio.customFlows.singleStep')}
                           </span>
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {t('studio.customFlows.keywords')}: {flow.triggerKeywords.join(', ')}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setEditor({ flow })}
-                          className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                        >
-                          {t('common.edit')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleMutation.mutate({ id: flow.id, enabled: !flow.enabled })}
-                          className="rounded-md border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                        >
-                          {flow.enabled ? t('studio.customFlows.disable') : t('studio.customFlows.enable')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPendingDelete(flow)}
-                          className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
-                        >
-                          {t('common.delete')}
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+                        </td>
+                        <td className="max-w-xs truncate px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                          {flow.triggerKeywords.join(', ')}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                          {formatDateTime(flow.updatedAt, language)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <PillToggle
+                            checked={flow.enabled}
+                            label={flow.enabled ? t('studio.customFlows.disable') : t('studio.customFlows.enable')}
+                            onChange={(next) => toggleMutation.mutate({ id: flow.id, enabled: next })}
+                            size="sm"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditor({ flow })}
+                              className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                            >
+                              {t('common.edit')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPendingDelete(flow)}
+                              className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
+                            >
+                              {t('common.delete')}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

@@ -42,6 +42,19 @@ export function avatarLabel(handle: string | null | undefined): string {
   return '?'
 }
 
+const AVATAR_PALETTE = ['#14B4C4', '#0FA0AE', '#1AC9D8', '#6E6E71', '#7C5CFF', '#FF8A5C', '#4C9F70'] as const
+
+/**
+ * Deterministic per-contact avatar background, hashed from a stable id/handle so
+ * the same contact always renders the same color across list/header/patient views.
+ */
+export function avatarColor(seed: string | null | undefined): string {
+  if (!seed) return AVATAR_PALETTE[0]
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length]
+}
+
 /** Locale-aware date+time for detail views. */
 export function formatDateTime(iso: string, language: PanelLanguage): string {
   const d = new Date(iso)

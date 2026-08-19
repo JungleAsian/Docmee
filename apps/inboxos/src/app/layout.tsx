@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
+import { Inter, Manrope } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { ServiceWorkerRegister } from './sw-register'
@@ -12,6 +12,13 @@ const inter = Inter({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-inter',
+})
+
+const manrope = Manrope({
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-manrope',
 })
 
 export const metadata: Metadata = {
@@ -45,7 +52,7 @@ export default function RootLayout({
       <head>
         <ThemeInitScript />
       </head>
-      <body className={`${inter.className} min-h-screen bg-[var(--crm-bg-color)] text-[var(--crm-text-main)]`}>
+      <body className={`${inter.className} ${manrope.variable} min-h-screen bg-[var(--crm-bg-color)] text-[var(--crm-text-main)]`}>
         <Providers>
           <HtmlLangSync />
           {children}

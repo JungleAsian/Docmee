@@ -10,7 +10,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
-import { avatarLabel } from '../format'
+import { avatarColor, avatarLabel } from '../format'
 import type { Channel, Conversation, Patient, PatientStatus } from '../types'
 
 const CHANNEL_LABEL: Record<Channel, string> = {
@@ -24,7 +24,7 @@ const CHANNEL_LABEL: Record<Channel, string> = {
 const STATUS_BADGE: Record<PatientStatus, { className: string; glyph: string }> = {
   new: { className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', glyph: '✦' },
   returning: {
-    className: 'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+    className: 'bg-[var(--crm-hover-bg)] text-[var(--crm-primary-color)]',
     glyph: '★',
   },
   archived: { className: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400', glyph: '◦' },
@@ -81,7 +81,7 @@ export function PatientCard({ conversationId }: { conversationId: string }) {
       >
         ✕
       </button>
-      <div className="crm-conv-avatar mx-auto !h-20 !w-20 !text-2xl">
+      <div className="crm-conv-avatar mx-auto !h-20 !w-20 !text-2xl" style={{ background: avatarColor(conversationId) }}>
         {avatarLabel(handle)}
       </div>
       <p className="mt-3 text-[16px] font-extrabold text-[var(--crm-text-main)]">{displayName}</p>

@@ -27,7 +27,7 @@ import { can } from '@/shared/permissions'
 import { useOnline } from '@/shared/hooks/useOnline'
 
 const INBOX_LAYOUT_KEY = 'docmee.inbox.layout.v1'
-const LIST_DEFAULT = 336
+const LIST_DEFAULT = 320
 const RIGHT_DEFAULT = 352
 const LIST_MIN = 240
 const LIST_MAX = 520
@@ -212,6 +212,7 @@ export default function InboxPage() {
         />
       </StatsRow>
 
+      <div className="docmee-inbox-reskin flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
         ref={workspaceRef}
         className="crm-inbox-container grid grid-cols-1 md:grid-cols-[18rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)_18rem]"
@@ -296,6 +297,7 @@ export default function InboxPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
@@ -318,9 +320,9 @@ function ResizeHandle({
         event.preventDefault()
         onPointerDown()
       }}
-      className={`${className} group relative cursor-col-resize bg-gray-100 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500 dark:bg-gray-900 dark:hover:bg-teal-950`}
+      className={`${className} group relative cursor-col-resize bg-[var(--crm-elevated-bg)] transition hover:bg-[var(--crm-hover-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--crm-primary-color)]`}
     >
-      <span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gray-300 transition group-hover:bg-teal-500 dark:bg-gray-700" />
+      <span className="absolute left-1/2 top-1/2 h-10 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--crm-border-color)] transition group-hover:bg-[var(--crm-primary-color)]" />
     </button>
   )
 }

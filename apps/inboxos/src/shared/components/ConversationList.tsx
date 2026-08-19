@@ -12,7 +12,7 @@ import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { useI18n } from '../hooks/useI18n'
 import { useTeam } from '../hooks/useTeam'
-import { avatarLabel, relativeTime } from '../format'
+import { avatarColor, avatarLabel, relativeTime } from '../format'
 import { waitingMinutes, slaLevel, formatWaiting } from '../sla'
 import { assessSafety, safetyRank, type SafetyLevel } from '../safety'
 import { conversationMode } from '../conversationMode'
@@ -45,7 +45,7 @@ const SAFETY_ROW: Record<
 // platform's brand colour (WhatsApp green, Messenger blue, Instagram pink), echoed
 // by the filter chips. Channel names are proper nouns → language-neutral labels.
 const CHANNEL: Record<Channel, { label: string; glyph: string; badge: string; dot: string }> = {
-  whatsapp: { label: 'WhatsApp', glyph: '✆', badge: 'bg-green-500', dot: 'bg-green-500' },
+  whatsapp: { label: 'WhatsApp', glyph: '✆', badge: 'bg-[#25D366]', dot: 'bg-[#25D366]' },
   messenger: { label: 'Messenger', glyph: 'f', badge: 'bg-blue-500', dot: 'bg-blue-500' },
   instagram: { label: 'Instagram', glyph: '◉', badge: 'bg-pink-600', dot: 'bg-pink-600' },
 }
@@ -55,7 +55,7 @@ const STATUS_BADGE: Record<ConversationStatus, string> = {
   pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
   assigned: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   handoff: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  snoozed: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  snoozed: 'bg-[var(--crm-hover-bg)] text-[var(--crm-primary-color)]',
   resolved: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
   archived: 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
 }
@@ -235,7 +235,7 @@ export function ConversationList({
   const urgentName = topSafety ? topSafety.patientName || topSafety.channelContactHandle : ''
 
   return (
-    <div className="flex h-full flex-col bg-gray-50 dark:bg-gray-950">
+    <div className="flex h-full flex-col bg-[var(--crm-bg-color)]">
       {safetyRows.length > 0 && (
         <button
           type="button"
@@ -277,7 +277,7 @@ export function ConversationList({
           <button
             type="button"
             onClick={unhideAll}
-            className="mb-2 text-[11px] font-medium text-teal-700 hover:underline dark:text-teal-300"
+            className="mb-2 text-[11px] font-medium text-[var(--crm-primary-color)] hover:underline"
           >
             {t('conv.showHidden', { n: String(hiddenCount) })}
           </button>
@@ -347,13 +347,13 @@ export function ConversationList({
 
       <div className="flex-1 overflow-y-auto">
         {selectedRows.size > 0 && (
-          <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-teal-200 bg-teal-50 px-3 py-2 text-xs shadow-sm dark:border-teal-900 dark:bg-teal-950/50">
-            <span className="font-bold text-teal-800 dark:text-teal-200">{selectedRows.size} selected</span>
+          <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-[var(--crm-border-color)] bg-[var(--crm-hover-bg)] px-3 py-2 text-xs shadow-sm">
+            <span className="font-bold text-[var(--crm-primary-color)]">{selectedRows.size} selected</span>
             <button
               type="button"
               disabled={bulkMutation.isPending}
               onClick={() => bulkMutation.mutate({ action: 'assign', userId })}
-              className="rounded-md border border-teal-300 bg-white px-2 py-1 font-semibold text-teal-700 disabled:opacity-50 dark:border-teal-800 dark:bg-gray-900 dark:text-teal-200"
+              className="rounded-md border border-[var(--crm-primary-color)] bg-[var(--crm-card-bg)] px-2 py-1 font-semibold text-[var(--crm-primary-color)] disabled:opacity-50"
             >
               Assign to me
             </button>
@@ -405,7 +405,7 @@ export function ConversationList({
               <button
                 type="button"
                 onClick={() => query.refetch()}
-                className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
+                className="rounded-lg bg-[var(--crm-primary-color)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[var(--crm-primary-hover)]"
               >
                 ↻ {t('common.retry')}
               </button>
@@ -438,7 +438,7 @@ export function ConversationList({
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2 p-6 text-center">
-              <span aria-hidden className="grid h-12 w-12 place-items-center rounded-xl bg-teal-50 text-xl text-teal-600 dark:bg-teal-950/40">
+              <span aria-hidden className="grid h-12 w-12 place-items-center rounded-xl bg-[var(--crm-hover-bg)] text-xl text-[var(--crm-primary-color)]">
                 📭
               </span>
               <p className="text-sm font-semibold">{t('conv.empty')}</p>
@@ -584,7 +584,7 @@ function ThreadRow({
         >
         {/* Avatar with a channel badge. */}
         <span className="relative shrink-0">
-          <span className="crm-conv-avatar">
+          <span className="crm-conv-avatar" style={{ background: avatarColor(c.id) }}>
             {avatarLabel(displayName)}
           </span>
           <span
@@ -709,8 +709,8 @@ function LensTab({
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition ${
         active
-          ? 'bg-teal-600 text-white'
-          : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+          ? 'bg-[var(--crm-primary-color)] text-white'
+          : 'border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'
       }`}
     >
       {label}
@@ -718,7 +718,7 @@ function LensTab({
         className={`min-w-[1.1rem] rounded-full px-1 text-center text-[10px] font-bold tabular-nums ${
           active
             ? 'bg-white/25 text-white'
-            : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'
+            : 'bg-[var(--crm-elevated-bg)] text-[var(--crm-text-muted)]'
         }`}
       >
         {count}
@@ -742,8 +742,8 @@ function FilterChip({
       onClick={onClick}
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition ${
         active
-          ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-          : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+          ? 'bg-[var(--crm-text-main)] text-[var(--crm-card-bg)]'
+          : 'border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'
       }`}
     >
       {children}

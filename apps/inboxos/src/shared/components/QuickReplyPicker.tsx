@@ -51,7 +51,7 @@ export function QuickReplyPicker({ onPick }: { onPick: (content: string) => void
         onClick={() => setOpen((v) => !v)}
         title={t('quickReply.button')}
         aria-label={t('quickReply.button')}
-        className="rounded-md border border-gray-300 px-2 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+        className="crm-composer-icon-btn text-sm"
       >
         ?
       </button>

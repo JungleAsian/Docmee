@@ -4,6 +4,7 @@
 
 :root {
   --crm-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  --crm-font-manrope: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui, sans-serif;
   --crm-bg-color: #ebeaf7;
   --crm-sidebar-bg: #f8f7ff;
   --crm-card-bg: #ffffff;
@@ -569,8 +570,8 @@ body {
 
   .crm-conv-avatar {
     display: grid;
-    width: 46px;
-    height: 46px;
+    width: 40px;
+    height: 40px;
     flex-shrink: 0;
     place-items: center;
     border-radius: 999px;
@@ -593,6 +594,7 @@ body {
 
   .crm-chat-header {
     display: flex;
+    min-height: 72px;
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid var(--crm-border-color);
@@ -607,7 +609,7 @@ body {
   }
 
   .crm-message {
-    max-width: min(74%, 680px);
+    max-width: min(62%, 680px);
     border-radius: 0 16px 16px 16px;
     background: white;
     padding: 13px 17px;
@@ -706,6 +708,113 @@ body {
     .crm-user-profile {
       max-width: calc(100vw - 24px);
     }
+  }
+
+  .docmee-inbox-reskin {
+    --crm-font-sans: var(--crm-font-manrope);
+    --crm-bg-color: #F5F4FA;
+    --crm-elevated-bg: #F1EFF8;
+    --crm-card-bg: #ffffff;
+    --crm-chat-bg: #F5F4FA;
+    --crm-input-bg: #ffffff;
+    --crm-text-main: #1E1B29;
+    --crm-text-muted: #8B8798;
+    --crm-text-soft: #A9A4BD;
+    --crm-primary-color: #14B4C4;
+    --crm-primary-hover: #0FA0AE;
+    --crm-primary-strong: #1AC9D8;
+    --crm-border-color: #ECE9F5;
+    --crm-hover-bg: #E9F8FA;
+    --crm-notification: #25D366;
+    --crm-shadow-sm: 0 1px 2px rgba(30, 27, 41, .05);
+    --crm-shadow-md: 0 6px 16px rgba(30, 27, 41, .07);
+    --crm-shadow-card: 0 10px 24px rgba(30, 27, 41, .06);
+    --crm-border-radius-lg: 24px;
+    font-family: var(--crm-font-sans);
+  }
+
+  .dark .docmee-inbox-reskin {
+    --crm-bg-color: #15131C;
+    --crm-elevated-bg: #1C1826;
+    --crm-card-bg: #1E1B29;
+    --crm-chat-bg: #15131C;
+    --crm-input-bg: #241F32;
+    --crm-text-main: #F5F4FA;
+    --crm-text-muted: #A29DB5;
+    --crm-text-soft: #726C87;
+    --crm-primary-color: #1AC9D8;
+    --crm-primary-hover: #14B4C4;
+    --crm-primary-strong: #4DDCE8;
+    --crm-border-color: #322C42;
+    --crm-hover-bg: #163338;
+    --crm-notification: #25D366;
+    --crm-shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+    --crm-shadow-md: 0 6px 16px rgba(0, 0, 0, .35);
+    --crm-shadow-card: 0 10px 24px rgba(0, 0, 0, .3);
+  }
+
+  .crm-composer-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    border: 1px solid var(--crm-border-color);
+    background: var(--crm-card-bg);
+    color: var(--crm-text-muted);
+    transition: var(--crm-transition);
+  }
+
+  .crm-composer-icon-btn:hover {
+    background: var(--crm-hover-bg);
+    color: var(--crm-primary-color);
+  }
+
+  .crm-composer-icon-btn:disabled {
+    opacity: 0.6;
+  }
+
+  .crm-sender-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--crm-text-muted);
+  }
+
+  .crm-sender-avatar {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    place-items: center;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .crm-whatsapp-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    font-weight: 700;
+    background: #E7F7EC;
+    color: #25A55A;
+  }
+
+  .crm-whatsapp-tag::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #25D366;
   }
 }
 

@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
-import { avatarLabel, formatDateTime, formatDay, formatTime, relativeTime } from '../format'
+import { avatarColor, avatarLabel, formatDateTime, formatDay, formatTime, relativeTime } from '../format'
 import { conversationMode } from '../conversationMode'
 import { AssignControl } from './AssignControl'
 import { QuickReplyPicker } from './QuickReplyPicker'
@@ -47,7 +47,7 @@ const APPT_BADGE: Record<AppointmentStatus, string> = {
 // Req 4 — channel brand colours for the thread header (the small coloured dot +
 // channel name beside the contact). Mirrors the list's channel badge.
 const CHANNEL_META: Record<Channel, { label: string; dot: string; text: string }> = {
-  whatsapp: { label: 'WhatsApp', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' },
+  whatsapp: { label: 'WhatsApp', dot: 'bg-[#25D366]', text: 'text-green-600 dark:text-green-400' },
   messenger: { label: 'Messenger', dot: 'bg-blue-500', text: 'text-blue-600 dark:text-blue-400' },
   instagram: { label: 'Instagram', dot: 'bg-pink-600', text: 'text-pink-600 dark:text-pink-400' },
 }
@@ -63,6 +63,15 @@ const ROLE_LABEL: Record<MessageRole, 'view.role.user' | 'view.role.agent' | 'vi
 // are driven by the dedicated assign/handoff flows, so they are excluded here
 // (the current status is still shown if the conversation is in one of them).
 const MANUAL_STATUSES: ConversationStatus[] = ['open', 'pending', 'snoozed', 'resolved', 'archived']
+
+// Reskin — quick-reaction row (always visible) and the fuller emoji grid behind
+// the toggle button, both insert straight into the composer draft.
+const QUICK_EMOJI = ['👍', '🙏', '😊', '✅', '❤️']
+const EMOJI_SET = [
+  '😀', '😂', '😍', '😢', '😮', '😡', '🙏', '👍', '👌', '🎉', '❤️', '🔥',
+  '👏', '🤔', '😴', '🥳', '😎', '💡', '😅', '🙌', '👋', '💪', '🎈', '📌',
+  '✅', '❌', '⏰', '📅', '💬', '📎',
+]
 
 // A conversation is "closed" (composer disabled, reopen offered) when resolved or
 // archived — both are terminal; reopening either creates a fresh conversation.
@@ -82,6 +91,8 @@ export function ConversationView({
   const [draft, setDraft] = useState('')
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -308,7 +319,7 @@ export function ConversationView({
       <div className="crm-chat-header">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           {/* Patient avatar. */}
-          <span className="crm-conv-avatar">
+          <span className="crm-conv-avatar" style={{ background: avatarColor(conversationId) }}>
             {avatarLabel(conversation?.patientName || conversation?.channelContactHandle)}
           </span>
           <div className="min-w-[12rem] flex-1">
@@ -316,6 +327,9 @@ export function ConversationView({
               <h3 className="truncate text-[18px] font-extrabold text-[var(--crm-text-main)]">
                 {conversation?.patientName || conversation?.channelContactHandle || '…'}
               </h3>
+              {conversation?.channel === 'whatsapp' && (
+                <span className="crm-whatsapp-tag">WhatsApp</span>
+              )}
               {/* Mode pill (Req 5/6) — who is driving the thread. */}
               <span
                 className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
@@ -327,7 +341,7 @@ export function ConversationView({
                 {humanMode ? '●' : '✦'} {humanMode ? t('view.mode.human') : t('view.mode.bot')}
               </span>
             </div>
-            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-gray-400">
+            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--crm-text-soft)]">
               {/* When the title shows the patient's name, surface the raw handle
                   (phone / IGSID) here so staff can still see/verify the number. */}
               {conversation?.patientName && (
@@ -336,7 +350,7 @@ export function ConversationView({
                   <span aria-hidden>·</span>
                 </>
               )}
-              {conversation && (
+              {conversation && conversation.channel !== 'whatsapp' && (
                 <span className={`inline-flex items-center gap-1 font-bold ${CHANNEL_META[conversation.channel].text}`}>
                   <span aria-hidden className={`h-2 w-2 rounded-full ${CHANNEL_META[conversation.channel].dot}`} />
                   {CHANNEL_META[conversation.channel].label}
@@ -356,7 +370,7 @@ export function ConversationView({
             {conversation?.patientId && (
               <Link
                 href={`/inbox/${conversationId}/patient`}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
               >
                 {t('patient.title')}
               </Link>
@@ -367,7 +381,7 @@ export function ConversationView({
                 value={conversation.status}
                 onChange={(e) => statusMutation.mutate(e.target.value as ConversationStatus)}
                 disabled={statusMutation.isPending}
-                className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
+                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-2 py-1.5 text-xs font-medium hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
               >
                 {(MANUAL_STATUSES.includes(conversation.status)
                   ? MANUAL_STATUSES
@@ -385,7 +399,7 @@ export function ConversationView({
                 type="button"
                 onClick={() => resumeBotMutation.mutate()}
                 disabled={resumeBotMutation.isPending}
-                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
+                className="rounded-full bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
               >
                 ↩ {resumeBotMutation.isPending ? t('view.mode.resuming') : t('view.mode.resumeBot')}
               </button>
@@ -396,7 +410,7 @@ export function ConversationView({
                 type="button"
                 onClick={() => reopenMutation.mutate()}
                 disabled={reopenMutation.isPending}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:hover:bg-gray-800"
+                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
               >
                 {t('view.reopen')}
               </button>
@@ -405,7 +419,7 @@ export function ConversationView({
                 type="button"
                 onClick={() => closeMutation.mutate()}
                 disabled={closeMutation.isPending}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:hover:bg-gray-800"
+                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
               >
                 {t('view.close')}
               </button>
@@ -479,6 +493,7 @@ export function ConversationView({
                     language={language}
                     conversationId={conversationId}
                     imageLabel={t('view.image')}
+                    patientDisplayName={conversation?.patientName || conversation?.channelContactHandle || '?'}
                   />
                 </div>
               )
@@ -565,11 +580,48 @@ export function ConversationView({
                     aria-label={t('view.attachImage')}
                     onClick={() => fileInputRef.current?.click()}
                     disabled={sendMediaMutation.isPending}
-                    className="rounded-md border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:hover:bg-gray-800"
+                    className="crm-composer-icon-btn text-sm"
                   >
                     📎
                   </button>
                 </>
+              )}
+              {/* Quick-reaction row — always-visible common emoji, insert straight
+                  into the draft. */}
+              <div className="flex items-center gap-1">
+                {QUICK_EMOJI.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => insertEmoji(emoji)}
+                    className="grid h-7 w-7 place-items-center rounded-full text-[16px] hover:bg-[var(--crm-hover-bg)]"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setEmojiOpen((v) => !v)}
+                  aria-label={t('view.emojiPicker')}
+                  title={t('view.emojiPicker')}
+                  className="crm-composer-icon-btn text-base"
+                >
+                  😀
+                </button>
+              </div>
+              {emojiOpen && (
+                <div className="fixed bottom-24 left-6 z-30 grid grid-cols-6 gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-2 shadow-[var(--crm-shadow-md)]">
+                  {EMOJI_SET.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => insertEmoji(emoji)}
+                      className="grid h-8 w-8 place-items-center rounded-lg text-[17px] hover:bg-[var(--crm-hover-bg)]"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             {/* Input row — full width on mobile so the draft and a comfortable-tap Send
@@ -589,7 +641,7 @@ export function ConversationView({
                 placeholder={t('view.placeholder')}
                 enterKeyHint="send"
                 autoCapitalize="sentences"
-                className="min-w-0 flex-1 resize-none rounded-full border border-[var(--crm-border-color)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[rgba(67,24,255,0.12)] dark:bg-gray-950"
+                className="min-w-0 flex-1 resize-none rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[var(--crm-hover-bg)]"
               />
               <button
                 type="submit"
@@ -763,6 +815,7 @@ function MessageBubble({
   language,
   conversationId,
   imageLabel,
+  patientDisplayName,
 }: {
   message: Message
   roleLabel: string
@@ -776,6 +829,7 @@ function MessageBubble({
   language: 'es' | 'en'
   conversationId: string
   imageLabel: string
+  patientDisplayName: string
 }) {
   // Patient messages on the left; clinic (agent/bot/system) on the right.
   const fromPatient = message.role === 'user'
@@ -802,20 +856,25 @@ function MessageBubble({
         : 'crm-message bg-gray-100 text-gray-600 dark:bg-gray-800/60 dark:text-gray-300'
   const metaTone = isHuman ? 'text-teal-50/90' : 'text-gray-400'
 
+  const senderName = fromPatient ? patientDisplayName : roleLabel
+  const senderSeed = fromPatient ? conversationId : `staff-${message.role}`
+  const senderInitials = fromPatient ? avatarLabel(patientDisplayName) : isBot ? '✦' : '●'
+
   return (
     <div className={`group flex ${fromPatient ? 'justify-start' : 'justify-end'}`}>
-      <div className={`relative text-[13px] ${skin} ${flagged ? 'outline outline-2 outline-red-500' : ''}`}>
-        {/* Author chip (Req 5/6) — name the bot vs the human who replied. */}
-        {(isBot || isHuman) && (
-          <div
-            className={`mb-1 flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wide ${
-              isBot ? 'text-violet-600 dark:text-violet-400' : 'text-teal-50'
-            }`}
+      <div className={`relative text-[13.5px] ${skin} ${flagged ? 'outline outline-2 outline-red-500' : ''}`}>
+        {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
+            replies, matching the reskin's spec. */}
+        <div className={`crm-sender-row ${isHuman ? '!text-teal-50/80' : ''} ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>
+          <span
+            className="crm-sender-avatar"
+            style={{ background: fromPatient ? avatarColor(senderSeed) : isBot ? '#7C3AED' : '#5C5D60' }}
           >
-            <span aria-hidden>{isBot ? '✦' : '●'}</span>
-            <span>{roleLabel}</span>
-          </div>
-        )}
+            {senderInitials}
+          </span>
+          <span className="font-semibold">{senderName}</span>
+          <span aria-hidden className="opacity-70">{formatTime(message.createdAt, language)}</span>
+        </div>
         {isVoiceNote && (
           <div className="mb-1 flex items-center gap-1 text-[11px] font-medium opacity-80">
             <span aria-hidden>🎤</span>
@@ -829,7 +888,7 @@ function MessageBubble({
             messages show their text/transcript. */}
         {(!isImage || transcript) && <p className="whitespace-pre-wrap break-words">{transcript}</p>}
 
-        <div className={`mt-1 flex items-center gap-1.5 text-[10.5px] ${metaTone}`}>
+        <div className={`mt-1 flex items-center gap-1.5 text-[11px] ${metaTone}`}>
           <span>{formatTime(message.createdAt, language)}</span>
           {delivery && (
             <span

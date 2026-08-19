@@ -15,7 +15,7 @@ import { api, ApiError } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useTeam } from '@/shared/hooks/useTeam'
 import { useOnline } from '@/shared/hooks/useOnline'
-import { avatarLabel, formatDateTime, relativeTime } from '@/shared/format'
+import { avatarColor, avatarLabel, formatDateTime, relativeTime } from '@/shared/format'
 import { TAG_TYPES, tagColor, tagLabel } from '@/shared/tagTypes'
 import { assessSafety } from '@/shared/safety'
 import { conversationMode } from '@/shared/conversationMode'
@@ -282,7 +282,10 @@ function ProfileSection({
       }
     >
       <div className="flex items-start gap-4">
-        <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sky-500 to-sky-700 text-lg font-bold text-white">
+        <div
+          className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-lg font-bold text-white"
+          style={{ background: avatarColor(conversation?.id ?? patient.id) }}
+        >
           {avatarLabel(patient.fullName ?? handle)}
         </div>
         <div className="min-w-0">

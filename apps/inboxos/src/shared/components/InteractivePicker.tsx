@@ -48,7 +48,7 @@ export function InteractivePicker({
         disabled={disabled}
         title={t('interactive.button')}
         aria-label={t('interactive.button')}
-        className="rounded-md border border-gray-300 px-2 py-2 text-sm hover:bg-gray-50 disabled:opacity-60 dark:border-gray-700 dark:hover:bg-gray-800"
+        className="crm-composer-icon-btn text-sm"
       >
         🔘
       </button>

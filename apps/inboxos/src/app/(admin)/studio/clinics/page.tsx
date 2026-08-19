@@ -17,6 +17,7 @@ export default function ClinicsPage() {
   const { t } = useI18n()
   const { data, isLoading } = useClinics()
   const clinics = data?.clinics ?? []
+  const [deleteTarget, setDeleteTarget] = useState<Clinic | null>(null)
 
   return (
     <div className="clinic-page clinic-page-md space-y-6">
@@ -46,12 +47,18 @@ export default function ClinicsPage() {
             </thead>
             <tbody>
               {clinics.map((c) => (
-                <ClinicRow key={c.id} clinic={c} />
+                <ClinicRow key={c.id} clinic={c} onRequestDelete={setDeleteTarget} />
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      <DeleteClinicDialog
+        open={Boolean(deleteTarget)}
+        clinic={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }
@@ -226,12 +233,11 @@ function NewClinicForm() {
   )
 }
 
-function ClinicRow({ clinic }: { clinic: Clinic }) {
+function ClinicRow({ clinic, onRequestDelete }: { clinic: Clinic; onRequestDelete: (clinic: Clinic) => void }) {
   const { t } = useI18n()
   const qc = useQueryClient()
   const [plan, setPlan] = useState<ClinicPlan>(clinic.plan)
   const [status, setStatus] = useState<ClinicStatus>(clinic.status)
-  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const dirty = plan !== clinic.plan || status !== clinic.status
 
@@ -313,7 +319,7 @@ function ClinicRow({ clinic }: { clinic: Clinic }) {
           </button>
           <button
             type="button"
-            onClick={() => setDeleteOpen(true)}
+            onClick={() => onRequestDelete(clinic)}
             className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
           >
             {t('studio.clinics.delete')}
@@ -330,7 +336,6 @@ function ClinicRow({ clinic }: { clinic: Clinic }) {
           )}
         </div>
       </td>
-      <DeleteClinicDialog open={deleteOpen} clinic={clinic} onClose={() => setDeleteOpen(false)} />
     </tr>
   )
 }
@@ -339,13 +344,18 @@ function ClinicRow({ clinic }: { clinic: Clinic }) {
 // a fresh password check, not just a click-through confirm. Follows
 // ConfirmDialog.tsx's accessible modal pattern (Escape/backdrop close, focus on
 // open) with a password field added.
+//
+// Rendered outside the clinics <table> (from ClinicsPage, not ClinicRow) — a
+// <tr>-wrapped version nested inside ClinicRow's own <tr> is invalid HTML
+// (tr-in-tr) that browsers silently refuse to paint, which is why the button
+// looked like it did nothing.
 function DeleteClinicDialog({
   open,
   clinic,
   onClose,
 }: {
   open: boolean
-  clinic: Clinic
+  clinic: Clinic | null
   onClose: () => void
 }) {
   const { t } = useI18n()
@@ -353,7 +363,7 @@ function DeleteClinicDialog({
   const [password, setPassword] = useState('')
 
   const mutation = useMutation({
-    mutationFn: () => api.del(`/clinics/${clinic.id}`, { password }),
+    mutationFn: () => api.del(`/clinics/${clinic!.id}`, { password }),
     onSuccess: () => {
       setPassword('')
       qc.invalidateQueries({ queryKey: ['clinics'] })
@@ -361,57 +371,53 @@ function DeleteClinicDialog({
     },
   })
 
-  if (!open) return null
+  if (!open || !clinic) return null
 
   return (
-    <tr>
-      <td colSpan={7} className="p-0">
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
-            onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+          {t('studio.clinics.deleteTitle', { name: clinic.name })}
+        </h2>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{t('studio.clinics.deleteHint')}</p>
+        <label className="mt-4 block">
+          <span className="mb-1 block text-xs font-medium text-gray-500">{t('studio.clinics.confirmPassword')}</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoFocus
+            className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+          />
+        </label>
+        {mutation.isError && (
+          <p className="mt-2 text-xs text-red-600">
+            {mutation.error instanceof ApiError ? mutation.error.message : t('common.error')}
+          </p>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
           >
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {t('studio.clinics.deleteTitle', { name: clinic.name })}
-            </h2>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{t('studio.clinics.deleteHint')}</p>
-            <label className="mt-4 block">
-              <span className="mb-1 block text-xs font-medium text-gray-500">{t('studio.clinics.confirmPassword')}</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
-                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
-              />
-            </label>
-            {mutation.isError && (
-              <p className="mt-2 text-xs text-red-600">
-                {mutation.error instanceof ApiError ? mutation.error.message : t('common.error')}
-              </p>
-            )}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => mutation.mutate()}
-                disabled={!password.trim() || mutation.isPending}
-                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {mutation.isPending ? t('common.saving') : t('studio.clinics.delete')}
-              </button>
-            </div>
-          </div>
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={() => mutation.mutate()}
+            disabled={!password.trim() || mutation.isPending}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {mutation.isPending ? t('common.saving') : t('studio.clinics.delete')}
+          </button>
         </div>
-      </td>
-    </tr>
+      </div>
+    </div>
   )
 }

@@ -12,6 +12,8 @@ import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDateTime, formatDay, formatTime, relativeTime } from '../format'
 import { conversationMode } from '../conversationMode'
 import { AssignControl } from './AssignControl'
+import { DeleteConversationDialog } from './DeleteConversationDialog'
+import { useAuthStore } from '../store/auth'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
@@ -84,14 +86,17 @@ export function ConversationView({
   onConversationChange,
 }: {
   conversationId: string
-  onConversationChange: (id: string) => void
+  onConversationChange: (id: string | null) => void
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
+  const role = useAuthStore((s) => s.user?.role)
+  const canDelete = role === 'clinic_admin' || role === 'ia_studio_admin'
   const [draft, setDraft] = useState('')
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -393,6 +398,27 @@ export function ConversationView({
                 ))}
               </select>
             )}
+            {conversation && conversation.status !== 'archived' && (
+              <button
+                type="button"
+                onClick={() => statusMutation.mutate('archived')}
+                disabled={statusMutation.isPending}
+                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
+              >
+                {t('view.archive')}
+              </button>
+            )}
+            {conversation && canDelete && (
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(true)}
+                aria-label={t('view.delete')}
+                title={t('view.delete')}
+                className="rounded-full border border-red-200 bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30"
+              >
+                🗑 {t('view.delete')}
+              </button>
+            )}
             {/* Req 5: one-click return to the bot while a human owns the thread. */}
             {conversation && humanMode && !closed && (
               <button
@@ -654,6 +680,15 @@ export function ConversationView({
           </form>
         </div>
       )}
+      <DeleteConversationDialog
+        open={deleteOpen}
+        conversationId={conversationId}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => {
+          setDeleteOpen(false)
+          onConversationChange(null)
+        }}
+      />
     </div>
   )
 }

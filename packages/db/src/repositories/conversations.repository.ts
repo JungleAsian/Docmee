@@ -74,6 +74,17 @@ export interface ConversationsRepository {
   create(data: CreateConversationInput): Promise<Conversation>
   update(clinicId: string, id: string, data: UpdateConversationInput): Promise<Conversation>
   bulkUpdate(clinicId: string, ids: string[], data: UpdateConversationInput): Promise<number>
+  /**
+   * REAL hard delete — the row is physically removed. Every dependent table
+   * (conversation_messages, conversation_tag_links, internal_notes, and
+   * transitively message_delivery_events) is cleaned up by existing
+   * ON DELETE CASCADE FKs; appointments/ai_usage_events/notification_events/
+   * workflow_approvals/workflow_ai_drafts survive with conversation_id set to
+   * NULL via existing ON DELETE SET NULL FKs. Callers must capture any
+   * metadata they need (status, channel, patientId) BEFORE calling this — the
+   * row is gone afterward. Returns false if no row matched.
+   */
+  delete(clinicId: string, id: string): Promise<boolean>
 
   listTags(clinicId: string): Promise<ConversationTag[]>
   /** Tags currently linked to one conversation. */
@@ -380,6 +391,15 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
         RETURNING id
       `
       return rows.length
+    },
+
+    async delete(clinicId, id) {
+      const rows = await sql<{ id: string }[]>`
+        DELETE FROM conversations
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+        RETURNING id
+      `
+      return rows.length > 0
     },
 
     async addTag(clinicId, conversationId, tagId) {

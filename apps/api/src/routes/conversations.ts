@@ -5,6 +5,7 @@
 //   POST   /conversations/:id/assign           (secretary, doctor, clinic_admin)
 //   POST   /conversations/:id/close
 //   POST   /conversations/:id/status           (Req 11 — set any of the 7 statuses)
+//   DELETE /conversations/:id                   (hard delete, admin-only, password re-check)
 //   POST   /conversations/:id/resume-bot        (secretary, doctor, clinic_admin) — return to bot
 //   POST   /conversations/:id/reopen           → CREATES A NEW conversation (Decision 4)
 //   GET    /conversations/:id/messages
@@ -16,6 +17,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import type { Clinic } from '@docmee/db'
 import {
+  createAuditRepository,
   createConversationsRepository,
   createMessagesRepository,
   createChannelAccountsRepository,
@@ -26,7 +28,7 @@ import {
   createUsersRepository,
 } from '@docmee/db'
 import type { ConversationStatus } from '@docmee/db'
-import { decryptValue } from '@docmee/shared'
+import { decryptValue, verifyPassword } from '@docmee/shared'
 import { withDb } from '../lib/db.js'
 import { createVoiceReviewAudioUrl } from '../lib/voice-storage.js'
 
@@ -99,6 +101,9 @@ const statusSchema = z.object({
   // CRE-60: how long to snooze (minutes); only used when status === 'snoozed'. Default 3h.
   snoozeMinutes: z.number().int().positive().max(43_200).optional(),
 })
+// Hard delete — genuinely irreversible, so it requires a fresh password check
+// (mirrors DELETE /clinics/:id), not just role gating.
+const deleteConversationSchema = z.object({ password: z.string().min(1) })
 const messageSchema = z.object({
   content: z.string().min(1),
   contentType: z.enum(['text', 'audio', 'image', 'template', 'interactive']).optional(),
@@ -498,6 +503,55 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
       })
       if (!conversation) return reply.code(404).send({ error: 'Conversation not found' })
       return { conversation }
+    },
+  )
+
+  // ── Hard delete (destructive, irreversible) ──
+  // Real DELETE FROM conversations — every dependent table is handled by
+  // existing FK constraints (ON DELETE CASCADE for messages/tags/notes, ON
+  // DELETE SET NULL for appointments/usage-events/etc.), so a single delete
+  // is sufficient (see ConversationsRepository.delete doc comment). Gated to
+  // admins only — front-line roles can archive but not permanently destroy
+  // patient communication records — and re-checks the caller's own password,
+  // mirroring DELETE /clinics/:id.
+  app.delete<{ Params: { id: string } }>(
+    '/:id',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(deleteConversationSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const result = await withDb(async (sql) => {
+        const auth = await createUsersRepository(sql).findAuthByEmail(request.user!.email)
+        if (!auth || !auth.passwordHash || !verifyPassword(parsed.data.password, auth.passwordHash)) {
+          return { code: 'bad-password' as const }
+        }
+        const repo = createConversationsRepository(sql)
+        const existing = await repo.findById(clinicId, request.params.id)
+        if (!existing) return { code: 'not-found' as const }
+        const deleted = await repo.delete(clinicId, request.params.id)
+        if (!deleted) return { code: 'not-found' as const }
+        await createAuditRepository(sql).log({
+          clinicId,
+          actorId: request.user?.userId,
+          actorEmail: request.user?.email,
+          action: 'conversation.deleted',
+          resourceType: 'conversation',
+          resourceId: request.params.id,
+          metadata: {
+            previousStatus: existing.status,
+            channel: existing.channel,
+            patientId: existing.patientId,
+            channelContactHandle: existing.channelContactHandle,
+          },
+          ipAddress: request.ip,
+        })
+        return { code: 'ok' as const }
+      })
+      if (result.code === 'bad-password') return reply.code(401).send({ error: 'Incorrect password' })
+      if (result.code === 'not-found') return reply.code(404).send({ error: 'Conversation not found' })
+      return reply.code(204).send()
     },
   )
 

@@ -45,7 +45,7 @@ const clinicCfg = vi.hoisted(() => ({
 }))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (v: string) => `enc:${v}`,
-  verifyPassword: () => true,
+  verifyPassword: (plaintext: string) => plaintext === 'correct-password',
 }))
 
 const store = vi.hoisted(() => ({
@@ -227,6 +227,8 @@ const store = vi.hoisted(() => ({
   ]),
 }))
 
+const auditLog = vi.hoisted(() => vi.fn(async () => {}))
+
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: async () => {} }),
   createConversationsRepository: () => ({
@@ -299,6 +301,12 @@ vi.mock('@docmee/db', () => ({
     deleteNote: async (_clinicId: string, noteId: string) => {
       store.notes.delete(noteId)
     },
+    delete: async (clinicId: string, id: string) => {
+      const c = store.conversations.get(id)
+      if (!c || c.clinicId !== clinicId) return false
+      store.conversations.delete(id)
+      return true
+    },
   }),
   createMessagesRepository: () => ({
     findById: async (clinicId: string, id: string) => {
@@ -346,6 +354,9 @@ vi.mock('@docmee/db', () => ({
             { id: 'inactive-1', clinicId, email: 'old@demo.test', fullName: 'Inactive User', status: 'inactive', role: 'secretary' },
           ]
         : [],
+    // Hard-delete's password re-check (Req: DELETE /conversations/:id).
+    findAuthByEmail: async (email: string) =>
+      email === 'clinic_admin@demo.test' ? { id: 'admin-1', passwordHash: 'hash', status: 'active' } : null,
   }),
   createErrorReviewsRepository: () => ({
     create: async (data: Record<string, unknown>) => {
@@ -354,6 +365,7 @@ vi.mock('@docmee/db', () => ({
       return row
     },
   }),
+  createAuditRepository: () => ({ log: auditLog }),
 }))
 
 import { buildApp } from '../app.js'
@@ -1133,5 +1145,76 @@ describe('conversation routes', () => {
       payload: imagePayload(),
     })
     expect(res.statusCode).toBe(401)
+  })
+
+  // ── Hard delete (destructive, irreversible, admin-only + password re-check) ──
+  it('DELETE /conversations/:id hard-deletes with the correct password and logs an audit event', async () => {
+    expect(store.conversations.has('theirs-1')).toBe(true)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/conversations/theirs-1',
+      headers: authHeader('clinic_admin'),
+      payload: { password: 'correct-password' },
+    })
+    expect(res.statusCode).toBe(204)
+    expect(store.conversations.has('theirs-1')).toBe(false)
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'conversation.deleted', resourceId: 'theirs-1' }),
+    )
+  })
+
+  it('DELETE /conversations/:id rejects an incorrect password without deleting', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/conversations/mine-1',
+      headers: authHeader('clinic_admin'),
+      payload: { password: 'wrong-password' },
+    })
+    expect(res.statusCode).toBe(401)
+    expect(store.conversations.has('mine-1')).toBe(true)
+  })
+
+  it('DELETE /conversations/:id for an unknown conversation → 404', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/conversations/ghost',
+      headers: authHeader('clinic_admin'),
+      payload: { password: 'correct-password' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it.each(['secretary', 'doctor'] as const)(
+    'DELETE /conversations/:id is admin-only — %s is forbidden',
+    async (role) => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/conversations/mine-1',
+        headers: authHeader(role),
+        payload: { password: 'correct-password' },
+      })
+      expect(res.statusCode).toBe(403)
+      expect(store.conversations.has('mine-1')).toBe(true)
+    },
+  )
+
+  it('DELETE /conversations/:id without auth → 401', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/conversations/mine-1',
+      payload: { password: 'correct-password' },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('DELETE /conversations/:id rejects a missing password body → 400', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/conversations/mine-1',
+      headers: authHeader('clinic_admin'),
+      payload: {},
+    })
+    expect(res.statusCode).toBe(400)
+    expect(store.conversations.has('mine-1')).toBe(true)
   })
 })

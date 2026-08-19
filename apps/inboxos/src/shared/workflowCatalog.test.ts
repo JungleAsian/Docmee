@@ -492,7 +492,7 @@ describe('validateWorkflowDefinition + reserved options as real buttons', () => 
       { id: 'e4', source: 'menu', target: 't', sourceHandle: 'default' },
     ]
     const errors = validateWorkflowDefinition([trigger, menu], edges, { requireTrigger: true })
-    expect(errors.some((e) => e.includes('too many options'))).toBe(true)
+    expect(errors.some((e) => e.includes('more than WhatsApp allows'))).toBe(true)
   })
 
   it('still requires a successor edge for a reserved option once it is a real, visible button', () => {
@@ -511,7 +511,7 @@ describe('validateWorkflowDefinition + reserved options as real buttons', () => 
       ],
       { requireTrigger: true },
     )
-    expect(errors.some((e) => e.includes('option "restart" has no successor'))).toBe(true)
+    expect(errors.some((e) => e.includes('option "restart" isn\'t connected to anything'))).toBe(true)
   })
 })
 
@@ -588,8 +588,10 @@ describe('validateWorkflowDefinition + action.offer_slot_menu (regression)', () 
       { id: 'e_date_menu_confirm_menu_default_42', source: 'date_menu', target: 'confirm_menu' },
     ]
     const errors = validateWorkflowDefinition([trigger, dateMenu, confirmMenu], edges, { requireTrigger: true })
-    expect(errors).toContain('Slot menu edge e_date_menu_confirm_menu_default_42 uses an unknown handle ""')
-    expect(errors).toContain('Slot menu date_menu requires a "selected" successor')
+    expect(errors.join('\n')).toMatch(
+      /Slot menu edge e_date_menu_confirm_menu_default_42 is connected to a branch "" that node date_menu doesn't produce/,
+    )
+    expect(errors.join('\n')).toMatch(/Slot menu date_menu has no "selected" branch connected/)
   })
 
   it('resequenceLinearEdges no longer touches (or collapses) a slot menu\'s own edges', () => {
@@ -640,9 +642,9 @@ describe('branchRows() stays in lockstep with the real validator (regression gua
   // pickerMode, a missing AI Agent scenario) -- this guard is scoped to edge
   // wiring, the exact dimension that broke.
   const HANDLE_ERROR_PATTERNS = [
-    /uses an unknown handle/,
+    /\(unknown handle/,
     /requires .* successor/,
-    /has an (ambiguous|unlabeled or ambiguous)/,
+    /\(ambiguous |unlabeled or ambiguous branch\)/,
     /must use the true or false handle/,
     /must have exactly one successor/,
     /cannot have outgoing edges/,

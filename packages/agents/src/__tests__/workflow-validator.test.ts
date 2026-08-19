@@ -20,7 +20,7 @@ describe('validateWorkflowDefinition', () => {
       node('bad', 'logic', 'action.send_message'),
       node('orphan', 'action', 'action.end'),
     ], [edge('one', 'trigger', 'bad'), edge('two', 'bad', 'trigger'), edge('three', 'bad', 'missing')], { requireTrigger: true })
-    expect(errors.join('\n')).toMatch(/requires action/)
+    expect(errors.join('\n')).toMatch(/should be kind "action"/)
     expect(errors.join('\n')).toMatch(/unknown target/)
     expect(errors.join('\n')).toMatch(/Cycle detected/)
     expect(errors.join('\n')).toMatch(/unreachable/)
@@ -28,14 +28,14 @@ describe('validateWorkflowDefinition', () => {
 
   it('allows an empty draft but not an active empty workflow', () => {
     expect(validateWorkflowDefinition([], [])).toEqual([])
-    expect(validateWorkflowDefinition([], [], { requireTrigger: true })).toContain('An active workflow requires exactly one trigger')
+    expect(validateWorkflowDefinition([], [], { requireTrigger: true }).join('\n')).toMatch(/active workflow requires exactly one trigger/)
   })
 
   it('rejects trigger types that have no worker producer', () => {
     const errors = validateWorkflowDefinition([
       node('trigger', 'trigger', 'trigger.no_show'),
     ], [], { requireTrigger: true })
-    expect(errors).toContain('Unsupported node type: trigger.no_show')
+    expect(errors.join('\n')).toMatch(/type "trigger.no_show" \(unsupported node type\)/)
   })
 
   it('rejects ambiguous branches and pause nodes that cannot resume', () => {
@@ -90,7 +90,7 @@ describe('validateWorkflowDefinition', () => {
       edge('mbad', 'menu', 'end', 'nonexistent'),
     ], { requireTrigger: true })
     expect(errors.join('\n')).toMatch(/requires at least one option/)
-    expect(errors.join('\n')).toMatch(/option "b" has no successor/)
+    expect(errors.join('\n')).toMatch(/option "b" isn't connected to anything/)
     expect(errors.join('\n')).toMatch(/unknown handle "nonexistent"/)
   })
 
@@ -106,7 +106,7 @@ describe('validateWorkflowDefinition', () => {
       }),
       node('end', 'action', 'action.end'),
     ], [edge('t', 'trigger', 'menu'), edge('m', 'menu', 'end', 'a')], { requireTrigger: true })
-    expect(errors.join('\n')).toMatch(/too many options for variant "button" \(max 3\)/)
+    expect(errors.join('\n')).toMatch(/more than WhatsApp allows for the "button" style \(max 3\)/)
   })
 
   it('defaults an unset variant to "list", not "button" (regression — UI shows list selected on a fresh node)', () => {
@@ -339,8 +339,8 @@ describe('validateWorkflowDefinition', () => {
       edge('e', 'agent', 'errorEnd', 'error'),
       edge('w', 'agent', 'weird', 'not_a_real_handle'),
     ], { requireTrigger: true })
-    expect(errors.join('\n')).toMatch(/scenario "a" requires a target workflow/)
-    expect(errors.join('\n')).toMatch(/duplicate scenario id "a"/)
+    expect(errors.join('\n')).toMatch(/scenario "a" is set to "route" but has no target workflow/)
+    expect(errors.join('\n')).toMatch(/sharing the id "a" \(duplicate scenario id\)/)
     expect(errors.join('\n')).toMatch(/unknown handle "not_a_real_handle"/)
   })
 

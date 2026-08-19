@@ -62,30 +62,45 @@ export function validateWorkflowDefinition(
   const edgeIds = new Set<string>()
 
   for (const node of nodes) {
-    if (ids.has(node.id)) errors.push(`Duplicate node id: ${node.id}`)
+    if (ids.has(node.id)) {
+      errors.push(`Two nodes share the id "${node.id}" (duplicate node id). This usually happens after copy-pasting a node — delete or rename one of them so every node has a unique id.`)
+    }
     ids.add(node.id)
     const expectedKind = nodeKinds.get(node.type)
-    if (!expectedKind) errors.push(`Unsupported node type: ${node.type}`)
-    else if (expectedKind !== node.kind) errors.push(`Node ${node.id} has kind ${node.kind}; ${node.type} requires ${expectedKind}`)
+    if (!expectedKind) {
+      errors.push(`Node ${node.id} has type "${node.type}" (unsupported node type), which this workflow runner doesn't recognize. Replace it with a node from the builder's node panel instead of a custom/imported type.`)
+    } else if (expectedKind !== node.kind) {
+      errors.push(`Node ${node.id} is marked as kind "${node.kind}", but its type "${node.type}" should be kind "${expectedKind}" (kind/type mismatch). This is a data-consistency issue, usually from a hand-edited import — recreate the node from the builder's node panel instead of editing the JSON directly.`)
+    }
   }
 
   const triggers = nodes.filter((node) => node.kind === 'trigger')
-  if (triggers.length > 1) errors.push('A workflow may have exactly one trigger')
-  if (requireTrigger && triggers.length !== 1) errors.push('An active workflow requires exactly one trigger')
+  if (triggers.length > 1) {
+    errors.push(`This workflow has ${triggers.length} trigger nodes, but a workflow may have exactly one trigger. Delete all but one trigger node.`)
+  }
+  if (requireTrigger && triggers.length !== 1) {
+    errors.push('This workflow has no trigger node, so it can never start (an active workflow requires exactly one trigger). Add exactly one trigger node — e.g. "Message keyword" or "Patient upset" — from the node panel.')
+  }
 
   const typeByIdEarly = new Map(nodes.map((node) => [node.id, node.type]))
   const outgoing = new Map<string, WorkflowEdge[]>()
   for (const edge of edges) {
-    if (edgeIds.has(edge.id)) errors.push(`Duplicate edge id: ${edge.id}`)
+    if (edgeIds.has(edge.id)) {
+      errors.push(`Two edges share the id "${edge.id}" (duplicate edge id). This usually happens after copy-pasting a connection — delete or reconnect one of them.`)
+    }
     edgeIds.add(edge.id)
-    if (!ids.has(edge.source)) errors.push(`Edge ${edge.id} has an unknown source: ${edge.source}`)
-    if (!ids.has(edge.target)) errors.push(`Edge ${edge.id} has an unknown target: ${edge.target}`)
+    if (!ids.has(edge.source)) {
+      errors.push(`Edge ${edge.id} starts from node "${edge.source}", which no longer exists on the canvas (unknown source). Delete this edge, or reconnect it from an existing node.`)
+    }
+    if (!ids.has(edge.target)) {
+      errors.push(`Edge ${edge.id} points to node "${edge.target}", which no longer exists on the canvas (unknown target). Delete this edge, or reconnect it to an existing node.`)
+    }
     // Self-loops are legal on pause nodes only: an interactive menu re-showing
     // itself on an unmatched reply (default) or a footer restart resumes on the
     // patient's next turn, so the loop is conversational, not synchronous. A
     // self-loop on any other node would spin within a single turn.
     if (edge.source === edge.target && !PAUSE_NODE_TYPES.has(typeByIdEarly.get(edge.source) ?? '')) {
-      errors.push(`Edge ${edge.id} cannot point to the same node`)
+      errors.push(`Edge ${edge.id} connects node "${edge.source}" back to itself (cannot point to the same node). Only a menu, wait-for-reply, delay, or approval node can loop to itself — remove this edge, or route it to a different node.`)
     }
     const sourceEdges = outgoing.get(edge.source) ?? []
     sourceEdges.push(edge)
@@ -98,7 +113,9 @@ export function validateWorkflowDefinition(
     // for activation and worker load.
     if (!requireTrigger) continue
     const next = outgoing.get(node.id) ?? []
-    if (node.type === 'action.end' && next.length > 0) errors.push(`End node ${node.id} cannot have outgoing edges`)
+    if (node.type === 'action.end' && next.length > 0) {
+      errors.push(`The end node ${node.id} has ${next.length} outgoing edge${next.length === 1 ? '' : 's'}, but an end node must be a dead end (cannot have outgoing edges). Delete the edge(s) leaving this node.`)
+    }
     if (
       node.type !== 'action.end' &&
       node.type !== 'logic.condition' &&
@@ -108,25 +125,36 @@ export function validateWorkflowDefinition(
       node.type !== 'action.ai_agent' &&
       next.length !== 1
     ) {
-      errors.push(`Node ${node.id} must have exactly one successor`)
+      errors.push(
+        next.length === 0
+          ? `Node ${node.id} has no outgoing edge (must have exactly one successor). Connect it to the next node in the flow.`
+          : `Node ${node.id} has ${next.length} outgoing edges (must have exactly one successor). Delete the extra edge(s) so it points to exactly one next node.`,
+      )
     }
     if (node.type === 'logic.condition') {
       const handles = new Set<string>()
       for (const edge of next) {
         if (edge.sourceHandle !== 'true' && edge.sourceHandle !== 'false') {
-          errors.push(`Condition edge ${edge.id} must use the true or false handle`)
+          errors.push(`Condition edge ${edge.id} isn't connected to node ${node.id}'s True or False output (must use the true or false handle). Delete it and drag a new edge from the True or False handle.`)
         }
-        if (edge.sourceHandle && handles.has(edge.sourceHandle)) errors.push(`Condition node ${node.id} has an ambiguous ${edge.sourceHandle} branch`)
+        if (edge.sourceHandle && handles.has(edge.sourceHandle)) {
+          errors.push(`Condition node ${node.id} has more than one edge leaving its "${edge.sourceHandle}" branch (ambiguous ${edge.sourceHandle} branch). Keep only one edge per branch — delete the extra one.`)
+        }
         if (edge.sourceHandle) handles.add(edge.sourceHandle)
       }
-      if (!handles.has('true') || !handles.has('false')) errors.push(`Condition node ${node.id} requires true and false successors`)
+      if (!handles.has('true') || !handles.has('false')) {
+        const missing = ['true', 'false'].filter((h) => !handles.has(h))
+        errors.push(`Condition node ${node.id} is missing its ${missing.join(' and ')} branch (requires true and false successors). Connect an edge from each missing handle to a next node.`)
+      }
     }
     if (node.type === 'logic.ai_classify_intent') {
       const handles = new Set(next.map((edge) => edge.sourceHandle).filter((handle): handle is string => Boolean(handle)))
       for (const handle of ['high', 'low', 'error']) {
-        if (!handles.has(handle)) errors.push(`Intent classifier ${node.id} requires a ${handle} successor`)
+        if (!handles.has(handle)) errors.push(`Intent classifier ${node.id} is missing its "${handle}" branch (requires a ${handle} successor). Connect an edge from the "${handle}" handle to a next node.`)
       }
-      if (handles.size !== next.length) errors.push(`Intent classifier ${node.id} has an unlabeled or ambiguous branch`)
+      if (handles.size !== next.length) {
+        errors.push(`Intent classifier ${node.id} has an edge with no branch label, or two edges sharing the same branch (unlabeled or ambiguous branch). Each outgoing edge must come from exactly one of the high/low/error handles — check for a stray or duplicate connection.`)
+      }
     }
     if (node.type === 'action.interactive_menu') {
       const options = parseMenuOptions(node.config)
@@ -136,9 +164,9 @@ export function validateWorkflowDefinition(
       const variant = String(node.config?.['variant'] ?? 'list')
       const limit = variant === 'list' ? 10 : 3
       if (options.length === 0) {
-        errors.push(`Interactive menu ${node.id} requires at least one option`)
+        errors.push(`Interactive menu ${node.id} has no options configured (requires at least one option). Open the node and add at least one menu option.`)
       } else if (options.length > limit) {
-        errors.push(`Interactive menu ${node.id} has too many options for variant "${variant}" (max ${limit})`)
+        errors.push(`Interactive menu ${node.id} has ${options.length} options, more than WhatsApp allows for the "${variant}" style (max ${limit}). Remove options, or switch this node to "list" style, which allows up to 10.`)
       }
       // WhatsApp's two interactive kinds cap option titles differently: a list
       // row allows 24 chars, but a reply BUTTON allows only 20 — sending a
@@ -148,21 +176,31 @@ export function validateWorkflowDefinition(
       const titleLimit = variant === 'list' ? 24 : 20
       const seen = new Set<string>()
       for (const opt of options) {
-        if (seen.has(opt.optionId)) errors.push(`Interactive menu ${node.id} has a duplicate option "${opt.optionId}"`)
+        if (seen.has(opt.optionId)) {
+          errors.push(`Interactive menu ${node.id} has two options sharing the id "${opt.optionId}" (duplicate option). Give each option a unique id — rename one of the duplicates.`)
+        }
         seen.add(opt.optionId)
-        if (opt.title.length > titleLimit) errors.push(`Interactive menu ${node.id} option "${opt.optionId}" title exceeds ${titleLimit} chars`)
+        if (opt.title.length > titleLimit) {
+          errors.push(`Interactive menu ${node.id}'s option "${opt.optionId}" title is longer than WhatsApp's ${titleLimit}-character limit for the "${variant}" style (title exceeds ${titleLimit} chars). Shorten the option's title.`)
+        }
       }
       // Every option handle needs an edge; reserved handles are optional.
       const validHandles = new Set<string>([...seen, ...MENU_RESERVED_HANDLES])
       const wired = new Set<string>()
       for (const edge of next) {
         const h = edge.sourceHandle ?? ''
-        if (!validHandles.has(h)) errors.push(`Interactive menu edge ${edge.id} uses an unknown handle "${h}"`)
-        if (wired.has(h)) errors.push(`Interactive menu ${node.id} has an ambiguous "${h}" branch`)
+        if (!validHandles.has(h)) {
+          errors.push(`Interactive menu edge ${edge.id} is connected to option "${h}", which doesn't exist on node ${node.id} (unknown handle "${h}") — it was likely renamed or deleted. Reconnect this edge to one of the menu's current options, or delete the edge.`)
+        }
+        if (wired.has(h)) {
+          errors.push(`Interactive menu ${node.id} has more than one edge leaving its "${h}" option (ambiguous "${h}" branch). Each option can only lead to one next node — delete the extra edge.`)
+        }
         wired.add(h)
       }
       for (const opt of seen) {
-        if (!wired.has(opt)) errors.push(`Interactive menu ${node.id} option "${opt}" has no successor`)
+        if (!wired.has(opt)) {
+          errors.push(`Interactive menu ${node.id}'s option "${opt}" isn't connected to anything (has no successor). Drag an edge from that option to the node it should lead to.`)
+        }
       }
     }
     if (node.type === 'action.offer_slot_menu') {
@@ -171,55 +209,79 @@ export function validateWorkflowDefinition(
       // the picker-mode dropdown.
       const mode = String(node.config?.['pickerMode'] ?? 'date')
       if (mode !== 'date' && mode !== 'time') {
-        errors.push(`Slot menu ${node.id} has an invalid pickerMode "${mode}" (must be "date" or "time")`)
+        errors.push(`Slot menu ${node.id} has picker mode "${mode}", which isn't valid (invalid pickerMode "${mode}" — must be "date" or "time"). Open the node and choose a valid picker mode.`)
       }
       const validHandles = new Set(['selected', 'empty', 'restart', 'livechat'])
       const wired = new Set<string>()
       for (const edge of next) {
         const h = edge.sourceHandle ?? ''
-        if (!validHandles.has(h)) errors.push(`Slot menu edge ${edge.id} uses an unknown handle "${h}"`)
-        if (wired.has(h)) errors.push(`Slot menu ${node.id} has an ambiguous "${h}" branch`)
+        if (!validHandles.has(h)) {
+          errors.push(`Slot menu edge ${edge.id} is connected to a branch "${h}" that node ${node.id} doesn't produce (unknown handle "${h}" — valid branches are selected/empty/restart/livechat). Reconnect this edge to one of those, or delete it.`)
+        }
+        if (wired.has(h)) {
+          errors.push(`Slot menu ${node.id} has more than one edge leaving its "${h}" branch (ambiguous "${h}" branch). Keep only one edge per branch — delete the extra edge.`)
+        }
         wired.add(h)
       }
-      if (!wired.has('selected')) errors.push(`Slot menu ${node.id} requires a "selected" successor`)
-      if (!wired.has('empty')) errors.push(`Slot menu ${node.id} requires an "empty" successor (no slots available)`)
+      if (!wired.has('selected')) {
+        errors.push(`Slot menu ${node.id} has no "selected" branch connected (requires a "selected" successor). Add an edge from the node's "selected" handle to what should happen once the patient picks a slot.`)
+      }
+      if (!wired.has('empty')) {
+        errors.push(`Slot menu ${node.id} has no "empty" branch connected (requires an "empty" successor for when no slots are available). Add an edge from the node's "empty" handle to what should happen then.`)
+      }
     }
     if (node.type === 'action.ai_agent') {
       const style = String(node.config?.['communicationStyle'] ?? '')
       if (style && !['professional', 'friendly', 'brief'].includes(style)) {
-        errors.push(`AI Agent ${node.id} has an invalid communicationStyle "${style}"`)
+        errors.push(`AI Agent ${node.id} has communication style "${style}", which isn't valid (invalid communicationStyle "${style}" — must be professional, friendly, or brief). Open the node and choose a valid style.`)
       }
       const scenarios = parseAiAgentScenarios(node.config)
-      if (scenarios.length === 0) errors.push(`AI Agent ${node.id} requires at least one scenario`)
+      if (scenarios.length === 0) {
+        errors.push(`AI Agent ${node.id} has no scenarios configured (requires at least one scenario). Open the node and add at least one scenario describing when it should respond.`)
+      }
       const seenScenarioIds = new Set<string>()
       for (const s of scenarios) {
-        if (seenScenarioIds.has(s.id)) errors.push(`AI Agent ${node.id} has a duplicate scenario id "${s.id}"`)
+        if (seenScenarioIds.has(s.id)) {
+          errors.push(`AI Agent ${node.id} has two scenarios sharing the id "${s.id}" (duplicate scenario id). Give each scenario a unique id — rename one of the duplicates.`)
+        }
         seenScenarioIds.add(s.id)
-        if (!s.description.trim()) errors.push(`AI Agent ${node.id} has a scenario with no description`)
+        if (!s.description.trim()) {
+          errors.push(`AI Agent ${node.id} has a scenario with no description. Open the node and describe what this scenario should handle.`)
+        }
         if (s.action === 'route' && !s.targetWorkflowId?.trim()) {
-          errors.push(`AI Agent ${node.id} scenario "${s.id}" requires a target workflow`)
+          errors.push(`AI Agent ${node.id}'s scenario "${s.id}" is set to "route" but has no target workflow (requires a target workflow). Open the node and choose which workflow it should hand off to.`)
         }
       }
       const handles = new Set(next.map((edge) => edge.sourceHandle).filter((h): h is string => Boolean(h)))
       for (const handle of ['replied', 'handoff', 'no_match', 'error']) {
-        if (!handles.has(handle)) errors.push(`AI Agent ${node.id} requires a ${handle} successor`)
+        if (!handles.has(handle)) {
+          errors.push(`AI Agent ${node.id} is missing its "${handle}" branch (requires a ${handle} successor). Connect an edge from the node's "${handle}" handle to a next node.`)
+        }
       }
       const validHandles = new Set(['replied', 'handoff', 'no_match', 'error'])
       const wired = new Set<string>()
       for (const edge of next) {
         const h = edge.sourceHandle ?? ''
-        if (!validHandles.has(h)) errors.push(`AI Agent edge ${edge.id} uses an unknown handle "${h}"`)
-        if (wired.has(h)) errors.push(`AI Agent ${node.id} has an ambiguous "${h}" branch`)
+        if (!validHandles.has(h)) {
+          errors.push(`AI Agent edge ${edge.id} is connected to a branch "${h}" that node ${node.id} doesn't produce (unknown handle "${h}" — valid branches are replied/handoff/no_match/error). Reconnect this edge to one of those, or delete it.`)
+        }
+        if (wired.has(h)) {
+          errors.push(`AI Agent ${node.id} has more than one edge leaving its "${h}" branch (ambiguous "${h}" branch). Keep only one edge per branch — delete the extra edge.`)
+        }
         wired.add(h)
       }
     }
     if (node.type === 'logic.delay') {
       const amount = Number(node.config?.['amount'])
-      if (!Number.isFinite(amount) || amount <= 0) errors.push(`Delay node ${node.id} requires a positive amount`)
-      if (!['minute', 'hour', 'day'].includes(String(node.config?.['unit'] ?? ''))) errors.push(`Delay node ${node.id} has an invalid unit`)
+      if (!Number.isFinite(amount) || amount <= 0) {
+        errors.push(`Delay node ${node.id} has no delay amount set, or it's zero or negative (requires a positive amount). Open the node and enter a positive number.`)
+      }
+      if (!['minute', 'hour', 'day'].includes(String(node.config?.['unit'] ?? ''))) {
+        errors.push(`Delay node ${node.id} has no valid time unit selected (invalid unit — must be minute, hour, or day). Open the node and choose a unit.`)
+      }
     }
     if (node.type === 'action.send_message' && !String(node.config?.['text'] ?? '').trim()) {
-      errors.push(`Message node ${node.id} requires text`)
+      errors.push(`Message node ${node.id} has no message text (requires text). Open the node and write the message it should send.`)
     }
   }
 
@@ -252,8 +314,9 @@ export function validateWorkflowDefinition(
         continue
       }
       const c = color.get(target)
-      if (c === 'gray') errors.push(`Cycle detected at node: ${target}`)
-      else if (c !== 'black') dfs(target)
+      if (c === 'gray') {
+        errors.push(`Node ${target} is part of a loop that never pauses for a patient reply (Cycle detected at node: ${target}) — e.g. two message nodes pointing back at each other. Break the cycle by routing through an end node, or loop back through a menu/wait-for-reply/delay/approval node instead, which can pause between turns.`)
+      } else if (c !== 'black') dfs(target)
     }
     color.set(id, 'black')
   }
@@ -265,7 +328,9 @@ export function validateWorkflowDefinition(
   }
 
   for (const node of nodes) {
-    if (!reachable.has(node.id)) errors.push(`Node ${node.id} is unreachable from the trigger`)
+    if (!reachable.has(node.id)) {
+      errors.push(`Node ${node.id} has no path from the trigger (unreachable from the trigger), so it will never run. Connect it to the rest of the workflow, or delete it if it's no longer needed.`)
+    }
   }
   return errors
 }

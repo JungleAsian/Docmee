@@ -289,10 +289,20 @@ const clinicsRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
 
   // ── List all clinics (Admin Studio) ──
-  app.get('/', { preHandler: requireRole('ia_studio_admin') }, async () => {
-    const clinics = await withDb(async (sql) => createClinicsRepository(sql).list())
-    return { clinics: clinics.map(redactClinic) }
-  })
+  // Excludes cancelled (soft-deleted) clinics by default — every picker/switcher
+  // that reuses this endpoint (ClinicSelect, the active-clinic switcher, every
+  // Studio page's clinic dropdown) should never offer a deleted clinic to work
+  // in. Pass ?include_cancelled=true for the Clinics Management view itself,
+  // which still needs to see (and let an admin reactivate) a cancelled clinic.
+  app.get<{ Querystring: { include_cancelled?: string } }>(
+    '/',
+    { preHandler: requireRole('ia_studio_admin') },
+    async (request) => {
+      const excludeCancelled = request.query.include_cancelled !== 'true'
+      const clinics = await withDb(async (sql) => createClinicsRepository(sql).list({ excludeCancelled }))
+      return { clinics: clinics.map(redactClinic) }
+    },
+  )
 
   // ── Per-clinic operational counts for the Screen 6 directory cards (Admin Studio) ──
   // Returns users / open-chats / handoff / urgent per clinic in a few grouped

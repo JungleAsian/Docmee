@@ -353,6 +353,8 @@ const es: Dict = {
   'studio.clinics.new': 'Nueva clínica',
   'studio.clinics.create': 'Crear clínica',
   'studio.clinics.empty': 'No hay clínicas',
+  'studio.clinics.showCancelled': 'Mostrar canceladas ({n})',
+  'studio.clinics.hideCancelled': 'Ocultar canceladas',
   'studio.clinics.saved': 'Cambios guardados',
 
   'studio.kb.title': 'Base de conocimiento',
@@ -2523,6 +2525,8 @@ const en: Dict = {
   'studio.clinics.new': 'New clinic',
   'studio.clinics.create': 'Create clinic',
   'studio.clinics.empty': 'No clinics',
+  'studio.clinics.showCancelled': 'Show cancelled ({n})',
+  'studio.clinics.hideCancelled': 'Hide cancelled',
   'studio.clinics.saved': 'Changes saved',
 
   'studio.kb.title': 'Knowledge base',

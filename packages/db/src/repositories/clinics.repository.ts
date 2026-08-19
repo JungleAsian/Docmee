@@ -61,7 +61,13 @@ export interface ClinicsRepository {
   findByMessengerPageId(pageId: string): Promise<Clinic | null>
   /** Resolve the clinic that owns an inbound Instagram event by its account id (enabled only). */
   findByInstagramAccountId(accountId: string): Promise<Clinic | null>
-  list(): Promise<Clinic[]>
+  /**
+   * All clinics, newest first. Defaults to including cancelled (soft-deleted)
+   * ones — existing callers (workers iterating every clinic, the admin
+   * Clinics Management view) rely on that. Pass `excludeCancelled: true` for
+   * lookups that should never offer a deleted clinic (pickers/switchers).
+   */
+  list(options?: { excludeCancelled?: boolean }): Promise<Clinic[]>
   /** Count of clinics in the 'active' status — powers the Admin Studio overview (Gap #8). */
   countActive(): Promise<number>
   /**
@@ -104,7 +110,12 @@ export function createClinicsRepository(sql: Sql): ClinicsRepository {
       return rows[0] ?? null
     },
 
-    async list() {
+    async list(options) {
+      if (options?.excludeCancelled) {
+        return sql<Clinic[]>`
+          SELECT * FROM clinics WHERE status != 'cancelled' ORDER BY created_at DESC
+        `
+      }
       return sql<Clinic[]>`SELECT * FROM clinics ORDER BY created_at DESC`
     },
 

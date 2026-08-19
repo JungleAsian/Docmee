@@ -6,7 +6,6 @@ import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
-import { useClinics } from '@/shared/components/ClinicSelect'
 import { useI18n } from '@/shared/hooks/useI18n'
 import type { Clinic, ClinicPlan, ClinicStatus } from '@/shared/types'
 
@@ -15,8 +14,19 @@ const STATUSES: ClinicStatus[] = ['active', 'suspended', 'cancelled']
 
 export default function ClinicsPage() {
   const { t } = useI18n()
-  const { data, isLoading } = useClinics()
-  const clinics = data?.clinics ?? []
+  // The Management view needs to see cancelled (soft-deleted) clinics too — so
+  // an admin can find and reactivate one — unlike every other clinic picker in
+  // the app (which reuses useClinics()/ClinicSelect and never offers a deleted
+  // clinic). Hidden by default behind a toggle so "Delete" still visibly removes
+  // the row, matching what an admin expects from a delete button.
+  const { data, isLoading } = useQuery({
+    queryKey: ['clinics', 'all'],
+    queryFn: () => api.get<{ clinics: Clinic[] }>('/clinics?include_cancelled=true'),
+  })
+  const allClinics = data?.clinics ?? []
+  const [showCancelled, setShowCancelled] = useState(false)
+  const cancelledCount = allClinics.filter((c) => c.status === 'cancelled').length
+  const clinics = showCancelled ? allClinics : allClinics.filter((c) => c.status !== 'cancelled')
   const [deleteTarget, setDeleteTarget] = useState<Clinic | null>(null)
 
   return (
@@ -26,6 +36,18 @@ export default function ClinicsPage() {
       <SignupRequestsPanel />
 
       <NewClinicForm />
+
+      {cancelledCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowCancelled((v) => !v)}
+          className="text-xs font-medium text-teal-700 hover:underline dark:text-teal-300"
+        >
+          {showCancelled
+            ? t('studio.clinics.hideCancelled')
+            : t('studio.clinics.showCancelled', { n: String(cancelledCount) })}
+        </button>
+      )}
 
       {isLoading ? (
         <p className="text-sm text-gray-400">{t('common.loading')}</p>

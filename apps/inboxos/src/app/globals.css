@@ -816,83 +816,51 @@ body {
     border-radius: 999px;
     background: #25D366;
   }
-}
 
-.jz-stage {
-  --jz-size: 180px;
-  --jz-teal: #2dd4bf;
-  --jz-bubble-bg: #ffffff;
-  --jz-bubble-text: #1f3a3a;
-  --jz-bubble-label: #0f766e;
-  --jz-bubble-shadow: 0 8px 26px rgba(45, 150, 140, 0.22), 0 1px 4px rgba(0, 0, 0, 0.06);
-  position: relative;
-  width: calc(var(--jz-size) + 24px);
-  height: calc(var(--jz-size) * 1.46);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: transparent;
-  font-family: "Segoe UI", system-ui, sans-serif;
-}
+  .crm-bubble-panel {
+    border-radius: var(--crm-border-radius-lg);
+    border: 1px solid var(--crm-border-color);
+    background: var(--crm-card-bg);
+    box-shadow: var(--crm-shadow-card);
+  }
 
-.jz-stage.jz-theme-dark {
-  --jz-bubble-bg: #1b2a2a;
-  --jz-bubble-text: #e8f4f2;
-  --jz-bubble-label: #5eead4;
-  --jz-bubble-shadow: 0 8px 26px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(94, 234, 212, 0.12);
-}
+  .crm-bubble-header {
+    padding: 10px 14px;
+  }
 
-.jz-bubble {
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%) translateY(8px) scale(0.92);
-  min-width: 140px;
-  max-width: 220px;
-  background: var(--jz-bubble-bg);
-  color: var(--jz-bubble-text);
-  border-radius: 0.5rem;
-  padding: 10px 12px;
-  box-shadow: var(--jz-bubble-shadow);
-  font-size: 12px;
-  line-height: 1.35;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 10;
-  transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3);
-}
+  .crm-bubble-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    background: var(--crm-chat-bg);
+  }
 
-.jz-bubble.jz-show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0) scale(1);
-}
+  .crm-bubble-input-area {
+    padding: 10px 14px;
+    background: var(--crm-card-bg);
+  }
 
-.jz-bubble::after {
-  content: "";
-  position: absolute;
-  bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 9px solid transparent;
-  border-right: 9px solid transparent;
-  border-top: 10px solid var(--jz-bubble-bg);
-  filter: drop-shadow(0 3px 2px rgba(45, 150, 140, 0.12));
-}
+  .crm-bubble-mode-switch {
+    display: inline-flex;
+    gap: 2px;
+    border-radius: 999px;
+    background: var(--crm-elevated-bg);
+    padding: 2px;
+  }
 
-.jz-label {
-  display: block;
-  margin-bottom: 3px;
-  color: var(--jz-bubble-label);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
+  .crm-bubble-mode-switch button {
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--crm-text-muted);
+    transition: var(--crm-transition);
+  }
 
-.jz-text {
-  font-weight: 500;
+  .crm-bubble-mode-switch button.is-active {
+    background: var(--crm-primary-color);
+    color: #fff;
+  }
 }
 
 .jz-typing {
@@ -907,7 +875,7 @@ body {
   height: 7px;
   display: inline-block;
   border-radius: 50%;
-  background: var(--jz-teal);
+  background: var(--crm-primary-color);
   animation: jz-typedot 1.2s ease-in-out infinite;
 }
 
@@ -927,244 +895,6 @@ body {
   30% {
     transform: translateY(-5px);
     opacity: 1;
-  }
-}
-
-.jz-avatar {
-  position: relative;
-  width: var(--jz-size);
-  height: calc(var(--jz-size) * 1.2);
-  z-index: 2;
-}
-
-.jz-pose {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-  filter: drop-shadow(0 18px 26px rgba(45, 150, 140, 0.22));
-}
-
-.jz-pose img {
-  display: block;
-  user-select: none;
-}
-
-.jz-pose.jz-show {
-  opacity: 1;
-}
-
-.jz-anim-idle {
-  animation: jz-floatIdle 3.4s ease-in-out infinite;
-}
-
-.jz-anim-happy {
-  animation: jz-bounceHappy 0.7s ease-in-out infinite;
-}
-
-.jz-anim-thinking {
-  animation: jz-tiltThink 3s ease-in-out infinite;
-}
-
-.jz-anim-talking {
-  animation: jz-nodTalk 0.5s ease-in-out infinite;
-}
-
-@keyframes jz-floatIdle {
-  0%, 100% {
-    transform: translateX(-50%) translateY(0) rotate(-2.5deg);
-  }
-  50% {
-    transform: translateX(-50%) translateY(-9px) rotate(2.5deg);
-  }
-}
-
-@keyframes jz-bounceHappy {
-  0%, 100% {
-    transform: translateX(-50%) translateY(0) scale(1);
-  }
-  30% {
-    transform: translateX(-50%) translateY(-14px) scale(1.03);
-  }
-  60% {
-    transform: translateX(-50%) translateY(0) scale(0.99);
-  }
-}
-
-@keyframes jz-tiltThink {
-  0%, 100% {
-    transform: translateX(-50%) rotate(0) translateY(0);
-  }
-  50% {
-    transform: translateX(-50%) rotate(-3deg) translateY(-6px);
-  }
-}
-
-@keyframes jz-nodTalk {
-  0%, 100% {
-    transform: translateX(-50%) translateY(0) rotate(0);
-  }
-  50% {
-    transform: translateX(-50%) translateY(-5px) rotate(1deg);
-  }
-}
-
-.jz-gloss {
-  position: absolute;
-  top: 22%;
-  left: 28%;
-  width: 44%;
-  height: 24%;
-  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.16) 48%, transparent 60%);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 4;
-  animation: jz-glossSweep 5.5s ease-in-out infinite;
-}
-
-@keyframes jz-glossSweep {
-  0%, 72%, 100% {
-    transform: translateX(-12px);
-    opacity: 0;
-  }
-  82% {
-    opacity: 1;
-  }
-  92% {
-    transform: translateX(16px);
-    opacity: 0;
-  }
-}
-
-.jz-sparks {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.jz-sparks.jz-on {
-  opacity: 1;
-}
-
-.jz-spark {
-  position: absolute;
-  border-radius: 50%;
-  background: var(--jz-teal);
-}
-
-.jz-sp1 {
-  width: 8px;
-  height: 8px;
-  top: 24%;
-  left: 24%;
-  animation: jz-rise 1.4s ease-in-out infinite;
-}
-
-.jz-sp2 {
-  width: 6px;
-  height: 6px;
-  top: 20%;
-  left: 70%;
-  background: #7fe0d8;
-  animation: jz-rise 1.4s ease-in-out infinite 0.35s;
-}
-
-.jz-sp3 {
-  width: 5px;
-  height: 5px;
-  top: 30%;
-  left: 80%;
-  background: #a5ede7;
-  animation: jz-rise 1.4s ease-in-out infinite 0.7s;
-}
-
-.jz-sp4 {
-  width: 5px;
-  height: 5px;
-  top: 28%;
-  left: 16%;
-  background: #7fe0d8;
-  animation: jz-rise 1.4s ease-in-out infinite 1.05s;
-}
-
-@keyframes jz-rise {
-  0% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.4);
-  }
-  45% {
-    opacity: 1;
-    transform: translateY(-8px) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-26px) scale(0.3);
-  }
-}
-
-.jz-wave {
-  position: absolute;
-  bottom: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 4px;
-  align-items: flex-end;
-  height: 22px;
-  z-index: 5;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.jz-wave.jz-on {
-  opacity: 1;
-}
-
-.jz-wave span {
-  width: 4px;
-  border-radius: 2px;
-  background: var(--jz-teal);
-  animation: jz-eq 0.6s ease-in-out infinite;
-}
-
-.jz-wave span:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.jz-wave span:nth-child(2) {
-  animation-delay: 0.1s;
-}
-
-.jz-wave span:nth-child(3) {
-  animation-delay: 0.2s;
-}
-
-.jz-wave span:nth-child(4) {
-  animation-delay: 0.3s;
-}
-
-.jz-wave span:nth-child(5) {
-  animation-delay: 0.4s;
-}
-
-@keyframes jz-eq {
-  0%, 100% {
-    height: 6px;
-  }
-  50% {
-    height: 20px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .jz-stage * {
-    animation: none !important;
   }
 }
 
@@ -1595,51 +1325,6 @@ body {
     background-image: url('/brand/docmee-loader-avatar.png');
   }
 }
-
-/* Icon framing for J.zel: center the figure in a square box (used by the floating
-   pet button). Overrides the avatar's default bubble-reserve + bottom-anchor so the
-   character is vertically centered inside the circular button regardless of size. */
-.jz-icon .jz-stage {
-  width: var(--jz-size) !important;
-  height: var(--jz-size) !important;
-  align-items: center !important;
-}
-.jz-icon .jz-avatar {
-  width: var(--jz-size) !important;
-  height: var(--jz-size) !important;
-}
-.jz-icon .jz-pose {
-  top: 50% !important;
-  bottom: auto !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-}
-/* Modern browsers let CSS animations override !important transforms.
-   Override animation-name only so duration/easing carry through, but
-   include translate(-50%,-50%) centering in every keyframe. */
-.jz-icon .jz-pose.jz-anim-idle     { animation-name: jz-icon-floatIdle; }
-.jz-icon .jz-pose.jz-anim-happy    { animation-name: jz-icon-bounceHappy; }
-.jz-icon .jz-pose.jz-anim-thinking { animation-name: jz-icon-tiltThink; }
-.jz-icon .jz-pose.jz-anim-talking  { animation-name: jz-icon-nodTalk; }
-
-@keyframes jz-icon-floatIdle {
-  0%, 100% { transform: translate(-50%, -50%) rotate(-2.5deg); }
-  50%       { transform: translate(-50%, calc(-50% - 9px)) rotate(2.5deg); }
-}
-@keyframes jz-icon-bounceHappy {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  30%       { transform: translate(-50%, calc(-50% - 14px)) scale(1.03); }
-  60%       { transform: translate(-50%, -50%) scale(0.99); }
-}
-@keyframes jz-icon-tiltThink {
-  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
-  50%       { transform: translate(-50%, calc(-50% - 6px)) rotate(-3deg); }
-}
-@keyframes jz-icon-nodTalk {
-  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
-  50%       { transform: translate(-50%, calc(-50% - 5px)) rotate(1deg); }
-}
-
 
 .docmee-footer {
   flex-shrink: 0;

@@ -5,7 +5,7 @@ import { Providers } from './providers'
 import { ServiceWorkerRegister } from './sw-register'
 import { HtmlLangSync } from './html-lang-sync'
 import { ThemeInitScript } from '@/shared/components/ThemeInitScript'
-import { DocmeePet } from '@/shared/components/DocmeePet'
+import { ChatBubble } from '@/shared/components/ChatBubble'
 import { AppFooter } from '@/shared/components/AppFooter'
 
 const inter = Inter({
@@ -59,8 +59,8 @@ export default function RootLayout({
           <div className="docmee-root-footer">
             <AppFooter />
           </div>
-          {/* Floating J.zel assistant — mounted at the root so it appears on every page. */}
-          <DocmeePet />
+          {/* Floating chat bubble (Messenger + J.zel) — mounted at the root so it appears on every page. */}
+          <ChatBubble />
         </Providers>
         <ServiceWorkerRegister />
       </body>

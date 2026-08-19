@@ -4,11 +4,17 @@
 // all activity, reachable from a new "Activities" side-rail entry. Reuses the
 // existing audit-events data/endpoint unchanged (same table, same source) — only
 // the route and nav entry are new; /studio/audit now redirects here.
+//
+// Also merges in the Automation Center's "Recent activity" (follow-up automation
+// events — reminders/review-requests actually sent/clicked) so this page is the
+// one place to see everything that happened for a clinic, not just the security
+// audit trail. Ported verbatim from studio/automations/page.tsx's RecentFollowUps.
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
+import type { FollowUpActivity, FollowUpStatus } from '@/shared/types'
 
 type Clinic = { id: string; name: string }
 type AuditEvent = {
@@ -20,6 +26,24 @@ type AuditEvent = {
   metadata: Record<string, unknown>
   ipAddress: string | null
   createdAt: string
+}
+
+type Translate = ReturnType<typeof useI18n>['t']
+
+const FOLLOW_UP_STATUS_STYLE: Record<FollowUpStatus, string> = {
+  pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
+  pending_approval: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
+  sent: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200',
+  clicked: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-200',
+  skipped: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+  rejected: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-200',
+}
+
+function followUpDateLabel(value: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDetailLabel(key: string) {
@@ -57,6 +81,75 @@ function DetailList({ details }: { details?: Record<string, unknown> | null }) {
       ))}
       {entries.length > 4 && <dd className="text-[11px] text-gray-400">+{entries.length - 4} more detail{entries.length - 4 === 1 ? '' : 's'}</dd>}
     </dl>
+  )
+}
+
+// Merged in from the Automation Center's "Recent activity" section — follow-up
+// automation events (reminders, review requests) that actually fired, not the
+// generic security audit trail above. Scoped to this page's own clinic selector.
+function FollowUpActivitySection({ clinicId }: { clinicId: string }) {
+  const { t } = useI18n()
+  const query = useQuery({
+    queryKey: ['follow-up-activity', clinicId],
+    enabled: Boolean(clinicId),
+    refetchInterval: 30_000,
+    queryFn: () => api.get<{ followUps: FollowUpActivity[] }>(`/clinics/${clinicId}/follow-ups`),
+  })
+  const followUps = query.data?.followUps ?? []
+
+  return (
+    <section className="clinic-card overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+        <div>
+          <p className="text-sm font-semibold">{t('automations.activity.title')}</p>
+          <p className="text-xs text-gray-500">{t('automations.activity.desc')}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          disabled={query.isFetching}
+          className="shrink-0 rounded-md border border-gray-300 px-2.5 py-1 text-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+        >
+          {query.isFetching ? t('common.loading') : t('common.refresh')}
+        </button>
+      </div>
+
+      {query.isLoading ? (
+        <div className="p-6 text-sm text-gray-500">{t('common.loading')}</div>
+      ) : query.isError ? (
+        <p className="px-4 py-3 text-xs text-red-700 dark:text-red-300">{t('automations.activity.error')}</p>
+      ) : followUps.length === 0 ? (
+        <div className="p-6 text-sm text-gray-500">{t('automations.activity.empty')}</div>
+      ) : (
+        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          {followUps.map((item) => (
+            <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-sm font-medium">
+                    {t(`automations.type.${item.type}` as Parameters<Translate>[0])}
+                  </p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${FOLLOW_UP_STATUS_STYLE[item.status]}`}
+                  >
+                    {t(`automations.status.${item.status}` as Parameters<Translate>[0])}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-gray-500">
+                  {t('automations.activity.patient', { id: item.patientId.slice(0, 8) })}
+                  {item.appointmentId ? ` · ${t('automations.activity.appointment', { id: item.appointmentId.slice(0, 8) })}` : ''}
+                </p>
+              </div>
+              <div className="shrink-0 text-right text-[11px] text-gray-400">
+                <p>{t('automations.activity.created', { time: followUpDateLabel(item.createdAt) })}</p>
+                {item.reviewSentAt && <p>{t('automations.activity.sent', { time: followUpDateLabel(item.reviewSentAt) })}</p>}
+                {item.reviewClickedAt && <p>{t('automations.activity.clicked', { time: followUpDateLabel(item.reviewClickedAt) })}</p>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -99,7 +192,7 @@ export default function ActivitiesPage() {
 
         <section className="clinic-card overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 text-sm font-semibold dark:border-gray-800">
-            {selectedName} activity
+            {selectedName} security & change log
           </div>
           {auditQuery.isLoading ? (
             <div className="p-6 text-sm text-gray-500">Loading activity...</div>
@@ -134,6 +227,8 @@ export default function ActivitiesPage() {
             </div>
           )}
         </section>
+
+        <FollowUpActivitySection clinicId={activeClinicId} />
       </div>
     </div>
   )

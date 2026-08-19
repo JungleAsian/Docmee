@@ -31,7 +31,7 @@ import {
   type ScheduleOffset,
   type AutomationsConfig,
 } from '@/shared/automations'
-import type { Clinic, ClinicSettings, CustomFlow, FlowTemplate, FollowUpActivity, FollowUpStatus, Workflow } from '@/shared/types'
+import type { Clinic, ClinicSettings, CustomFlow, FlowTemplate, Workflow } from '@/shared/types'
 
 const field =
   'w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800'
@@ -410,8 +410,14 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
       {/* ── Approval queue (Rev 2): drafts awaiting secretary sign-off ────────── */}
       <PendingApprovals clinicId={clinicId} />
 
-      {/* ── Recent activity: what actually happened after workers ran ─────────── */}
-      <RecentFollowUps clinicId={clinicId} />
+      {/* Recent activity moved to /studio/activities (merged with the audit log). */}
+      <Link
+        href="/studio/activities"
+        className="flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
+      >
+        <span>{t('automations.activityMoved')}</span>
+        <span aria-hidden>→</span>
+      </Link>
 
       {/* ── Section B: Review requests (Req 38) ──────────────────────────────── */}
       <ReviewSection
@@ -716,86 +722,5 @@ function PendingApprovals({ clinicId }: { clinicId: string }) {
   )
 }
 
-const FOLLOW_UP_STATUS_STYLE: Record<FollowUpStatus, string> = {
-  pending: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-  pending_approval: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200',
-  sent: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200',
-  clicked: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-200',
-  skipped: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  rejected: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-200',
-}
-
-function dateLabel(value: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function RecentFollowUps({ clinicId }: { clinicId: string }) {
-  const { t } = useI18n()
-  const query = useQuery({
-    queryKey: ['follow-up-activity', clinicId],
-    enabled: Boolean(clinicId),
-    refetchInterval: 30_000,
-    queryFn: () => api.get<{ followUps: FollowUpActivity[] }>(`/clinics/${clinicId}/follow-ups`),
-  })
-  const followUps = query.data?.followUps ?? []
-
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{t('automations.activity.title')}</h2>
-        <button
-          type="button"
-          onClick={() => query.refetch()}
-          disabled={query.isFetching}
-          className="rounded-md border border-gray-300 px-2.5 py-1 text-xs hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
-        >
-          {query.isFetching ? t('common.loading') : t('common.refresh')}
-        </button>
-      </div>
-      <p className="mb-3 text-xs text-gray-500">{t('automations.activity.desc')}</p>
-
-      {query.isLoading ? (
-        <div className="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
-      ) : query.isError ? (
-        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {t('automations.activity.error')}
-        </p>
-      ) : followUps.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-gray-300 px-3 py-4 text-center text-sm text-gray-400 dark:border-gray-700">
-          {t('automations.activity.empty')}
-        </p>
-      ) : (
-        <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-          {followUps.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="text-sm font-medium">
-                    {t(`automations.type.${item.type}` as Parameters<Translate>[0])}
-                  </p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${FOLLOW_UP_STATUS_STYLE[item.status]}`}
-                  >
-                    {t(`automations.status.${item.status}` as Parameters<Translate>[0])}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-gray-500">
-                  {t('automations.activity.patient', { id: item.patientId.slice(0, 8) })}
-                  {item.appointmentId ? ` · ${t('automations.activity.appointment', { id: item.appointmentId.slice(0, 8) })}` : ''}
-                </p>
-              </div>
-              <div className="shrink-0 text-right text-[11px] text-gray-400">
-                <p>{t('automations.activity.created', { time: dateLabel(item.createdAt) })}</p>
-                {item.reviewSentAt && <p>{t('automations.activity.sent', { time: dateLabel(item.reviewSentAt) })}</p>}
-                {item.reviewClickedAt && <p>{t('automations.activity.clicked', { time: dateLabel(item.reviewClickedAt) })}</p>}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
+// Recent follow-up activity now lives on /studio/activities (merged with the
+// audit log) — see FollowUpActivitySection in studio/activities/page.tsx.

@@ -298,18 +298,23 @@ export function ConversationList({
           />
         </div>
 
-        {/* Channel filter (Req 4) — narrow the queue to one platform. */}
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          <FilterChip active={channel === 'all'} onClick={() => setChannel('all')}>
-            {t('conv.filter.allChannels')}
-          </FilterChip>
-          {(Object.keys(CHANNEL) as Channel[]).map((ch) => (
-            <FilterChip key={ch} active={channel === ch} onClick={() => setChannel(ch)}>
-              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${CHANNEL[ch].dot}`} />
-              {CHANNEL[ch].label}
-            </FilterChip>
-          ))}
-        </div>
+        {/* Channel filter (Req 4) — a dropdown (matching the Assignee filter) so the
+            queue controls stay compact and consistent. */}
+        <label className="mb-2 flex items-center gap-1.5 text-xs">
+          <span className="text-gray-500">{t('conv.filter.channel')}:</span>
+          <select
+            value={channel}
+            onChange={(e) => setChannel(e.target.value as ChannelFilter)}
+            className="min-w-0 flex-1 truncate rounded-lg border border-gray-300 px-2 py-1 text-xs outline-none focus:border-teal-500 dark:border-gray-700 dark:bg-gray-800"
+          >
+            <option value="all">{t('conv.filter.allChannels')}</option>
+            {(Object.keys(CHANNEL) as Channel[]).map((ch) => (
+              <option key={ch} value={ch}>
+                {CHANNEL[ch].label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {/* Operational lens tabs (Active / Bot / Assigned / Closed) with live counts —
             the secretary's primary triage control, narrowing the queue client-side. */}
@@ -727,26 +732,3 @@ function LensTab({
   )
 }
 
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition ${
-        active
-          ? 'bg-[var(--crm-text-main)] text-[var(--crm-card-bg)]'
-          : 'border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}

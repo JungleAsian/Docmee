@@ -138,7 +138,11 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
         </header>
         <main className="crm-dashboard-content">
           <PageMascotBanner />
-          <div className="min-h-full flex-none">{children}</div>
+          {/* flex-1 + flex-col so a page that opts into full-height (h-full) — e.g.
+              the Inbox, which scrolls only its message list, not the whole page —
+              resolves against a definite height. min-h-full keeps ordinary pages
+              at least a full viewport and free to grow/scroll naturally. */}
+          <div className="flex min-h-full flex-1 flex-col">{children}</div>
           <AppFooter />
         </main>
       </div>

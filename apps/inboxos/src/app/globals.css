@@ -604,8 +604,37 @@ body {
 
   .crm-chat-messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    /* #5 — a dedicated, always-reserved scroll track so the secretary scrolls
+       only the message list, never the whole page, and the gutter never shifts
+       the layout as messages load. */
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--crm-border-color) transparent;
     padding: 22px;
+  }
+
+  .crm-chat-messages::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .crm-chat-messages::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--crm-border-color);
+    background-clip: padding-box;
+  }
+
+  .crm-chat-messages::-webkit-scrollbar-thumb:hover {
+    background: var(--crm-text-muted);
+    background-clip: padding-box;
+  }
+
+  /* #3 — the collapsible "Others" section stacks the former rail panels; give
+     each a hairline separator so they read as distinct groups. */
+  .crm-inbox-others > * + * {
+    border-top: 1px solid var(--crm-border-color);
   }
 
   .crm-message {

@@ -66,9 +66,8 @@ const ROLE_LABEL: Record<MessageRole, 'view.role.user' | 'view.role.agent' | 'vi
 // (the current status is still shown if the conversation is in one of them).
 const MANUAL_STATUSES: ConversationStatus[] = ['open', 'pending', 'snoozed', 'resolved', 'archived']
 
-// Reskin — quick-reaction row (always visible) and the fuller emoji grid behind
-// the toggle button, both insert straight into the composer draft.
-const QUICK_EMOJI = ['👍', '🙏', '😊', '✅', '❤️']
+// Reskin — the emoji grid behind the 😀 toggle button inserts straight into the
+// composer draft.
 const EMOJI_SET = [
   '😀', '😂', '😍', '😢', '😮', '😡', '🙏', '👍', '👌', '🎉', '❤️', '🔥',
   '👏', '🤔', '😴', '🥳', '😎', '💡', '😅', '🙌', '👋', '💪', '🎈', '📌',
@@ -96,6 +95,7 @@ export function ConversationView({
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -555,128 +555,149 @@ export function ConversationView({
               ⚠ {t('view.attachInvalid')}
             </p>
           )}
-          {/* Req 39 (mobile): on a phone the pickers + attach + textarea + send can't
-              share one row at ~375px — the textarea ends up unusably narrow. Stack to a
-              wrapping tool toolbar above a full-width input row on small screens, and
-              restore the classic single row from sm up. */}
-          <form onSubmit={onSend} className="flex min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:items-end">
-            {/* Tool toolbar — wraps under itself on a narrow screen instead of squeezing
-                the composer. Stays inline at the front of the row on desktop. */}
-            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-              <QuickReplyPicker
-                onPick={(content) => setDraft((d) => (d.trim() ? `${d}\n${content}` : content))}
-              />
-              {conversation?.channel === 'whatsapp' && (
-                <TemplatePicker
-                  conversationId={conversationId}
-                  onPick={(templateId) => sendTemplateMutation.mutate(templateId)}
-                  disabled={sendTemplateMutation.isPending}
-                />
-              )}
-              {/* Req 3: offer the patient a tappable reply-button menu (WhatsApp only). */}
-              {conversation?.channel === 'whatsapp' && (
-                <InteractivePicker
-                  onSend={(body, buttons) => sendInteractiveMutation.mutate({ body, buttons })}
-                  disabled={sendInteractiveMutation.isPending}
-                />
-              )}
-              {/* Req 3: offer a single-select LIST menu for >3 options (WhatsApp only). */}
-              {conversation?.channel === 'whatsapp' && (
-                <ListPicker
-                  onSend={(body, button, sections) =>
-                    sendListMutation.mutate({ body, button, sections })
-                  }
-                  disabled={sendListMutation.isPending}
-                />
-              )}
-              {/* Req 3: attach an image (WhatsApp only — Messenger/Instagram attachment
-                  upload is a separate mechanism). */}
-              {conversation?.channel === 'whatsapp' && (
+          {/* WhatsApp/Messenger-style composer: attachments, templates, list &
+              button menus, and quick replies all live behind one ＋ button so the
+              row stays clean — ＋ · 😀 · input · send. Each picker's own popover is
+              fixed-positioned, so it opens centred above the composer, never
+              clipped by the ＋ menu. */}
+          <form onSubmit={onSend} className="flex min-w-0 flex-1 items-end gap-2">
+            {/* ＋ tools menu */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setToolsOpen((v) => !v)}
+                aria-label={t('view.tools')}
+                title={t('view.tools')}
+                aria-expanded={toolsOpen}
+                className="crm-composer-icon-btn text-xl leading-none"
+              >
+                ＋
+              </button>
+              {toolsOpen && (
                 <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png"
-                    className="hidden"
-                    onChange={onAttach}
-                  />
                   <button
                     type="button"
-                    title={t('view.attachImage')}
-                    aria-label={t('view.attachImage')}
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={sendMediaMutation.isPending}
-                    className="crm-composer-icon-btn text-sm"
-                  >
-                    📎
-                  </button>
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setToolsOpen(false)}
+                    className="fixed inset-0 z-20 cursor-default"
+                  />
+                  <div className="absolute bottom-12 left-0 z-30 flex items-center gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-1.5 shadow-[var(--crm-shadow-md)]">
+                    <QuickReplyPicker
+                      onPick={(content) => setDraft((d) => (d.trim() ? `${d}\n${content}` : content))}
+                    />
+                    {conversation?.channel === 'whatsapp' && (
+                      <TemplatePicker
+                        conversationId={conversationId}
+                        onPick={(templateId) => sendTemplateMutation.mutate(templateId)}
+                        disabled={sendTemplateMutation.isPending}
+                      />
+                    )}
+                    {/* Req 3: tappable reply-button menu (WhatsApp only). */}
+                    {conversation?.channel === 'whatsapp' && (
+                      <InteractivePicker
+                        onSend={(body, buttons) => sendInteractiveMutation.mutate({ body, buttons })}
+                        disabled={sendInteractiveMutation.isPending}
+                      />
+                    )}
+                    {/* Req 3: single-select LIST menu for >3 options (WhatsApp only). */}
+                    {conversation?.channel === 'whatsapp' && (
+                      <ListPicker
+                        onSend={(body, button, sections) =>
+                          sendListMutation.mutate({ body, button, sections })
+                        }
+                        disabled={sendListMutation.isPending}
+                      />
+                    )}
+                    {/* Req 3: attach an image (WhatsApp only). */}
+                    {conversation?.channel === 'whatsapp' && (
+                      <>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          className="hidden"
+                          onChange={onAttach}
+                        />
+                        <button
+                          type="button"
+                          title={t('view.attachImage')}
+                          aria-label={t('view.attachImage')}
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={sendMediaMutation.isPending}
+                          className="crm-composer-icon-btn text-sm"
+                        >
+                          📎
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </>
               )}
-              {/* Quick-reaction row — always-visible common emoji, insert straight
-                  into the draft. */}
-              <div className="flex items-center gap-1">
-                {QUICK_EMOJI.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => insertEmoji(emoji)}
-                    className="grid h-7 w-7 place-items-center rounded-full text-[16px] hover:bg-[var(--crm-hover-bg)]"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setEmojiOpen((v) => !v)}
-                  aria-label={t('view.emojiPicker')}
-                  title={t('view.emojiPicker')}
-                  className="crm-composer-icon-btn text-base"
-                >
-                  😀
-                </button>
-              </div>
+            </div>
+
+            {/* Emoji */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setEmojiOpen((v) => !v)}
+                aria-label={t('view.emojiPicker')}
+                title={t('view.emojiPicker')}
+                className="crm-composer-icon-btn text-lg"
+              >
+                😀
+              </button>
               {emojiOpen && (
-                <div className="fixed bottom-24 left-6 z-30 grid grid-cols-6 gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-2 shadow-[var(--crm-shadow-md)]">
-                  {EMOJI_SET.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => insertEmoji(emoji)}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-[17px] hover:bg-[var(--crm-hover-bg)]"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <button
+                    type="button"
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setEmojiOpen(false)}
+                    className="fixed inset-0 z-20 cursor-default"
+                  />
+                  <div className="absolute bottom-12 left-0 z-30 grid grid-cols-6 gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-2 shadow-[var(--crm-shadow-md)]">
+                    {EMOJI_SET.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => insertEmoji(emoji)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-[17px] hover:bg-[var(--crm-hover-bg)]"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
-            {/* Input row — full width on mobile so the draft and a comfortable-tap Send
-                button each get room; rejoins the tool row from sm up. */}
-            <div className="flex min-w-0 items-end gap-2 lg:flex-1">
-              <textarea
-                ref={textareaRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    onSend(e)
-                  }
-                }}
-                rows={2}
-                placeholder={t('view.placeholder')}
-                enterKeyHint="send"
-                autoCapitalize="sentences"
-                className="min-w-0 flex-1 resize-none rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[var(--crm-hover-bg)]"
-              />
-              <button
-                type="submit"
-                disabled={sendMutation.isPending || !draft.trim()}
-                className="shrink-0 rounded-full bg-[var(--crm-primary-color)] px-5 py-3 text-sm font-bold text-white transition hover:bg-[var(--crm-primary-hover)] disabled:opacity-60"
-              >
-                {sendMutation.isPending ? t('view.sending') : t('view.send')}
-              </button>
-            </div>
+
+            {/* Input + send */}
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  onSend(e)
+                }
+              }}
+              rows={1}
+              placeholder={t('view.placeholder')}
+              enterKeyHint="send"
+              autoCapitalize="sentences"
+              className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[var(--crm-hover-bg)]"
+            />
+            <button
+              type="submit"
+              disabled={sendMutation.isPending || !draft.trim()}
+              aria-label={t('view.send')}
+              title={t('view.send')}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--crm-primary-color)] text-lg text-white transition hover:bg-[var(--crm-primary-hover)] disabled:opacity-60"
+            >
+              {sendMutation.isPending ? '…' : '➤'}
+            </button>
           </form>
         </div>
       )}

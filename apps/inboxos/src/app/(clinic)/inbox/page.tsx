@@ -14,13 +14,7 @@ import { ChatTeardropText, Pulse, Robot } from '@phosphor-icons/react'
 import { ConversationList } from '@/shared/components/ConversationList'
 import { ConversationView } from '@/shared/components/ConversationView'
 import { StatCard, StatsRow } from '@/shared/components/CrmStats'
-import { PatientCard } from '@/shared/components/PatientCard'
-import { SafetyHandoffPanel } from '@/shared/components/SafetyHandoffPanel'
-import { LifecyclePanel } from '@/shared/components/LifecyclePanel'
-import { TagsPanel } from '@/shared/components/TagsPanel'
-import { NotesPanel } from '@/shared/components/NotesPanel'
-import { AssignPanel } from '@/shared/components/AssignPanel'
-import { AssistantPanel } from '@/shared/components/AssistantPanel'
+import { InboxContextRail } from '@/shared/components/InboxContextRail'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'
 import { can } from '@/shared/permissions'
@@ -138,38 +132,13 @@ export default function InboxPage() {
   // a half-typed note) bleeds into the next patient's thread and can be sent to
   // the wrong recipient.
   const panels = selectedId ? (
-    <div className="crm-inbox-panel-stack">
-      <PatientCard key={`patient-${selectedId}`} conversationId={selectedId} />
-      <SafetyHandoffPanel key={`safety-${selectedId}`} conversationId={selectedId} />
-      <AssignPanel key={`assign-${selectedId}`} conversationId={selectedId} />
-      <LifecyclePanel key={`lifecycle-${selectedId}`} conversationId={selectedId} />
-      <TagsPanel key={`tags-${selectedId}`} conversationId={selectedId} />
-      {can(role, 'assistant') && (
-        <AssistantPanel key={`assistant-${selectedId}`} conversationId={selectedId} />
-      )}
-      <NotesPanel key={`notes-${selectedId}`} conversationId={selectedId} />
-    </div>
+    <InboxContextRail key={`rail-${selectedId}`} conversationId={selectedId} />
   ) : (
     <div className="m-4 clinic-empty-state text-sm">{t('view.empty')}</div>
   )
 
   return (
-    <div className="flex h-full min-h-[680px] flex-col gap-4 overflow-hidden">
-      <div className="shrink-0 rounded-[var(--crm-border-radius-md)] bg-[var(--crm-card-bg)] px-5 py-4 shadow-[var(--crm-shadow-card)] backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="clinic-eyebrow">Conversation workspace</p>
-            <h1 className="clinic-title text-[var(--crm-text-main)]">Inbox</h1>
-            <p className="clinic-subtitle">
-              Triage patient conversations, handoffs, internal notes, tags, and AI assistance from a single clinic-safe view.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-500 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-            <span className={`h-1.5 w-1.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            {online ? 'Live' : t('conn.offline.title')}
-          </div>
-        </div>
-      </div>
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
       {/* Offline / disconnected banner — a required operational state: when the
           browser loses its network, a reply can't reach the patient, so make it
           unmistakable across the whole inbox (drafts stay in local component state). */}

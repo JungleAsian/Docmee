@@ -5,7 +5,7 @@
 import Link from 'next/link'
 import { notFound, useParams } from 'next/navigation'
 import { useI18n } from '@/shared/hooks/useI18n'
-import { NavIcon } from '@/shared/components/NavIcon'
+import { HelpIcon } from '@/shared/components/HelpIcon'
 import { HELP_UI, L, getCategory, getArticleTarget } from '@/shared/help/content'
 
 export default function HelpCategoryPage() {
@@ -30,7 +30,7 @@ export default function HelpCategoryPage() {
 
         <div className="flex items-start gap-3">
           <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-500/10">
-            <NavIcon name={category.icon} className="h-5 w-5" />
+            <HelpIcon name={category.icon} className="h-5 w-5" />
           </span>
           <div>
             <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{L(category.title, language)}</h1>

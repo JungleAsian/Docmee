@@ -620,13 +620,14 @@ function WeeklyHoursEditor({
                       key={i}
                       className="flex items-center gap-1 rounded-md border border-cyan-100 bg-cyan-50/50 px-1.5 py-1 dark:border-cyan-800/60 dark:bg-cyan-950/20"
                     >
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('studio.doctors.in')}</span>
                       <input
                         type="time"
                         value={range.start}
                         onChange={(e) => onChange(setShift(value, day, i, { start: e.target.value }))}
                         className="w-[5.5rem] min-w-0 rounded border border-cyan-100 bg-white px-1 py-0.5 text-xs font-semibold text-gray-800 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-100 dark:border-cyan-800/60 dark:bg-gray-950/70 dark:text-gray-100"
                       />
-                      <span className="text-[11px] font-semibold text-gray-400">–</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">{t('studio.doctors.out')}</span>
                       <input
                         type="time"
                         value={range.end}

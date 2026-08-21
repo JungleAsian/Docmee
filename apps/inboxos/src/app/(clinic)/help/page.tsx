@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { NavIcon } from '@/shared/components/NavIcon'
+import { HelpIcon } from '@/shared/components/HelpIcon'
 import {
   HELP_CATEGORIES,
   HELP_UI,
@@ -115,7 +116,7 @@ export default function HelpHomePage() {
                     className="docmee-help-list-link flex items-start gap-3 rounded-lg border p-4 transition"
                   >
                     <span className="mt-0.5 shrink-0 text-teal-600">
-                      <NavIcon name={category.icon} />
+                      <HelpIcon name={category.icon} />
                     </span>
                     <span>
                       <span className="block font-medium text-gray-900 dark:text-gray-100">
@@ -141,7 +142,7 @@ export default function HelpHomePage() {
                     className="docmee-help-category-card rounded-xl border p-5 transition"
                   >
                     <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-500/10">
-                      <NavIcon name={category.icon} className="h-5 w-5" />
+                      <HelpIcon name={category.icon} className="h-5 w-5" />
                     </span>
                     <h3 className="mt-3 font-semibold text-gray-900 dark:text-gray-100">
                       {L(category.title, language)}

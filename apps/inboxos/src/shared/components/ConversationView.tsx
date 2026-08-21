@@ -12,8 +12,6 @@ import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDateTime, formatDay, formatTime, relativeTime } from '../format'
 import { conversationMode } from '../conversationMode'
 import { AssignControl } from './AssignControl'
-import { DeleteConversationDialog } from './DeleteConversationDialog'
-import { useAuthStore } from '../store/auth'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
@@ -69,9 +67,14 @@ const MANUAL_STATUSES: ConversationStatus[] = ['open', 'pending', 'snoozed', 're
 // Reskin — the emoji grid behind the 😀 toggle button inserts straight into the
 // composer draft.
 const EMOJI_SET = [
-  '😀', '😂', '😍', '😢', '😮', '😡', '🙏', '👍', '👌', '🎉', '❤️', '🔥',
-  '👏', '🤔', '😴', '🥳', '😎', '💡', '😅', '🙌', '👋', '💪', '🎈', '📌',
-  '✅', '❌', '⏰', '📅', '💬', '📎',
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣',
+  '😊', '😇', '🙂', '😉', '😍', '🥰', '😘', '😋',
+  '😎', '🤩', '🥳', '🤔', '🤗', '😐', '😴', '😷',
+  '🤒', '🤕', '😢', '😭', '😤', '😡', '😱', '😅',
+  '👍', '👎', '👌', '🙌', '👏', '🙏', '💪', '👋',
+  '🤝', '✌️', '🤞', '👀', '❤️', '🧡', '💛', '💚',
+  '💙', '💜', '🔥', '⭐', '✨', '🎉', '🎈', '💯',
+  '✅', '❌', '⚠️', '⏰', '📅', '📌', '📎', '💬',
 ]
 
 // A conversation is "closed" (composer disabled, reopen offered) when resolved or
@@ -82,21 +85,16 @@ function isClosedStatus(status: ConversationStatus | undefined): boolean {
 
 export function ConversationView({
   conversationId,
-  onConversationChange,
 }: {
   conversationId: string
-  onConversationChange: (id: string | null) => void
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
-  const role = useAuthStore((s) => s.user?.role)
-  const canDelete = role === 'clinic_admin' || role === 'ia_studio_admin'
   const [draft, setDraft] = useState('')
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -222,14 +220,6 @@ export function ConversationView({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
       qc.invalidateQueries({ queryKey: ['conversations'] })
-    },
-  })
-
-  const reopenMutation = useMutation({
-    mutationFn: () => api.post<{ conversation: Conversation }>(`/conversations/${conversationId}/reopen`),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-      onConversationChange(data.conversation.id)
     },
   })
 
@@ -398,27 +388,6 @@ export function ConversationView({
                 ))}
               </select>
             )}
-            {conversation && conversation.status !== 'archived' && (
-              <button
-                type="button"
-                onClick={() => statusMutation.mutate('archived')}
-                disabled={statusMutation.isPending}
-                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
-              >
-                {t('view.archive')}
-              </button>
-            )}
-            {conversation && canDelete && (
-              <button
-                type="button"
-                onClick={() => setDeleteOpen(true)}
-                aria-label={t('view.delete')}
-                title={t('view.delete')}
-                className="rounded-full border border-red-200 bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30"
-              >
-                🗑 {t('view.delete')}
-              </button>
-            )}
             {/* Req 5: one-click return to the bot while a human owns the thread. */}
             {conversation && humanMode && !closed && (
               <button
@@ -430,17 +399,7 @@ export function ConversationView({
                 ↩ {resumeBotMutation.isPending ? t('view.mode.resuming') : t('view.mode.resumeBot')}
               </button>
             )}
-            {conversation &&
-            (closed ? (
-              <button
-                type="button"
-                onClick={() => reopenMutation.mutate()}
-                disabled={reopenMutation.isPending}
-                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
-              >
-                {t('view.reopen')}
-              </button>
-            ) : (
+            {conversation && !closed && (
               <button
                 type="button"
                 onClick={() => closeMutation.mutate()}
@@ -449,7 +408,7 @@ export function ConversationView({
               >
                 {t('view.close')}
               </button>
-            ))}
+            )}
           </div>
         </div>
         {conversation?.patientId && (
@@ -656,17 +615,22 @@ export function ConversationView({
                     onClick={() => setEmojiOpen(false)}
                     className="fixed inset-0 z-20 cursor-default"
                   />
-                  <div className="absolute bottom-12 left-0 z-30 grid grid-cols-6 gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-2 shadow-[var(--crm-shadow-md)]">
-                    {EMOJI_SET.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        onClick={() => insertEmoji(emoji)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-[17px] hover:bg-[var(--crm-hover-bg)]"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
+                  {/* WhatsApp-style emoji panel: fixed-positioned (like the other
+                      composer pickers) so it's never clipped by the composer's
+                      overflow, a comfortable 8-column grid, and scrollable. */}
+                  <div className="fixed bottom-24 left-4 right-4 z-30 max-h-[300px] overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-3 shadow-[var(--crm-shadow-md)] sm:right-auto sm:w-[352px]">
+                    <div className="grid grid-cols-8 gap-1">
+                      {EMOJI_SET.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => insertEmoji(emoji)}
+                          className="grid h-9 w-9 place-items-center rounded-lg text-[20px] leading-none hover:bg-[var(--crm-hover-bg)]"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </>
               )}
@@ -701,15 +665,6 @@ export function ConversationView({
           </form>
         </div>
       )}
-      <DeleteConversationDialog
-        open={deleteOpen}
-        conversationId={conversationId}
-        onClose={() => setDeleteOpen(false)}
-        onDeleted={() => {
-          setDeleteOpen(false)
-          onConversationChange(null)
-        }}
-      />
     </div>
   )
 }
@@ -918,7 +873,7 @@ function MessageBubble({
 
   return (
     <div className={`group flex ${fromPatient ? 'justify-start' : 'justify-end'}`}>
-      <div className={`relative text-[13.5px] ${skin} ${flagged ? 'outline outline-2 outline-red-500' : ''}`}>
+      <div className={`relative text-[12px] ${skin} ${flagged ? 'outline outline-2 outline-red-500' : ''}`}>
         {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
             replies, matching the reskin's spec. */}
         <div className={`crm-sender-row ${isHuman ? '!text-teal-50/80' : ''} ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>

@@ -16,11 +16,13 @@ import { InboxContextRail } from '@/shared/components/InboxContextRail'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useOnline } from '@/shared/hooks/useOnline'
 
-const INBOX_LAYOUT_KEY = 'docmee.inbox.layout.v1'
-const LIST_DEFAULT = 320
+// v2 — bumped so the wider conversation-list default takes effect for everyone
+// (a saved v1 width would otherwise keep the old narrow list).
+const INBOX_LAYOUT_KEY = 'docmee.inbox.layout.v2'
+const LIST_DEFAULT = 384
 const RIGHT_DEFAULT = 352
-const LIST_MIN = 240
-const LIST_MAX = 520
+const LIST_MIN = 300
+const LIST_MAX = 560
 const RIGHT_MIN = 280
 const RIGHT_MAX = 560
 const MAIN_MIN = 420
@@ -153,7 +155,7 @@ export default function InboxPage() {
       <div className="docmee-inbox-reskin flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
         ref={workspaceRef}
-        className="crm-inbox-container grid grid-cols-1 md:grid-cols-[18rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)_18rem]"
+        className="crm-inbox-container grid grid-cols-1 md:grid-cols-[24rem_minmax(0,1fr)] lg:grid-cols-[24rem_minmax(0,1fr)_18rem]"
         style={
           isLarge
             ? { gridTemplateColumns: `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
@@ -199,7 +201,7 @@ export default function InboxPage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
-              <ConversationView key={selectedId} conversationId={selectedId} onConversationChange={select} />
+              <ConversationView key={selectedId} conversationId={selectedId} />
             </div>
           </>
         ) : (

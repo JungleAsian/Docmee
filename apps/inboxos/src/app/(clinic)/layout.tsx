@@ -4,6 +4,7 @@
 // Guards authentication, runs the presence heartbeat, and frames the page with
 // the shared sidebar.
 import { useMemo, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { CaretLeft, CaretRight, List, MagnifyingGlass } from '@phosphor-icons/react'
 import { api } from '@/shared/api/client'
@@ -31,6 +32,14 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   const { features } = useFeatures()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [railOpen, setRailOpen] = useState(true)
+  const pathname = usePathname()
+  // The Inbox is a fixed-height workspace: it must fill the viewport exactly and
+  // scroll only its own inner columns (message list, conversation list, context
+  // rail), never the whole page. So on /inbox the content wrapper becomes a
+  // flex column that fills the available height (flex-1 + min-h-0), giving its
+  // child a definite height to bound its scroll areas against. Every other page
+  // keeps the natural min-h-full/flex-none flow (grows with content, page scrolls).
+  const fullHeightRoute = pathname === '/inbox'
   const clinicId = user?.clinicId
   const clinicQuery = useQuery({
     queryKey: ['clinic', clinicId],
@@ -138,11 +147,15 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
         </header>
         <main className="crm-dashboard-content">
           <PageMascotBanner />
-          {/* flex-1 + flex-col so a page that opts into full-height (h-full) — e.g.
-              the Inbox, which scrolls only its message list, not the whole page —
-              resolves against a definite height. min-h-full keeps ordinary pages
-              at least a full viewport and free to grow/scroll naturally. */}
-          <div className="flex min-h-full flex-1 flex-col">{children}</div>
+          {/* The content wrapper GROWS to fill the scroll column so the footer is
+              always pushed to the bottom of the screen (sticky-footer) and never
+              overlaps the page's own elements: on a short page it fills the gap; on
+              a tall one it grows to its content and the column scrolls, with the
+              footer after the content. The Inbox additionally scrolls only its own
+              inner columns (min-h-0 + flex-col), never the whole page. */}
+          <div className={fullHeightRoute ? 'flex min-h-0 flex-1 flex-col' : 'flex-1'}>
+            {children}
+          </div>
           <AppFooter />
         </main>
       </div>

@@ -138,7 +138,7 @@ export default function InboxPage() {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       {/* Offline / disconnected banner — a required operational state: when the
           browser loses its network, a reply can't reach the patient, so make it
           unmistakable across the whole inbox (drafts stay in local component state). */}

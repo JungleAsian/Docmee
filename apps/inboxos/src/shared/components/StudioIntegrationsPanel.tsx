@@ -279,20 +279,6 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
 
   return (
     <div className="space-y-4">
-      <section className="clinic-card border-teal-200 bg-teal-50/60 p-4 dark:border-teal-900 dark:bg-teal-950/20">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-teal-950 dark:text-teal-100">No-code integration setup</h2>
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-teal-900/80 dark:text-teal-100/80">
-              Use these cards like a checklist. Each integration shows what to prepare, the exact values Docmee needs,
-              and a save/test step. Secret values are stored securely and are not shown again after saving.
-            </p>
-          </div>
-          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-teal-700 dark:bg-teal-950 dark:text-teal-200">
-            Select clinic first, then connect services
-          </span>
-        </div>
-      </section>
       <IntegrationGroupBanner
         icon="google"
         title="Google workspace sync"

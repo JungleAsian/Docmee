@@ -109,7 +109,7 @@ export default function LoginPage() {
     <main data-docmee-auth-shell className="docmee-auth-shell">
       <section className="docmee-auth-card" aria-busy={loading}>
         <div className="docmee-auth-loading-panel" aria-hidden="true">
-          <img className="docmee-auth-logo" src="/brand/docmee-logo-auth.svg?v=20260630-markclose" alt="" />
+          <img className="docmee-auth-logo" src="/brand/docmee-logo.png?v=20260821" alt="" />
           <div className="docmee-auth-robot-wrap">
             <div className="docmee-auth-robot-glow" />
             <div className="docmee-auth-robot" />

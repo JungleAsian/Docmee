@@ -65,7 +65,7 @@ export function Sidebar({ links, groups, title }: { links?: NavLink[]; groups?: 
         <div className="crm-logo">
           <div className="min-w-0 leading-tight">
             <img
-              src="/brand/docmee-logo-auth.svg?v=20260630-markclose"
+              src="/brand/docmee-logo.png?v=20260821"
               alt={t('app.name')}
               className="crm-sidebar-logo-wordmark"
             />

@@ -496,7 +496,14 @@ body {
   .crm-stat-trend-negative { color: var(--crm-danger); }
 
   .crm-inbox-container {
-    display: flex;
+    /* The three panes are a CSS grid (the grid utility classes + inline
+       gridTemplateColumns win over this rule). Pin the single row to the
+       container's real height with minmax(0, 1fr) — otherwise the row sizes to
+       `auto` (tallest pane's intrinsic content height), the items grow past the
+       flex-bounded container, and overflow:hidden silently clips the message
+       thread + composer instead of letting the chat pane scroll. */
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
     min-height: 0;
     flex: 1;
     overflow: hidden;
@@ -507,10 +514,15 @@ body {
     backdrop-filter: blur(18px);
   }
 
+  /* Every pane must be free to shrink below its content height (min-height:0),
+     so it stays within the fixed row track and its own inner scroll region (the
+     chat message list) governs overflow instead of the pane growing past the
+     container. */
   .crm-inbox-list {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
     border-right: 1px solid var(--crm-border-color);
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }
@@ -522,6 +534,7 @@ body {
   .crm-inbox-chat {
     display: flex;
     min-width: 0;
+    min-height: 0;
     flex: 1;
     flex-direction: column;
     background: var(--crm-chat-bg);
@@ -529,6 +542,7 @@ body {
 
   .crm-inbox-details {
     min-width: 0;
+    min-height: 0;
     border-left: 1px solid var(--crm-border-color);
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }

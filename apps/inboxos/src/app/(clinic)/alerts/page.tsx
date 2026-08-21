@@ -227,13 +227,10 @@ export default function AlertsPage() {
   return (
     <div className="clinic-surface">
       <div className="clinic-page clinic-page-sm space-y-4">
-      <div className="clinic-page-header">
-        <div>
-          <p className="clinic-eyebrow">Patient safety feed</p>
-          <h1 className="clinic-title">{t('alerts.title')}</h1>
-          <p className="clinic-subtitle">{t('alerts.subtitle')}</p>
-        </div>
-        {unread.length > 0 && (
+      {/* Header hero removed — the mark-all-read control moves to a slim toolbar
+          above the digest so the content fills the reclaimed space. */}
+      {unread.length > 0 && (
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => markAllRead.mutate()}
@@ -242,8 +239,8 @@ export default function AlertsPage() {
           >
             {t('notif.markAllRead')}
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Digest — counts by priority + unread, doubling as the priority filter. */}
       {canEditOwnAlerts && (

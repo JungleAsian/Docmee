@@ -360,14 +360,9 @@ export default function CalendarPage() {
     <div className="clinic-surface relative flex h-full flex-col overflow-hidden">
       {/* Title + controls */}
       <div className="shrink-0 border-b border-gray-200 bg-white/90 px-4 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/80">
-        <div className="clinic-page-header">
-          <div>
-            <p className="clinic-eyebrow">{t('cal.crumb')}</p>
-            <h1 className="clinic-title">{t('cal.title')}</h1>
-            <p className="clinic-subtitle">
-              Coordinate AI-booked appointments, secretary edits, provider availability, and day-of exceptions in one schedule view.
-            </p>
-          </div>
+        {/* Header hero removed — the New Booking action moves to a slim toolbar so
+            the schedule fills the reclaimed space. */}
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => openBooking(doctorId ? { doctorId } : undefined)}

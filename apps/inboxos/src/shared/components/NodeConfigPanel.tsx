@@ -357,7 +357,7 @@ export function NodeConfigPanel({
                   onChangeType(newType)
                   setChangingType(false)
                 }}
-                className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
               >
                 <option value="">{t('wf.field.selectPlaceholder')}</option>
                 {typeOptions.map((d) => (
@@ -410,7 +410,7 @@ export function NodeConfigPanel({
                   if (e.target.value === '__custom__') setManualField(manualKey, true)
                   else onPatchConfig(key, e.target.value)
                 }}
-                className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
               >
                 <option value="">{t('wf.field.selectPlaceholder')}</option>
                 {(() => {
@@ -450,7 +450,7 @@ export function NodeConfigPanel({
                   if (e.target.value === '__custom__') setManualField(manualKey, true)
                   else onPatchConfig(key, e.target.value)
                 }}
-                className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
               >
                 <option value="">{t('wf.field.selectPlaceholder')}</option>
                 {(() => {
@@ -488,7 +488,7 @@ export function NodeConfigPanel({
               <select
                 value={value}
                 onChange={(e) => onPatchConfig(key, e.target.value)}
-                className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
               >
                 <option value="">{t('wf.field.selectPlaceholder')}</option>
                 {ENUM_FIELD_OPTIONS[key]!.map((o) => (
@@ -531,7 +531,7 @@ export function NodeConfigPanel({
             <select
               value={String(node.config[key] ?? '')}
               onChange={(e) => onPatchConfig(key, e.target.value)}
-              className="w-full rounded border border-gray-300 bg-white p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+              className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
             >
               {['', 'text', 'date', 'time', 'phone', 'number', 'email'].map((v) => (
                 <option key={v} value={v}>

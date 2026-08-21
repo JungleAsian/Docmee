@@ -14,6 +14,7 @@ import { useFeatures } from '@/shared/hooks/useFeatures'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { can } from '@/shared/permissions'
 import { roleCanSeeMenuItem, type RoleAccessSettings, type RoleMenuItemKey } from '@/shared/roleAccess'
+import { ClinicBackButton } from '@/shared/components/ClinicBackButton'
 import { Sidebar, type NavGroup, type NavLink } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { NotificationBell } from '@/shared/components/NotificationBell'
@@ -127,6 +128,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           >
             <List size={22} />
           </button>
+          <ClinicBackButton />
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" placeholder="Search patients, messages, or appointments..." />

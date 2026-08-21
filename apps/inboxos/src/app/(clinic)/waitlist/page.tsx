@@ -70,12 +70,9 @@ export default function WaitlistPage() {
 
   return (
     <div className="clinic-page clinic-page-md space-y-5">
-      <div className="clinic-page-header">
-        <div>
-          <p className="clinic-eyebrow">Scheduling recovery</p>
-          <h1 className="clinic-title">Waitlist</h1>
-          <p className="clinic-subtitle">Track patients who want earlier or alternative appointment slots.</p>
-        </div>
+      {/* Header hero removed — the Refresh action moves to a slim toolbar so the
+          waitlist content fills the reclaimed space. */}
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={() => query.refetch()}

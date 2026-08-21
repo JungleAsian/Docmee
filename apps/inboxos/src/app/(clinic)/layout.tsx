@@ -156,7 +156,10 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           <div className={fullHeightRoute ? 'flex min-h-0 flex-1 flex-col' : 'flex-1'}>
             {children}
           </div>
-          <AppFooter />
+          {/* The Inbox is a full-height workspace; the marketing tagline footer is
+              dead space there, so reclaim it for the grid. Every other page keeps
+              the sticky footer. */}
+          {!fullHeightRoute && <AppFooter />}
         </main>
       </div>
 

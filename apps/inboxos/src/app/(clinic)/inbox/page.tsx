@@ -10,14 +10,10 @@
 // contextual panels move behind a Details slide-over. From md up it stays the
 // classic three-pane desktop grid. Tablet widths use list + conversation with details in a drawer.
 import { useEffect, useRef, useState } from 'react'
-import { ChatTeardropText, Pulse, Robot } from '@phosphor-icons/react'
 import { ConversationList } from '@/shared/components/ConversationList'
 import { ConversationView } from '@/shared/components/ConversationView'
-import { StatCard, StatsRow } from '@/shared/components/CrmStats'
 import { InboxContextRail } from '@/shared/components/InboxContextRail'
 import { useI18n } from '@/shared/hooks/useI18n'
-import { useAuthStore } from '@/shared/store/auth'
-import { can } from '@/shared/permissions'
 import { useOnline } from '@/shared/hooks/useOnline'
 
 const INBOX_LAYOUT_KEY = 'docmee.inbox.layout.v1'
@@ -34,8 +30,6 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 export default function InboxPage() {
   const { t } = useI18n()
   const online = useOnline()
-  // CRE-24: only roles the API actually authorizes for assist see the panel.
-  const role = useAuthStore((state) => state.user?.role)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panelsOpen, setPanelsOpen] = useState(false)
   const [listWidth, setListWidth] = useState(LIST_DEFAULT)
@@ -155,31 +149,6 @@ export default function InboxPage() {
           <span className="hidden min-w-0 truncate opacity-90 sm:inline">— {t('conn.offline.body')}</span>
         </div>
       )}
-
-      <StatsRow>
-        <StatCard
-          title="Connection"
-          value={online ? 'Live' : 'Offline'}
-          trend={online ? 'Messages are syncing' : t('conn.offline.title')}
-          trendTone={online ? 'positive' : 'negative'}
-          tone="blue"
-          icon={<Pulse size={26} weight="duotone" />}
-        />
-        <StatCard
-          title="Active Thread"
-          value={selectedId ? 'Open' : 'None'}
-          trend={selectedId ? 'Conversation selected' : t('view.empty')}
-          tone="purple"
-          icon={<ChatTeardropText size={26} weight="duotone" />}
-        />
-        <StatCard
-          title="J.zel Assist"
-          value={can(role, 'assistant') ? 'Ready' : 'Hidden'}
-          trend={can(role, 'assistant') ? 'AI suggestions available' : 'Role access limited'}
-          tone="orange"
-          icon={<Robot size={26} weight="duotone" />}
-        />
-      </StatsRow>
 
       <div className="docmee-inbox-reskin flex min-h-0 flex-1 flex-col overflow-hidden">
       <div

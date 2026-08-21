@@ -141,6 +141,31 @@ body {
   line-height: 1.55;
 }
 
+/* Compact hero — the Inbox workspace reclaims the ~210px hero down to a slim
+   ~84px strip (wordmark/title only), handing the height to the message grid.
+   Double-class selector so it beats the responsive `.docmee-page-hero`
+   min-height rules regardless of source order. */
+.docmee-page-hero.docmee-page-hero--compact {
+  min-height: 0;
+}
+.docmee-page-hero--compact::before {
+  display: none;
+}
+.docmee-page-hero--compact .docmee-page-hero-copy {
+  max-width: 100%;
+  padding: 0.85rem 1.25rem;
+}
+.docmee-page-hero--compact .docmee-page-hero-eyebrow {
+  margin-bottom: 0.15rem;
+  font-size: 0.65rem;
+}
+.docmee-page-hero--compact h1 {
+  font-size: 1.2rem;
+}
+.docmee-page-hero--compact p:not(.docmee-page-hero-eyebrow) {
+  display: none;
+}
+
 .dark .docmee-page-hero {
   background:
     linear-gradient(90deg, rgba(48, 54, 86, 0.98) 0%, rgba(33, 125, 154, 0.84) 52%, rgba(34, 199, 220, 0.62) 100%),

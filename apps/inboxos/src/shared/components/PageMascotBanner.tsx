@@ -232,9 +232,15 @@ export function PageMascotBanner() {
   const copy = copyForPath(pathname)
   if (!copy) return null
 
+  // The Inbox is an all-day workspace — a full-size hero would eat a quarter of
+  // the viewport, so it gets a slim compact variant (~84px) that keeps the
+  // wordmark/title but drops the tall art + body copy, handing the height back
+  // to the message grid.
+  const compact = pathname.startsWith('/inbox')
+
   return (
     <section
-      className="docmee-page-hero"
+      className={`docmee-page-hero${compact ? ' docmee-page-hero--compact' : ''}`}
       style={{ '--docmee-page-hero-image': `url('${ASSET_SRC[copy.asset]}')` } as CSSProperties}
     >
       <div className="docmee-page-hero-copy">

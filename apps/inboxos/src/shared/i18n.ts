@@ -742,6 +742,9 @@ const es: Dict = {
   'clinic.section.chatbox': 'Chatbox flotante',
   'clinic.chatbox.enable': 'Mostrar el chatbox flotante',
   'clinic.chatbox.hint': 'Aparece en la esquina inferior para todo el personal de esta clínica.',
+  'clinic.channelsMoved.title': 'Canales e integraciones',
+  'clinic.channelsMoved.body': 'La configuración de Facebook (Messenger), CRM (Google Sheets) e Instagram Direct ahora se gestiona en Canales e Integraciones.',
+  'clinic.channelsMoved.link': 'Abrir Canales e Integraciones',
   'clinic.section.license': 'Licencia',
 
   'bot.tone.title': 'Tono del bot',
@@ -2768,6 +2771,9 @@ const en: Dict = {
   'clinic.section.chatbox': 'Floating chatbox',
   'clinic.chatbox.enable': 'Show the floating chatbox',
   'clinic.chatbox.hint': 'Appears in the bottom corner for all staff in this clinic.',
+  'clinic.channelsMoved.title': 'Channels & Integration',
+  'clinic.channelsMoved.body': 'Facebook (Messenger), CRM (Google Sheets), and Instagram Direct are now configured in Channels & Integration.',
+  'clinic.channelsMoved.link': 'Open Channels & Integration',
   'clinic.section.license': 'License',
 
   'bot.tone.title': 'Bot tone',

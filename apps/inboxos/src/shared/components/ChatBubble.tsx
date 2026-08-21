@@ -11,11 +11,12 @@ import { useQuery } from '@tanstack/react-query'
 import { ChatCircleDots, X } from '@phosphor-icons/react'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
+import { useActiveClinic } from '../hooks/useActiveClinic'
 import { api } from '../api/client'
 import { BubbleConversationList } from './BubbleConversationList'
 import { BubbleThread } from './BubbleThread'
 import { BubbleJzelChat } from './BubbleJzelChat'
-import type { Conversation, PanelLanguage } from '../types'
+import type { ClinicSettings, Conversation, PanelLanguage } from '../types'
 
 type Mode = 'messenger' | 'jzel'
 type PersistedUi = { open?: boolean; mode?: Mode }
@@ -41,6 +42,20 @@ export function ChatBubble() {
   const { t } = useI18n()
   const user = useAuthStore((s) => s.user)
   const language = useAuthStore((s) => s.language) as PanelLanguage
+  // #8 — everything the bubble shows is scoped to the ACTIVE clinic (the one an
+  // admin is currently viewing), never the user's home clinic, so switching
+  // clinics can never surface another clinic's threads or J.zel history.
+  const { clinicId } = useActiveClinic()
+
+  // #7 — the floating chatbox is a per-clinic setting; hidden when an admin turns
+  // it off for the clinic (only an explicit `false` hides it). Dedupes on the
+  // clinic layout's own ['clinic', clinicId] fetch.
+  const clinicQuery = useQuery({
+    queryKey: ['clinic', clinicId],
+    enabled: Boolean(clinicId && user),
+    queryFn: () => api.get<{ clinic: { settings?: ClinicSettings | null } }>(`/clinics/${clinicId}`),
+  })
+  const chatboxEnabled = clinicQuery.data?.clinic?.settings?.floatingChatbox !== false
 
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<Mode>('messenger')
@@ -49,7 +64,8 @@ export function ChatBubble() {
   const panelRef = useRef<HTMLDivElement>(null)
   const launcherRef = useRef<HTMLButtonElement>(null)
 
-  const uiStorageKey = user ? `${UI_STORAGE_PREFIX}:${user.id}:${user.clinicId}:${language}` : null
+  const uiStorageKey =
+    user && clinicId ? `${UI_STORAGE_PREFIX}:${user.id}:${clinicId}:${language}` : null
 
   useEffect(() => {
     if (!uiStorageKey) {
@@ -78,8 +94,8 @@ export function ChatBubble() {
   // opening the panel in Messenger mode dedupes onto this same cached fetch
   // rather than firing a second request.
   const unreadQuery = useQuery({
-    queryKey: ['conversations', 'all', user?.id, ''],
-    enabled: Boolean(user),
+    queryKey: ['conversations', 'bubble', clinicId, user?.id],
+    enabled: Boolean(user && clinicId),
     refetchInterval: 10_000,
     queryFn: () => api.get<{ conversations: Conversation[] }>('/conversations?limit=75'),
   })
@@ -107,7 +123,7 @@ export function ChatBubble() {
     }
   }, [open])
 
-  if (pathname === '/login' || !user) return null
+  if (pathname === '/login' || !user || !chatboxEnabled) return null
 
   return (
     <div className="docmee-inbox-reskin">

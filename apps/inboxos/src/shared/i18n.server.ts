@@ -414,6 +414,9 @@ const es: Dict = {
   'clinic.section.hours': 'Horario de atención',
   'clinic.section.calendar': 'Google Calendar',
   'clinic.section.sheets': 'CRM / Google Sheets',
+  'clinic.section.chatbox': 'Chatbox flotante',
+  'clinic.chatbox.enable': 'Mostrar el chatbox flotante',
+  'clinic.chatbox.hint': 'Aparece en la esquina inferior para todo el personal de esta clínica.',
   'clinic.section.license': 'Licencia',
 
   'bot.tone.title': 'Tono del bot',
@@ -2590,6 +2593,9 @@ const en: Dict = {
   'clinic.section.hours': 'Business hours',
   'clinic.section.calendar': 'Google Calendar',
   'clinic.section.sheets': 'CRM / Google Sheets',
+  'clinic.section.chatbox': 'Floating chatbox',
+  'clinic.chatbox.enable': 'Show the floating chatbox',
+  'clinic.chatbox.hint': 'Appears in the bottom corner for all staff in this clinic.',
   'clinic.section.license': 'License',
 
   'bot.tone.title': 'Bot tone',

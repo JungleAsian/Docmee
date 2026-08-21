@@ -499,6 +499,9 @@ export interface ClinicSettings {
   // Admin Studio users: per-clinic role permissions and side rail visibility.
   rolePermissions?: Partial<RolePermissions>
   roleMenuVisibility?: Partial<RoleMenuVisibility>
+  // Whether the floating chat bubble is shown for this clinic. Defaults to on
+  // (only an explicit `false` hides it), so existing clinics keep the widget.
+  floatingChatbox?: boolean
   [key: string]: unknown
 }
 

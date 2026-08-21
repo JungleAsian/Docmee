@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
+import { useActiveClinic } from '../hooks/useActiveClinic'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, relativeTime } from '../format'
 import type { Conversation } from '../types'
@@ -25,10 +26,14 @@ function previewText(
 export function BubbleConversationList({ onSelect }: { onSelect: (id: string) => void }) {
   const { t } = useI18n()
   const userId = useAuthStore((s) => s.user?.id)
+  const { clinicId } = useActiveClinic()
   const [search, setSearch] = useState('')
 
   const query = useQuery({
-    queryKey: ['conversations', 'all', userId, ''],
+    // Must match ChatBubble's badge query so the two dedupe onto one fetch, and
+    // is scoped to the active clinic (#8) so switching clinics never bleeds threads.
+    queryKey: ['conversations', 'bubble', clinicId, userId],
+    enabled: Boolean(clinicId),
     refetchInterval: 10_000,
     queryFn: () => api.get<{ conversations: Conversation[] }>('/conversations?limit=75'),
   })

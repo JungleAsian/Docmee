@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
+import { useActiveClinic } from '../hooks/useActiveClinic'
 import { ApiError, api } from '../api/client'
 import type { PanelLanguage, PanelRole } from '../types'
 
@@ -74,6 +75,10 @@ export function BubbleJzelChat() {
   type Key = Parameters<typeof t>[0]
   const user = useAuthStore((s) => s.user)
   const language = useAuthStore((s) => s.language) as PanelLanguage
+  // #8 — J.zel history is scoped to the ACTIVE clinic, so an admin who switches
+  // clinics gets a separate thread and never carries one clinic's context into
+  // another. (/assist/chat is already clinic-scoped by the X-Clinic-Id header.)
+  const { clinicId } = useActiveClinic()
 
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
@@ -85,9 +90,8 @@ export function BubbleJzelChat() {
   const chatLoadedFor = useRef<string | null>(null)
 
   const chips = chipsForRole(user?.role)
-  const chatStorageKey = user
-    ? `${CHAT_STORAGE_PREFIX}:${user.id}:${user.clinicId}:${language}`
-    : null
+  const chatStorageKey =
+    user && clinicId ? `${CHAT_STORAGE_PREFIX}:${user.id}:${clinicId}:${language}` : null
 
   // Keep the conversation while the user moves around the app — same session
   // storage key DocmeePet used, so history from before the merge carries over.

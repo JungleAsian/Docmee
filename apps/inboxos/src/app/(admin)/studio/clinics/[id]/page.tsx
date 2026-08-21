@@ -55,6 +55,7 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
       ) : (
         <ClinicDetailSaveProvider>
           <GeneralSection clinic={clinic} />
+          <FloatingChatboxSection clinic={clinic} />
           <BotConfigSection clinic={clinic} />
           <BusinessHoursSection clinic={clinic} />
           <BookingGridSection clinic={clinic} />
@@ -848,6 +849,33 @@ function CalendarSection({ clinic }: { clinic: Clinic }) {
           <p className="mt-2 text-xs text-gray-400">{t('calendar.hint')}</p>
         </div>
       )}
+    </Section>
+  )
+}
+
+function FloatingChatboxSection({ clinic }: { clinic: Clinic }) {
+  const { t } = useI18n()
+  const settings = clinic.settings as ClinicSettings
+  // Defaults to on — only an explicit `false` hides the widget.
+  const [enabled, setEnabled] = useState(settings.floatingChatbox !== false)
+  const save = useSaveClinic(clinic.id)
+
+  const dirty = enabled !== (settings.floatingChatbox !== false)
+
+  function onSave() {
+    save.mutate({ settings: { ...clinic.settings, floatingChatbox: enabled } })
+  }
+
+  useSectionSaveRegistration('chatbox', t('clinic.section.chatbox'), dirty, save.isPending, onSave)
+
+  return (
+    <Section title={t('clinic.section.chatbox')}>
+      <label className="flex items-center justify-between gap-3 text-sm">
+        <span>{t('clinic.chatbox.enable')}</span>
+        <PillToggle checked={enabled} label={t('clinic.chatbox.enable')} onChange={setEnabled} />
+      </label>
+      <p className="mt-2 text-xs text-gray-400">{t('clinic.chatbox.hint')}</p>
+      <SaveBar dirty={dirty} pending={save.isPending} saved={save.isSuccess && !dirty} onSave={onSave} />
     </Section>
   )
 }

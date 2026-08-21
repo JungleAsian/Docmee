@@ -8,13 +8,16 @@
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { createAuditRepository, createWorkflowApprovalsRepository, createWorkflowsRepository } from '@docmee/db'
+import { createAuditRepository, createClinicsRepository, createWorkflowApprovalsRepository, createWorkflowsRepository } from '@docmee/db'
+import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
 import { validateWorkflowDefinition } from '@docmee/agents'
+import { readAiAssistant, resolveChat } from '../lib/ai-assistant.js'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
+import { rateLimitGuard } from '../lib/rate-limit.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const nodeSchema = z.object({
@@ -49,6 +52,43 @@ function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[], active: boo
   if (errors.length === 0) return true
   reply.code(400).send({ error: 'Invalid workflow graph', details: errors })
   return false
+}
+
+// ── AI "Start with a wizard" (guided Q&A → workflow) ─────────────────────────
+const wizardSchema = z.object({
+  answers: z.record(z.string()).default({}),
+  templates: z
+    .array(z.object({ key: z.string().min(1), name: z.string(), description: z.string() }))
+    .min(1),
+})
+
+function clinicRulesText(clinic: Clinic): string | null {
+  const raw = (clinic.settings as { clinicRules?: unknown }).clinicRules
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
+}
+
+/** Pull the first JSON object out of an LLM reply and validate it against the
+ *  allowed template keys. Returns null on any malformation so the caller can
+ *  fall back to a deterministic template — the wizard must never dead-end. */
+function parseWizardJson(
+  raw: string,
+  allowedKeys: string[],
+): { templateKey: string; name: string; greeting: string } | null {
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) return null
+  try {
+    const obj = JSON.parse(match[0]) as Record<string, unknown>
+    const templateKey =
+      typeof obj.templateKey === 'string' && allowedKeys.includes(obj.templateKey)
+        ? obj.templateKey
+        : null
+    if (!templateKey) return null
+    const name = typeof obj.name === 'string' ? obj.name.trim().slice(0, 60) : ''
+    const greeting = typeof obj.greeting === 'string' ? obj.greeting.trim().slice(0, 400) : ''
+    return { templateKey, name, greeting }
+  } catch {
+    return null
+  }
 }
 
 const workflowsRoute: FastifyPluginAsync = async (app) => {
@@ -93,6 +133,62 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
         }),
       )
       return reply.code(201).send({ workflow })
+    },
+  )
+
+  // Guided-Q&A wizard: given the operator's answers + the available templates
+  // (passed by the client, which owns the template catalog), ask the clinic's AI
+  // to pick the best-fit template and draft a tailored workflow name + opening
+  // WhatsApp greeting. Always resolves to a valid template key — on a disabled/
+  // missing/erroring model it falls back to the first template, so the wizard
+  // never dead-ends. Returns only a small, sanitised suggestion; the client
+  // builds the actual (already-valid) graph from its own template.
+  app.post<{ Params: { id: string } }>(
+    '/clinics/:id/workflows/wizard',
+    {
+      preHandler: [
+        requireRole('clinic_admin', 'ia_studio_admin'),
+        rateLimitGuard({ name: 'workflow-wizard', max: 20, windowMs: 60_000 }),
+      ],
+    },
+    async (request, reply) => {
+      const parsed = validate(wizardSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const { answers, templates } = parsed.data
+      const allowedKeys = templates.map((tpl) => tpl.key)
+      const fallback = { templateKey: allowedKeys[0], name: '', greeting: '' }
+
+      const clinic = await withDb((sql) => createClinicsRepository(sql).findById(clinicId))
+      if (!clinic) return reply.send(fallback)
+
+      const ai = readAiAssistant(clinic)
+      if (!ai.enabled) return reply.send(fallback)
+
+      const language =
+        (clinic.settings as { botLanguage?: unknown }).botLanguage === 'en' ? 'en' : 'es'
+      try {
+        const complete = resolveChat(ai, clinic.settings)
+        const rules = clinicRulesText(clinic)
+        const system =
+          `You configure WhatsApp automations for a medical clinic. From the list of templates, choose the single best-fit template for the clinic's goal, and write a short workflow name and a warm, professional opening WhatsApp greeting. ` +
+          `Reply in ${language === 'en' ? 'English' : 'Spanish'}. ` +
+          `Return ONLY compact JSON, no markdown: {"templateKey":"<one of the given keys>","name":"<max 40 chars>","greeting":"<max 220 chars>"}.`
+        const user = [
+          `Clinic: ${clinic.name}`,
+          rules ? `Clinic rules: ${rules}` : '',
+          `Available templates:\n${templates.map((tpl) => `- ${tpl.key}: ${tpl.name} — ${tpl.description}`).join('\n')}`,
+          `Operator answers:\n${Object.entries(answers).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+        const raw = await complete(system, user, 400)
+        return reply.send(parseWizardJson(raw, allowedKeys) ?? fallback)
+      } catch (err) {
+        request.log.error({ err }, 'workflow wizard suggestion failed')
+        return reply.send(fallback)
+      }
     },
   )
 

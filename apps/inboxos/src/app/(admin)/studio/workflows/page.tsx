@@ -74,13 +74,29 @@ export default function WorkflowsPage() {
     // depending on the template author having hand-placed non-overlapping
     // coordinates (harmless when they did, but not something future template
     // edits should have to get right by hand).
-    mutationFn: (tpl: WorkflowTemplate) =>
-      api.post<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows`, {
-        name: t(tpl.nameKey as Parameters<typeof t>[0]),
+    //
+    // The AI wizard can pass an override name and an opening greeting; the
+    // greeting is written into the first send_message node's text (best-effort —
+    // if the template has none, it's simply ignored, keeping the graph valid).
+    mutationFn: ({ tpl, name, greeting }: { tpl: WorkflowTemplate; name?: string; greeting?: string }) => {
+      let nodes = tpl.nodes
+      if (greeting && greeting.trim()) {
+        let applied = false
+        nodes = tpl.nodes.map((nd) => {
+          if (!applied && nd.type === 'action.send_message') {
+            applied = true
+            return { ...nd, config: { ...nd.config, text: greeting.trim() } }
+          }
+          return nd
+        })
+      }
+      return api.post<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows`, {
+        name: name?.trim() || t(tpl.nameKey as Parameters<typeof t>[0]),
         status: 'draft',
-        nodes: layoutWorkflow(tpl.nodes, tpl.edges),
+        nodes: layoutWorkflow(nodes, tpl.edges),
         edges: tpl.edges,
-      }),
+      })
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: key })
       setEditing(res.workflow)
@@ -105,7 +121,7 @@ export default function WorkflowsPage() {
       const tpl = WORKFLOW_TEMPLATES.find((x) => x.key === tplKey)
       if (tpl) {
         deepLinkHandledRef.current = true
-        createFromTemplate.mutate(tpl)
+        createFromTemplate.mutate({ tpl })
         clear()
       }
       return
@@ -175,9 +191,10 @@ export default function WorkflowsPage() {
           <AutomationWizard
             open={wizardOpen}
             onClose={() => setWizardOpen(false)}
-            onPick={(tpl) => {
+            clinicId={clinicId}
+            onApply={(tpl, opts) => {
               setWizardOpen(false)
-              createFromTemplate.mutate(tpl)
+              createFromTemplate.mutate({ tpl, name: opts.name, greeting: opts.greeting })
             }}
             pending={createFromTemplate.isPending}
           />
@@ -190,7 +207,7 @@ export default function WorkflowsPage() {
                   key={tpl.key}
                   type="button"
                   disabled={createFromTemplate.isPending}
-                  onClick={() => createFromTemplate.mutate(tpl)}
+                  onClick={() => createFromTemplate.mutate({ tpl })}
                   className="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:bg-gray-800"
                 >
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{t(tpl.nameKey as Parameters<typeof t>[0])}</p>
@@ -278,25 +295,85 @@ export default function WorkflowsPage() {
 // pre-filled starter graph instead of a blank canvas. One question (goal) —
 // the template library only has three entries today, so a longer
 // questionnaire would outrun what it can actually branch to.
-const WIZARD_GOALS: { key: string; templateKey: string; labelKey: Parameters<ReturnType<typeof useI18n>['t']>[0]; descKey: Parameters<ReturnType<typeof useI18n>['t']>[0] }[] = [
-  { key: 'guided', templateKey: 'guided_whatsapp_booking', labelKey: 'wf.wizard.goal.guided', descKey: 'wf.wizard.goal.guidedDesc' },
-  { key: 'quick', templateKey: 'single_turn_booking', labelKey: 'wf.wizard.goal.quick', descKey: 'wf.wizard.goal.quickDesc' },
-  { key: 'urgent', templateKey: 'urgent_keyword', labelKey: 'wf.wizard.goal.urgent', descKey: 'wf.wizard.goal.urgentDesc' },
+type WizardKey = Parameters<ReturnType<typeof useI18n>['t']>[0]
+
+// Guided-Q&A options. The chosen value is sent to the clinic AI as context and
+// also drives the deterministic fallback template when the AI is unavailable, so
+// the wizard always produces a valid workflow.
+const WIZARD_GOAL_OPTIONS: { value: string; labelKey: WizardKey; fallback: string }[] = [
+  { value: 'book_confirm', labelKey: 'wf.wizard.goalOpt.booking', fallback: 'guided_whatsapp_booking' },
+  { value: 'quick_book', labelKey: 'wf.wizard.goalOpt.quick', fallback: 'single_turn_booking' },
+  { value: 'urgent_triage', labelKey: 'wf.wizard.goalOpt.urgent', fallback: 'urgent_keyword' },
+  { value: 'other', labelKey: 'wf.wizard.goalOpt.other', fallback: 'guided_whatsapp_booking' },
+]
+const WIZARD_TONE_OPTIONS: { value: string; labelKey: WizardKey }[] = [
+  { value: 'professional', labelKey: 'wf.wizard.toneOpt.professional' },
+  { value: 'friendly', labelKey: 'wf.wizard.toneOpt.friendly' },
+  { value: 'brief', labelKey: 'wf.wizard.toneOpt.brief' },
 ]
 
+const wizardFieldCls =
+  'w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-cyan-500 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-950'
+
+// "Start with a wizard" — a guided Q&A that hands the operator's answers + the
+// clinic's context to the clinic AI (POST /workflows/wizard), which picks the
+// best-fit template and drafts a tailored name + opening greeting. Falls back to
+// a deterministic template for the chosen goal if the AI is off or errors, so it
+// never dead-ends. The actual (already-valid) graph is built from the template.
 function AutomationWizard({
   open,
   onClose,
-  onPick,
+  clinicId,
+  onApply,
   pending,
 }: {
   open: boolean
   onClose: () => void
-  onPick: (tpl: WorkflowTemplate) => void
+  clinicId: string
+  onApply: (tpl: WorkflowTemplate, opts: { name?: string; greeting?: string }) => void
   pending: boolean
 }) {
   const { t } = useI18n()
+  const [goal, setGoal] = useState('book_confirm')
+  const [tone, setTone] = useState('professional')
+  const [detail, setDetail] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [failedSoft, setFailedSoft] = useState(false)
   if (!open) return null
+
+  const busy = generating || pending
+
+  const pickFallback = (): WorkflowTemplate => {
+    const opt = WIZARD_GOAL_OPTIONS.find((o) => o.value === goal)
+    return (
+      WORKFLOW_TEMPLATES.find((x) => x.key === (opt?.fallback ?? WORKFLOW_TEMPLATES[0].key)) ??
+      WORKFLOW_TEMPLATES[0]
+    )
+  }
+
+  async function onGenerate() {
+    setGenerating(true)
+    setFailedSoft(false)
+    const templates = WORKFLOW_TEMPLATES.map((tpl) => ({
+      key: tpl.key,
+      name: t(tpl.nameKey as WizardKey),
+      description: t(tpl.descKey as WizardKey),
+    }))
+    try {
+      const res = await api.post<{ templateKey: string; name?: string; greeting?: string }>(
+        `/clinics/${clinicId}/workflows/wizard`,
+        { answers: { goal, tone, detail: detail.trim() }, templates },
+      )
+      const tpl = WORKFLOW_TEMPLATES.find((x) => x.key === res.templateKey) ?? pickFallback()
+      onApply(tpl, { name: res.name, greeting: res.greeting })
+    } catch {
+      // Never dead-end — fall back to a deterministic template for the goal.
+      setFailedSoft(true)
+      onApply(pickFallback(), {})
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -307,32 +384,60 @@ function AutomationWizard({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t('wf.wizard.title')}</h2>
-        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('wf.wizard.question')}</p>
-        <div className="mt-4 space-y-2">
-          {WIZARD_GOALS.map((goal) => {
-            const tpl = WORKFLOW_TEMPLATES.find((x) => x.key === goal.templateKey)
-            if (!tpl) return null
-            return (
-              <button
-                key={goal.key}
-                type="button"
-                disabled={pending}
-                onClick={() => onPick(tpl)}
-                className="block w-full rounded-lg border border-gray-200 p-3 text-left hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50 dark:border-gray-800 dark:bg-gray-950/40 dark:hover:border-cyan-800 dark:hover:bg-cyan-950/20"
-              >
-                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t(goal.labelKey)}</p>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{t(goal.descKey)}</p>
-              </button>
-            )
-          })}
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('wf.wizard.subtitle')}</p>
+
+        <div className="mt-4 space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500">{t('wf.wizard.goalLabel')}</span>
+            <select value={goal} onChange={(e) => setGoal(e.target.value)} disabled={busy} className={wizardFieldCls}>
+              {WIZARD_GOAL_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {t(o.labelKey)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500">{t('wf.wizard.toneLabel')}</span>
+            <select value={tone} onChange={(e) => setTone(e.target.value)} disabled={busy} className={wizardFieldCls}>
+              {WIZARD_TONE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {t(o.labelKey)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold text-gray-500">{t('wf.wizard.detailLabel')}</span>
+            <textarea
+              value={detail}
+              onChange={(e) => setDetail(e.target.value)}
+              rows={3}
+              disabled={busy}
+              placeholder={t('wf.wizard.detailPlaceholder')}
+              className={`${wizardFieldCls} resize-none`}
+            />
+          </label>
         </div>
-        <div className="mt-4 flex justify-end">
+
+        {failedSoft && <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">{t('wf.wizard.error')}</p>}
+
+        <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+            disabled={busy}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
           >
             {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={busy}
+            className="rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-50"
+          >
+            {busy ? t('wf.wizard.generating') : `✨ ${t('wf.wizard.generate')}`}
           </button>
         </div>
       </div>

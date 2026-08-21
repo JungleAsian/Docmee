@@ -30,10 +30,13 @@ export function InstallPrompt() {
     if (isStandalone()) return
 
     const onBeforeInstall = (e: Event) => {
-      // Stop Chrome's default mini-infobar; we present our own sheet instead.
-      e.preventDefault()
       const store = typeof window !== 'undefined' ? window.localStorage : null
+      // Only suppress Chrome's mini-infobar when we're actually going to present
+      // our own sheet. If the user snoozed us, leave the browser's default banner
+      // alone (do NOT preventDefault) — otherwise Chrome logs "preventDefault()
+      // called but prompt() never called" and no install affordance shows at all.
       if (isInstallSnoozed(store, Date.now())) return
+      e.preventDefault()
       setDeferred(e as BeforeInstallPromptEvent)
     }
     const onInstalled = () => setDeferred(null)

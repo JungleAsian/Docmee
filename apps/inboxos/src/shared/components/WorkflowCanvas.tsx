@@ -914,7 +914,7 @@ function WorkflowCanvasInner({
   return (
     <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       {/* Palette */}
-      <div className="w-52 shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
+      <div className="w-[250px] shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
         <input
           value={paletteQuery}
           onChange={(e) => setPaletteQuery(e.target.value)}

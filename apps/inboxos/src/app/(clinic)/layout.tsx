@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { CaretLeft, CaretRight, List, MagnifyingGlass } from '@phosphor-icons/react'
+import { CaretLeft, CaretRight, List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { api } from '@/shared/api/client'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
@@ -33,6 +33,31 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   const { features } = useFeatures()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [railOpen, setRailOpen] = useState(true)
+  // Customize menu (mirrors Admin Studio): hide/show individual side-rail items,
+  // persisted per-browser in localStorage.
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [hiddenItems, setHiddenItems] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const raw = window.localStorage.getItem('docmee-hidden-clinic-nav')
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    } catch {
+      return new Set()
+    }
+  })
+  function toggleHidden(href: string) {
+    setHiddenItems((current) => {
+      const next = new Set(current)
+      if (next.has(href)) next.delete(href)
+      else next.add(href)
+      try {
+        window.localStorage.setItem('docmee-hidden-clinic-nav', JSON.stringify([...next]))
+      } catch {
+        // localStorage unavailable — preference just won't persist
+      }
+      return next
+    })
+  }
   const pathname = usePathname()
   // The Inbox is a fixed-height workspace: it must fill the viewport exactly and
   // scroll only its own inner columns (message list, conversation list, context
@@ -85,13 +110,22 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
     return result
   }, [t, user?.role, features.advancedAnalytics, settings])
 
+  // The sidebar shows only items the operator hasn't hidden via the customize menu.
+  const visibleGroups = useMemo<NavGroup[]>(
+    () =>
+      groups
+        .map((group) => ({ ...group, items: group.items.filter((item) => !hiddenItems.has(item.href)) }))
+        .filter((group) => group.items.length > 0),
+    [groups, hiddenItems],
+  )
+
   if (!ready) return <DocmeeLoader label={t('common.loading')} fullScreen />
 
   return (
     <div className="crm-app-container" data-docmee-app-shell>
       {/* Desktop sidebar */}
       <div className={railOpen ? 'hidden md:flex' : 'hidden'}>
-        <Sidebar groups={groups} title={t('nav.inbox')} />
+        <Sidebar groups={visibleGroups} title={t('nav.inbox')} />
       </div>
 
       {/* Mobile drawer */}
@@ -104,7 +138,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             className="absolute inset-0 bg-black/40"
           />
           <div className="relative z-10" onClick={() => setDrawerOpen(false)}>
-            <Sidebar groups={groups} title={t('nav.inbox')} />
+            <Sidebar groups={visibleGroups} title={t('nav.inbox')} />
           </div>
         </div>
       )}
@@ -129,6 +163,44 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <List size={22} />
           </button>
           <ClinicBackButton />
+          <div className="relative">
+            <button
+              type="button"
+              aria-label={t('nav.customizeMenu')}
+              title={t('nav.customizeMenu')}
+              onClick={() => setCustomizeOpen((v) => !v)}
+              className="crm-icon-btn hidden md:inline-flex"
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            {customizeOpen && (
+              <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  {t('nav.customizeMenu')}
+                </p>
+                {groups.map((group, gi) => (
+                  <div key={group.label ?? gi} className="mb-1">
+                    {group.label && (
+                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
+                    )}
+                    {group.items.map((item) => (
+                      <label
+                        key={item.href}
+                        className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!hiddenItems.has(item.href)}
+                          onChange={() => toggleHidden(item.href)}
+                        />
+                        <span className="truncate">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" placeholder="Search patients, messages, or appointments..." />

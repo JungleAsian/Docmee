@@ -124,6 +124,30 @@ export function ConversationList({
     }
   }
 
+  // The list is a FIXED (non-scrolling) pane: rather than an inner scrollbar it
+  // shows one height-fitted page of threads at a time with a compact pager, so the
+  // queue never clips and never introduces a scrollbar. pageSize is derived from
+  // the actual rows-area height (ResizeObserver) with a conservative row-height
+  // estimate, so a page always fits at any viewport.
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
+  const rowsAreaRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = rowsAreaRef.current
+    if (!el) return
+    const ROW_H = 84 // conservative upper estimate of one ThreadRow's height
+    const LABEL_RESERVE = 64 // room for the safety/open group labels
+    const recompute = () => {
+      const h = el.clientHeight
+      if (h <= 0) return
+      setPageSize(Math.max(1, Math.floor((h - LABEL_RESERVE) / ROW_H)))
+    }
+    recompute()
+    const ro = new ResizeObserver(recompute)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const query = useQuery({
     queryKey: ['conversations', assignee, userId, search.trim()],
     refetchInterval: 10_000,
@@ -178,11 +202,28 @@ export function ConversationList({
   const hiddenCount = normalRowsAll.length - normalRows.length
   const visibleCount = safetyRows.length + normalRows.length
 
+  // Paginate the ordered queue (safety threads first) into height-fitted pages.
+  const orderedRows = [...safetyRows, ...normalRows]
+  const pageCount = Math.max(1, Math.ceil(orderedRows.length / pageSize))
+  const currentPage = Math.min(page, pageCount - 1)
+  const pageStart = currentPage * pageSize
+  const pageRows = orderedRows.slice(pageStart, pageStart + pageSize)
+  const pageSafety = pageRows.filter((c) => assessSafety(c.tags).level)
+  const pageNormal = pageRows.filter((c) => !assessSafety(c.tags).level)
+  // Jump back to the first page whenever the underlying queue changes (a new
+  // lens/filter/search), and clamp if the page count shrank under us.
+  useEffect(() => {
+    setPage(0)
+  }, [lens, assignee, search, channel])
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(Math.max(0, pageCount - 1))
+  }, [page, pageCount])
+
   // CRE-62: keyboard navigation for the operator — j/k or arrow keys move through
   // the visible queue and Enter (re)opens the highlighted thread. A ref carries the
   // live list so the listener attaches once; it is ignored while a field is focused
   // so it never fights the search or reply inputs.
-  const orderedIds = [...safetyRows, ...normalRows].map((c) => c.id)
+  const orderedIds = pageRows.map((c) => c.id)
   const navRef = useRef<{ ids: string[]; selectedId: string | null; onSelect: (id: string) => void }>({
     ids: orderedIds,
     selectedId,
@@ -350,9 +391,9 @@ export function ConversationList({
         </label>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col">
         {selectedRows.size > 0 && (
-          <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-[var(--crm-border-color)] bg-[var(--crm-hover-bg)] px-3 py-2 text-xs shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--crm-border-color)] bg-[var(--crm-hover-bg)] px-3 py-2 text-xs shadow-sm">
             <span className="font-bold text-[var(--crm-primary-color)]">{selectedRows.size} selected</span>
             <button
               type="button"
@@ -387,6 +428,7 @@ export function ConversationList({
             </button>
           </div>
         )}
+        <div ref={rowsAreaRef} className="min-h-0 flex-1 overflow-hidden">
         {query.isLoading ? (
           <ListSkeleton />
         ) : query.isError ? (
@@ -452,12 +494,12 @@ export function ConversationList({
           )
         ) : (
           <ul className="crm-conversation-list-rows">
-            {safetyRows.length > 0 && (
+            {pageSafety.length > 0 && (
               <li>
                 <GroupLabel danger>⚠ {t('conv.group.safety')}</GroupLabel>
               </li>
             )}
-            {safetyRows.map((c) => (
+            {pageSafety.map((c) => (
               <ThreadRow
                 key={c.id}
                 conversation={c}
@@ -469,12 +511,12 @@ export function ConversationList({
                 onCheck={toggleRow}
               />
             ))}
-            {normalRows.length > 0 && (
+            {pageNormal.length > 0 && (
               <li>
                 <GroupLabel>{t('conv.group.open')}</GroupLabel>
               </li>
             )}
-            {normalRows.map((c) => (
+            {pageNormal.map((c) => (
               <ThreadRow
                 key={c.id}
                 conversation={c}
@@ -488,6 +530,37 @@ export function ConversationList({
               />
             ))}
           </ul>
+        )}
+        </div>
+        {/* Pager — the list is a fixed pane, so instead of scrolling it steps
+            through height-fitted pages. Hidden while loading/erroring or when it
+            all fits on one page. */}
+        {!query.isLoading && !query.isError && orderedRows.length > 0 && pageCount > 1 && (
+          <div className="flex shrink-0 items-center justify-center gap-3 border-t border-[var(--crm-border-color)] px-3 py-2 text-xs">
+            <button
+              type="button"
+              aria-label={t('conv.page.prev')}
+              title={t('conv.page.prev')}
+              disabled={currentPage === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              className="rounded-md border border-[var(--crm-border-color)] px-2 py-1 font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-40"
+            >
+              ‹
+            </button>
+            <span className="font-semibold text-[var(--crm-text-muted)]">
+              {currentPage + 1} / {pageCount}
+            </span>
+            <button
+              type="button"
+              aria-label={t('conv.page.next')}
+              title={t('conv.page.next')}
+              disabled={currentPage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              className="rounded-md border border-[var(--crm-border-color)] px-2 py-1 font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-40"
+            >
+              ›
+            </button>
+          </div>
         )}
       </div>
     </div>

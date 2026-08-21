@@ -196,7 +196,7 @@ export default function GovernancePage() {
           </div>
 
           <Section title="Governance areas">
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="grid gap-3">
               {data.records.map((record) => (
                 <div key={record.id} className="clinic-card p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -253,7 +253,7 @@ export default function GovernancePage() {
           </Section>
 
           <Section title="Clinic custom attributes">
-            <div className="grid gap-3 lg:grid-cols-3">
+            <div className="grid gap-3">
               {data.attributes.map((attr) => (
                 <div key={attr.id} className="clinic-card p-4">
                   <div className="flex items-start justify-between gap-3">

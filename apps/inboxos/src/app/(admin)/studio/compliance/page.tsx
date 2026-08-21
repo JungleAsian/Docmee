@@ -166,7 +166,7 @@ export default function CompliancePage() {
         {showPosture && (
           <>
             <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">{t('compliance.posture.hint')}</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3">
               <PostureCard
                 icon="✋"
                 titleKey="compliance.posture.consent.title"

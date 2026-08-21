@@ -267,7 +267,7 @@ export default function ChannelsPage() {
       {!clinicId ? (
         <p className="text-sm text-gray-400">{t('studio.kb.selectClinic')}</p>
       ) : query.isLoading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
@@ -292,7 +292,7 @@ export default function ChannelsPage() {
 
           <ProviderStatusPanel clinic={clinic} whatsappAccounts={whatsappAccounts} />
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
             {cards.map((card) => (
               <ServiceCardView key={card.key} card={card} clinic={clinic} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic', clinicId] })} />
             ))}
@@ -359,6 +359,7 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
     buildSuperuserSettingsForm(clinic.settings as ClinicSettings | undefined),
   )
   const [message, setMessage] = useState<string | null>(null)
+  const [revealed, setRevealed] = useState(false)
   useEffect(() => {
     setForm(buildSuperuserSettingsForm(clinic.settings as ClinicSettings | undefined))
     setMessage(null)
@@ -446,8 +447,18 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
             No-code controls for clinic-wide behavior. Existing hidden settings are preserved when you save.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setRevealed((v) => !v)}
+          aria-expanded={revealed}
+          className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          {revealed ? 'Hide settings' : 'Show settings'}
+        </button>
       </div>
 
+      {revealed && (
+      <>
       <Link
         href="/studio/ai-settings"
         className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
@@ -456,7 +467,7 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
         <span aria-hidden>→</span>
       </Link>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="mt-4 grid gap-3">
         <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
           <h3 className="text-xs font-semibold uppercase text-gray-400">Booking grid</h3>
           <div className="mt-3 grid grid-cols-3 gap-2">
@@ -669,6 +680,8 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
           {save.isPending ? 'Saving...' : 'Save clinic settings'}
         </button>
       </div>
+      </>
+      )}
     </section>
   )
 }

@@ -166,7 +166,7 @@ export default function CredentialHealthPage() {
                 <NavIcon name="shield" />
                 <h2 className="text-base font-semibold">{category}</h2>
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-3">
                 {items.map((item) => (
                   <CredentialCard key={item.key} item={item} />
                 ))}

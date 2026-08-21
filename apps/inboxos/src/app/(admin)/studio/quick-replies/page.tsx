@@ -139,7 +139,7 @@ export default function QuickRepliesPage() {
           </div>
 
           {query.isLoading ? (
-            <div className="grid gap-3 sm:grid-cols-2" aria-busy="true">
+            <div className="grid gap-3" aria-busy="true">
               {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
@@ -182,7 +182,7 @@ export default function QuickRepliesPage() {
               }
             />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3">
               {filtered.map((tpl) => (
                 <QuickReplyCard
                   key={tpl.id}

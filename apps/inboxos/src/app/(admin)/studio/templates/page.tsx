@@ -13,6 +13,7 @@ import { Info } from '@phosphor-icons/react'
 import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { StudioMessagingTabs } from '@/shared/components/StudioMessagingTabs'
+import { QuickRepliesManager } from '@/shared/components/QuickRepliesManager'
 import { Tooltip } from '@/shared/components/Tooltip'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
@@ -318,6 +319,12 @@ export default function TemplatesPage() {
           )}
         </>
       )}
+
+      {/* Merged Quick Replies (item 9): the in-window canned replies now live on
+          this same page, one per row, below the WhatsApp templates. */}
+      <section className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-800">
+        <QuickRepliesManager embedded />
+      </section>
     </div>
   )
 }

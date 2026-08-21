@@ -268,7 +268,7 @@ body {
 
   .crm-nav-group-label {
     padding: 12px 10px 4px;
-    font-size: 10px;
+    font-size: 8px; /* 80% of 10px (side-rail text scaled to 80%) */
     font-weight: 800;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -282,7 +282,7 @@ body {
     min-height: 42px;
     padding: 10px 12px;
     color: var(--crm-text-muted);
-    font-size: 14px;
+    font-size: 11.2px; /* 80% of 14px (side-rail text scaled to 80%) */
     font-weight: 600;
     border-radius: var(--crm-border-radius-sm);
     transition: var(--crm-transition);
@@ -311,7 +311,7 @@ body {
     gap: 10px;
     min-height: 38px;
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: 10.4px; /* 80% of 13px (side-rail text scaled to 80%) */
   }
 
   .crm-main-content {

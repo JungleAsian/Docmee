@@ -69,7 +69,7 @@ export function Sidebar({ links, groups, title }: { links?: NavLink[]; groups?: 
               alt={t('app.name')}
               className="crm-sidebar-logo-wordmark"
             />
-            <p className="mt-1.5 break-words text-[10px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">{title}</p>
+            <p className="mt-1.5 break-words text-[8px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">{title}</p>
           </div>
         </div>
       </div>

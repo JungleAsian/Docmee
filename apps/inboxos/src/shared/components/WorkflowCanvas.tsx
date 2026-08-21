@@ -142,7 +142,7 @@ function nodeFaceText(wf: WfNode): string | undefined {
  *  returns a <WorkflowLinearEditor> instead of ever reaching the canvas JSX
  *  when mode is 'classic', so the BotPenguin-face / mode-dependent styling
  *  further down this file only ever renders with mode === 'enhanced'. */
-type CanvasMode = 'enhanced' | 'classic'
+export type CanvasMode = 'enhanced' | 'classic'
 
 /** BotPenguin-style option row: left-aligned title, a per-row source handle
  *  floating on the card's right edge, and (in bp mode) a blue "+" button that
@@ -421,7 +421,6 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
             the top-right corner on hover. */}
         {descKey && (
           <span
-            title={t(descKey as Parameters<typeof t>[0])}
             className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-gray-300 text-[8px] font-bold text-gray-400 dark:border-gray-600"
           >
             i
@@ -429,6 +428,15 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
         )}
       </div>
       <p className="truncate font-semibold text-gray-800 dark:text-gray-100">{displayLabel}</p>
+
+      {/* Node info (item 15): the node type's description + use pops up BELOW the
+          node on hover, so the user learns what the node does without a cramped
+          native tooltip. pointer-events-none so it never blocks canvas drags. */}
+      {descKey && (
+        <div className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 w-60 rounded-md border border-gray-200 bg-white p-2 text-[10px] font-normal normal-case leading-snug text-gray-600 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          {t(descKey as Parameters<typeof t>[0])}
+        </div>
+      )}
 
       {/* Full BotPenguin-style anatomy (R9): menu cards show structured
           Header/Message/Footer sections; options/branches are left-aligned
@@ -512,42 +520,10 @@ const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: Node
 
 const nodeTypes = { wf: WorkflowNodeView }
 
-const CANVAS_MODE_KEY = 'docmee.canvas.mode'
-
 interface PendingWire {
   nodeId: string
   handleId?: string
   at: { x: number; y: number }
-}
-
-/** Enhanced/Guided toggle, top-right — visible regardless of which mode is
- *  currently rendered so the admin can always switch back. 'classic' is the
- *  Guided (fill-in-the-blank / linear-steps) editor; the internal mode value
- *  and its localStorage key stay the literal string 'classic' to avoid
- *  resetting anyone's saved preference -- only the label copy changed. */
-function BuilderModeSwitcher({
-  mode,
-  onSwitch,
-  t,
-}: {
-  mode: CanvasMode
-  onSwitch: (next: CanvasMode) => void
-  t: ReturnType<typeof useI18n>['t']
-}) {
-  return (
-    <div className="absolute right-3 top-3 z-10 flex overflow-hidden rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-600 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-      {(['enhanced', 'classic'] as const).map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => onSwitch(m)}
-          className={`px-2.5 py-1 ${mode === m ? 'bg-teal-600 text-white' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}
-        >
-          {m === 'enhanced' ? t('wf.enhancedBuilder') : t('wf.guidedBuilder')}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 function WorkflowCanvasInner({
@@ -556,6 +532,7 @@ function WorkflowCanvasInner({
   onChange,
   clinicId,
   workflowId,
+  mode,
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
@@ -565,6 +542,8 @@ function WorkflowCanvasInner({
   /** The workflow currently open — excluded from the AI Agent node's "route
    *  to another workflow" target picker so it can't route to itself. */
   workflowId?: string
+  /** Builder mode — lifted to the editor toolbar (item 16), passed in here. */
+  mode: CanvasMode
 }) {
   const { t } = useI18n()
   const { screenToFlowPosition } = useReactFlow()
@@ -574,21 +553,6 @@ function WorkflowCanvasInner({
   const [paletteQuery, setPaletteQuery] = useState('')
   const [pendingWire, setPendingWire] = useState<PendingWire | null>(null)
   const [pickerQuery, setPickerQuery] = useState('')
-  // Builder-mode preference persists across sessions (BotPenguin-style switcher).
-  const [mode, setMode] = useState<CanvasMode>(() => {
-    if (typeof window === 'undefined') return 'enhanced'
-    const stored = window.localStorage.getItem(CANVAS_MODE_KEY)
-    // 'bp' was the short-lived BotPenguin mode — it IS the Classic Builder now.
-    return stored === 'classic' || stored === 'bp' ? 'classic' : 'enhanced'
-  })
-  const switchMode = useCallback((next: CanvasMode) => {
-    setMode(next)
-    try {
-      window.localStorage.setItem(CANVAS_MODE_KEY, next)
-    } catch {
-      /* private mode — pref simply won't persist */
-    }
-  }, [])
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
 
@@ -906,7 +870,6 @@ function WorkflowCanvasInner({
     return (
       <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
         <WorkflowLinearEditor nodes={nodes} edges={edges} onChange={onChange} clinicId={clinicId} workflowId={workflowId} />
-        <BuilderModeSwitcher mode={mode} onSwitch={switchMode} t={t} />
       </div>
     )
   }
@@ -965,8 +928,13 @@ function WorkflowCanvasInner({
           fitView
           onlyRenderVisibleElements
           proOptions={{ hideAttribution: true }}
+          /* Item 18: snap dragged nodes to a 16px grid so they align cleanly. */
+          snapToGrid
+          snapGrid={[16, 16]}
+          /* Item 17: fixed #1e1e1e canvas background in both light and dark. */
+          style={{ background: '#1e1e1e' }}
         >
-          <Background />
+          <Background gap={16} color="#333333" />
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
@@ -1022,8 +990,6 @@ function WorkflowCanvasInner({
           </button>
         </aside>
       )}
-
-      <BuilderModeSwitcher mode={mode} onSwitch={switchMode} t={t} />
     </div>
   )
 }
@@ -1037,6 +1003,8 @@ export function WorkflowCanvas(props: {
   /** The workflow currently open — excluded from the AI Agent node's "route
    *  to another workflow" target picker so it can't route to itself. */
   workflowId?: string
+  /** Builder mode, owned by the editor toolbar (item 16). */
+  mode: CanvasMode
 }) {
   return (
     <ReactFlowProvider>

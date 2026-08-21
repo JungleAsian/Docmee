@@ -40,6 +40,16 @@ const WorkflowCanvas = dynamic(
   { ssr: false, loading: () => <CanvasLoading /> },
 )
 
+// Builder mode is owned by the editor toolbar (item 16) and passed to the canvas.
+// Type-only import — erased at build, so it never eager-loads the (dynamic) canvas.
+type CanvasMode = 'enhanced' | 'classic'
+const CANVAS_MODE_KEY = 'docmee.canvas.mode'
+function readCanvasMode(): CanvasMode {
+  if (typeof window === 'undefined') return 'enhanced'
+  const stored = window.localStorage.getItem(CANVAS_MODE_KEY)
+  return stored === 'classic' || stored === 'bp' ? 'classic' : 'enhanced'
+}
+
 export default function WorkflowsPage() {
   const { t, language } = useI18n()
   const qc = useQueryClient()
@@ -474,6 +484,17 @@ function WorkflowEditor({
   const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
   const [status, setStatus] = useState<WorkflowStatus>(workflow?.status ?? 'draft')
+  // Builder mode (Enhanced / Guided) — lifted here so its toggle lives in the
+  // toolbar (item 16); persisted per-browser.
+  const [mode, setMode] = useState<CanvasMode>(() => readCanvasMode())
+  const changeMode = useCallback((next: CanvasMode) => {
+    setMode(next)
+    try {
+      window.localStorage.setItem(CANVAS_MODE_KEY, next)
+    } catch {
+      /* private mode — pref simply won't persist */
+    }
+  }, [])
   // Dirty guard (R17): unsaved edits survive neither an accidental close nor a
   // full page unload.
   const [dirty, setDirty] = useState(false)
@@ -615,8 +636,23 @@ function WorkflowEditor({
             setDirty(true)
           }}
           placeholder={t('wf.namePlaceholder')}
-          className="min-w-40 flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          className="w-56 min-w-40 rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
         />
+        <span className="flex-1" />
+        {/* Enhanced / Guided builder toggle — moved here from the canvas overlay
+            (item 16), sitting just before Undo. */}
+        <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">
+          {(['enhanced', 'classic'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => changeMode(m)}
+              className={`px-2.5 py-1 ${mode === m ? 'bg-teal-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700'}`}
+            >
+              {m === 'enhanced' ? t('wf.enhancedBuilder') : t('wf.guidedBuilder')}
+            </button>
+          ))}
+        </div>
         <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
           <input
             type="checkbox"
@@ -701,6 +737,7 @@ function WorkflowEditor({
           onChange={applyCanvasChange}
           clinicId={clinicId}
           workflowId={workflow?.id}
+          mode={mode}
         />
       </div>
     </>

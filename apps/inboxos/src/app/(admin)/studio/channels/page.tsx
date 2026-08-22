@@ -267,7 +267,7 @@ export default function ChannelsPage() {
       {!clinicId ? (
         <p className="text-sm text-gray-400">{t('studio.kb.selectClinic')}</p>
       ) : query.isLoading ? (
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
@@ -292,7 +292,9 @@ export default function ChannelsPage() {
 
           <ProviderStatusPanel clinic={clinic} whatsappAccounts={whatsappAccounts} />
 
-          <div className="grid grid-cols-1 gap-3">
+          {/* Even 2-column grid so every integration card (Facebook, Instagram,
+              Google Calendar, Google Sheets, WhatsApp) gets equal width. */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {cards.map((card) => (
               <ServiceCardView key={card.key} card={card} clinic={clinic} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic', clinicId] })} />
             ))}

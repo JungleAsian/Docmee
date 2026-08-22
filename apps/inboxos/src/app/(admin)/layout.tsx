@@ -149,9 +149,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="crm-app-container" data-docmee-app-shell>
-      {/* Desktop sidebar */}
-      <div className={railOpen ? 'hidden md:flex' : 'hidden'}>
-        <Sidebar groups={visibleGroups} title={t('studio.title')} />
+      {/* Desktop sidebar — collapses to an icon-only rail when toggled off
+          instead of hiding entirely. */}
+      <div className="hidden md:flex">
+        <Sidebar groups={visibleGroups} title={t('studio.title')} collapsed={!railOpen} />
       </div>
 
       {/* Mobile drawer */}

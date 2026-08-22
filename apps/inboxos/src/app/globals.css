@@ -314,6 +314,37 @@ body {
     font-size: 10.4px; /* 80% of 13px (side-rail text scaled to 80%) */
   }
 
+  /* Collapsed (icon-only) rail — the "hidden" toggle state shows just the page
+     icons instead of hiding the whole side rail. */
+  .crm-sidebar-collapsed {
+    width: 68px;
+  }
+
+  .crm-sidebar-collapsed .crm-sidebar-header {
+    padding: 16px 8px;
+    min-height: 42px;
+  }
+
+  .crm-sidebar-collapsed .crm-sidebar-nav {
+    padding: 0 8px;
+  }
+
+  .crm-sidebar-collapsed .crm-nav-item {
+    justify-content: center;
+    gap: 0;
+    padding: 10px 0;
+  }
+
+  .crm-sidebar-collapsed .crm-sidebar-footer {
+    align-items: center;
+    padding: 10px 8px 14px;
+  }
+
+  .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item {
+    justify-content: center;
+    padding: 8px 0;
+  }
+
   .crm-main-content {
     min-width: 0;
     flex: 1;

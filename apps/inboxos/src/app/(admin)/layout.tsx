@@ -25,7 +25,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { ready, user } = useAuthGuard(['ia_studio_admin', 'clinic_admin'])
   const { t, language } = useI18n()
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [railOpen, setRailOpen] = useState(true)
+  // Persist the rail's expanded/collapsed state so navigating/reloading keeps it
+  // as the user left it — clicking a nav icon in the collapsed rail must not
+  // re-expand it; only the toggle reveals it.
+  const [railOpen, setRailOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true
+    try {
+      return window.localStorage.getItem('docmee.rail.open') !== 'false'
+    } catch {
+      return true
+    }
+  })
+  const toggleRail = () =>
+    setRailOpen((value) => {
+      const next = !value
+      try {
+        window.localStorage.setItem('docmee.rail.open', String(next))
+      } catch {
+        /* private mode — preference just won't persist */
+      }
+      return next
+    })
   useHeartbeat()
   const isSuperuser = user?.role === 'ia_studio_admin'
 
@@ -176,7 +196,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             type="button"
             aria-label={railOpen ? t('nav.hideRail') : t('nav.showRail')}
             title={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-            onClick={() => setRailOpen((value) => !value)}
+            onClick={toggleRail}
             className="crm-icon-btn hidden md:inline-flex"
           >
             {railOpen ? <CaretLeft size={20} /> : <CaretRight size={20} />}

@@ -1329,7 +1329,12 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     async checkAvailability(node, ctx) {
       const clinic = await createClinicsRepository(sql).findById(clinicId)
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
-      const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
+      // A node may pin a specific clinic doctor (config.doctorId, chosen from a
+      // dropdown) instead of reading the patient's saved choice. Direct pick
+      // wins; otherwise fall back to the saved-answer field (unchanged behavior).
+      const doctorValue =
+        String(node.config?.['doctorId'] ?? '').trim() ||
+        contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
       const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
       // A doctor WAS named but couldn't be matched — do not silently fall
       // through to the clinic's shared calendar (a different doctor's or a
@@ -1374,12 +1379,17 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
       if (!ctx.patientId) throw new Error('A patient is required to create or reschedule a booking')
 
-      const doctorValue = contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
+      // Direct pick (config.doctorId) wins over the patient's saved choice.
+      const doctorValue =
+        String(node.config?.['doctorId'] ?? '').trim() ||
+        contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
       const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
       if (doctorValue.trim() && !doctorId) {
         throw new Error(`Could not identify the selected doctor from "${doctorValue}"`)
       }
-      const serviceId = contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
+      const serviceId =
+        String(node.config?.['serviceId'] ?? '').trim() ||
+        contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
       const date = contextString(ctx, configField(node, 'dateField', 'preferred_date'))
       const time = contextString(ctx, configField(node, 'timeField', 'preferred_time')).slice(0, 5)
       const hour = Number(time.slice(0, 2))

@@ -16,7 +16,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useI18n } from '../hooks/useI18n'
 import { api } from '../api/client'
-import type { WorkflowNode as WfNode, Doctor, MessageTemplate, Workflow } from '../types'
+import type { WorkflowNode as WfNode, Doctor, MessageTemplate, Service, Workflow } from '../types'
 import {
   nodeDef,
   FIELD_REFERENCE_KEYS,
@@ -99,6 +99,14 @@ export function NodeConfigPanel({
     () => (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive),
     [doctorsQuery.data],
   )
+  // The clinic's services, for the "always use this service" direct picker on
+  // booking nodes (an alternative to reading the patient's saved choice).
+  const servicesQuery = useQuery({
+    queryKey: ['services', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ services: Service[] }>(`/clinics/${clinicId}/services`),
+  })
+  const activeServices = useMemo(() => servicesQuery.data?.services ?? [], [servicesQuery.data])
   // The clinic's message templates, for the send_template category dropdown:
   // the worker sends the APPROVED template of the chosen category, so the
   // panel marks which categories actually have one (anything else silently
@@ -395,7 +403,71 @@ export function NodeConfigPanel({
               </span>
             )}
           </span>
-          {(key === 'options' && isMenu) || (key === 'scenarios' && isAiAgent) ? (
+          {key === 'doctorIdField' || key === 'serviceIdField' ? (
+            (() => {
+              const kind = key === 'doctorIdField' ? 'doctor' : 'service'
+              const directKey = kind === 'doctor' ? 'doctorId' : 'serviceId'
+              const directVal = String(node.config[directKey] ?? '')
+              const usingDirect = directVal.trim() !== ''
+              const entities =
+                kind === 'doctor'
+                  ? activeDoctors.map((d) => ({ value: d.id, label: d.name }))
+                  : activeServices.map((s) => ({ value: s.id, label: s.name }))
+              const toggleBtn = (active: boolean) =>
+                `rounded border px-2 py-1 text-[11px] font-medium ${
+                  active
+                    ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-200'
+                    : 'border-gray-300 text-gray-500 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+                }`
+              return (
+                <div className="space-y-1.5">
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onPatchConfig(directKey, '')}
+                      className={toggleBtn(!usingDirect)}
+                    >
+                      {t('wf.field.usePatientChoice')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPatchConfig(directKey, directVal || entities[0]?.value || '')}
+                      className={toggleBtn(usingDirect)}
+                    >
+                      {t('wf.field.useSpecific')}
+                    </button>
+                  </div>
+                  {usingDirect ? (
+                    <select
+                      value={directVal}
+                      onChange={(e) => onPatchConfig(directKey, e.target.value)}
+                      className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
+                    >
+                      <option value="">{t('wf.field.selectPlaceholder')}</option>
+                      {entities.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={value}
+                      onChange={(e) => onPatchConfig(key, e.target.value)}
+                      className="w-full rounded border border-gray-300 bg-white p-1.5 text-[13px] dark:border-gray-700 dark:bg-gray-800"
+                    >
+                      <option value="">{t('wf.field.selectPlaceholder')}</option>
+                      {availableFields.map((f) => (
+                        <option key={f} value={f}>
+                          {humanize(f)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )
+            })()
+          ) : (key === 'options' && isMenu) || (key === 'scenarios' && isAiAgent) ? (
             // edited via the richer editor below
             <input
               value={value}

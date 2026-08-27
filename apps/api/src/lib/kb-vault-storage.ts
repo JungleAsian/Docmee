@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { Readable } from 'node:stream'
 
@@ -16,6 +16,55 @@ const BUCKET =
 const PREFIX = (process.env['DOCMEE_KB_S3_PREFIX']?.trim() || 'voice-notes').replace(/^\/+|\/+$/g, '')
 
 let client: S3Client | null = null
+
+export const MEDIA_ASSET_MAX_ACTIVE_FILES = 10
+export const MEDIA_ASSET_MAX_BYTES = 100 * 1024 * 1024
+export const MEDIA_ASSET_QUOTA_BYTES = 100 * 1024 * 1024
+export const WHATSAPP_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+export type SupportedMediaAssetContentType = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp'
+
+const SUPPORTED_MEDIA_ASSET_TYPES = new Set<SupportedMediaAssetContentType>([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+])
+
+export function isSupportedMediaAssetContentType(value: string): value is SupportedMediaAssetContentType {
+  return SUPPORTED_MEDIA_ASSET_TYPES.has(value as SupportedMediaAssetContentType)
+}
+
+export function hasValidMediaAssetSignature(contentType: SupportedMediaAssetContentType, bytes: Uint8Array): boolean {
+  const prefix = Buffer.from(bytes)
+  if (contentType === 'application/pdf') return prefix.subarray(0, 5).toString('ascii') === '%PDF-'
+  if (contentType === 'image/jpeg') return prefix[0] === 0xff && prefix[1] === 0xd8 && prefix[2] === 0xff
+  if (contentType === 'image/png') return prefix.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  return prefix.subarray(0, 4).toString('ascii') === 'RIFF' && prefix.subarray(8, 12).toString('ascii') === 'WEBP'
+}
+
+export type MediaAssetValidationError = 'empty' | 'too_large' | 'unsupported_type' | 'invalid_signature'
+
+export function validateMediaAsset(input: {
+  contentType: string
+  byteSize: number
+  signatureBytes: Uint8Array
+}): MediaAssetValidationError | null {
+  if (input.byteSize <= 0) return 'empty'
+  if (input.byteSize > MEDIA_ASSET_MAX_BYTES) return 'too_large'
+  if (!isSupportedMediaAssetContentType(input.contentType)) return 'unsupported_type'
+  return hasValidMediaAssetSignature(input.contentType, input.signatureBytes) ? null : 'invalid_signature'
+}
+
+export function isEligibleWhatsAppMediaAsset(input: { contentType: string; byteSize: number }): boolean {
+  if (input.contentType === 'application/pdf') {
+    return input.byteSize > 0 && input.byteSize <= MEDIA_ASSET_MAX_BYTES
+  }
+  if (input.contentType === 'image/jpeg' || input.contentType === 'image/png') {
+    return input.byteSize > 0 && input.byteSize <= WHATSAPP_IMAGE_MAX_BYTES
+  }
+  return false
+}
 
 function storageEnabled(): boolean {
   return REGION !== '' && BUCKET !== ''
@@ -89,6 +138,16 @@ export async function uploadKbVaultObject(input: {
     }),
   )
   return { bucket: BUCKET, key: input.key }
+}
+
+/** Delete only an object beneath this vault's configured prefix. S3 deletion is
+ * idempotent, so this is safe for best-effort cleanup after a failed DB write. */
+export async function deleteKbVaultObject(key: string): Promise<boolean> {
+  if (!storageEnabled()) return false
+  const normalizedKey = key.trim().replace(/^\/+/, '')
+  if (normalizedKey === '' || !normalizedKey.startsWith(`${PREFIX}/`)) return false
+  await s3().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: normalizedKey }))
+  return true
 }
 
 export async function createKbVaultDownloadUrl(key: string, fileName?: string): Promise<string | null> {

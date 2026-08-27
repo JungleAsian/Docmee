@@ -1,4 +1,5 @@
 import type { Sql } from '../client.js'
+import { toJson } from '../client.js'
 import type { MediaAsset, MediaAssetContentType, MessageAttachment, AttachmentProviderStatus } from '../types/index.js'
 
 export interface CreateMediaAssetInput {
@@ -22,6 +23,8 @@ export interface MediaAssetsRepository {
   attach(data: { clinicId: string; messageId: string; mediaAssetId: string; providerMessageId?: string | null; providerStatus?: AttachmentProviderStatus }): Promise<MessageAttachment>
   listAttachments(clinicId: string, messageId: string): Promise<MessageAttachment[]>
   updateAttachmentStatus(clinicId: string, id: string, status: AttachmentProviderStatus, providerMessageId?: string | null, failureCode?: string | null): Promise<void>
+  markOutboundAccepted(data: { clinicId: string; messageId: string; attachmentId: string; providerMessageId: string; providerMediaId: string }): Promise<void>
+  markOutboundFailed(data: { clinicId: string; messageId: string; attachmentId: string; failureCode: string }): Promise<void>
 }
 
 export function createMediaAssetsRepository(sql: Sql): MediaAssetsRepository {
@@ -45,5 +48,59 @@ export function createMediaAssetsRepository(sql: Sql): MediaAssetsRepository {
     async attach(data) { const rows = await sql<MessageAttachment[]>`INSERT INTO message_attachments (clinic_id, message_id, media_asset_id, provider_message_id, provider_status) VALUES (${data.clinicId}, ${data.messageId}, ${data.mediaAssetId}, ${data.providerMessageId ?? null}, ${data.providerStatus ?? 'pending'}) ON CONFLICT (message_id, media_asset_id) DO UPDATE SET provider_message_id = EXCLUDED.provider_message_id, provider_status = EXCLUDED.provider_status RETURNING *`; return rows[0]! },
     async listAttachments(clinicId, messageId) { return sql<MessageAttachment[]>`SELECT * FROM message_attachments WHERE clinic_id = ${clinicId} AND message_id = ${messageId} ORDER BY created_at` },
     async updateAttachmentStatus(clinicId, id, status, providerMessageId = null, failureCode = null) { await sql`UPDATE message_attachments SET provider_status = ${status}, provider_message_id = COALESCE(${providerMessageId}, provider_message_id), failure_code = ${failureCode} WHERE clinic_id = ${clinicId} AND id = ${id}` },
+    async markOutboundAccepted(data) {
+      await (sql.begin(async (tx) => {
+        const messageRows = await tx<{ id: string }[]>`
+          UPDATE conversation_messages
+          SET channel_message_id = ${data.providerMessageId},
+              metadata = COALESCE(metadata, '{}'::jsonb) || ${tx.json(toJson({
+                mediaId: data.providerMediaId,
+                providerStatus: 'accepted',
+                providerAccepted: true,
+                providerAcceptedAt: new Date().toISOString(),
+              }))}
+          WHERE clinic_id = ${data.clinicId} AND id = ${data.messageId}
+          RETURNING id
+        `
+        if (messageRows.length !== 1) throw new Error('Outbound media message not found')
+        const attachmentRows = await tx<{ id: string }[]>`
+          UPDATE message_attachments
+          SET provider_status = 'accepted',
+              provider_message_id = ${data.providerMessageId},
+              failure_code = NULL
+          WHERE clinic_id = ${data.clinicId}
+            AND id = ${data.attachmentId}
+            AND message_id = ${data.messageId}
+          RETURNING id
+        `
+        if (attachmentRows.length !== 1) throw new Error('Outbound media attachment not found')
+      }) as unknown as Promise<void>)
+    },
+    async markOutboundFailed(data) {
+      await (sql.begin(async (tx) => {
+        const messageRows = await tx<{ id: string }[]>`
+          UPDATE conversation_messages
+          SET metadata = COALESCE(metadata, '{}'::jsonb) || ${tx.json(toJson({
+            providerStatus: 'failed',
+          }))}
+          WHERE clinic_id = ${data.clinicId} AND id = ${data.messageId}
+          RETURNING id
+        `
+        if (messageRows.length !== 1) throw new Error('Outbound media message not found')
+        await tx`
+          INSERT INTO message_delivery_events (message_id, clinic_id, channel_message_id, status, error)
+          VALUES (${data.messageId}, ${data.clinicId}, NULL, 'failed', ${data.failureCode})
+        `
+        const attachmentRows = await tx<{ id: string }[]>`
+          UPDATE message_attachments
+          SET provider_status = 'failed', failure_code = ${data.failureCode}
+          WHERE clinic_id = ${data.clinicId}
+            AND id = ${data.attachmentId}
+            AND message_id = ${data.messageId}
+          RETURNING id
+        `
+        if (attachmentRows.length !== 1) throw new Error('Outbound media attachment not found')
+      }) as unknown as Promise<void>)
+    },
   }
 }

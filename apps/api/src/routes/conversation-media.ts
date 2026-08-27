@@ -18,7 +18,7 @@
 // upload is a different mechanism); a non-WhatsApp thread → 400.
 import type { FastifyPluginAsync } from 'fastify'
 import multipart from '@fastify/multipart'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { decryptValue } from '@docmee/shared'
 import {
@@ -32,11 +32,20 @@ import { withDb } from '../lib/db.js'
 import { uploadWhatsAppMedia, sendWhatsAppDocument, sendWhatsAppImage } from '../lib/channel-send.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
-import { kbVaultEnabled, mediaObjectKey, readKbVaultObject, uploadKbVaultObject } from '../lib/kb-vault-storage.js'
+import {
+  deleteKbVaultObject,
+  isEligibleWhatsAppMediaAsset,
+  kbVaultEnabled,
+  MEDIA_ASSET_MAX_ACTIVE_FILES,
+  MEDIA_ASSET_QUOTA_BYTES,
+  mediaObjectKey,
+  readKbVaultObject,
+  uploadKbVaultObject,
+  validateMediaAsset,
+  WHATSAPP_IMAGE_MAX_BYTES,
+} from '../lib/kb-vault-storage.js'
 
-// WhatsApp accepts JPEG and PNG for image messages; cap at Meta's 5 MB image limit.
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png'])
+const PROVIDER_SEND_FAILED = 'provider_send_failed'
 const storedAssetSchema = z.object({
   assetId: z.string().min(1),
   caption: z.string().trim().max(1024).optional(),
@@ -53,7 +62,7 @@ function readChannelToken(stored: string | null | undefined): string | null {
 }
 
 const conversationMediaRoute: FastifyPluginAsync = async (app) => {
-  await app.register(multipart, { limits: { fileSize: MAX_IMAGE_BYTES } })
+  await app.register(multipart, { limits: { fileSize: WHATSAPP_IMAGE_MAX_BYTES } })
   app.addHook('preHandler', requireAuth)
 
   app.post<{ Params: { id: string } }>(
@@ -62,15 +71,23 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const clinicId = resolveClinicScope(request)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      if (!kbVaultEnabled()) return reply.code(503).send({ error: 'Private media storage is not configured' })
 
-      // Consume the multipart body first (the file part + an optional caption field
-      // that the client appends before the file).
       const file = await request.file()
       if (!file) return reply.code(400).send({ error: 'No file uploaded' })
-      if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
+      if (!isEligibleWhatsAppMediaAsset({ contentType: file.mimetype, byteSize: 1 })) {
         return reply.code(400).send({ error: 'Only JPEG or PNG images are supported' })
       }
       const buffer = await file.toBuffer()
+      const validationError = validateMediaAsset({
+        contentType: file.mimetype,
+        byteSize: buffer.length,
+        signatureBytes: buffer.subarray(0, 512),
+      })
+      if (validationError === 'invalid_signature') {
+        return reply.code(400).send({ error: 'File content does not match its declared type' })
+      }
+      if (validationError) return reply.code(validationError === 'too_large' ? 413 : 400).send({ error: 'Invalid media file' })
       const captionField = (file.fields as Record<string, { value?: unknown } | undefined>)['caption']
       const caption = typeof captionField?.value === 'string' ? captionField.value.trim() : ''
 
@@ -101,61 +118,63 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
       }
       if (resolved.code === 502) return reply.code(502).send({ error: 'Channel not configured' })
 
-      // Deliver to the patient. A failed upload/send (expired/invalid token, an
-      // image rejected outside the 24h window, rate limit) is recorded to the Error
-      // Review area as `meta_send_failure` (Req 19/29) and surfaced as a 502 —
-      // nothing is persisted, so the secretary can retry rather than leave a phantom
-      // "sent" bubble that never arrived.
-      let mediaId: string
-      let channelMessageId: string | null = null
+      const checksum = createHash('sha256').update(buffer).digest('hex')
+      const key = mediaObjectKey({ clinicId, assetId: randomUUID(), fileName: file.filename || 'image' })
+      await uploadKbVaultObject({
+        key,
+        body: buffer,
+        contentType: file.mimetype,
+        metadata: { clinicId, checksum, source: 'whatsapp-outbound' },
+      })
+
+      let asset
       try {
-        mediaId = await uploadWhatsAppMedia(
-          resolved.phoneNumberId,
-          resolved.token,
-          buffer,
-          file.mimetype,
-          file.filename || 'image',
-        )
-        channelMessageId = await sendWhatsAppImage(
-          resolved.phoneNumberId,
-          resolved.token,
-          resolved.recipient,
-          mediaId,
-          caption || undefined,
-        )
-      } catch (err) {
-        request.log.error(`[send-media] channel send failed: ${(err as Error).message}`)
-        await withDb((sql) =>
-          createErrorReviewsRepository(sql).create({
-            clinicId,
-            errorType: 'meta_send_failure',
-            errorMessage: err instanceof Error ? err.message : String(err),
-            context: {
-              conversationId: request.params.id,
-              channel: 'whatsapp',
-              recipient: resolved.recipient,
-              sentBy: request.user!.userId,
-            },
-          }),
-        ).catch((logErr) =>
-          request.log.error(`[send-media] failed to log send error: ${(logErr as Error).message}`),
-        )
-        return reply.code(502).send({ error: 'Image send failed' })
+        asset = await withDb((sql) => createMediaAssetsRepository(sql).createWithinQuota({
+          clinicId,
+          uploadedBy: request.user!.userId,
+          filename: file.filename || 'image',
+          contentType: file.mimetype as 'image/jpeg' | 'image/png',
+          byteSize: buffer.length,
+          checksum,
+          storageKey: key,
+        }, { maxFiles: MEDIA_ASSET_MAX_ACTIVE_FILES, maxBytes: MEDIA_ASSET_QUOTA_BYTES }))
+      } catch (error) {
+        await deleteKbVaultObject(key).catch((cleanupError) => {
+          request.log.error(`[send-media] failed to clean up rejected upload: ${(cleanupError as Error).message}`)
+        })
+        if (error instanceof Error && error.message === 'media_file_limit_reached') {
+          return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
+        }
+        if (error instanceof Error && error.message === 'media_quota_exceeded') {
+          return reply.code(413).send({ error: 'Clinic media quota exceeded' })
+        }
+        throw error
       }
 
-      const message = await withDb(async (sql) => {
+      // Persist the complete local attempt and human takeover before any Meta call.
+      const pending = await withDb(async (sql) => {
         const created = await createMessagesRepository(sql).create({
           conversationId: request.params.id,
           clinicId,
           role: 'agent',
-          // The caption (if any) is the bubble text; the image renders from the
-          // stored media id via the authenticated media proxy.
           content: caption,
           contentType: 'image',
-          channelMessageId: channelMessageId ?? undefined,
-          metadata: { authorId: request.user!.userId, mediaId, mimeType: file.mimetype },
+          channelMessageId: undefined,
+          metadata: {
+            authorId: request.user!.userId,
+            mediaAssetId: asset.id,
+            mimeType: file.mimetype,
+            filename: file.filename || 'image',
+            providerStatus: 'pending',
+          },
         })
-        // Bot Interruption Rule (Rev1 #6): attaching an image is a human takeover.
+        const attachment = await createMediaAssetsRepository(sql).attach({
+          clinicId,
+          messageId: created.id,
+          mediaAssetId: asset.id,
+          providerMessageId: null,
+          providerStatus: 'pending',
+        })
         if (resolved.convo.status === 'open') {
           await createConversationsRepository(sql).update(clinicId, request.params.id, {
             status: 'handoff',
@@ -166,34 +185,73 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
             },
           })
         }
-        // Keep an internal, clinic-scoped copy when private media storage is
-        // configured. The Meta media id remains in message metadata for the
-        // authenticated WhatsApp proxy; this asset record gives the clinic a
-        // durable repository entry and lets delivery receipts correlate to it.
-        if (kbVaultEnabled()) {
-          const checksum = createHash('sha256').update(buffer).digest('hex')
-          const key = mediaObjectKey({ clinicId, assetId: checksum.slice(0, 24), fileName: file.filename || 'image' })
-          await uploadKbVaultObject({ key, body: buffer, contentType: file.mimetype, metadata: { clinicId, checksum, source: 'whatsapp-outbound', mediaId } })
-          const asset = await createMediaAssetsRepository(sql).create({
-            clinicId,
-            uploadedBy: request.user!.userId,
-            filename: file.filename || 'image',
-            contentType: file.mimetype as 'image/jpeg' | 'image/png',
-            byteSize: buffer.length,
-            checksum,
-            storageKey: key,
-          })
-          await createMediaAssetsRepository(sql).attach({
-            clinicId,
-            messageId: created.id,
-            mediaAssetId: asset.id,
-            providerMessageId: channelMessageId,
-            providerStatus: channelMessageId ? 'accepted' : 'pending',
-          })
-        }
-        return created
+        return { message: created, attachment }
       })
-      return reply.code(201).send({ message })
+
+      let mediaId: string
+      let channelMessageId: string
+      try {
+        mediaId = await uploadWhatsAppMedia(
+          resolved.phoneNumberId,
+          resolved.token,
+          buffer,
+          file.mimetype,
+          file.filename || 'image',
+        )
+        const sentId = await sendWhatsAppImage(
+          resolved.phoneNumberId,
+          resolved.token,
+          resolved.recipient,
+          mediaId,
+          caption || undefined,
+        )
+        if (!sentId) throw new Error('Provider accepted no message identifier')
+        channelMessageId = sentId
+      } catch {
+        request.log.error('[send-media] provider media send failed')
+        await withDb(async (sql) => {
+          await createMediaAssetsRepository(sql).markOutboundFailed({
+            clinicId,
+            messageId: pending.message.id,
+            attachmentId: pending.attachment.id,
+            failureCode: PROVIDER_SEND_FAILED,
+          })
+          await createErrorReviewsRepository(sql).create({
+            clinicId,
+            errorType: 'meta_send_failure',
+            errorMessage: 'Provider media send failed',
+            context: {
+              outboundMessageId: pending.message.id,
+              conversationId: request.params.id,
+              channel: 'whatsapp',
+              sentBy: request.user!.userId,
+            },
+          })
+        }).catch((logError) => {
+          request.log.error(`[send-media] failed to persist send failure: ${(logError as Error).message}`)
+        })
+        return reply.code(502).send({ error: 'Image send failed' })
+      }
+
+      await withDb((sql) => createMediaAssetsRepository(sql).markOutboundAccepted({
+        clinicId,
+        messageId: pending.message.id,
+        attachmentId: pending.attachment.id,
+        providerMessageId: channelMessageId,
+        providerMediaId: mediaId,
+      }))
+      return reply.code(201).send({
+        message: {
+          ...pending.message,
+          channelMessageId,
+          metadata: {
+            ...pending.message.metadata,
+            mediaId,
+            providerStatus: 'accepted',
+            providerAccepted: true,
+          },
+        },
+      })
     },
   )
 
@@ -222,12 +280,62 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
       if (resolved.code === 404) return reply.code(404).send({ error: 'Conversation or media asset not found' })
       if (resolved.code === 400) return reply.code(400).send({ error: 'Media can only be sent on WhatsApp' })
       if (resolved.code === 502) return reply.code(502).send({ error: 'Channel not configured' })
+      if (!isEligibleWhatsAppMediaAsset(resolved.asset)) {
+        return reply.code(400).send({ error: 'WhatsApp media must be a PDF up to 100 MB or a JPEG/PNG image up to 5 MB' })
+      }
 
       const bytes = await readKbVaultObject(resolved.asset.storageKey)
       if (!bytes) return reply.code(503).send({ error: 'Private media storage is not configured' })
+      const storedValidationError = validateMediaAsset({
+        contentType: resolved.asset.contentType,
+        byteSize: bytes.byteLength,
+        signatureBytes: bytes.subarray(0, 512),
+      })
+      if (storedValidationError || bytes.byteLength !== resolved.asset.byteSize) {
+        return reply.code(400).send({ error: 'Stored media content does not match its declared type' })
+      }
+      if (!isEligibleWhatsAppMediaAsset({ contentType: resolved.asset.contentType, byteSize: bytes.byteLength })) {
+        return reply.code(400).send({ error: 'WhatsApp media must be a PDF up to 100 MB or a JPEG/PNG image up to 5 MB' })
+      }
       const caption = parsed.data.caption || undefined
+      const pending = await withDb(async (sql) => {
+        const created = await createMessagesRepository(sql).create({
+          conversationId: request.params.id,
+          clinicId,
+          role: 'agent',
+          content: caption ?? (resolved.asset.contentType === 'application/pdf' ? resolved.asset.filename : ''),
+          contentType: resolved.asset.contentType === 'application/pdf' ? 'document' : 'image',
+          channelMessageId: undefined,
+          metadata: {
+            authorId: request.user!.userId,
+            mediaAssetId: resolved.asset.id,
+            mimeType: resolved.asset.contentType,
+            filename: resolved.asset.filename,
+            providerStatus: 'pending',
+          },
+        })
+        const attachment = await createMediaAssetsRepository(sql).attach({
+          clinicId,
+          messageId: created.id,
+          mediaAssetId: resolved.asset.id,
+          providerMessageId: null,
+          providerStatus: 'pending',
+        })
+        if (resolved.conversation.status === 'open') {
+          await createConversationsRepository(sql).update(clinicId, request.params.id, {
+            status: 'handoff',
+            metadata: {
+              ...resolved.conversation.metadata,
+              botPausedAt: new Date().toISOString(),
+              handoffReason: 'human_reply',
+            },
+          })
+        }
+        return { message: created, attachment }
+      })
+
       let mediaId: string
-      let channelMessageId: string | null
+      let channelMessageId: string
       try {
         mediaId = await uploadWhatsAppMedia(
           resolved.account.accountId,
@@ -236,7 +344,7 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
           resolved.asset.contentType,
           resolved.asset.filename,
         )
-        channelMessageId = resolved.asset.contentType === 'application/pdf'
+        const sentId = resolved.asset.contentType === 'application/pdf'
           ? await sendWhatsAppDocument(
               resolved.account.accountId,
               resolved.token,
@@ -252,47 +360,53 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
               mediaId,
               caption,
             )
-      } catch (error) {
-        request.log.error(`[send-media-asset] channel send failed: ${(error as Error).message}`)
+        if (!sentId) throw new Error('Provider accepted no message identifier')
+        channelMessageId = sentId
+      } catch {
+        request.log.error('[send-media-asset] provider media send failed')
+        await withDb(async (sql) => {
+          await createMediaAssetsRepository(sql).markOutboundFailed({
+            clinicId,
+            messageId: pending.message.id,
+            attachmentId: pending.attachment.id,
+            failureCode: PROVIDER_SEND_FAILED,
+          })
+          await createErrorReviewsRepository(sql).create({
+            clinicId,
+            errorType: 'meta_send_failure',
+            errorMessage: 'Provider media send failed',
+            context: {
+              outboundMessageId: pending.message.id,
+              conversationId: request.params.id,
+              channel: 'whatsapp',
+              sentBy: request.user!.userId,
+            },
+          })
+        }).catch((logError) => {
+          request.log.error(`[send-media-asset] failed to persist send failure: ${(logError as Error).message}`)
+        })
         return reply.code(502).send({ error: 'Media send failed' })
       }
 
-      const message = await withDb(async (sql) => {
-        const created = await createMessagesRepository(sql).create({
-          conversationId: request.params.id,
-          clinicId,
-          role: 'agent',
-          content: caption ?? (resolved.asset.contentType === 'application/pdf' ? resolved.asset.filename : ''),
-          contentType: resolved.asset.contentType === 'application/pdf' ? 'document' : 'image',
-          channelMessageId: channelMessageId ?? undefined,
+      await withDb((sql) => createMediaAssetsRepository(sql).markOutboundAccepted({
+        clinicId,
+        messageId: pending.message.id,
+        attachmentId: pending.attachment.id,
+        providerMessageId: channelMessageId,
+        providerMediaId: mediaId,
+      }))
+      return reply.code(201).send({
+        message: {
+          ...pending.message,
+          channelMessageId,
           metadata: {
-            authorId: request.user!.userId,
-            mediaAssetId: resolved.asset.id,
+            ...pending.message.metadata,
             mediaId,
-            mimeType: resolved.asset.contentType,
-            filename: resolved.asset.filename,
+            providerStatus: 'accepted',
+            providerAccepted: true,
           },
-        })
-        await createMediaAssetsRepository(sql).attach({
-          clinicId,
-          messageId: created.id,
-          mediaAssetId: resolved.asset.id,
-          providerMessageId: channelMessageId,
-          providerStatus: channelMessageId ? 'accepted' : 'pending',
-        })
-        if (resolved.conversation.status === 'open') {
-          await createConversationsRepository(sql).update(clinicId, request.params.id, {
-            status: 'handoff',
-            metadata: {
-              ...resolved.conversation.metadata,
-              botPausedAt: new Date().toISOString(),
-              handoffReason: 'human_reply',
-            },
-          })
-        }
-        return created
+        },
       })
-      return reply.code(201).send({ message })
     },
   )
 }

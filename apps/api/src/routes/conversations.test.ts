@@ -16,7 +16,7 @@ const { fetchMedia } = vi.hoisted(() => ({
 vi.mock('../lib/whatsapp-media.js', () => ({ fetchWhatsAppMedia: fetchMedia }))
 // Req 3/33/34 outbound send: stub the inlined channel senders so no real Meta
 // call runs. Each returns the provider message id the route persists.
-const { sendWa, sendWaTpl, sendWaInt, sendWaList, sendMsgr, sendIg, uploadWaMedia, sendWaImage } = vi.hoisted(() => ({
+const { sendWa, sendWaTpl, sendWaInt, sendWaList, sendMsgr, sendIg, uploadWaMedia, sendWaImage, sendWaDocument } = vi.hoisted(() => ({
   sendWa: vi.fn(async () => 'wamid.OUT1' as string | null),
   sendWaTpl: vi.fn(async () => 'wamid.TPL1' as string | null),
   sendWaInt: vi.fn(async () => 'wamid.INT1' as string | null),
@@ -25,6 +25,7 @@ const { sendWa, sendWaTpl, sendWaInt, sendWaList, sendMsgr, sendIg, uploadWaMedi
   sendIg: vi.fn(async () => 'mid.IG1' as string | null),
   uploadWaMedia: vi.fn(async () => 'media-up-1'),
   sendWaImage: vi.fn(async () => 'wamid.IMG1' as string | null),
+  sendWaDocument: vi.fn(async () => 'wamid.DOC1' as string | null),
 }))
 vi.mock('../lib/channel-send.js', () => ({
   sendWhatsAppText: sendWa,
@@ -35,7 +36,26 @@ vi.mock('../lib/channel-send.js', () => ({
   sendInstagramText: sendIg,
   uploadWhatsAppMedia: uploadWaMedia,
   sendWhatsAppImage: sendWaImage,
+  sendWhatsAppDocument: sendWaDocument,
 }))
+const mediaInfra = vi.hoisted(() => ({
+  uploadObject: vi.fn(async (input: { key: string }) => ({ bucket: 'test-media', key: input.key })),
+  deleteObject: vi.fn(async () => true),
+  attachments: [] as Record<string, unknown>[],
+  accepted: vi.fn(async () => {}),
+  failed: vi.fn(async () => {}),
+}))
+vi.mock('../lib/kb-vault-storage.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/kb-vault-storage.js')>()
+  return {
+    ...actual,
+    kbVaultEnabled: () => true,
+    mediaObjectKey: ({ clinicId, assetId, fileName }: { clinicId: string; assetId: string; fileName: string }) =>
+      `voice-notes/${clinicId}/media/${assetId}/${fileName}`,
+    uploadKbVaultObject: mediaInfra.uploadObject,
+    deleteKbVaultObject: mediaInfra.deleteObject,
+  }
+})
 // Mutable clinic config so a test can flip a channel's connected state.
 const clinicCfg = vi.hoisted(() => ({
   messengerEnabled: true,
@@ -319,6 +339,20 @@ vi.mock('@docmee/db', () => ({
       return row
     },
   }),
+  createMediaAssetsRepository: () => ({
+    createWithinQuota: async (data: Record<string, unknown>) => ({
+      ...data,
+      id: `asset-${mediaInfra.attachments.length + 1}`,
+      deletedAt: null,
+    }),
+    attach: async (data: Record<string, unknown>) => {
+      const row = { ...data, id: `attachment-${mediaInfra.attachments.length + 1}` }
+      mediaInfra.attachments.push(row)
+      return row
+    },
+    markOutboundAccepted: mediaInfra.accepted,
+    markOutboundFailed: mediaInfra.failed,
+  }),
   createChannelAccountsRepository: () => ({
     listByClinic: async (clinicId: string) =>
       clinicId === 'c-1'
@@ -386,23 +420,27 @@ function imagePayload({
   caption,
   filename = 'photo.jpg',
   contentType = 'image/jpeg',
-  bytes = 'IMAGEBYTES',
+  bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x49, 0x4d, 0x41, 0x47, 0x45]),
 }: {
   caption?: string
   filename?: string
   contentType?: string
-  bytes?: string
+  bytes?: string | Buffer
 } = {}) {
-  const parts: string[] = []
+  const parts: Buffer[] = []
   if (caption !== undefined) {
-    parts.push(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n`)
+    parts.push(Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n`))
   }
   parts.push(
-    `--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-      `Content-Type: ${contentType}\r\n\r\n${bytes}\r\n`,
+    Buffer.from(
+      `--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`,
+    ),
+    typeof bytes === 'string' ? Buffer.from(bytes) : bytes,
+    Buffer.from('\r\n'),
   )
-  parts.push(`--${BOUNDARY}--\r\n`)
-  return Buffer.from(parts.join(''), 'utf8')
+  parts.push(Buffer.from(`--${BOUNDARY}--\r\n`))
+  return Buffer.concat(parts)
 }
 const multipartHeaders = (role: Parameters<typeof tokenFor>[0], userId?: string) => ({
   ...authHeader(role, userId),
@@ -1133,8 +1171,14 @@ describe('conversation routes', () => {
     expect(res.statusCode).toBe(502)
     expect(store.flagged.length).toBe(before + 1)
     expect(store.flagged.at(-1)!.errorType).toBe('meta_send_failure')
-    expect(store.sent.length).toBe(sentBefore)
-    expect(store.conversations.get('wa-fail')!.status).toBe('open')
+    expect(store.sent.length).toBe(sentBefore + 1)
+    expect(store.sent.at(-1)!.metadata).toMatchObject({ providerStatus: 'pending' })
+    expect(mediaInfra.failed).toHaveBeenCalledWith(expect.objectContaining({
+      clinicId: 'c-1',
+      messageId: store.sent.at(-1)!.id,
+      failureCode: 'provider_send_failed',
+    }))
+    expect(store.conversations.get('wa-fail')!.status).toBe('handoff')
   })
 
   it('POST /conversations/:id/send-media without auth → 401', async () => {

@@ -6,6 +6,7 @@
 // flag is enforced in exactly one place (the env) and mirrored to the UI.
 import { parseEnv } from '../plugins/env.js'
 import { withDb } from './db.js'
+import { createHash } from 'node:crypto'
 
 const expansionFlagNames = {
   inboxLayoutV2: 'docmee_inbox_layout_v2',
@@ -44,20 +45,37 @@ export function getFeatures(): Features {
 
 /** Read the migration-backed rollout switches at runtime. Missing rows or DB
  * failures fail closed so an operator can immediately withdraw new surfaces. */
-export async function getDocmeeExpansionFeatures(): Promise<DocmeeExpansionFeatures> {
+type ExpansionFlagRow = {
+  name: string
+  clinicId: string | null
+  enabled: boolean
+  rolloutPercentage: number
+}
+
+function isInRollout(name: string, percentage: number, clinicId?: string): boolean {
+  if (percentage >= 100) return true
+  if (percentage <= 0 || !clinicId) return false
+  const digest = createHash('sha256').update(`${name}:${clinicId}`).digest()
+  return digest.readUInt32BE(0) % 100 < percentage
+}
+
+export async function getDocmeeExpansionFeatures(clinicId?: string): Promise<DocmeeExpansionFeatures> {
   const result = disabledExpansionFeatures()
   try {
-    const rows = await withDb(async (sql) => sql<Array<{ name: string }>>`
-      SELECT name
+    const rows = await withDb(async (sql) => sql<ExpansionFlagRow[]>`
+      SELECT name, clinic_id, enabled, rollout_percentage
       FROM feature_flags
-      WHERE clinic_id IS NULL
-        AND enabled = TRUE
-        AND rollout_percentage > 0
+      WHERE (clinic_id IS NULL OR clinic_id = ${clinicId ?? null})
         AND name = ANY(${Object.values(expansionFlagNames)})
+      ORDER BY name, (clinic_id IS NOT NULL) DESC, updated_at DESC
     `)
-    const enabled = new Set(rows.map((row) => row.name))
     for (const [feature, name] of Object.entries(expansionFlagNames) as Array<[DocmeeExpansionFeature, string]>) {
-      result[feature] = enabled.has(name)
+      // A clinic row is an explicit override (including an explicit disable).
+      // Otherwise use the newest global row. Percentage rollout is stable for a
+      // clinic, while anonymous config requests fail closed unless rollout is 100%.
+      const row = rows.find((candidate) => candidate.name === name && candidate.clinicId === clinicId)
+        ?? rows.find((candidate) => candidate.name === name && candidate.clinicId === null)
+      result[feature] = Boolean(row?.enabled && isInRollout(name, row.rolloutPercentage, clinicId))
     }
   } catch {
     // Config remains available during DB startup, but all expansion features are
@@ -66,6 +84,6 @@ export async function getDocmeeExpansionFeatures(): Promise<DocmeeExpansionFeatu
   return result
 }
 
-export async function isDocmeeExpansionFeatureEnabled(feature: DocmeeExpansionFeature): Promise<boolean> {
-  return (await getDocmeeExpansionFeatures())[feature]
+export async function isDocmeeExpansionFeatureEnabled(feature: DocmeeExpansionFeature, clinicId?: string): Promise<boolean> {
+  return (await getDocmeeExpansionFeatures(clinicId))[feature]
 }

@@ -206,8 +206,8 @@ describe('conversation media send safety', () => {
     expect(response.statusCode).toBe(201)
     expect(h.reserveWithinQuota).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'clinic-1', byteSize: 8, contentType: 'image/png' }), { maxFiles: 10, maxBytes: 100 * 1024 * 1024 })
     expect(h.reserveWithinQuota.mock.invocationCallOrder[0]).toBeLessThan(h.uploadObject.mock.invocationCallOrder[0]!)
-    expect(h.markUploadReady.mock.invocationCallOrder[0]).toBeLessThan(h.prepareOutbound.mock.invocationCallOrder[0]!)
-    expect(h.prepareOutbound.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
+    expect(h.prepareOutbound.mock.invocationCallOrder[0]).toBeLessThan(h.markUploadReady.mock.invocationCallOrder[0]!)
+    expect(h.markUploadReady.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
   })
 
   it('rejects a direct image whose bytes do not match its declared type', async () => {
@@ -242,6 +242,19 @@ describe('conversation media send safety', () => {
 
     expect(response.statusCode).toBe(202)
     expect(response.json()).toMatchObject({ attemptId: 'attempt-existing', retryable: false })
+    expect(h.beginDeletion).toHaveBeenCalledWith('clinic-1', 'direct-asset')
+    expect(h.deleteObject).toHaveBeenCalledWith('private/clinic-1/direct.png')
+    expect(h.markDeletionComplete).toHaveBeenCalledWith('clinic-1', 'direct-asset')
+    expect(h.uploadMedia).not.toHaveBeenCalled()
+  })
+
+  it('cleans up a direct upload when durable attempt preparation fails', async () => {
+    h.prepareOutbound.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media', headers: multipartAuth, payload: multipartImage() })
+
+    expect(response.statusCode).toBe(503)
+    expect(h.markUploadReady).not.toHaveBeenCalled()
     expect(h.beginDeletion).toHaveBeenCalledWith('clinic-1', 'direct-asset')
     expect(h.deleteObject).toHaveBeenCalledWith('private/clinic-1/direct.png')
     expect(h.markDeletionComplete).toHaveBeenCalledWith('clinic-1', 'direct-asset')

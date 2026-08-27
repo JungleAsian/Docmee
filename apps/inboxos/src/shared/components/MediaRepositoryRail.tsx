@@ -62,7 +62,7 @@ export function MediaRepositoryRail({
     },
     onError: (error) => setLocalError(error instanceof ApiError ? error.message : 'Upload failed'),
   })
-  const send = useMutation<{ status?: 'accepted' | 'uncertain'; retryable?: boolean }>({
+  const send = useMutation<{ status?: 'sending' | 'accepted' | 'uncertain'; retryable?: boolean }>({
     mutationFn: () => {
       const signature = `${conversationId}:${selectedId ?? ''}:${caption.trim()}`
       if (sendAttemptRef.current?.signature !== signature) {
@@ -74,7 +74,7 @@ export function MediaRepositoryRail({
       }, { headers: { 'Idempotency-Key': sendAttemptRef.current.key } })
     },
     onSuccess: (result) => {
-      if (result.status === 'uncertain') {
+      if (result.status !== 'accepted') {
         setDeliveryUncertain(true)
         setLocalError('Delivery outcome is uncertain. Do not resend; staff reconciliation is required.')
         qc.invalidateQueries({ queryKey: ['messages', conversationId] })

@@ -229,12 +229,14 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
   let app: Awaited<ReturnType<typeof buildApp>>
 
   beforeAll(async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-06-01T12:00:00.000Z').getTime())
     process.env['NODE_ENV'] = 'test'
     app = await buildApp()
     await app.ready()
   })
   afterAll(async () => {
     await app.close()
+    vi.restoreAllMocks()
   })
 
   it('GET /slots returns service-duration slots for a worked day, none on a day off', async () => {
@@ -417,6 +419,20 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(res.statusCode).toBe(404)
   })
 
+  it('POST rejects a clinic-local past date before creating an appointment', async () => {
+    const before = store.appts.size
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-05-31', start: '10:00' },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json()).toEqual({ error: 'Cannot book a past date' })
+    expect(store.appts.size).toBe(before)
+  })
+
   it('PATCH cancels an appointment and records the event', async () => {
     const booked = [...store.appts.values()][0]!
     const res = await app.inject({
@@ -477,6 +493,27 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(second.statusCode).toBe(201)
     expect(response.statusCode).toBe(409)
     expect(store.appts.get(secondId)?.startTime).toBe('2026-09-14T16:00:00.000Z')
+  })
+
+  it('PATCH reschedule rejects a clinic-local past date and leaves the appointment unchanged', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-10-05', start: '10:00' },
+    })
+    const appointment = created.json().appointment as { id: string; startTime: string }
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/clinics/c-1/appointments/${appointment.id}`,
+      headers: auth,
+      payload: { date: '2026-05-31', start: '10:00' },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json()).toEqual({ error: 'Cannot reschedule to a past date' })
+    expect(store.appts.get(appointment.id)?.startTime).toBe(appointment.startTime)
   })
 
   it('PATCH with neither status nor a full reschedule → 400', async () => {

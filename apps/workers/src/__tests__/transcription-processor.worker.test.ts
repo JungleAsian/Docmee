@@ -155,6 +155,19 @@ describe('processTranscriptionJob', () => {
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['missing patient identity', { ...base, patientId: undefined }],
+    ['unresolved patient identity', base],
+  ])('stores a voice note but fails closed for %s', async (_label, payload) => {
+    h.findPatient.mockResolvedValue(null)
+
+    await processTranscriptionJob(makeJob(payload))
+
+    expect(h.createMessage).toHaveBeenCalledTimes(1)
+    expect(h.agentAdd).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
   it('fails for queue retry when persistence fails rather than enqueueing an unthreaded agent turn', async () => {
     h.findOpenByContact.mockRejectedValue(new Error('db down'))
     await expect(processTranscriptionJob(makeJob(base))).rejects.toThrow('db down')

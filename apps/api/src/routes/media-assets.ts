@@ -51,8 +51,10 @@ async function readPrefix(path: string): Promise<Buffer> {
 const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: MEDIA_ASSET_MAX_BYTES } })
   app.addHook('preHandler', requireAuth)
-  app.addHook('preHandler', async (_request, reply) => {
-    if (!(await isDocmeeExpansionFeatureEnabled('mediaRepository'))) {
+  app.addHook('preHandler', async (request, reply) => {
+    const requestedClinicId = (request.params as { id?: string } | undefined)?.id
+    const clinicId = resolveClinicScope(request, requestedClinicId)
+    if (!clinicId || !(await isDocmeeExpansionFeatureEnabled('mediaRepository', clinicId))) {
       return reply.code(404).send({ error: 'Not found' })
     }
   })

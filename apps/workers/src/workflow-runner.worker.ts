@@ -953,6 +953,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
     async sendTemplate(category, ctx) {
       if (!category) return
+      await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
       const template = await createMessageTemplatesRepository(sql).findApprovedByCategory(
         clinicId,
         category as MessageTemplateCategory,
@@ -963,6 +964,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       }
       const target = await resolveTarget(sql, clinicId, ctx.patientId)
       if (!target) return
+      await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
       const wamid = await target.send(template.body)
       await persistOutbound(sql, clinicId, ctx.conversationId, template.body, wamid)
     },
@@ -1252,6 +1254,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     },
 
     async sendInteractiveMenu(node, ctx, page = 0) {
+      await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
       const optionSource = String(node.config?.['optionSource'] ?? 'static')
       const dynamic = optionSource !== 'static'
       const dynamicItems = dynamic ? await loadDynamicMenuItems(sql, clinicId, node, ctx) : []
@@ -1290,6 +1293,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
         if (sender) {
           try {
+            await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
             const wamid = await sender({
               kind: isButton ? 'buttons' : 'list',
               // A button send shows the Docmee logo as its header image
@@ -1305,6 +1309,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
             })
             await persistOutbound(sql, clinicId, ctx.conversationId, fullText, wamid)
           } catch (err) {
+            if (err instanceof WorkflowAutomationSuppressed) throw err
             console.error('[workflow] failed to send interactive menu:', err)
             await sendWorkflowMessage(fullText, ctx)
           }
@@ -1357,6 +1362,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     },
 
     async sendSlotMenu(node, ctx, page) {
+      await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
       const { items, hasMore } = slotMenuPage(node, ctx, page)
       if (items.length === 0) return false
 
@@ -1380,6 +1386,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
         if (sender) {
           try {
+            await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
             const wamid = await sender({
               kind: 'list',
               header: brandedHeader,
@@ -1390,6 +1397,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
             })
             await persistOutbound(sql, clinicId, ctx.conversationId, fullText, wamid)
           } catch (err) {
+            if (err instanceof WorkflowAutomationSuppressed) throw err
             console.error('[workflow] failed to send slot menu:', err)
             await sendWorkflowMessage(fullText, ctx)
           }

@@ -13,6 +13,7 @@ import { formatDateTime } from '../format'
 import { alertCategoryFor, alertLabelKey, alertPriority, alertTitleText, formatAlertDetailText, PRIORITY_DOT } from '../notifications'
 import { SlideOver } from './SlideOver'
 import { NotificationPreferences } from './NotificationPreferences'
+import { useFeatures } from '../hooks/useFeatures'
 import type { NotificationEvent, NotificationPrefs, SoundPreset } from '../types'
 
 const POLL_MS = 30_000
@@ -59,6 +60,7 @@ function playNotificationSound(preset: SoundPreset = 'default', volume = 0.7) {
 
 export function NotificationBell() {
   const { t, language } = useI18n()
+  const { features } = useFeatures()
   const qc = useQueryClient()
   const clinicId = useAuthStore((s) => s.user?.clinicId)
   const [open, setOpen] = useState(false)
@@ -81,7 +83,7 @@ export function NotificationBell() {
     enabled: Boolean(clinicId),
     queryFn: () => api.get<{ preferences: NotificationPrefs }>('/user/notification-preferences'),
   })
-  const soundEnabled = prefsQuery.data?.preferences.soundEnabled === true
+  const soundEnabled = features.notificationChimes && prefsQuery.data?.preferences.soundEnabled === true
 
   useEffect(() => {
     if (!clinicId || query.isLoading || query.isError) return

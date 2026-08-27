@@ -36,11 +36,11 @@ const patientsRoute: FastifyPluginAsync = async (app) => {
     '/patients/:id/automation-mode',
     { preHandler: requireRole('secretary', 'clinic_admin', 'ia_studio_admin') },
     async (request, reply) => {
-      if (!(await isDocmeeExpansionFeatureEnabled('humanOnlyMode'))) {
-        return reply.code(404).send({ error: 'Not found' })
-      }
       const clinicId = resolveClinicScope(request)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      if (!(await isDocmeeExpansionFeatureEnabled('humanOnlyMode', clinicId))) {
+        return reply.code(404).send({ error: 'Not found' })
+      }
       const mode = request.body?.automationMode
       if (mode !== 'automated' && mode !== 'human_only') return reply.code(400).send({ error: 'Invalid automation mode' })
       const result = await withDb(async (sql) => {

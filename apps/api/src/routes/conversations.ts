@@ -146,7 +146,10 @@ const sendListSchema = z
     message: 'A list message may contain at most 10 rows in total',
     path: ['sections'],
   })
-const tagSchema = z.object({ tag: z.string().min(1) })
+const tagSchema = z.object({
+  tag: z.string().min(1),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+})
 const noteSchema = z.object({ content: z.string().min(1) })
 // Req 29: a secretary flags a bad bot reply from the inbox; it surfaces in the
 // Admin Studio Error Review area as a `bad_response` entry.
@@ -1178,7 +1181,7 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     const tag = await withDb(async (sql) => {
       const repo = createConversationsRepository(sql)
-      const created = await repo.createTag({ clinicId, name: parsed.data.tag })
+      const created = await repo.createTag({ clinicId, name: parsed.data.tag, color: parsed.data.color })
       await repo.addTag(clinicId, request.params.id, created.id)
       return created
     })

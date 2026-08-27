@@ -321,7 +321,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent, overbook, overbookingReason } = parsed.data
-    if (overbook && !(await isDocmeeExpansionFeatureEnabled('calendarPolicyV2'))) {
+    if (overbook && !(await isDocmeeExpansionFeatureEnabled('calendarPolicyV2', clinicId))) {
       return reply.code(404).send({ error: 'Not found' })
     }
     // Explicit capacity override is a secretary operation. Other human roles may
@@ -333,21 +333,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     const result = await withDb(async (sql) => {
       const doctor = await createDoctorsRepository(sql).findById(clinicId, doctorId)
       if (!doctor) return { error: 'doctor' as const }
-      const patients = createPatientsRepository(sql)
-      const patient = patientName
-        ? await patients.create({ clinicId, fullName: patientName })
-        : await patients.findById(clinicId, patientId!)
-      if (!patient) return { error: 'patient' as const }
-
       const appts = createAppointmentsRepository(sql)
       const clinic = await createClinicsRepository(sql).findById(clinicId)
-      const clinicToday = new Intl.DateTimeFormat('en-CA', { timeZone: clinic?.timezone || 'America/Guatemala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-      // Historical records may be entered by staff (for migration/reconciliation),
-      // but a slot on the clinic's current day must never be in the past.
-      if (date === clinicToday) {
-        const localNow = new Intl.DateTimeFormat('en-GB', { timeZone: clinic?.timezone || 'America/Guatemala', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())
-        if (start <= localNow) return { error: 'past' as const }
-      }
       const duration =
         (serviceId
           ? (await appts.listServices(clinicId)).find((s) => s.id === serviceId)?.durationMinutes
@@ -355,6 +342,13 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       const timezone = clinic?.timezone || 'America/Guatemala'
       const instantRange = clinicInstantRange(date, start, duration, timezone)
       if (!instantRange) return { error: 'invalid_time' as const }
+      if (new Date(instantRange.startTime).getTime() <= Date.now()) return { error: 'past' as const }
+
+      const patients = createPatientsRepository(sql)
+      const patient = patientName
+        ? await patients.create({ clinicId, fullName: patientName })
+        : await patients.findById(clinicId, patientId!)
+      if (!patient) return { error: 'patient' as const }
 
       const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
       const booking = await appts.saveWithinCapacity({
@@ -472,6 +466,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
             clinic?.timezone || 'America/Guatemala',
           )
           if (!instantRange) return { error: 'invalid_time' as const }
+          if (new Date(instantRange.startTime).getTime() <= Date.now()) return { error: 'past' as const }
           patch.startTime = instantRange.startTime
           patch.endTime = instantRange.endTime
         }
@@ -557,6 +552,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       if (!result) return reply.code(404).send({ error: 'Appointment not found' })
       if ('error' in result) {
         if (result.error === 'clash') return reply.code(409).send({ error: 'Slot no longer available' })
+        if (result.error === 'past') return reply.code(422).send({ error: 'Cannot reschedule to a past date' })
         if (result.error === 'invalid_time') return reply.code(422).send({ error: 'Invalid time in clinic timezone' })
         return reply.code(404).send({ error: 'Appointment not found' })
       }

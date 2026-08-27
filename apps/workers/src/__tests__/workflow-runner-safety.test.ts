@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listContacts: vi.fn(),
   sendWhatsAppText: vi.fn(),
+  sendWhatsAppInteractiveList: vi.fn(),
+  findTemplate: vi.fn(),
   createMessage: vi.fn(),
   end: vi.fn(),
 }))
@@ -35,6 +37,7 @@ vi.mock('@docmee/agents', () => ({
   WORKFLOW_MENU_CONTEXT_KEY: 'menu',
   WORKFLOW_SLOT_MENU_CONTEXT_KEY: 'slots',
   SLOT_MENU_MORE_OPTION_ID: 'more',
+  parseMenuOptions: (config: Record<string, unknown> | undefined) => config?.['options'] ?? [],
 }))
 
 vi.mock('@docmee/shared', async (importOriginal) => ({
@@ -46,7 +49,7 @@ vi.mock('@docmee/llm', () => ({ chatComplete: vi.fn(), defaultChatModel: () => '
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
   sendWhatsAppInteractiveButtons: vi.fn(),
-  sendWhatsAppInteractiveList: vi.fn(),
+  sendWhatsAppInteractiveList: h.sendWhatsAppInteractiveList,
 }))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
@@ -78,7 +81,7 @@ vi.mock('@docmee/db', () => ({
     update: h.updateAppointment,
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
-  createMessageTemplatesRepository: () => ({}),
+  createMessageTemplatesRepository: () => ({ findApprovedByCategory: h.findTemplate }),
   createNotificationsRepository: () => ({}),
   createKnowledgeRepository: () => ({}),
 }))
@@ -120,6 +123,8 @@ beforeEach(() => {
   h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'phone-1', accessTokenEnc: 'token' }])
   h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '15551234567', isPrimary: true }])
   h.sendWhatsAppText.mockResolvedValue('wamid.sent')
+  h.sendWhatsAppInteractiveList.mockResolvedValue('wamid.menu')
+  h.findTemplate.mockResolvedValue({ body: 'Approved reminder' })
   h.createMessage.mockResolvedValue({ id: 'message-1' })
 })
 
@@ -167,6 +172,42 @@ describe('processWorkflowRunJob automation ownership', () => {
       reason: 'patient_human_only',
       terminalState: 'suppressed',
     }))
+  })
+
+  it('re-checks human-only ownership immediately before an approved template send', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.sendTemplate('appointment_reminder', ctx)
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.createMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['interactive menu', 'slot menu'])('re-checks human-only ownership immediately before an %s provider send', async (label) => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      if (label === 'interactive menu') {
+        await exec.sendInteractiveMenu({ id: 'menu-1', type: 'interactive_menu', config: { message: 'Choose', options: [{ optionId: 'one', title: 'One' }] } }, ctx, 0)
+      } else {
+        await exec.sendSlotMenu({ id: 'slots-1', type: 'slot_menu', config: { message: 'Choose a date' } }, { ...ctx, available_slots: [{ start: '2027-09-15T09:00:00', end: '2027-09-15T09:30:00' }] }, 0)
+      }
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppInteractiveList).not.toHaveBeenCalled()
+    expect(h.createMessage).not.toHaveBeenCalled()
   })
 
   it('creates workflow bookings through the atomic capacity operation with overbooking disabled', async () => {

@@ -36,7 +36,7 @@ export function TagsPanel({ conversationId }: { conversationId: string }) {
   }, [clinicQuery.data])
 
   const addMutation = useMutation({
-    mutationFn: (name: string) => api.post(`/conversations/${conversationId}/tags`, { tag: name }),
+    mutationFn: ({ name, color }: { name: string; color: string }) => api.post(`/conversations/${conversationId}/tags`, { tag: name, color }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   })
   const removeMutation = useMutation({
@@ -46,10 +46,10 @@ export function TagsPanel({ conversationId }: { conversationId: string }) {
 
   const pending = addMutation.isPending || removeMutation.isPending
 
-  function toggle(name: string) {
+  function toggle(name: string, color: string) {
     if (pending) return
     if (active.has(name)) removeMutation.mutate(name)
-    else addMutation.mutate(name)
+    else addMutation.mutate({ name, color })
   }
 
   return (
@@ -66,7 +66,7 @@ export function TagsPanel({ conversationId }: { conversationId: string }) {
               <button
                 key={tag.name}
                 type="button"
-                onClick={() => toggle(tag.name)}
+                onClick={() => toggle(tag.name, tag.color)}
                 disabled={pending}
                 className={`rounded-full border px-2 py-0.5 text-xs transition disabled:opacity-50 ${
                   on ? 'border-transparent text-white' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'

@@ -103,8 +103,9 @@ async function cleanupReservedAsset(request: FastifyRequest, clinicId: string, a
 const conversationMediaRoute: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: WHATSAPP_IMAGE_MAX_BYTES } })
   app.addHook('preHandler', requireAuth)
-  app.addHook('preHandler', async (_request, reply) => {
-    if (!(await isDocmeeExpansionFeatureEnabled('mediaRepository'))) {
+  app.addHook('preHandler', async (request, reply) => {
+    const clinicId = resolveClinicScope(request)
+    if (!clinicId || !(await isDocmeeExpansionFeatureEnabled('mediaRepository', clinicId))) {
       return reply.code(404).send({ error: 'Not found' })
     }
   })
@@ -171,26 +172,44 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
 
       try {
         await uploadKbVaultObject({ key, body: buffer, contentType: file.mimetype, metadata: { clinicId, checksum, source: 'whatsapp-outbound' } })
-        await withDb((sql) => createMediaAssetsRepository(sql).markUploadReady(clinicId, asset.id))
       } catch (error) {
         await cleanupReservedAsset(request, clinicId, asset.id, key).catch(() => undefined)
         request.log.error(`[send-media] private storage upload failed: ${(error as Error).message}`)
         return reply.code(503).send({ error: 'Private media storage upload failed' })
       }
 
-      const prepared = await withDb((sql) => createMediaAssetsRepository(sql).prepareOutbound({
-        clinicId,
-        conversationId: request.params.id,
-        mediaAssetId: asset.id,
-        idempotencyKey,
-        authorId: request.user!.userId,
-        content: caption,
-        contentType: 'image',
-        metadata: { authorId: request.user!.userId, mediaAssetId: asset.id, mimeType: file.mimetype, filename: file.filename || 'image' },
-      }))
+      let prepared: Awaited<ReturnType<ReturnType<typeof createMediaAssetsRepository>['prepareOutbound']>>
+      try {
+        // Keep the one-shot upload in `uploading` until the durable outbound
+        // attempt exists. If preparation fails, the cleanup worker can reclaim
+        // the stale reservation instead of leaving an active quota orphan.
+        prepared = await withDb((sql) => createMediaAssetsRepository(sql).prepareOutbound({
+          clinicId,
+          conversationId: request.params.id,
+          mediaAssetId: asset.id,
+          idempotencyKey,
+          authorId: request.user!.userId,
+          content: caption,
+          contentType: 'image',
+          metadata: { authorId: request.user!.userId, mediaAssetId: asset.id, mimeType: file.mimetype, filename: file.filename || 'image' },
+        }))
+      } catch (error) {
+        await cleanupReservedAsset(request, clinicId, asset.id, key).catch(() => undefined)
+        request.log.error(`[send-media] failed to prepare durable outbound attempt: ${(error as Error).message}`)
+        return reply.code(503).send({ error: 'Media send could not be prepared' })
+      }
       if (!prepared.created) {
         await cleanupReservedAsset(request, clinicId, asset.id, key).catch(() => undefined)
         return attemptResponse(reply, prepared)
+      }
+
+      try {
+        await withDb((sql) => createMediaAssetsRepository(sql).markUploadReady(clinicId, asset.id))
+      } catch (error) {
+        await markUncertain(request, clinicId, prepared.attempt.id, 'media_activation_failed')
+        await cleanupReservedAsset(request, clinicId, asset.id, key).catch(() => undefined)
+        request.log.error(`[send-media] failed to activate prepared media: ${(error as Error).message}`)
+        return reply.code(202).send({ status: 'uncertain', retryable: false, attemptId: prepared.attempt.id, message: prepared.message })
       }
 
       let providerMediaId: string | undefined

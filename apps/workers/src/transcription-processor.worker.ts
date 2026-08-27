@@ -224,7 +224,10 @@ async function storeVoiceNote(
       : null
     return {
       conversationId: conversation.id,
-      automationAllowed: payload.patientId ? patientAllowsAutomation(patient) : true,
+      // Missing or unresolved patient identity cannot establish automation
+      // ownership. Preserve the transcript for staff, but fail closed before the
+      // agent queue.
+      automationAllowed: patientAllowsAutomation(patient),
     }
   } finally {
     await sql.end()

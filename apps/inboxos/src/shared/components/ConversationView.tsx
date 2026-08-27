@@ -244,14 +244,14 @@ export function ConversationView({
   // Req 3: attach an image and DELIVER it to the patient over WhatsApp (two-step
   // Graph media upload, server-side). Like a manual reply it pauses the bot; the
   // current draft (if any) rides along as the image caption. WhatsApp-only.
-  const sendMediaMutation = useMutation<{ status?: 'accepted' | 'uncertain'; retryable?: boolean }, Error, { form: FormData; idempotencyKey: string }>({
+  const sendMediaMutation = useMutation<{ status?: 'sending' | 'accepted' | 'uncertain'; retryable?: boolean }, Error, { form: FormData; idempotencyKey: string }>({
     mutationFn: ({ form, idempotencyKey }: { form: FormData; idempotencyKey: string }) => {
       return api.upload(`/conversations/${conversationId}/send-media`, form, {
         'Idempotency-Key': idempotencyKey,
       })
     },
     onSuccess: (result) => {
-      if (result.status === 'uncertain') {
+      if (result.status !== 'accepted') {
         setMediaUncertain(true)
         qc.invalidateQueries({ queryKey: ['messages', conversationId] })
         return

@@ -16,6 +16,7 @@ export {
   type WorkflowCaptureState,
   type WorkflowMenuState,
   type WorkflowMenuOption,
+  type MenuReplyOutcome,
   type WorkflowSlotMenuState,
   type SlotMenuReplyOutcome,
   type AiAgentScenario,

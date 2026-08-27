@@ -11,6 +11,7 @@ const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['action.send_message', 'action'],
   ['action.send_template', 'action'],
   ['action.notify_secretary', 'action'],
+  ['action.handoff_to_secretary', 'action'],
   ['action.add_tag', 'action'],
   ['action.ai_draft', 'action'],
   ['action.approval', 'action'],
@@ -158,12 +159,17 @@ export function validateWorkflowDefinition(
     }
     if (node.type === 'action.interactive_menu') {
       const options = parseMenuOptions(node.config)
+      const optionSource = String(node.config?.['optionSource'] ?? 'static')
+      const dynamic = optionSource === 'clinic_doctors' || optionSource === 'doctor_services'
+      if (!['static', 'clinic_doctors', 'doctor_services'].includes(optionSource)) {
+        errors.push(`Interactive menu ${node.id} has invalid optionSource "${optionSource}".`)
+      }
       // Matches the worker's own default (workflow-runner.worker.ts) and the
       // Studio dropdown's first/visually-selected enum entry — an untouched
       // node must validate the same way it looks and the same way it'll run.
       const variant = String(node.config?.['variant'] ?? 'list')
       const limit = variant === 'list' ? 10 : 3
-      if (options.length === 0) {
+      if (!dynamic && options.length === 0) {
         errors.push(`Interactive menu ${node.id} has no options configured (requires at least one option). Open the node and add at least one menu option.`)
       } else if (options.length > limit) {
         errors.push(`Interactive menu ${node.id} has ${options.length} options, more than WhatsApp allows for the "${variant}" style (max ${limit}). Remove options, or switch this node to "list" style, which allows up to 10.`)
@@ -184,8 +190,11 @@ export function validateWorkflowDefinition(
           errors.push(`Interactive menu ${node.id}'s option "${opt.optionId}" title is longer than WhatsApp's ${titleLimit}-character limit for the "${variant}" style (title exceeds ${titleLimit} chars). Shorten the option's title.`)
         }
       }
-      // Every option handle needs an edge; reserved handles are optional.
-      const validHandles = new Set<string>([...seen, ...MENU_RESERVED_HANDLES])
+      // Static menus expose one handle per authored option. Dynamic menus use
+      // fixed outcomes because their database ids are only known at runtime.
+      const validHandles = new Set<string>(dynamic
+        ? ['selected', 'empty', 'restart', 'livechat']
+        : [...seen, ...MENU_RESERVED_HANDLES])
       const wired = new Set<string>()
       for (const edge of next) {
         const h = edge.sourceHandle ?? ''
@@ -197,9 +206,18 @@ export function validateWorkflowDefinition(
         }
         wired.add(h)
       }
-      for (const opt of seen) {
-        if (!wired.has(opt)) {
-          errors.push(`Interactive menu ${node.id}'s option "${opt}" isn't connected to anything (has no successor). Drag an edge from that option to the node it should lead to.`)
+      if (dynamic) {
+        for (const required of ['selected', 'empty']) {
+          if (!wired.has(required)) {
+            const article = required === 'empty' ? 'an' : 'a'
+            errors.push(`Interactive menu ${node.id} requires ${article} "${required}" successor for dynamic options.`)
+          }
+        }
+      } else {
+        for (const opt of seen) {
+          if (!wired.has(opt)) {
+            errors.push(`Interactive menu ${node.id}'s option "${opt}" isn't connected to anything (has no successor). Drag an edge from that option to the node it should lead to.`)
+          }
         }
       }
     }

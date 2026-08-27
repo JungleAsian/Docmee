@@ -190,6 +190,7 @@ export function NodeConfigPanel({
   )
 
   const isMenu = node.type === 'action.interactive_menu'
+  const isDynamicMenu = isMenu && String(node.config.optionSource ?? 'static') !== 'static'
 
   // --- action.ai_agent scenarios editor helpers -------------------------------
   const aiAgentScenarios = useMemo(() => {
@@ -381,6 +382,7 @@ export function NodeConfigPanel({
 
       {/* Standard text fields */}
       {(nodeDef(node.type)?.fields ?? []).map((key) => {
+        if (key === 'options' && isDynamicMenu) return null
         const manualKey = `${node.id}:${key}`
         const isManual = manualFieldKeys.has(manualKey)
         const value = String(node.config[key] ?? '')
@@ -630,7 +632,7 @@ export function NodeConfigPanel({
       })}
 
       {/* Interactive menu options editor */}
-      {isMenu && (
+      {isMenu && !isDynamicMenu && (
         <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
           <p className="font-medium text-gray-600 dark:text-gray-300">{t('wf.field.options')}</p>
 

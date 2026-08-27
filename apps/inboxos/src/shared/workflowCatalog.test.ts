@@ -44,6 +44,32 @@ describe('workflow template validation', () => {
     const errors = validateWorkflowDefinition(template.nodes, template.edges, { requireTrigger: true })
     expect(errors).toEqual([])
   })
+
+  it.each([
+    ['booking_single_doctor_ai', false],
+    ['booking_multiple_doctors_ai', true],
+  ] as const)('validates %s and uses the approved live booking capabilities', (key, expectsDoctorMenu) => {
+    const template = WORKFLOW_TEMPLATES.find((item) => item.key === key)
+    expect(template).toBeDefined()
+    if (!template) return
+
+    expect(validateWorkflowDefinition(template.nodes, template.edges, { requireTrigger: true })).toEqual([])
+    const doctorMenus = template.nodes.filter(
+      (item) => item.type === 'action.interactive_menu' && item.config?.optionSource === 'clinic_doctors',
+    )
+    expect(doctorMenus.length > 0).toBe(expectsDoctorMenu)
+    expect(template.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'action.interactive_menu', config: expect.objectContaining({ optionSource: 'doctor_services', field: 'service_id' }) }),
+      expect.objectContaining({ type: 'action.check_availability', config: expect.objectContaining({ days: '5' }) }),
+      expect.objectContaining({ type: 'action.offer_slot_menu', config: expect.objectContaining({ pickerMode: 'date' }) }),
+      expect.objectContaining({ type: 'action.offer_slot_menu', config: expect.objectContaining({ pickerMode: 'time' }) }),
+      expect.objectContaining({ type: 'action.ai_agent' }),
+      expect.objectContaining({ type: 'action.handoff_to_secretary' }),
+      expect.objectContaining({ type: 'action.create_or_reschedule_booking', config: expect.objectContaining({ doctorIdField: 'doctor_id', serviceIdField: 'service_id' }) }),
+    ]))
+    expect(template.nodes).toContainEqual(expect.objectContaining({ id: 'post_inquiry_menu', type: 'action.interactive_menu' }))
+    expect(template.edges).toContainEqual(expect.objectContaining({ source: 'ai_inquiry', target: 'post_inquiry_menu', sourceHandle: 'replied' }))
+  })
 })
 
 describe('collectWorkflowFields (no-code Field selector)', () => {
@@ -111,6 +137,14 @@ describe('collectWorkflowTags (no-code Tag selector)', () => {
 describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
   it('offers exactly the variants the worker actually understands', () => {
     expect(ENUM_FIELD_OPTIONS.variant?.map((o) => o.value)).toEqual(['list', 'button'])
+  })
+
+  it('offers the runtime-backed interactive menu option sources', () => {
+    expect(ENUM_FIELD_OPTIONS.optionSource?.map((option) => option.value)).toEqual([
+      'static',
+      'clinic_doctors',
+      'doctor_services',
+    ])
   })
 
   it('offers exactly the operators evalCondition actually understands', () => {
@@ -238,6 +272,10 @@ describe('nodeHasIssue (cheap node-local validation hint)', () => {
 
   it('does not flag an interactive_menu with at least one option', () => {
     expect(nodeHasIssue(node('m', 'action', 'action.interactive_menu', { options: '[{"optionId":"a","title":"A"}]' }))).toBeUndefined()
+  })
+
+  it('does not require authored options for a dynamic interactive menu', () => {
+    expect(nodeHasIssue(node('m', 'action', 'action.interactive_menu', { optionSource: 'clinic_doctors' }))).toBeUndefined()
   })
 
   it('flags an offer_slot_menu with an invalid pickerMode', () => {

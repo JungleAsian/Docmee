@@ -5,6 +5,7 @@ import {
   parseMenuOptions,
   type WorkflowExecutors,
   type WorkflowMenuOption,
+  type MenuReplyOutcome,
   type SlotMenuReplyOutcome,
 } from '../workflows/workflow-engine.js'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
@@ -35,6 +36,25 @@ function makeExec(over: Partial<WorkflowExecutors> = {}): WorkflowExecutors {
     ...over,
   }
 }
+
+describe('runWorkflow — action.handoff_to_secretary', () => {
+  it('runs the durable handoff executor before continuing to the next node', async () => {
+    const handoffSecretary = vi.fn()
+    const exec = makeExec({ handoffSecretary })
+    const workflow = {
+      nodes: [
+        node('handoff', 'action', 'action.handoff_to_secretary'),
+        node('done', 'action', 'action.end'),
+      ],
+      edges: [edge('handoff', 'done')],
+    }
+
+    const trace = await runWorkflow(workflow, { conversationId: 'conversation-1' }, exec, { startNodeId: 'handoff' })
+
+    expect(handoffSecretary).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conversation-1' }))
+    expect(trace.at(-1)).toMatchObject({ nodeId: 'done', status: 'ended' })
+  })
+})
 
 describe('runWorkflow', () => {
   it('routes each action through the worker-owned durable side-effect boundary', async () => {
@@ -341,6 +361,53 @@ describe('runWorkflow — interactive_menu node', () => {
     const exec = makeExec()
     await runWorkflow(wf, {}, exec)
     expect(exec.sendMessage).toHaveBeenCalledWith('Sorry, please choose again', expect.any(Object))
+  })
+
+  it('stores a dynamic selection stable id and label, then routes selected', async () => {
+    const dynamicWf = {
+      nodes: [
+        node('menu', 'action', 'action.interactive_menu', {
+          optionSource: 'clinic_doctors',
+          field: 'doctor_id',
+        }),
+        node('picked', 'action', 'action.send_message', { text: 'Doctor selected' }),
+      ],
+      edges: [edge('menu', 'picked', 'selected')],
+    }
+    const selection: MenuReplyOutcome = {
+      outcome: 'selected',
+      value: 'doctor-84a7',
+      label: 'Dr. Alfredo Contreras',
+    }
+    const exec = makeExec({ matchMenuReply: vi.fn(async () => selection) })
+    const ctx: Record<string, unknown> = {
+      workflowMenu: { nodeId: 'menu', page: 0, status: 'pending' },
+    }
+
+    await runWorkflow(dynamicWf, ctx, exec, { startNodeId: 'menu' })
+
+    expect(ctx.doctor_id).toBe('doctor-84a7')
+    expect(ctx.doctor_id_label).toBe('Dr. Alfredo Contreras')
+    expect(exec.sendMessage).toHaveBeenCalledWith('Doctor selected', expect.any(Object))
+  })
+
+  it('re-sends the next dynamic menu page for more and the same page for an unmatched reply', async () => {
+    const dynamicWf = {
+      nodes: [node('menu', 'action', 'action.interactive_menu', { optionSource: 'clinic_doctors' })],
+      edges: [],
+    }
+
+    for (const [outcome, expectedPage] of [['more', 2], ['default', 1]] as const) {
+      const send = vi.fn(async () => true)
+      const exec = makeExec({
+        matchMenuReply: vi.fn(async (): Promise<MenuReplyOutcome> => ({ outcome })),
+        sendInteractiveMenu: send,
+      })
+      const ctx = { workflowMenu: { nodeId: 'menu', page: 1, status: 'pending' } }
+      const trace = await runWorkflow(dynamicWf, ctx, exec, { startNodeId: 'menu' })
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: 'menu' }), expect.any(Object), expectedPage)
+      expect(trace.at(-1)?.status).toBe('paused')
+    }
   })
 
   it('menu context key survives the postgres camel-case JSON transform', async () => {

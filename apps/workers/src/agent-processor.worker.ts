@@ -32,8 +32,6 @@ import {
   isOptOutMessage,
   isOptInMessage,
   optInConfirmation,
-  BOT_PAUSED_AT,
-  HANDOFF_REASON,
   type BusinessHours,
   type ClinicBotConfig,
   type Language,

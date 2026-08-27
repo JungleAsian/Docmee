@@ -30,12 +30,10 @@ import {
   scopeKbToMessage,
   hasDoctorScopedChunks,
   type BookingGrid,
-  type CalendarOps,
   type GoogleCalendarConfig,
   type RefreshedTokens,
   type TimeSlot,
   type SlotMenuReplyOutcome,
-  type AiAgentOutcome,
   type BotTone,
   type KbMatch,
   type WorkflowCaptureState,
@@ -59,6 +57,7 @@ import {
   createChannelAccountsRepository,
   createConversationsRepository,
   createDoctorsRepository,
+  createDoctorServicesRepository,
   createAppointmentsRepository,
   createMessagesRepository,
   createMessageTemplatesRepository,
@@ -293,15 +292,6 @@ async function workflowCalendarConfig(
   return { doctor, config: { ...tokens, timezone: clinic.timezone, onTokensRefreshed: persistTokens } }
 }
 
-async function workflowCalendar(
-  sql: Sql,
-  clinic: Clinic,
-  doctorId?: string,
-): Promise<CalendarOps | null> {
-  const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
-  return resolved ? createGoogleCalendarOps(resolved.config) : null
-}
-
 // Sunday-first to match JS Date#getUTCDay().
 const WEEKDAY_BY_INDEX = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 
@@ -372,6 +362,91 @@ async function resolveWorkflowDoctorId(sql: Sql, clinicId: string, value: string
     return name === normalized
   })
   return matches.length === 1 ? matches[0]?.id : undefined
+}
+
+export interface DynamicMenuItem {
+  id: string
+  title: string
+  description?: string
+}
+
+export function selectedDoctorOffersService(
+  services: Array<{ id: string }>,
+  serviceId: string,
+): boolean {
+  return Boolean(serviceId) && services.some((service) => service.id === serviceId)
+}
+
+export function dynamicMenuPage(
+  items: DynamicMenuItem[],
+  page: number,
+  requestedPageSize: number,
+): { items: DynamicMenuItem[]; hasMore: boolean } {
+  const pageSize = Math.min(Math.max(Math.trunc(requestedPageSize) || 8, 1), 9)
+  const safePage = Math.max(Math.trunc(page) || 0, 0)
+  return {
+    items: items.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    hasMore: items.length > (safePage + 1) * pageSize,
+  }
+}
+
+export function resolveDynamicMenuReply(
+  items: DynamicMenuItem[],
+  replyId: string | undefined,
+  text: string,
+):
+  | { outcome: 'selected'; value: string; label: string }
+  | { outcome: 'more' | 'restart' | 'livechat' | 'default' } {
+  const trimmed = text.trim()
+  if (trimmed === '0') return { outcome: 'restart' }
+  if (trimmed === '1') return { outcome: 'livechat' }
+  const lower = trimmed.toLowerCase()
+  if (replyId === SLOT_MENU_MORE_OPTION_ID || lower === 'see more') return { outcome: 'more' }
+  const selected =
+    (replyId ? items.find((item) => item.id === replyId) : undefined) ??
+    items.find((item) => item.title.trim().toLowerCase() === lower) ??
+    (() => {
+      const index = Number(trimmed)
+      return Number.isInteger(index) && index >= 2 && index <= items.length ? items[index - 1] : undefined
+    })()
+  return selected
+    ? { outcome: 'selected', value: selected.id, label: selected.title }
+    : { outcome: 'default' }
+}
+
+async function loadDynamicMenuItems(
+  sql: Sql,
+  clinicId: string,
+  node: import('@docmee/db').WorkflowNode,
+  ctx: WorkflowContext,
+): Promise<DynamicMenuItem[]> {
+  const source = String(node.config?.['optionSource'] ?? 'static')
+  if (source === 'clinic_doctors') {
+    return (await createDoctorsRepository(sql).listByClinic(clinicId)).map((doctor) => ({
+      id: doctor.id,
+      title: doctor.name.slice(0, 24),
+      ...(doctor.specialty ? { description: doctor.specialty.slice(0, 72) } : {}),
+    }))
+  }
+  if (source === 'doctor_services') {
+    const configuredSourceField = node.config?.['sourceField']
+    const sourceField = configuredSourceField === undefined ? 'doctor_id' : String(configuredSourceField).trim()
+    let doctorId: string | undefined
+    if (sourceField) {
+      doctorId = await resolveWorkflowDoctorId(sql, clinicId, contextString(ctx, sourceField))
+    } else {
+      const doctors = await createDoctorsRepository(sql).listByClinic(clinicId)
+      doctorId = doctors.length === 1 ? doctors[0]?.id : undefined
+      if (doctorId) ctx['doctor_id'] = doctorId
+    }
+    if (!doctorId) return []
+    return (await createDoctorServicesRepository(sql).listServicesForDoctor(clinicId, doctorId)).map((service) => ({
+      id: service.id,
+      title: service.name.slice(0, 24),
+      ...(service.description ? { description: service.description.slice(0, 72) } : {}),
+    }))
+  }
+  return []
 }
 
 function dateRange(start: string, days: number): string[] {
@@ -878,6 +953,14 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       await notify('A workflow flagged this conversation for attention.', ctx)
     },
 
+    async handoffSecretary(ctx) {
+      const conversation = ctx.conversationId
+        ? await createConversationsRepository(sql).findById(clinicId, ctx.conversationId)
+        : null
+      await pauseBotForHandoff(sql, clinicId, ctx.conversationId, conversation?.metadata, 'patient_request')
+      await notify('A patient requested a secretary. The bot has been paused for human handoff.', ctx)
+    },
+
     async addTag(tag, ctx) {
       await addConversationTag(tag, ctx)
     },
@@ -1150,8 +1233,20 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       return true
     },
 
-    async sendInteractiveMenu(node, ctx) {
-      const options = parseMenuOptions(node.config)
+    async sendInteractiveMenu(node, ctx, page = 0) {
+      const optionSource = String(node.config?.['optionSource'] ?? 'static')
+      const dynamic = optionSource !== 'static'
+      const dynamicItems = dynamic ? await loadDynamicMenuItems(sql, clinicId, node, ctx) : []
+      const dynamicPage = dynamic
+        ? dynamicMenuPage(dynamicItems, page, boundedInteger(node.config?.['pageSize'], 8, 1, 9))
+        : { items: [], hasMore: false }
+      const options = dynamic
+        ? [
+            ...dynamicPage.items.map((item) => ({ optionId: item.id, title: item.title, description: item.description })),
+            ...(dynamicPage.hasMore ? [{ optionId: SLOT_MENU_MORE_OPTION_ID, title: 'See more' }] : []),
+          ]
+        : parseMenuOptions(node.config)
+      if (dynamic && dynamicPage.items.length === 0) return false
       const variant = String(node.config?.['variant'] ?? 'list')
       const rawHeader = String(node.config?.['header'] ?? '').trim()
       const rawMessage = String(node.config?.['message'] ?? '').trim()
@@ -1207,7 +1302,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         return false
       }
 
-      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, status: 'pending' }
+      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending' }
       const conversations = createConversationsRepository(sql)
       const conversation = await conversations.findById(clinicId, ctx.conversationId)
       if (!conversation) return false
@@ -1233,8 +1328,13 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       return true
     },
 
-    matchMenuReply(node, ctx) {
+    async matchMenuReply(node, ctx, page = 0) {
       const replyId = typeof ctx['interactiveReplyId'] === 'string' ? ctx['interactiveReplyId'] : undefined
+      if (String(node.config?.['optionSource'] ?? 'static') !== 'static') {
+        const items = await loadDynamicMenuItems(sql, clinicId, node, ctx)
+        const current = dynamicMenuPage(items, page, boundedInteger(node.config?.['pageSize'], 8, 1, 9))
+        return resolveDynamicMenuReply(current.items, replyId, contextString(ctx, 'message'))
+      }
       return resolveMenuHandle(parseMenuOptions(node.config), replyId, contextString(ctx, 'message'))
     },
 
@@ -1406,6 +1506,13 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const appointments = createAppointmentsRepository(sql)
       const services = await appointments.listServices(clinicId)
       const service = serviceId ? services.find((item) => item.id === serviceId) : undefined
+      if (serviceId) {
+        if (!doctorId) throw new Error('A doctor is required when a service is selected')
+        const enabledForDoctor = await createDoctorServicesRepository(sql).listServicesForDoctor(clinicId, doctorId)
+        if (!selectedDoctorOffersService(enabledForDoctor, serviceId)) {
+          throw new Error('The selected service is no longer enabled for this doctor')
+        }
+      }
       const duration = boundedInteger(node.config?.['durationMinutes'] ?? service?.durationMinutes, 30, 5, 480)
       const resolvedCalendar = await workflowCalendarConfig(sql, clinic, doctorId || undefined)
       if (!resolvedCalendar) throw new Error('Google Calendar is not connected for this doctor or clinic')

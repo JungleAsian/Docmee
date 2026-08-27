@@ -39,6 +39,7 @@ export const WORKFLOW_MENU_CONTEXT_KEY = 'workflowMenu'
 
 export interface WorkflowMenuState {
   nodeId: string
+  page?: number
   status: 'pending'
 }
 
@@ -54,6 +55,12 @@ export interface WorkflowMenuOption {
  *  footer "0" restarts (→ main menu), "1" hands off to live chat, and any
  *  unmatched reply falls through `default` (re-show the menu). */
 export const MENU_RESERVED_HANDLES = ['restart', 'livechat', 'default'] as const
+
+export type MenuReplyOutcome = {
+  outcome: string
+  value?: string
+  label?: string
+}
 
 // Slot menu (dates-then-times booking picker): a re-entrant node, same family
 // as the interactive menu above, but its options are computed at send time
@@ -176,6 +183,7 @@ export interface WorkflowExecutors {
   sendMessage(text: string, ctx: WorkflowContext): Promise<unknown> | unknown
   sendTemplate(category: string, ctx: WorkflowContext): Promise<unknown> | unknown
   notifySecretary(ctx: WorkflowContext): Promise<unknown> | unknown
+  handoffSecretary?: (ctx: WorkflowContext) => Promise<unknown> | unknown
   addTag(tag: string, ctx: WorkflowContext): Promise<unknown> | unknown
   aiDraft(node: WorkflowNode, ctx: WorkflowContext): Promise<unknown> | unknown
   requestApproval(node: WorkflowNode, nextNodeId: string | undefined, ctx: WorkflowContext): Promise<unknown> | unknown
@@ -189,10 +197,10 @@ export interface WorkflowExecutors {
   /** Send the interactive menu and pause for the patient's choice. Returns true
    *  when the run was paused (a pending resume was persisted), false when it
    *  could not pause (e.g. no conversation) and the engine should route `default`. */
-  sendInteractiveMenu?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<boolean> | boolean
+  sendInteractiveMenu?: (node: WorkflowNode, ctx: WorkflowContext, page?: number) => Promise<boolean> | boolean
   /** On resume, resolve the patient's reply to one of the menu's output handles
    *  (an optionId, or a reserved `restart`/`livechat`/`default`). */
-  matchMenuReply?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<string> | string
+  matchMenuReply?: (node: WorkflowNode, ctx: WorkflowContext, page?: number) => Promise<string | MenuReplyOutcome> | string | MenuReplyOutcome
   /** Send page `page` (0-based) of the slot menu and pause. Same return
    *  contract as `sendInteractiveMenu`: true when paused, false when it
    *  could not send (including "nothing to show on this page"). */
@@ -286,22 +294,38 @@ export async function runWorkflow(
         // out of the per-option handle matched from the patient's reply.
         const menu = ctx[WORKFLOW_MENU_CONTEXT_KEY] as WorkflowMenuState | undefined
         if (menu && menu.nodeId === node.id && menu.status === 'pending') {
-          handle = exec.matchMenuReply ? await exec.matchMenuReply(node, ctx) : 'default'
+          const result = exec.matchMenuReply ? await exec.matchMenuReply(node, ctx, menu.page ?? 0) : 'default'
+          const outcome: MenuReplyOutcome = typeof result === 'string' ? { outcome: result } : result
+          handle = outcome.outcome
+          const dynamic = String(node.config?.['optionSource'] ?? 'static') !== 'static'
+          if (dynamic && (handle === 'more' || handle === 'default')) {
+            delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
+            const nextPage = handle === 'more' ? (menu.page ?? 0) + 1 : (menu.page ?? 0)
+            const paused = exec.sendInteractiveMenu
+              ? await exec.sendInteractiveMenu(node, ctx, nextPage)
+              : false
+            if (paused) {
+              trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+              return trace
+            }
+            handle = 'empty'
+            break
+          }
           const field = String(node.config?.['field'] ?? '')
           if (field) {
-            const options = parseMenuOptions(node.config)
-            const selected = options.find((o) => o.optionId === handle)
-            ctx[field] = selected?.title ?? handle
+            if (dynamic && outcome.value) {
+              ctx[field] = outcome.value
+              if (outcome.label) ctx[`${field}_label`] = outcome.label
+            } else {
+              const options = parseMenuOptions(node.config)
+              const selected = options.find((o) => o.optionId === handle)
+              ctx[field] = selected?.title ?? handle
+            }
           }
           delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
           break
         }
-        if (menu && menu.nodeId === node.id && menu.status === 'pending') {
-          handle = exec.matchMenuReply ? await exec.matchMenuReply(node, ctx) : 'default'
-          delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
-          break
-        }
-        const paused = exec.sendInteractiveMenu ? await exec.sendInteractiveMenu(node, ctx) : false
+        const paused = exec.sendInteractiveMenu ? await exec.sendInteractiveMenu(node, ctx, 0) : false
         if (paused) {
           trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
           return trace
@@ -364,6 +388,11 @@ export async function runWorkflow(
         break
       case 'action.notify_secretary':
         await sideEffect(node, () => Promise.resolve(exec.notifySecretary(ctx)))
+        break
+      case 'action.handoff_to_secretary':
+        if (exec.handoffSecretary) {
+          await sideEffect(node, () => Promise.resolve(exec.handoffSecretary!(ctx)))
+        }
         break
       case 'action.add_tag':
         await sideEffect(node, () => Promise.resolve(exec.addTag(String(cfg['tag'] ?? ''), ctx)))

@@ -74,6 +74,41 @@ describe('validateWorkflowDefinition', () => {
     expect(errors).toEqual([])
   })
 
+  it('accepts a dynamic doctor menu with selected and empty branches and no authored options', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', {
+        optionSource: 'clinic_doctors',
+        field: 'doctor_id',
+      }),
+      node('picked', 'action', 'action.end'),
+      node('empty', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'menu'),
+      edge('selected', 'menu', 'picked', 'selected'),
+      edge('empty', 'menu', 'empty', 'empty'),
+    ], { requireTrigger: true })
+
+    expect(errors).toEqual([])
+  })
+
+  it('rejects a dynamic menu with an unknown source or without selected and empty successors', () => {
+    const invalidSource = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', { optionSource: 'inventory_items' }),
+      node('end', 'action', 'action.end'),
+    ], [edge('t', 'trigger', 'menu'), edge('bad', 'menu', 'end', 'product')], { requireTrigger: true })
+    const missingBranches = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', { optionSource: 'doctor_services' }),
+      node('end', 'action', 'action.end'),
+    ], [edge('t', 'trigger', 'menu'), edge('bad', 'menu', 'end', 'restart')], { requireTrigger: true })
+
+    expect(invalidSource.join('\n')).toMatch(/invalid optionSource/)
+    expect(missingBranches.join('\n')).toMatch(/requires a "selected" successor/)
+    expect(missingBranches.join('\n')).toMatch(/requires an "empty" successor/)
+  })
+
   it('rejects an interactive_menu with no options, an unwired option, and a bad handle', () => {
     const errors = validateWorkflowDefinition([
       node('trigger', 'trigger', 'trigger.message_keyword'),

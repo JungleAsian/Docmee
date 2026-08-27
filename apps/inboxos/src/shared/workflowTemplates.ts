@@ -28,7 +28,132 @@ const e = (source: string, target: string, sourceHandle?: string): WorkflowEdge 
   ...(sourceHandle ? { sourceHandle } : {}),
 })
 
+const bookingAiScenarios = JSON.stringify([
+  { id: 'clinic_question', description: 'The patient asks a question about the clinic, doctors, services, location, hours, policies, or booking process.', action: 'reply' },
+  { id: 'human_request', description: 'The patient asks for a person, secretary, agent, or human help, or the answer is uncertain or safety-sensitive.', action: 'handoff' },
+])
+
+function dynamicBookingTemplate(multipleDoctors: boolean): WorkflowTemplate {
+  const key = multipleDoctors ? 'booking_multiple_doctors_ai' : 'booking_single_doctor_ai'
+  const firstBookingNode = multipleDoctors ? 'doctor_menu' : 'service_menu'
+  const nodes: WorkflowNode[] = [
+    n('trigger', 'trigger', 'trigger.message_keyword', { keywords: 'book,appointment,cita,agendar,booking,menu' }, 40, 360),
+    n('main_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'Clinic assistant',
+      message: 'How can we help you today?', footer: 'Choose an option below.',
+      options: JSON.stringify([
+        { optionId: 'booking', title: 'Book appointment' },
+        { optionId: 'inquiry', title: 'Ask a question' },
+        { optionId: 'secretary', title: 'Talk to secretary' },
+      ]),
+    }, 280, 360),
+    ...(multipleDoctors ? [n('doctor_menu', 'action', 'action.interactive_menu', {
+      variant: 'list', optionSource: 'clinic_doctors', pageSize: '8', field: 'doctor_id',
+      header: 'Choose a doctor', message: 'Select an available doctor.', footer: "Press '0' to restart and '1' for a secretary",
+    }, 520, 360)] : []),
+    n('service_menu', 'action', 'action.interactive_menu', {
+      variant: 'list', optionSource: 'doctor_services', sourceField: multipleDoctors ? 'doctor_id' : '',
+      pageSize: '8', field: 'service_id', header: 'Choose a service',
+      message: 'Select one of the services currently available with this doctor.',
+      footer: "Press '0' to restart and '1' for a secretary",
+    }, multipleDoctors ? 760 : 520, 360),
+    n('availability', 'action', 'action.check_availability', {
+      doctorIdField: 'doctor_id', days: '5', slotsField: 'available_slots',
+    }, multipleDoctors ? 1000 : 760, 360),
+    n('date_menu', 'action', 'action.offer_slot_menu', {
+      pickerMode: 'date', slotsField: 'available_slots', selectField: 'preferred_date', pageSize: '8',
+      header: 'Available dates', message: 'Choose a date from the next five days.',
+      footer: "Press '0' to restart and '1' for a secretary",
+    }, multipleDoctors ? 1240 : 1000, 360),
+    n('time_menu', 'action', 'action.offer_slot_menu', {
+      pickerMode: 'time', slotsField: 'available_slots', dateField: 'preferred_date', selectField: 'preferred_time', pageSize: '8',
+      header: 'Available times', message: 'Choose an available appointment time.',
+      footer: "Press '0' to restart and '1' for a secretary",
+    }, multipleDoctors ? 1480 : 1240, 360),
+    n('confirm_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'Confirm booking',
+      message: 'Confirm this doctor, service, date, and time.',
+      options: JSON.stringify([{ optionId: 'confirm', title: 'Confirm' }, { optionId: 'cancel', title: 'Start over' }]),
+    }, multipleDoctors ? 1720 : 1480, 360),
+    n('create_booking', 'action', 'action.create_or_reschedule_booking', {
+      mode: 'create', doctorIdField: 'doctor_id', serviceIdField: 'service_id',
+      dateField: 'preferred_date', timeField: 'preferred_time',
+    }, multipleDoctors ? 1960 : 1720, 360),
+    n('success', 'action', 'action.send_message', { text: 'Your appointment is confirmed and has been added to the clinic calendar.' }, multipleDoctors ? 2200 : 1960, 360),
+    n('end_success', 'action', 'action.end', {}, multipleDoctors ? 2440 : 2200, 360),
+    n('ai_inquiry', 'action', 'action.ai_agent', {
+      personality: 'Helpful clinic booking assistant', communicationStyle: 'friendly',
+      customInstructions: 'Answer only from the clinic knowledge base and current clinic context. Never diagnose or provide medical advice. If the answer is unavailable, uncertain, safety-sensitive, or the patient requests a person, hand off to the secretary.',
+      scenarios: bookingAiScenarios,
+    }, 520, 80),
+    n('post_inquiry_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'What would you like to do next?',
+      message: 'You can continue with a booking or speak with the clinic secretary.',
+      options: JSON.stringify([
+        { optionId: 'booking', title: 'Book appointment' },
+        { optionId: 'secretary', title: 'Talk to secretary' },
+      ]),
+    }, 760, -100),
+    n('handoff_message', 'action', 'action.send_message', { text: 'I am connecting you with the clinic secretary now.' }, 760, 80),
+    n('handoff', 'action', 'action.handoff_to_secretary', {}, 1000, 80),
+    n('end_handoff', 'action', 'action.end', {}, 1240, 80),
+    n('no_options', 'action', 'action.send_message', { text: 'No eligible doctors, services, or future appointment times are available. I am connecting you with the secretary.' }, 1000, 640),
+  ]
+  const edges: WorkflowEdge[] = [
+    e('trigger', 'main_menu'),
+    e('main_menu', firstBookingNode, 'booking'),
+    e('main_menu', 'ai_inquiry', 'inquiry'),
+    e('main_menu', 'handoff_message', 'secretary'),
+    e('main_menu', 'handoff_message', 'livechat'),
+    e('main_menu', 'ai_inquiry', 'default'),
+    ...(multipleDoctors ? [
+      e('doctor_menu', 'service_menu', 'selected'),
+      e('doctor_menu', 'no_options', 'empty'),
+      e('doctor_menu', 'main_menu', 'restart'),
+      e('doctor_menu', 'handoff_message', 'livechat'),
+    ] : []),
+    e('service_menu', 'availability', 'selected'),
+    e('service_menu', 'no_options', 'empty'),
+    e('service_menu', 'main_menu', 'restart'),
+    e('service_menu', 'handoff_message', 'livechat'),
+    e('availability', 'date_menu'),
+    e('date_menu', 'time_menu', 'selected'),
+    e('date_menu', 'no_options', 'empty'),
+    e('date_menu', 'main_menu', 'restart'),
+    e('date_menu', 'handoff_message', 'livechat'),
+    e('time_menu', 'confirm_menu', 'selected'),
+    e('time_menu', 'no_options', 'empty'),
+    e('time_menu', 'main_menu', 'restart'),
+    e('time_menu', 'handoff_message', 'livechat'),
+    e('confirm_menu', 'create_booking', 'confirm'),
+    e('confirm_menu', 'main_menu', 'cancel'),
+    e('confirm_menu', 'main_menu', 'restart'),
+    e('confirm_menu', 'handoff_message', 'livechat'),
+    e('create_booking', 'success'),
+    e('success', 'end_success'),
+    e('ai_inquiry', 'post_inquiry_menu', 'replied'),
+    e('ai_inquiry', 'end_handoff', 'handoff'),
+    e('ai_inquiry', 'handoff_message', 'no_match'),
+    e('ai_inquiry', 'handoff_message', 'error'),
+    e('post_inquiry_menu', firstBookingNode, 'booking'),
+    e('post_inquiry_menu', 'handoff_message', 'secretary'),
+    e('post_inquiry_menu', 'handoff_message', 'livechat'),
+    e('handoff_message', 'handoff'),
+    e('handoff', 'end_handoff'),
+    e('no_options', 'handoff'),
+  ]
+  return {
+    key,
+    nameKey: multipleDoctors ? 'wf.tpl.multiDoctorBookingName' : 'wf.tpl.singleDoctorBookingName',
+    descKey: multipleDoctors ? 'wf.tpl.multiDoctorBookingDesc' : 'wf.tpl.singleDoctorBookingDesc',
+    nodes,
+    edges,
+  }
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  dynamicBookingTemplate(false),
+  dynamicBookingTemplate(true),
   {
     key: 'urgent_keyword',
     nameKey: 'wf.tpl.urgentName',

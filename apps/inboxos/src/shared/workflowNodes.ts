@@ -40,6 +40,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
   { type: 'action.send_message', kind: 'action', labelKey: 'wf.node.sendMessage', descKey: 'wf.desc.sendMessage', fields: ['text'], icon: 'message' },
   { type: 'action.send_template', kind: 'action', labelKey: 'wf.node.sendTemplate', descKey: 'wf.desc.sendTemplate', fields: ['category'], icon: 'file' },
   { type: 'action.notify_secretary', kind: 'action', labelKey: 'wf.node.notify', descKey: 'wf.desc.notify', fields: [], icon: 'bell' },
+  { type: 'action.handoff_to_secretary', kind: 'action', labelKey: 'wf.node.handoffSecretary', descKey: 'wf.desc.handoffSecretary', fields: [], icon: 'bell' },
   { type: 'action.add_tag', kind: 'action', labelKey: 'wf.node.addTag', descKey: 'wf.desc.addTag', fields: ['tag'], icon: 'tag' },
   { type: 'action.ai_draft', kind: 'action', labelKey: 'wf.node.aiDraft', descKey: 'wf.desc.aiDraft', fields: ['prompt', 'queryLimit', 'responseBuffer'], icon: 'sparkle' },
   {
@@ -47,7 +48,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.interactiveMenu',
     descKey: 'wf.desc.interactiveMenu',
-    fields: ['variant', 'header', 'message', 'footer', 'options', 'field'],
+    fields: ['variant', 'optionSource', 'sourceField', 'pageSize', 'header', 'message', 'footer', 'options', 'field'],
     icon: 'list',
   },
   { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', descKey: 'wf.desc.approval', fields: [], icon: 'check' },
@@ -230,7 +231,7 @@ export function nodeHasIssue(node: WorkflowNode): string | undefined {
   const cfg = node.config ?? {}
   if (node.type === 'action.interactive_menu') {
     const options = parseMenuOptionsSafe(cfg.options)
-    if (options.length === 0) return 'wf.issue.menuNoOptions'
+    if (String(cfg.optionSource ?? 'static') === 'static' && options.length === 0) return 'wf.issue.menuNoOptions'
   }
   if (node.type === 'action.offer_slot_menu') {
     const mode = String(cfg.pickerMode ?? 'date')
@@ -356,6 +357,11 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
   variant: [
     { value: 'list', labelKey: 'wf.variant.list' },
     { value: 'button', labelKey: 'wf.variant.button' },
+  ],
+  optionSource: [
+    { value: 'static', labelKey: 'wf.optionSource.static' },
+    { value: 'clinic_doctors', labelKey: 'wf.optionSource.clinicDoctors' },
+    { value: 'doctor_services', labelKey: 'wf.optionSource.doctorServices' },
   ],
   pickerMode: [
     { value: 'date', labelKey: 'wf.slotMenuMode.date' },
@@ -657,6 +663,14 @@ export function branchRows(wf: WorkflowNode): { key: string; tone: string; label
         { key: 'error', tone: 'red' },
       ]
     case 'action.interactive_menu': {
+      if (String(cfg.optionSource ?? 'static') !== 'static') {
+        return [
+          { key: 'selected', tone: 'emerald' },
+          { key: 'empty', tone: 'amber' },
+          { key: 'restart', tone: 'slate' },
+          { key: 'livechat', tone: 'sky' },
+        ]
+      }
       // A reserved handle (restart/livechat/default) the admin has turned into
       // a real, visible option already comes through here with its own
       // configured title (same as any other option). Only the ones the admin

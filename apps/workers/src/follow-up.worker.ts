@@ -20,6 +20,7 @@ import {
 } from './follow-up.js'
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
 import { type Job } from '@docmee/queue'
+import { isHumanOnly } from '@docmee/shared'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -184,10 +185,14 @@ export async function processFollowUpJob(job: Job): Promise<void> {
     }
 
     // Never message a patient who has opted out.
-    if (isPatientOptedOut(patient)) {
+  if (isPatientOptedOut(patient)) {
       console.log(`[follow-up] patient ${data.patientId} opted out; skipping ${data.type}`)
-      return
-    }
+    return
+  }
+  if (isHumanOnly(patient)) {
+    console.log(`[follow-up] patient ${data.patientId} is human-only; skipping ${data.type}`)
+    return
+  }
 
     // Appointment guard: an appointment-relative follow-up is pointless once the
     // appointment is gone or cancelled — don't remind a patient about a cancelled visit.

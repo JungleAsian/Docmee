@@ -178,7 +178,7 @@ export interface Patient {
   notes: string | null
   metadata: Record<string, unknown>
   /** Independent from STOP/START consent and opted_out tags. */
-  automationMode: PatientAutomationMode
+  automationMode?: PatientAutomationMode
   createdAt: string
   updatedAt: string
 }

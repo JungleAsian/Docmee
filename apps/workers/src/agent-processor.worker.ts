@@ -43,6 +43,7 @@ import { pauseBotForHandoff } from './bot-handoff.js'
 import { sendMessengerText, sendInstagramText } from '@docmee/channels'
 import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender, resolveWhatsAppInteractiveSender } from './meta-token.js'
 import { schedulingQueue, notificationQueue, type Job } from '@docmee/queue'
+import { isHumanOnly } from '@docmee/shared'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -741,6 +742,14 @@ export async function processAgentJob(job: Job): Promise<void> {
         }
       }
       console.log(`[agent] opt-out: staying silent for clinic ${data.clinicId}`)
+      return
+    }
+
+    // Permanent human-only mode is separate from STOP/START consent and the
+    // opted_out tag. Keep classification available for staff, but suppress all
+    // automated routing and outbound replies at this trust boundary.
+    if (patient && isHumanOnly(patient)) {
+      console.log(`[agent] patient ${patient.id} is human-only; suppressing automation`)
       return
     }
 

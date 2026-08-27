@@ -6,14 +6,16 @@ const BOUNDARY = '----docmeemediatestboundary'
 
 const h = vi.hoisted(() => ({
   conversation: { id: 'conv-1', clinicId: 'clinic-1', channel: 'whatsapp', channelContactHandle: '15551234567', status: 'open', metadata: {} },
-  asset: { id: 'asset-1', clinicId: 'clinic-1', filename: 'scan.png', contentType: 'image/png', byteSize: 8, storageKey: 'private/clinic-1/scan.png', deletedAt: null },
-  createMessage: vi.fn(),
-  attach: vi.fn(),
+  asset: { id: 'asset-1', clinicId: 'clinic-1', filename: 'scan.png', contentType: 'image/png', byteSize: 8, storageKey: 'private/clinic-1/scan.png', storageStatus: 'active', deletedAt: null },
+  findOutboundAttempt: vi.fn(),
+  prepareOutbound: vi.fn(),
   markOutboundAccepted: vi.fn(),
-  markOutboundFailed: vi.fn(),
-  createWithinQuota: vi.fn(),
-  softDelete: vi.fn(),
-  updateConversation: vi.fn(),
+  markOutboundUncertain: vi.fn(),
+  reserveWithinQuota: vi.fn(),
+  markUploadReady: vi.fn(),
+  beginDeletion: vi.fn(),
+  markDeletionComplete: vi.fn(),
+  markDeletionFailed: vi.fn(),
   readObject: vi.fn(),
   uploadObject: vi.fn(),
   deleteObject: vi.fn(),
@@ -23,19 +25,20 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock('@docmee/db', () => ({
-  createConversationsRepository: () => ({ findById: async () => h.conversation, update: h.updateConversation }),
-  createMessagesRepository: () => ({
-    create: h.createMessage,
-  }),
+  createConversationsRepository: () => ({ findById: async () => h.conversation }),
   createChannelAccountsRepository: () => ({ listByClinic: async () => [{ channel: 'whatsapp', status: 'active', accountId: 'phone-id', accessTokenEnc: 'provider-token' }] }),
   createErrorReviewsRepository: () => ({ create: vi.fn() }),
   createMediaAssetsRepository: () => ({
     findById: async (_clinicId: string, id: string) => id === h.asset.id ? h.asset : null,
-    createWithinQuota: h.createWithinQuota,
-    softDelete: h.softDelete,
-    attach: h.attach,
+    findOutboundAttempt: h.findOutboundAttempt,
+    prepareOutbound: h.prepareOutbound,
     markOutboundAccepted: h.markOutboundAccepted,
-    markOutboundFailed: h.markOutboundFailed,
+    markOutboundUncertain: h.markOutboundUncertain,
+    reserveWithinQuota: h.reserveWithinQuota,
+    markUploadReady: h.markUploadReady,
+    beginDeletion: h.beginDeletion,
+    markDeletionComplete: h.markDeletionComplete,
+    markDeletionFailed: h.markDeletionFailed,
   }),
 }))
 vi.mock('../lib/db.js', () => ({ withDb: async (callback: (sql: unknown) => unknown) => callback({}) }))
@@ -67,8 +70,11 @@ function multipartImage(bytes = PNG_BYTES) {
   ])
 }
 
-describe('conversation media send routes', () => {
-  const auth = { authorization: `Bearer ${signAccessToken({ userId: 'staff-1', clinicId: 'clinic-1', role: 'secretary', email: 'staff@test.local' })}` }
+describe('conversation media send safety', () => {
+  const auth = {
+    authorization: `Bearer ${signAccessToken({ userId: 'staff-1', clinicId: 'clinic-1', role: 'secretary', email: 'staff@test.local' })}`,
+    'idempotency-key': 'media-request-001',
+  }
   const multipartAuth = { ...auth, 'content-type': `multipart/form-data; boundary=${BOUNDARY}` }
   const app = Fastify()
 
@@ -80,50 +86,84 @@ describe('conversation media send routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     h.conversation = { ...h.conversation, status: 'open', metadata: {} }
-    h.asset = { ...h.asset, filename: 'scan.png', contentType: 'image/png', byteSize: 8, storageKey: 'private/clinic-1/scan.png' }
+    h.asset = { ...h.asset, filename: 'scan.png', contentType: 'image/png', byteSize: 8, storageKey: 'private/clinic-1/scan.png', storageStatus: 'active' }
+    h.findOutboundAttempt.mockResolvedValue(null)
+    h.prepareOutbound.mockResolvedValue({
+      created: true,
+      attempt: { id: 'attempt-1', status: 'sending', idempotencyKey: 'media-request-001', providerMessageId: null },
+      message: { id: 'message-1', contentType: 'image', metadata: { providerStatus: 'sending' } },
+      attachment: { id: 'attachment-1', providerStatus: 'pending' },
+    })
     h.readObject.mockResolvedValue(PNG_BYTES)
     h.uploadObject.mockResolvedValue({ bucket: 'private', key: 'private/clinic-1/direct.png' })
     h.uploadMedia.mockResolvedValue('meta-media-1')
     h.sendImage.mockResolvedValue('wamid-1')
     h.sendDocument.mockResolvedValue('wamid-doc-1')
-    h.createMessage.mockResolvedValue({ id: 'message-1', contentType: 'image', metadata: { providerStatus: 'pending' } })
-    h.attach.mockResolvedValue({ id: 'attachment-1', providerStatus: 'pending' })
-    h.createWithinQuota.mockResolvedValue({ ...h.asset, id: 'direct-asset', filename: 'direct.png', storageKey: 'private/clinic-1/direct.png' })
-    h.softDelete.mockResolvedValue(true)
+    h.reserveWithinQuota.mockResolvedValue({ ...h.asset, id: 'direct-asset', filename: 'direct.png', storageKey: 'private/clinic-1/direct.png', storageStatus: 'uploading' })
+    h.markUploadReady.mockResolvedValue(undefined)
+    h.beginDeletion.mockResolvedValue({ ...h.asset, id: 'direct-asset', storageKey: 'private/clinic-1/direct.png', storageStatus: 'delete_pending' })
+    h.markDeletionComplete.mockResolvedValue(undefined)
+    h.markDeletionFailed.mockResolvedValue(undefined)
     h.deleteObject.mockResolvedValue(true)
   })
 
-  it('persists a selected asset send as pending and pauses automation before calling Meta', async () => {
+  it('requires a client idempotency key before reading or sending media', async () => {
+    const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: { authorization: auth.authorization }, payload: { assetId: 'asset-1' } })
+
+    expect(response.statusCode).toBe(400)
+    expect(h.readObject).not.toHaveBeenCalled()
+    expect(h.uploadMedia).not.toHaveBeenCalled()
+  })
+
+  it('persists the idempotent attempt and handoff before calling Meta', async () => {
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: auth, payload: { assetId: 'asset-1', caption: 'Results' } })
 
     expect(response.statusCode).toBe(201)
-    expect(h.createMessage).toHaveBeenCalledWith(expect.objectContaining({ contentType: 'image', channelMessageId: undefined, metadata: expect.objectContaining({ providerStatus: 'pending' }) }))
-    expect(h.attach).toHaveBeenCalledWith(expect.objectContaining({ mediaAssetId: 'asset-1', providerMessageId: null, providerStatus: 'pending' }))
-    expect(h.updateConversation).toHaveBeenCalledWith('clinic-1', 'conv-1', expect.objectContaining({ status: 'handoff' }))
-    expect(h.createMessage.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
-    expect(h.attach.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
-    expect(h.updateConversation.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
-    expect(h.markOutboundAccepted).toHaveBeenCalledWith({ clinicId: 'clinic-1', messageId: 'message-1', attachmentId: 'attachment-1', providerMessageId: 'wamid-1', providerMediaId: 'meta-media-1' })
+    expect(h.prepareOutbound).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'clinic-1', conversationId: 'conv-1', mediaAssetId: 'asset-1', idempotencyKey: 'media-request-001' }))
+    expect(h.prepareOutbound.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
+    expect(h.markOutboundAccepted).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'clinic-1', attemptId: 'attempt-1', providerMessageId: 'wamid-1', providerMediaId: 'meta-media-1' }))
     expect(response.body).not.toContain('private/clinic-1')
     expect(response.body).not.toContain('provider-token')
   })
 
-  it('keeps the selected pending record and marks it failed when Meta rejects the send', async () => {
-    h.sendImage.mockRejectedValueOnce(new Error('Meta rejected media'))
+  it.each(['sending', 'uncertain', 'accepted'] as const)('returns an existing %s attempt without another provider call', async (status) => {
+    h.findOutboundAttempt.mockResolvedValue({
+      attempt: { id: 'attempt-existing', status, idempotencyKey: 'media-request-001', providerMessageId: status === 'accepted' ? 'wamid-existing' : null },
+      message: { id: 'message-existing', channelMessageId: status === 'accepted' ? 'wamid-existing' : null, metadata: { providerStatus: status } },
+      attachment: { id: 'attachment-existing', providerStatus: status },
+    })
 
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: auth, payload: { assetId: 'asset-1' } })
 
-    expect(response.statusCode).toBe(502)
-    expect(h.createMessage).toHaveBeenCalledOnce()
-    expect(h.attach).toHaveBeenCalledOnce()
-    expect(h.updateConversation).toHaveBeenCalledOnce()
-    expect(h.markOutboundFailed).toHaveBeenCalledWith({ clinicId: 'clinic-1', messageId: 'message-1', attachmentId: 'attachment-1', failureCode: 'provider_send_failed' })
+    expect(response.statusCode).toBe(status === 'accepted' ? 200 : 202)
+    expect(response.json().retryable).toBe(false)
+    expect(h.prepareOutbound).not.toHaveBeenCalled()
+    expect(h.uploadMedia).not.toHaveBeenCalled()
+  })
+
+  it('marks an ambiguous provider exception uncertain and never returns a retry-send response', async () => {
+    h.sendImage.mockRejectedValueOnce(new Error('provider timeout after possible acceptance'))
+
+    const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: auth, payload: { assetId: 'asset-1' } })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.json()).toMatchObject({ status: 'uncertain', retryable: false })
+    expect(h.markOutboundUncertain).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'clinic-1', attemptId: 'attempt-1' }))
+  })
+
+  it('records reconciliation failure as uncertain instead of inviting a duplicate send', async () => {
+    h.markOutboundAccepted.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: auth, payload: { assetId: 'asset-1' } })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.json()).toMatchObject({ status: 'uncertain', retryable: false })
+    expect(h.markOutboundUncertain).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', providerMessageId: 'wamid-1', providerMediaId: 'meta-media-1', failureCode: 'acceptance_reconciliation_failed' }))
   })
 
   it('sends an eligible PDF as a WhatsApp document', async () => {
     h.asset = { ...h.asset, filename: 'intake.pdf', contentType: 'application/pdf', byteSize: 5, storageKey: 'private/clinic-1/intake.pdf' }
     h.readObject.mockResolvedValue(new TextEncoder().encode('%PDF-'))
-    h.createMessage.mockResolvedValue({ id: 'message-1', contentType: 'document', metadata: { providerStatus: 'pending' } })
 
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: auth, payload: { assetId: 'asset-1' } })
 
@@ -142,7 +182,7 @@ describe('conversation media send routes', () => {
 
     expect(response.statusCode).toBe(400)
     expect(h.readObject).not.toHaveBeenCalled()
-    expect(h.createMessage).not.toHaveBeenCalled()
+    expect(h.prepareOutbound).not.toHaveBeenCalled()
     expect(h.uploadMedia).not.toHaveBeenCalled()
   })
 
@@ -152,36 +192,55 @@ describe('conversation media send routes', () => {
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media-asset', headers: auth, payload: { assetId: 'asset-1' } })
 
     expect(response.statusCode).toBe(400)
-    expect(h.createMessage).not.toHaveBeenCalled()
+    expect(h.prepareOutbound).not.toHaveBeenCalled()
     expect(h.uploadMedia).not.toHaveBeenCalled()
   })
 
-  it('stores a direct send within repository quota, persists pending state, and pauses before Meta', async () => {
+  it('reserves a direct-send asset before S3 and persists its attempt before Meta', async () => {
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media', headers: multipartAuth, payload: multipartImage() })
 
     expect(response.statusCode).toBe(201)
-    expect(h.createWithinQuota).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'clinic-1', byteSize: 8, contentType: 'image/png' }), { maxFiles: 10, maxBytes: 100 * 1024 * 1024 })
-    expect(h.attach).toHaveBeenCalledWith(expect.objectContaining({ mediaAssetId: 'direct-asset', providerStatus: 'pending' }))
-    expect(h.updateConversation.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
-    expect(h.markOutboundAccepted).toHaveBeenCalledWith({ clinicId: 'clinic-1', messageId: 'message-1', attachmentId: 'attachment-1', providerMessageId: 'wamid-1', providerMediaId: 'meta-media-1' })
+    expect(h.reserveWithinQuota).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'clinic-1', byteSize: 8, contentType: 'image/png' }), { maxFiles: 10, maxBytes: 100 * 1024 * 1024 })
+    expect(h.reserveWithinQuota.mock.invocationCallOrder[0]).toBeLessThan(h.uploadObject.mock.invocationCallOrder[0]!)
+    expect(h.markUploadReady.mock.invocationCallOrder[0]).toBeLessThan(h.prepareOutbound.mock.invocationCallOrder[0]!)
+    expect(h.prepareOutbound.mock.invocationCallOrder[0]).toBeLessThan(h.uploadMedia.mock.invocationCallOrder[0]!)
   })
 
   it('rejects a direct image whose bytes do not match its declared type', async () => {
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media', headers: multipartAuth, payload: multipartImage(new TextEncoder().encode('not-png')) })
 
     expect(response.statusCode).toBe(400)
+    expect(h.reserveWithinQuota).not.toHaveBeenCalled()
     expect(h.uploadObject).not.toHaveBeenCalled()
     expect(h.uploadMedia).not.toHaveBeenCalled()
   })
 
-  it('deletes a direct-send S3 object when the repository quota write fails', async () => {
-    h.createWithinQuota.mockRejectedValueOnce(new Error('media_file_limit_reached'))
+  it('does not upload when direct-send quota reservation is rejected', async () => {
+    h.reserveWithinQuota.mockRejectedValueOnce(new Error('media_file_limit_reached'))
 
     const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media', headers: multipartAuth, payload: multipartImage() })
 
     expect(response.statusCode).toBe(413)
+    expect(h.uploadObject).not.toHaveBeenCalled()
+    expect(h.prepareOutbound).not.toHaveBeenCalled()
+    expect(h.uploadMedia).not.toHaveBeenCalled()
+  })
+
+  it('cleans up a duplicate direct-send upload when a concurrent request already owns the key', async () => {
+    h.prepareOutbound.mockResolvedValueOnce({
+      created: false,
+      attempt: { id: 'attempt-existing', status: 'sending', idempotencyKey: 'media-request-001', providerMessageId: null },
+      message: { id: 'message-existing', channelMessageId: null, metadata: { providerStatus: 'sending' } },
+      attachment: { id: 'attachment-existing', providerStatus: 'pending' },
+    })
+
+    const response = await app.inject({ method: 'POST', url: '/conversations/conv-1/send-media', headers: multipartAuth, payload: multipartImage() })
+
+    expect(response.statusCode).toBe(202)
+    expect(response.json()).toMatchObject({ attemptId: 'attempt-existing', retryable: false })
+    expect(h.beginDeletion).toHaveBeenCalledWith('clinic-1', 'direct-asset')
     expect(h.deleteObject).toHaveBeenCalledWith('private/clinic-1/direct.png')
-    expect(h.createMessage).not.toHaveBeenCalled()
+    expect(h.markDeletionComplete).toHaveBeenCalledWith('clinic-1', 'direct-asset')
     expect(h.uploadMedia).not.toHaveBeenCalled()
   })
 })

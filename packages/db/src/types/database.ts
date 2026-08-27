@@ -466,6 +466,7 @@ export interface Appointment {
 export type AppointmentBookingOrigin = 'docmee' | 'workflow' | 'manual' | 'system'
 
 export type MediaAssetContentType = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp'
+export type MediaAssetStorageStatus = 'uploading' | 'active' | 'delete_pending' | 'delete_failed' | 'deleted'
 export interface MediaAsset {
   id: string
   clinicId: string
@@ -475,12 +476,16 @@ export interface MediaAsset {
   byteSize: number
   checksum: string
   storageKey: string
+  storageStatus: MediaAssetStorageStatus
+  storageFailureCode: string | null
+  storageCleanupAttempts: number
+  storageCleanupRetryAt: string | null
   deletedAt: string | null
   createdAt: string
   updatedAt: string
 }
 
-export type AttachmentProviderStatus = 'pending' | 'accepted' | 'sent' | 'delivered' | 'read' | 'failed'
+export type AttachmentProviderStatus = 'pending' | 'uncertain' | 'accepted' | 'sent' | 'delivered' | 'read' | 'failed'
 export interface MessageAttachment {
   id: string
   clinicId: string
@@ -488,6 +493,23 @@ export interface MessageAttachment {
   mediaAssetId: string
   providerMessageId: string | null
   providerStatus: AttachmentProviderStatus
+  failureCode: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type OutboundMediaAttemptStatus = 'sending' | 'accepted' | 'uncertain'
+export interface OutboundMediaAttempt {
+  id: string
+  clinicId: string
+  conversationId: string
+  messageId: string
+  attachmentId: string
+  mediaAssetId: string
+  idempotencyKey: string
+  status: OutboundMediaAttemptStatus
+  providerMediaId: string | null
+  providerMessageId: string | null
   failureCode: string | null
   createdAt: string
   updatedAt: string

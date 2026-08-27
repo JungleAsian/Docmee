@@ -43,6 +43,7 @@ const mediaInfra = vi.hoisted(() => ({
   deleteObject: vi.fn(async () => true),
   attachments: [] as Record<string, unknown>[],
   accepted: vi.fn(async () => {}),
+  uncertain: vi.fn(async () => {}),
   failed: vi.fn(async () => {}),
 }))
 vi.mock('../lib/kb-vault-storage.js', async (importOriginal) => {
@@ -340,17 +341,40 @@ vi.mock('@docmee/db', () => ({
     },
   }),
   createMediaAssetsRepository: () => ({
-    createWithinQuota: async (data: Record<string, unknown>) => ({
+    findOutboundAttempt: async () => null,
+    reserveWithinQuota: async (data: Record<string, unknown>) => ({
       ...data,
       id: `asset-${mediaInfra.attachments.length + 1}`,
+      storageStatus: 'uploading',
       deletedAt: null,
     }),
-    attach: async (data: Record<string, unknown>) => {
-      const row = { ...data, id: `attachment-${mediaInfra.attachments.length + 1}` }
-      mediaInfra.attachments.push(row)
-      return row
+    markUploadReady: async () => {},
+    beginDeletion: async () => null,
+    markDeletionComplete: async () => {},
+    markDeletionFailed: async () => {},
+    prepareOutbound: async (data: Record<string, unknown>) => {
+      const message = {
+        ...data,
+        id: `sent-${store.sent.length + 1}`,
+        contentType: data.contentType,
+        channelMessageId: null,
+        metadata: { ...(data.metadata as Record<string, unknown>), providerStatus: 'sending' },
+        createdAt: '2026-06-19T13:00:00.000Z',
+      }
+      store.sent.push(message)
+      const attachment = { id: `attachment-${mediaInfra.attachments.length + 1}`, mediaAssetId: data.mediaAssetId, providerStatus: 'pending' }
+      mediaInfra.attachments.push(attachment)
+      const conversation = store.conversations.get(data.conversationId as string)
+      if (conversation?.status === 'open') store.conversations.set(data.conversationId as string, { ...conversation, status: 'handoff' })
+      return {
+        created: true,
+        attempt: { id: `attempt-${store.sent.length}`, status: 'sending', idempotencyKey: data.idempotencyKey, providerMessageId: null },
+        message,
+        attachment,
+      }
     },
     markOutboundAccepted: mediaInfra.accepted,
+    markOutboundUncertain: mediaInfra.uncertain,
     markOutboundFailed: mediaInfra.failed,
   }),
   createChannelAccountsRepository: () => ({
@@ -444,6 +468,7 @@ function imagePayload({
 }
 const multipartHeaders = (role: Parameters<typeof tokenFor>[0], userId?: string) => ({
   ...authHeader(role, userId),
+  'idempotency-key': `media-${role}-${userId ?? 'default'}-request`,
   'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
 })
 
@@ -1158,9 +1183,8 @@ describe('conversation routes', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('POST /conversations/:id/send-media logs meta_send_failure and returns 502 when the send throws', async () => {
+  it('POST /conversations/:id/send-media preserves an uncertain attempt and never invites a duplicate retry when the send throws', async () => {
     sendWaImage.mockRejectedValueOnce(new Error('Meta 401: token expired'))
-    const before = store.flagged.length
     const sentBefore = store.sent.length
     const res = await app.inject({
       method: 'POST',
@@ -1168,15 +1192,13 @@ describe('conversation routes', () => {
       headers: multipartHeaders('secretary'),
       payload: imagePayload(),
     })
-    expect(res.statusCode).toBe(502)
-    expect(store.flagged.length).toBe(before + 1)
-    expect(store.flagged.at(-1)!.errorType).toBe('meta_send_failure')
+    expect(res.statusCode).toBe(202)
+    expect(JSON.parse(res.body)).toMatchObject({ status: 'uncertain', retryable: false })
     expect(store.sent.length).toBe(sentBefore + 1)
-    expect(store.sent.at(-1)!.metadata).toMatchObject({ providerStatus: 'pending' })
-    expect(mediaInfra.failed).toHaveBeenCalledWith(expect.objectContaining({
+    expect(store.sent.at(-1)!.metadata).toMatchObject({ providerStatus: 'sending' })
+    expect(mediaInfra.uncertain).toHaveBeenCalledWith(expect.objectContaining({
       clinicId: 'c-1',
-      messageId: store.sent.at(-1)!.id,
-      failureCode: 'provider_send_failed',
+      failureCode: 'provider_outcome_uncertain',
     }))
     expect(store.conversations.get('wa-fail')!.status).toBe('handoff')
   })

@@ -88,8 +88,11 @@ export type {
   ReportType,
   MediaAsset,
   MediaAssetContentType,
+  MediaAssetStorageStatus,
   MessageAttachment,
   AttachmentProviderStatus,
+  OutboundMediaAttempt,
+  OutboundMediaAttemptStatus,
 } from './types/index.js'
 
 // ── Repository factories ───────────────────────────────────────────────────────

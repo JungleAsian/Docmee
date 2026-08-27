@@ -26,6 +26,8 @@ function toMediaAssetSummary(asset: {
   filename: string
   contentType: string
   byteSize: number
+  storageStatus: string
+  storageFailureCode?: string | null
   createdAt: string
 }) {
   return {
@@ -33,6 +35,8 @@ function toMediaAssetSummary(asset: {
     filename: asset.filename,
     contentType: asset.contentType,
     byteSize: asset.byteSize,
+    storageStatus: asset.storageStatus,
+    cleanupRequired: asset.storageStatus === 'delete_failed',
     createdAt: asset.createdAt,
   }
 }
@@ -79,20 +83,34 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
       const checksumHash = createHash('sha256')
       for await (const chunk of createReadStream(tempPath)) checksumHash.update(chunk)
       const checksum = checksumHash.digest('hex')
-      const key = mediaObjectKey({ clinicId, assetId: randomUUID(), fileName: file.filename || 'attachment' })
-      await uploadKbVaultObject({ key, body: createReadStream(tempPath), contentType: file.mimetype, metadata: { clinicId, checksum } })
+      const assetId = randomUUID()
+      const key = mediaObjectKey({ clinicId, assetId, fileName: file.filename || 'attachment' })
       let asset
       try {
-        asset = await withDb((sql) => createMediaAssetsRepository(sql).createWithinQuota({ clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: stat.size, checksum, storageKey: key }, { maxFiles: MEDIA_ASSET_MAX_ACTIVE_FILES, maxBytes: MEDIA_ASSET_QUOTA_BYTES }))
+        asset = await withDb((sql) => createMediaAssetsRepository(sql).reserveWithinQuota({ id: assetId, clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: stat.size, checksum, storageKey: key }, { maxFiles: MEDIA_ASSET_MAX_ACTIVE_FILES, maxBytes: MEDIA_ASSET_QUOTA_BYTES }))
       } catch (error) {
-        await deleteKbVaultObject(key).catch((cleanupError) => {
-          request.log.error(`[media-assets] failed to clean up rejected upload: ${(cleanupError as Error).message}`)
-        })
         if (error instanceof Error && error.message === 'media_file_limit_reached') return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
         if (error instanceof Error && error.message === 'media_quota_exceeded') return reply.code(413).send({ error: 'Clinic media quota exceeded' })
         throw error
       }
-      return reply.code(201).send({ asset: toMediaAssetSummary(asset) })
+      try {
+        await uploadKbVaultObject({ key, body: createReadStream(tempPath), contentType: file.mimetype, metadata: { clinicId, checksum } })
+        await withDb((sql) => createMediaAssetsRepository(sql).markUploadReady(clinicId, asset.id))
+      } catch (error) {
+        await withDb((sql) => createMediaAssetsRepository(sql).beginDeletion(clinicId, asset.id)).catch(() => undefined)
+        try {
+          const deleted = await deleteKbVaultObject(key)
+          if (!deleted) throw new Error('S3 storage is unavailable')
+          await withDb((sql) => createMediaAssetsRepository(sql).markDeletionComplete(clinicId, asset.id))
+        } catch {
+          await withDb((sql) => createMediaAssetsRepository(sql).markDeletionFailed(clinicId, asset.id, 's3_delete_failed')).catch((persistError) => {
+            request.log.error(`[media-assets] failed to persist cleanup failure: ${(persistError as Error).message}`)
+          })
+        }
+        request.log.error(`[media-assets] private storage upload failed: ${(error as Error).message}`)
+        return reply.code(503).send({ error: 'Private media storage upload failed' })
+      }
+      return reply.code(201).send({ asset: toMediaAssetSummary({ ...asset, storageStatus: 'active' }) })
     } finally {
       await fs.rm(tempPath, { force: true }).catch(() => undefined)
     }
@@ -102,7 +120,7 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     const asset = await withDb((sql) => createMediaAssetsRepository(sql).findById(clinicId, request.params.assetId))
-    if (!asset || asset.deletedAt) return reply.code(404).send({ error: 'Media asset not found' })
+    if (!asset || asset.deletedAt || asset.storageStatus !== 'active') return reply.code(404).send({ error: 'Media asset not found' })
     const url = await createKbVaultDownloadUrl(asset.storageKey, asset.filename)
     if (!url) return reply.code(503).send({ error: 'Private media storage is not configured' })
     return { url, expiresInSeconds: 300 }
@@ -111,8 +129,18 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: { id: string; assetId: string } }>('/clinics/:id/media/:assetId', { preHandler: requireRole('clinic_admin', 'ia_studio_admin') }, async (request, reply) => {
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-    const deleted = await withDb((sql) => createMediaAssetsRepository(sql).softDelete(clinicId, request.params.assetId))
-    return deleted ? reply.code(204).send() : reply.code(404).send({ error: 'Media asset not found' })
+    const pending = await withDb((sql) => createMediaAssetsRepository(sql).beginDeletion(clinicId, request.params.assetId))
+    if (!pending) return reply.code(404).send({ error: 'Media asset not found' })
+    try {
+      const deleted = await deleteKbVaultObject(pending.storageKey)
+      if (!deleted) throw new Error('S3 storage is unavailable')
+      await withDb((sql) => createMediaAssetsRepository(sql).markDeletionComplete(clinicId, request.params.assetId))
+      return reply.code(204).send()
+    } catch (error) {
+      request.log.error(`[media-assets] object cleanup failed: ${(error as Error).message}`)
+      await withDb((sql) => createMediaAssetsRepository(sql).markDeletionFailed(clinicId, request.params.assetId, 's3_delete_failed'))
+      return reply.code(503).send({ error: 'Media cleanup pending', retryable: true })
+    }
   })
 }
 

@@ -100,6 +100,9 @@ export type {
   PushSubscriptionRow,
   MediaAsset,
   MediaAssetContentType,
+  MediaAssetStorageStatus,
   MessageAttachment,
   AttachmentProviderStatus,
+  OutboundMediaAttempt,
+  OutboundMediaAttemptStatus,
 } from './database.js'

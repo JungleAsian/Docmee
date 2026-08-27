@@ -8,8 +8,17 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import { createKbVaultDownloadUrl, mediaObjectKey, uploadKbVaultObject, kbVaultEnabled } from '../lib/kb-vault-storage.js'
 
 const MAX_BYTES = 100 * 1024 * 1024
-const QUOTA_BYTES = 1024 * 1024 * 1024
+const MAX_ACTIVE_FILES = 10
+const QUOTA_BYTES = 100 * 1024 * 1024
 const TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] as const)
+
+function hasValidSignature(type: string, buffer: Buffer) {
+  if (type === 'application/pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-'
+  if (type === 'image/jpeg') return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  if (type === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  if (type === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  return false
+}
 
 const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: MAX_BYTES } })
@@ -32,7 +41,13 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
     let buffer: Buffer
     try { buffer = await file.toBuffer() } catch { return reply.code(413).send({ error: 'File exceeds the 100 MB limit' }) }
     if (buffer.length === 0) return reply.code(400).send({ error: 'Empty files are not allowed' })
-    const used = await withDb((sql) => createMediaAssetsRepository(sql).activeBytes(clinicId))
+    if (!hasValidSignature(file.mimetype, buffer)) return reply.code(400).send({ error: 'File content does not match its declared type' })
+    const usage = await withDb(async (sql) => {
+      const repo = createMediaAssetsRepository(sql)
+      return { bytes: await repo.activeBytes(clinicId), count: await repo.activeCount(clinicId) }
+    })
+    if (usage.count >= MAX_ACTIVE_FILES) return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
+    const used = usage.bytes
     if (used + buffer.length > QUOTA_BYTES) return reply.code(413).send({ error: 'Clinic media quota exceeded' })
     const checksum = createHash('sha256').update(buffer).digest('hex')
     const key = mediaObjectKey({ clinicId, assetId: checksum.slice(0, 24), fileName: file.filename || 'attachment' })

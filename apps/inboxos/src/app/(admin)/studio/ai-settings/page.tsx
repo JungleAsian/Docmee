@@ -245,7 +245,7 @@ function AiAssistantSection({
       <p className="mb-3 text-xs text-gray-500">{t('aiAssistant.section.desc')}</p>
       {locked && (
         <p className="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-          J.zel is hidden for your user account, so J.zel settings are locked.
+          Docmee is hidden for your user account, so Docmee settings are locked.
         </p>
       )}
 
@@ -392,7 +392,7 @@ function AiAssistantSection({
           <button
             type="button"
             disabled={!textDirty || saving || locked}
-            onClick={() => onPatch({ name: name.trim() || 'J.zel', persona, model: model.trim(), baseURL: baseURL.trim() })}
+            onClick={() => onPatch({ name: name.trim() || 'Docmee', persona, model: model.trim(), baseURL: baseURL.trim() })}
             className="rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-50"
           >
             {t('common.save')}

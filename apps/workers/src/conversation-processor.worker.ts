@@ -18,6 +18,7 @@ import { firstContactMetadata } from './intake.js'
 import { createClinicCrmExporter } from './crm.js'
 import { readMetaToken } from './meta-token.js'
 import { resumePendingWorkflowRuns } from './workflow-run.js'
+import { patientAllowsAutomation } from './automation-boundary.js'
 
 export const InboundMessageSchema = z.object({
   // Channel the message arrived on. `phoneNumberId` is the provider account id:
@@ -371,6 +372,10 @@ export async function processConversationJob(job: Job): Promise<void> {
           console.error('[conversation] failed to enqueue new_message notification:', err)
         }
       }
+      // Human-only is a worker trust boundary, not a UI preference. Keep the
+      // inbound record and staff notification, then stop before any workflow or
+      // agent can produce an automated reply.
+      if (existing && !patientAllowsAutomation(existing)) return
       const resumedWorkflows = conversationId
         ? await resumePendingWorkflowRuns(sql, clinicId, conversationId, {
             patientId,

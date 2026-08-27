@@ -191,6 +191,41 @@ export async function sendWhatsAppImage(
   }
 }
 
+/** Send a document message referencing an uploaded media id. */
+export async function sendWhatsAppDocument(
+  phoneNumberId: string,
+  accessToken: string,
+  toWaId: string,
+  mediaId: string,
+  filename: string,
+  caption?: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toWaId,
+        type: 'document',
+        document: { id: mediaId, filename, ...(caption ? { caption } : {}) },
+      }),
+    },
+  )
+  if (!res.ok) throw new Error(`WhatsApp document send failed ${res.status}: ${await res.text()}`)
+  try {
+    const data = (await res.json()) as { messages?: Array<{ id?: string }> }
+    return data.messages?.[0]?.id ?? null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Send an approved WhatsApp message template (HSM); returns the wamid (or null).
  * A real `type:'template'` message is the ONLY way to reach a patient outside

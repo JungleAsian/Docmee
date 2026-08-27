@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   createConversation: vi.fn(),
   findConversationById: vi.fn(),
   createMessage: vi.fn(),
+  resumePendingWorkflowRuns: vi.fn(),
   sql: vi.fn(),
   end: vi.fn(),
 }))
@@ -46,6 +47,10 @@ vi.mock('@docmee/db', () => ({
     create: h.createConversation,
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
+}))
+
+vi.mock('../workflow-run.js', () => ({
+  resumePendingWorkflowRuns: h.resumePendingWorkflowRuns,
 }))
 
 import { processConversationJob } from '../conversation-processor.worker.js'
@@ -80,6 +85,7 @@ beforeEach(() => {
   h.findConversationById.mockResolvedValue({ id: CONVO, metadata: {} })
   h.sql.mockResolvedValue([])
   h.createMessage.mockResolvedValue({ id: 'msg1' })
+  h.resumePendingWorkflowRuns.mockResolvedValue(0)
 })
 
 describe('processConversationJob', () => {
@@ -125,6 +131,25 @@ describe('processConversationJob', () => {
     // The agent job is threaded onto that same conversation.
     const [, job] = h.agentAdd.mock.calls[0]
     expect(job.conversationId).toBe(CONVO)
+  })
+
+  it('human-only patient stores inbound text without resuming workflows or queuing an automated reply', async () => {
+    h.findByContact.mockResolvedValue({
+      id: PATIENT,
+      status: 'returning',
+      automationMode: 'human_only',
+    })
+
+    await processConversationJob(makeJob({ ...base, messageType: 'text', content: 'necesito ayuda' }))
+
+    expect(h.createMessage).toHaveBeenCalledTimes(1)
+    expect(h.createMessage.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: CONVO,
+      role: 'user',
+      content: 'necesito ayuda',
+    })
+    expect(h.resumePendingWorkflowRuns).not.toHaveBeenCalled()
+    expect(h.agentAdd).not.toHaveBeenCalled()
   })
 
   it('reuses the open conversation instead of creating a duplicate', async () => {

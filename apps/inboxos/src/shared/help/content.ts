@@ -54,8 +54,8 @@ export const HELP_UI = {
   searchResults: { es: 'Resultados de busqueda', en: 'Search results' },
   resultsFor: { es: 'Resultados para', en: 'Results for' },
   noResults: {
-    es: 'No encontramos articulos. Prueba con palabras como WhatsApp, cita, usuario, alerta o J.zel.',
-    en: 'No articles found. Try words like WhatsApp, appointment, user, alert, or J.zel.',
+    es: 'No encontramos articulos. Prueba con palabras como WhatsApp, cita, usuario, alerta o Docmee.',
+    en: 'No articles found. Try words like WhatsApp, appointment, user, alert, or Docmee.',
   },
   clearSearch: { es: 'Limpiar', en: 'Clear' },
   wasHelpfulTitle: { es: 'Te resulto util este articulo?', en: 'Was this article helpful?' },
@@ -117,7 +117,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
               { es: 'Calendario: crea, mueve, cancela y revisa citas.', en: 'Calendar: create, move, cancel, and review appointments.' },
               { es: 'Alertas: revisa avisos de WhatsApp, reservas, cancelaciones y cambios.', en: 'Alerts: review notices for WhatsApp, bookings, cancellations, and changes.' },
               { es: 'Reportes y metricas: entiende volumen, tiempos de respuesta y desempeno.', en: 'Reports and metrics: understand volume, response times, and performance.' },
-              { es: 'Admin Studio: configura usuarios, canales, doctores, plantillas, automatizaciones y J.zel.', en: 'Admin Studio: configure users, channels, doctors, templates, automations, and J.zel.' },
+              { es: 'Admin Studio: configura usuarios, canales, doctores, plantillas, automatizaciones y Docmee.', en: 'Admin Studio: configure users, channels, doctors, templates, automations, and Docmee.' },
             ],
           },
           { type: 'note', text: { es: 'Tu menu depende de tu rol y de los permisos activados por el administrador.', en: 'Your menu depends on your role and the permissions enabled by your administrator.' } },
@@ -200,7 +200,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
             items: [
               { es: 'Usa filtros o busqueda para encontrar una conversacion por paciente, telefono, estado o contenido.', en: 'Use filters or search to find a conversation by patient, phone, status, or content.' },
               { es: 'Abre la conversacion y lee el historial antes de responder.', en: 'Open the conversation and read the history before replying.' },
-              { es: 'Escribe una respuesta clara; revisa cualquier sugerencia de J.zel antes de enviarla.', en: 'Write a clear reply; review any J.zel suggestion before sending it.' },
+              { es: 'Escribe una respuesta clara; revisa cualquier sugerencia de Docmee antes de enviarla.', en: 'Write a clear reply; review any Docmee suggestion before sending it.' },
               { es: 'Actualiza el estado cuando la solicitud quede atendida.', en: 'Update the status when the request has been handled.' },
             ],
           },
@@ -239,8 +239,8 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           {
             type: 'p',
             text: {
-              es: 'Docmee puede recibir notas de voz de WhatsApp. Cuando la transcripcion esta configurada, el audio se convierte en texto, se guarda en la conversacion y J.zel puede usarlo como contexto.',
-              en: 'Docmee can receive WhatsApp voice notes. When transcription is configured, audio is converted to text, saved in the conversation, and J.zel can use it as context.',
+              es: 'Docmee puede recibir notas de voz de WhatsApp. Cuando la transcripcion esta configurada, el audio se convierte en texto, se guarda en la conversacion y el asistente puede usarlo como contexto.',
+              en: 'Docmee can receive WhatsApp voice notes. When transcription is configured, audio is converted to text, saved in the conversation, and the assistant can use it as context.',
             },
           },
           {
@@ -368,8 +368,8 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           {
             type: 'p',
             text: {
-              es: 'Cuando WhatsApp esta conectado, los mensajes de pacientes llegan a la bandeja. El equipo puede responder, J.zel puede ayudar y las citas pueden confirmarse desde la conversacion.',
-              en: 'When WhatsApp is connected, patient messages arrive in the inbox. The team can reply, J.zel can help, and appointments can be confirmed from the conversation.',
+              es: 'Cuando WhatsApp esta conectado, los mensajes de pacientes llegan a la bandeja. El equipo puede responder, Docmee puede ayudar y las citas pueden confirmarse desde la conversacion.',
+              en: 'When WhatsApp is connected, patient messages arrive in the inbox. The team can reply, Docmee can help, and appointments can be confirmed from the conversation.',
             },
           },
           {
@@ -428,7 +428,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
   {
     slug: 'jzel-ai',
     icon: 'automations',
-    title: { es: 'J.zel y automatizaciones', en: 'J.zel & Automations' },
+    title: { es: 'Docmee y automatizaciones', en: 'Docmee & Automations' },
     description: {
       es: 'Usa el asistente de IA, base de conocimiento, flujos y recordatorios.',
       en: 'Use the AI assistant, knowledge base, flows, and reminders.',
@@ -436,17 +436,17 @@ export const HELP_CATEGORIES: HelpCategory[] = [
     articles: [
       {
         slug: 'meet-jzel',
-        title: { es: 'Conoce a J.zel', en: 'Meet J.zel' },
+        title: { es: 'Conoce a Docmee', en: 'Meet Docmee' },
         excerpt: {
-          es: 'Que hace J.zel y como ayuda a pacientes y equipo.',
-          en: 'What J.zel does and how it helps patients and staff.',
+          es: 'Que hace Docmee y como ayuda a pacientes y equipo.',
+          en: 'What Docmee does and how it helps patients and staff.',
         },
         body: [
           {
             type: 'p',
             text: {
-              es: 'J.zel es el asistente de IA de Docmee. Puede responder preguntas frecuentes, clasificar mensajes, preparar respuestas, apoyar reservas y orientar al usuario dentro de la aplicacion.',
-              en: 'J.zel is Docmee AI assistant. It can answer frequent questions, triage messages, draft replies, support bookings, and guide users inside the application.',
+              es: 'Docmee incluye un asistente de IA. Puede responder preguntas frecuentes, clasificar mensajes, preparar respuestas, apoyar reservas y orientar al usuario dentro de la aplicacion.',
+              en: 'Docmee includes an AI assistant. It can answer frequent questions, triage messages, draft replies, support bookings, and guide users inside the application.',
             },
           },
           {
@@ -457,15 +457,15 @@ export const HELP_CATEGORIES: HelpCategory[] = [
               { es: 'Si no sabe una respuesta, debe pedir aclaracion o escalar.', en: 'If it does not know an answer, it should ask for clarification or escalate.' },
             ],
           },
-          { type: 'note', text: { es: 'J.zel ayuda al equipo; no reemplaza criterio medico o administrativo.', en: 'J.zel assists the team; it does not replace medical or administrative judgment.' } },
+          { type: 'note', text: { es: 'Docmee ayuda al equipo; no reemplaza criterio medico o administrativo.', en: 'Docmee assists the team; it does not replace medical or administrative judgment.' } },
         ],
       },
       {
         slug: 'knowledge-base',
         title: { es: 'Base de conocimiento', en: 'Knowledge base' },
         excerpt: {
-          es: 'Mantiene informacion clara para que J.zel y el equipo respondan mejor.',
-          en: 'Keep information clear so J.zel and the team can answer better.',
+          es: 'Mantiene informacion clara para que Docmee y el equipo respondan mejor.',
+          en: 'Keep information clear so Docmee and the team can answer better.',
         },
         body: [
           {
@@ -617,7 +617,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
               { es: 'Volumen de conversaciones: demanda y horarios pico.', en: 'Conversation volume: demand and peak hours.' },
               { es: 'Tiempos de respuesta: rapidez del equipo.', en: 'Response times: team speed.' },
               { es: 'Citas y ausencias: oportunidades de confirmacion y recordatorio.', en: 'Appointments and no-shows: confirmation and reminder opportunities.' },
-              { es: 'Resolucion por IA: cuanto apoya J.zel.', en: 'AI resolution: how much J.zel helps.' },
+              { es: 'Resolucion por IA: cuanto apoya Docmee.', en: 'AI resolution: how much Docmee helps.' },
             ],
           },
         ],
@@ -742,7 +742,7 @@ const ARTICLE_TARGETS: Record<string, HelpArticleTarget> = {
   'channels/whatsapp-overview': { href: '/studio/channels', label: { es: 'Abrir Canales', en: 'Open Channels' } },
   'channels/connect-whatsapp': { href: '/studio/channels', label: { es: 'Abrir Canales', en: 'Open Channels' } },
   'channels/templates-window': { href: '/studio/templates', label: { es: 'Abrir plantillas', en: 'Open Templates' } },
-  'jzel-ai/meet-jzel': { href: '/studio/automations', label: { es: 'Abrir J.zel', en: 'Open J.zel' } },
+  'jzel-ai/meet-jzel': { href: '/studio/automations', label: { es: 'Abrir Docmee', en: 'Open Docmee' } },
   'jzel-ai/knowledge-base': { href: '/studio/kb', label: { es: 'Abrir base de conocimiento', en: 'Open Knowledge Base' } },
   'jzel-ai/automations-workflows': { href: '/studio/automations', label: { es: 'Abrir automatizaciones', en: 'Open Automations' } },
   'templates/quick-replies': { href: '/studio/templates', label: { es: 'Abrir plantillas', en: 'Open Templates' } },

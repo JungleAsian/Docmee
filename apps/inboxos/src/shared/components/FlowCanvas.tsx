@@ -14,6 +14,7 @@ import {
   MiniMap as MiniMapBase,
   Handle as HandleBase,
   Position,
+  MarkerType,
   useNodesState,
   useEdgesState,
   type Node,
@@ -21,6 +22,7 @@ import {
   type Connection,
   type NodeProps,
   type NodeChange,
+  type EdgeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
@@ -32,6 +34,7 @@ import type {
   CustomFlowRenderMode,
   CustomFlowStoreAs,
 } from '../types'
+import { removeSerializedFlowEdges } from '../flowEdgeChanges'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -171,7 +174,14 @@ function toGraph(steps: CustomFlowStep[], startStepId: string | null): { nodes: 
   for (const term of usedTerminals) {
     nodes.push({ id: `__${term}`, type: 'terminal', position: { x: 840, y: ti++ * 90 }, data: { kind: term } })
   }
-  return { nodes, edges }
+  return {
+    nodes,
+    edges: edges.map((edge) => ({
+      ...edge,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed },
+    })),
+  }
 }
 
 export function FlowCanvas({
@@ -186,7 +196,7 @@ export function FlowCanvas({
   const { t } = useI18n()
   const graph = useMemo(() => toGraph(steps, startStepId), [steps, startStepId])
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
+  const [edges, setEdges, applyEdgeChanges] = useEdgesState(graph.edges)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // Re-seed the canvas when the model changes (after onChange / external edits).
@@ -229,6 +239,15 @@ export function FlowCanvas({
       update(steps.map((s) => (moved.has(s.id) ? { ...s, x: Math.round(moved.get(s.id)!.x), y: Math.round(moved.get(s.id)!.y) } : s)))
     },
     [onNodesChange, steps, startStepId, selectedId, update],
+  )
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      applyEdgeChanges(changes)
+      const removedIds = changes.filter((change) => change.type === 'remove').map((change) => change.id)
+      if (removedIds.length > 0) update(removeSerializedFlowEdges(steps, removedIds))
+    },
+    [applyEdgeChanges, steps, update],
   )
 
   // Connecting two nodes creates a branch (op 'any') on the source step.
@@ -358,7 +377,7 @@ export function FlowCanvas({
           nodes={nodes}
           edges={edges}
           onNodesChange={handleNodesChange}
-          onEdgesChange={onEdgesChange}
+          onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           onNodeClick={(_event: unknown, node: Node) => setSelectedId(node.type === 'step' ? node.id : null)}
           onPaneClick={() => setSelectedId(null)}

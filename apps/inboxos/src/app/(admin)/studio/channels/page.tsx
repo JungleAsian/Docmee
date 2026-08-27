@@ -261,7 +261,7 @@ export default function ChannelsPage() {
         <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />
       </div>
       <p className="mb-4 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
-        Connect the tools your clinic uses for patient messages, appointment sync, exports, email alerts, and J.zel.
+        Connect the tools your clinic uses for patient messages, appointment sync, exports, email alerts, and Docmee.
         Each card shows what is ready, what is missing, and the exact values to paste from the provider account.
       </p>
 
@@ -315,7 +315,7 @@ export default function ChannelsPage() {
             <div>
               <h2 className="text-sm font-semibold">Guided integration setup</h2>
               <p className="mt-1 text-xs text-gray-500">
-                Step-by-step forms for Google Calendar, Sheets, email delivery, automation webhooks, and the AI provider used by J.zel.
+                Step-by-step forms for Google Calendar, Sheets, email delivery, automation webhooks, and the AI provider used by Docmee.
               </p>
             </div>
             <StudioIntegrationsPanel clinic={clinic} />
@@ -467,7 +467,7 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
         href="/studio/ai-settings"
         className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
       >
-        <span>J.zel tone, reply language, and AI provider keys now live in Studio → AI Settings.</span>
+        <span>Docmee tone, reply language, and AI provider keys now live in Studio → AI Settings.</span>
         <span aria-hidden>→</span>
       </Link>
 

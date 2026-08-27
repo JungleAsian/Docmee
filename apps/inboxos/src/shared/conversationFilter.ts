@@ -29,8 +29,13 @@ export function filterConversations(
   rows: Conversation[],
   query: string,
   channel: ChannelFilter,
+  activeChannels?: ReadonlySet<Channel>,
 ): Conversation[] {
   // Fast path: no active filter means the original list, same reference order.
-  if (channel === 'all' && !normalize(query)) return rows
-  return rows.filter((c) => conversationMatches(c, query, channel))
+  if (channel === 'all' && !normalize(query) && activeChannels === undefined) return rows
+  return rows.filter(
+    (conversation) =>
+      (activeChannels === undefined || activeChannels.has(conversation.channel)) &&
+      conversationMatches(conversation, query, channel),
+  )
 }

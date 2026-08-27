@@ -113,6 +113,38 @@ vi.mock('@docmee/db', () => ({
       store.appts.set(id, row)
       return row
     },
+    createWithinCapacity: async (data: Record<string, unknown>) => {
+      const start = data.startTime as string
+      const end = data.endTime as string
+      const clashes = [...store.appts.values()].filter(
+        (row) =>
+          row.clinicId === data.clinicId &&
+          row.doctorId === data.doctorId &&
+          row.status !== 'cancelled' &&
+          (row.startTime as string) < end &&
+          (row.endTime as string) > start,
+      )
+      const capacity = Math.max(1, Number(data.capacity ?? 1))
+      if (clashes.length > 0 && (!data.allowOverbooking || clashes.length >= capacity)) {
+        return { ok: false, reason: 'clash', clashCount: clashes.length }
+      }
+      const reason = typeof data.overbookingReason === 'string' ? data.overbookingReason.trim() : ''
+      if (clashes.length > 0 && !reason) {
+        return { ok: false, reason: 'overbooking_reason', clashCount: clashes.length }
+      }
+      const id = `appt-${nextId++}`
+      const appointment = {
+        id,
+        status: 'pending',
+        calendarSyncPending: true,
+        calendarSyncError: null,
+        ...data,
+        overbooked: clashes.length > 0,
+        overbookingReason: clashes.length > 0 ? reason : null,
+      }
+      store.appts.set(id, appointment)
+      return { ok: true, appointment, clashCount: clashes.length }
+    },
     update: async (clinicId: string, id: string, data: Record<string, unknown>) => {
       const row = store.appts.get(id)
       if (!row || row.clinicId !== clinicId) throw new Error('not found')
@@ -161,6 +193,8 @@ import { signAccessToken } from '../auth/jwt.js'
 
 const secretaryToken = signAccessToken({ userId: 'u-1', clinicId: 'c-1', role: 'secretary', email: 'ana@demo.test' })
 const auth = { authorization: `Bearer ${secretaryToken}` }
+const doctorToken = signAccessToken({ userId: 'doctor-u-1', clinicId: 'c-1', role: 'doctor', email: 'doctor@demo.test' })
+const doctorAuth = { authorization: `Bearer ${doctorToken}` }
 const otherClinicToken = signAccessToken({ userId: 'u-2', clinicId: 'c-2', role: 'secretary', email: 'b@demo.test' })
 const noCalendarToken = signAccessToken({ userId: 'u-3', clinicId: 'c-3', role: 'secretary', email: 'c@demo.test' })
 const noCalendarAuth = { authorization: `Bearer ${noCalendarToken}` }
@@ -254,6 +288,36 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       payload: { patientId: 'pat-1', doctorId: 'doc-1', serviceId: 'svc-1', date: '2026-06-22', start: '09:30' },
     })
     expect(res.statusCode).toBe(409)
+  })
+
+  it('two concurrent ordinary bookings for one slot create only one appointment', async () => {
+    const payload = { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-09-07', start: '09:00' }
+    const before = store.appts.size
+    const responses = await Promise.all([
+      app.inject({ method: 'POST', url: '/clinics/c-1/appointments', headers: auth, payload }),
+      app.inject({ method: 'POST', url: '/clinics/c-1/appointments', headers: auth, payload }),
+    ])
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409])
+    expect(store.appts.size - before).toBe(1)
+  })
+
+  it('rejects explicit overbooking from non-secretary roles', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: doctorAuth,
+      payload: {
+        patientId: 'pat-1',
+        doctorId: 'doc-1',
+        date: '2026-06-22',
+        start: '09:00',
+        overbook: true,
+        overbookingReason: 'Urgent clinical need',
+      },
+    })
+
+    expect(response.statusCode).toBe(403)
   })
 
   it('POST for an unknown patient → 404', async () => {

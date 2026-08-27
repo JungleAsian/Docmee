@@ -105,3 +105,12 @@ export async function createKbVaultDownloadUrl(key: string, fileName?: string): 
     { expiresIn: 300 },
   )
 }
+
+/** Read a private object for a server-side provider upload. The storage key is
+ * resolved from a clinic-scoped database row and is never returned to clients. */
+export async function readKbVaultObject(key: string): Promise<Uint8Array | null> {
+  if (!storageEnabled() || key.trim() === '') return null
+  const result = await s3().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+  if (!result.Body) return null
+  return result.Body.transformToByteArray()
+}

@@ -206,7 +206,7 @@ export type ConversationStatus =
   | 'snoozed'
   | 'resolved'
   | 'archived'
-export type ContentType        = 'text' | 'audio' | 'image' | 'template' | 'interactive'
+export type ContentType        = 'text' | 'audio' | 'image' | 'document' | 'template' | 'interactive'
 export type MessageRole        = 'user' | 'assistant' | 'system' | 'agent'
 
 export interface Conversation {

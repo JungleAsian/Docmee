@@ -40,6 +40,7 @@ import {
   type WorkflowContext,
   type WorkflowExecutors,
 } from '@docmee/agents'
+import { patientAllowsAutomation } from './automation-boundary.js'
 import { decryptValue, encryptValue } from '@docmee/shared'
 import { randomUUID } from 'node:crypto'
 import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
@@ -123,7 +124,7 @@ async function resolveTarget(
 ): Promise<{ account: import('@docmee/db').ChannelAccount; handle: string; send: (text: string) => Promise<string | null> } | null> {
   if (!patientId) return null
   const patient = await createPatientsRepository(sql).findById(clinicId, patientId)
-  if (!patient || isPatientOptedOut(patient)) return null
+  if (!patient || !patientAllowsAutomation(patient) || isPatientOptedOut(patient)) return null
   const account = activeWhatsAppAccount(await createChannelAccountsRepository(sql).listByClinic(clinicId))
   if (!account) return null
   const handle = primaryWhatsAppHandle(await createPatientsRepository(sql).listContacts(clinicId, patientId))

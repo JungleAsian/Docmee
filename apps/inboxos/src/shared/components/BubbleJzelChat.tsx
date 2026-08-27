@@ -225,7 +225,14 @@ export function BubbleJzelChat() {
           <p className="text-xs leading-5 text-[var(--crm-text-muted)]">{t('pet.chat.greeting')}</p>
         ) : (
           messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={i} className={`flex items-end gap-1.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {m.role === 'assistant' && (
+                <img
+                  src="/brand/docmee-loader-avatar.png?v=20260821"
+                  alt="Docmee assistant"
+                  className="h-6 w-6 shrink-0 rounded-full object-cover"
+                />
+              )}
               <div
                 className={`text-[13px] crm-message ${m.role === 'user' ? 'crm-message-sent' : 'crm-ai-suggested'}`}
               >
@@ -235,7 +242,12 @@ export function BubbleJzelChat() {
           ))
         )}
         {pending && (
-          <div className="flex justify-start">
+          <div className="flex items-end justify-start gap-1.5">
+            <img
+              src="/brand/docmee-loader-avatar.png?v=20260821"
+              alt="Docmee assistant"
+              className="h-6 w-6 shrink-0 rounded-full object-cover"
+            />
             <div className="crm-message">
               <span className="jz-typing" aria-label={t('pet.chat.thinking')}>
                 <i />

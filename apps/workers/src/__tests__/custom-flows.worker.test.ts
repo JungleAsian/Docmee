@@ -169,6 +169,19 @@ const choiceFlow = {
 }
 
 describe('processAgentJob — custom flow engine', () => {
+  it('does not send a workflow message when the patient is human-only', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    const patientId = '22222222-2222-2222-2222-222222222222'
+    h.findPatient.mockResolvedValue({ id: patientId, automationMode: 'human_only', metadata: {} })
+    h.listEnabledFlows.mockResolvedValue([bookingFlow])
+
+    await processAgentJob(makeJob({ ...baseJob, patientId }))
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppInteractiveButtons).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppInteractiveList).not.toHaveBeenCalled()
+  })
+
   it('starts a multi-step flow on a trigger and persists the cursor', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.listEnabledFlows.mockResolvedValue([bookingFlow])

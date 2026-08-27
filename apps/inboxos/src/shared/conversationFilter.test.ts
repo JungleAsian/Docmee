@@ -79,4 +79,9 @@ describe('filterConversations', () => {
     // 'z' appears in Pérez, López and Ruiz — all three match, order unchanged.
     expect(filterConversations(rows, 'z', 'all').map((c) => c.id)).toEqual(['a', 'b', 'c'])
   })
+
+  it('hides conversations from inactive or unconfigured channels when an active set is supplied', () => {
+    expect(filterConversations(rows, '', 'all', new Set<Channel>(['whatsapp'])).map((c) => c.id)).toEqual(['a'])
+    expect(filterConversations(rows, '', 'all', new Set<Channel>()).map((c) => c.id)).toEqual([])
+  })
 })

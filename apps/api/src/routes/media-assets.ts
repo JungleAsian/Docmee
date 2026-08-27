@@ -16,6 +16,22 @@ const MAX_ACTIVE_FILES = 10
 const QUOTA_BYTES = 100 * 1024 * 1024
 const TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] as const)
 
+function toMediaAssetSummary(asset: {
+  id: string
+  filename: string
+  contentType: string
+  byteSize: number
+  createdAt: string
+}) {
+  return {
+    id: asset.id,
+    filename: asset.filename,
+    contentType: asset.contentType,
+    byteSize: asset.byteSize,
+    createdAt: asset.createdAt,
+  }
+}
+
 function hasValidSignature(type: string, buffer: Buffer) {
   if (type === 'application/pdf') return buffer.subarray(0, 5).toString('ascii') === '%PDF-'
   if (type === 'image/jpeg') return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
@@ -38,7 +54,10 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     const assets = await withDb((sql) => createMediaAssetsRepository(sql).list(clinicId))
-    return { assets }
+    return {
+      storageConfigured: kbVaultEnabled(),
+      assets: assets.slice(0, MAX_ACTIVE_FILES).map(toMediaAssetSummary),
+    }
   })
 
   app.post<{ Params: { id: string } }>('/clinics/:id/media', { preHandler: requireRole('clinic_admin', 'ia_studio_admin', 'secretary', 'doctor') }, async (request, reply) => {
@@ -68,7 +87,7 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
         if (error instanceof Error && error.message === 'media_quota_exceeded') return reply.code(413).send({ error: 'Clinic media quota exceeded' })
         throw error
       }
-      return reply.code(201).send({ asset })
+      return reply.code(201).send({ asset: toMediaAssetSummary(asset) })
     } finally {
       await fs.rm(tempPath, { force: true }).catch(() => undefined)
     }

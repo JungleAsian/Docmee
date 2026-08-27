@@ -84,6 +84,17 @@ export function ConversationList({
     queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
   })
   const showInactiveChannels = ((clinicSettings.data?.clinic.settings?.patientChatVisibility as Record<string, unknown> | undefined)?.inactiveChannels ?? true) === true
+  const activeChannelsQuery = useQuery({
+    queryKey: ['active-channels', clinicId],
+    enabled: Boolean(clinicId && !showInactiveChannels),
+    queryFn: () => api.get<{ channels: Array<{ channel: Channel; name: string }> }>(`/clinics/${clinicId}/channels/active`),
+  })
+  const activeChannels = useMemo(
+    () => showInactiveChannels
+      ? undefined
+      : new Set((activeChannelsQuery.data?.channels ?? []).map((entry) => entry.channel)),
+    [activeChannelsQuery.data?.channels, showInactiveChannels],
+  )
   const qc = useQueryClient()
   // Operational lens (design's Active/Bot/Assigned/Closed tabs) — derived entirely
   // client-side over the full clinic set so the tab counts are accurate and switching
@@ -98,6 +109,11 @@ export function ConversationList({
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [selectedRows, setSelectedRows] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    if (channel !== 'all' && activeChannels !== undefined && !activeChannels.has(channel)) {
+      setChannel('all')
+    }
+  }, [activeChannels, channel])
   // Item 10a of the 25-item batch: a per-row hide button that declutters the queue
   // without touching conversation status server-side — purely a local view
   // preference for this browser tab. Safety-flagged threads are never hideable
@@ -192,11 +208,11 @@ export function ConversationList({
   // the top (stable within each severity band, so recency order is preserved
   // otherwise) — Req 20.
   const conversations = useMemo(() => {
-    return filterConversations(allRows, search, channel)
+    return filterConversations(allRows, search, channel, activeChannels)
       .map((c, i) => ({ c, i, rank: safetyRank(assessSafety(c.tags).level) }))
       .sort((a, b) => b.rank - a.rank || a.i - b.i)
       .map((x) => x.c)
-  }, [allRows, search, channel])
+  }, [allRows, search, channel, activeChannels])
 
   // Split into the safety queue and the rest so each gets its own group header.
   // Safety-flagged threads ALWAYS surface, regardless of the active lens — a tab must
@@ -357,7 +373,7 @@ export function ConversationList({
             className="min-w-0 flex-1 truncate rounded-lg border border-gray-300 px-2 py-1 text-xs outline-none focus:border-teal-500 dark:border-gray-700 dark:bg-gray-800"
           >
             <option value="all">{t('conv.filter.allChannels')}</option>
-            {(Object.keys(CHANNEL) as Channel[]).map((ch) => (
+            {(Object.keys(CHANNEL) as Channel[]).filter((ch) => activeChannels === undefined || activeChannels.has(ch)).map((ch) => (
               <option key={ch} value={ch}>
                 {CHANNEL[ch].label}
               </option>

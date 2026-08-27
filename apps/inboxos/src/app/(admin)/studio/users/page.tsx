@@ -478,15 +478,15 @@ function UserRow({ clinicId, user }: { clinicId: string; user: ClinicUser }) {
         </div>
         <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
           <span className="min-w-0">
-            <span className="block font-medium">Show J.zel</span>
+            <span className="block font-medium">Show Docmee</span>
             <span className="block text-xs text-gray-500 dark:text-gray-400">
-              Hide the floating J.zel chat avatar for this user when this is off.
+              Hide the floating Docmee chat avatar for this user when this is off.
             </span>
           </span>
           <PillToggle
             checked={jzelEnabled}
             disabled={updateMutation.isPending}
-            label="Show J.zel"
+            label="Show Docmee"
             onChange={setJzelEnabled}
           />
         </label>
@@ -563,7 +563,7 @@ function UserRow({ clinicId, user }: { clinicId: string; user: ClinicUser }) {
           {t('studio.users.inactivitySummary')}: {readInactivityTimeout(user)} {t('studio.users.minutes')}
         </p>
         <p className="mt-1 text-xs text-gray-500">
-          J.zel: {readJzelEnabled(user) ? 'Visible' : 'Hidden'}
+          Docmee: {readJzelEnabled(user) ? 'Visible' : 'Hidden'}
         </p>
         {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
       </div>

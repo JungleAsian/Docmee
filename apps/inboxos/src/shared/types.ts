@@ -35,7 +35,7 @@ export type ConversationStatus =
   | 'archived'
 export type Channel = 'whatsapp' | 'messenger' | 'instagram'
 export type MessageRole = 'user' | 'assistant' | 'system' | 'agent'
-export type ContentType = 'text' | 'audio' | 'image' | 'template' | 'interactive'
+export type ContentType = 'text' | 'audio' | 'image' | 'document' | 'template' | 'interactive'
 export type DeliveryStatus = 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface Conversation {
@@ -246,6 +246,7 @@ export interface Appointment {
   // regardless; this only tracks the best-effort Calendar side-effect.
   calendarSyncPending: boolean
   calendarSyncError: string | null
+  bookingOrigin?: 'docmee' | 'workflow' | 'manual' | 'system'
   createdAt: string
 }
 
@@ -256,6 +257,15 @@ export interface AppointmentWithNames extends Appointment {
   doctorName: string | null
   serviceName: string | null
   serviceDurationMinutes: number | null
+}
+
+export type MediaAssetContentType = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp'
+export interface MediaAssetSummary {
+  id: string
+  filename: string
+  contentType: MediaAssetContentType
+  byteSize: number
+  createdAt: string
 }
 
 /** A row of the calendar's "AI booking activity" feed (GET .../appointments/events). */

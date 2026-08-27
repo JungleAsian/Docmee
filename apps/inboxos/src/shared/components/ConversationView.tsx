@@ -16,6 +16,7 @@ import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
 import { InteractivePicker } from './InteractivePicker'
 import { ListPicker } from './ListPicker'
+import { MediaRepositoryRail } from './MediaRepositoryRail'
 import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
 import { assessSafety, type SafetyLevel } from '../safety'
@@ -94,6 +95,7 @@ export function ConversationView({
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [mediaRailOpen, setMediaRailOpen] = useState(false)
   const [classificationTab, setClassificationTab] = useState('all')
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -311,7 +313,15 @@ export function ConversationView({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
+      {mediaRailOpen && conversation?.channel === 'whatsapp' && (
+        <MediaRepositoryRail
+          conversationId={conversationId}
+          caption={draft}
+          onSent={() => setDraft('')}
+          onClose={() => setMediaRailOpen(false)}
+        />
+      )}
       {/* Req 20: patient-safety banner — the loudest element in the thread when the
           workers have flagged a possible emergency or an urgent/upset patient, so a
           secretary can't miss it (the tag chips alone live in a side panel that's
@@ -554,6 +564,15 @@ export function ConversationView({
                           className="crm-composer-icon-btn text-sm"
                         >
                           📎
+                        </button>
+                        <button
+                          type="button"
+                          title="Open media repository"
+                          aria-label="Open media repository"
+                          onClick={() => { setMediaRailOpen(true); setToolsOpen(false) }}
+                          className="crm-composer-icon-btn text-sm"
+                        >
+                          🗂️
                         </button>
                       </>
                     )}
@@ -836,7 +855,7 @@ function MessageBubble({
 
   const senderName = fromPatient ? patientDisplayName : roleLabel
   const senderSeed = fromPatient ? conversationId : `staff-${message.role}`
-  const senderInitials = fromPatient ? avatarLabel(patientDisplayName) : isBot ? '✦' : '●'
+  const senderInitials = fromPatient ? avatarLabel(patientDisplayName) : '●'
 
   return (
     <div className={`group flex ${fromPatient ? 'justify-start' : 'justify-end'}`}>
@@ -844,12 +863,20 @@ function MessageBubble({
         {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
             replies, matching the reskin's spec. */}
         <div className={`crm-sender-row ${isHuman ? '!text-teal-50/80' : ''} ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>
-          <span
-            className="crm-sender-avatar"
-            style={{ background: fromPatient ? avatarColor(senderSeed) : isBot ? '#7C3AED' : '#5C5D60' }}
-          >
-            {senderInitials}
-          </span>
+          {isBot ? (
+            <img
+              src="/brand/docmee-loader-avatar.png?v=20260821"
+              alt="Docmee assistant"
+              className="crm-sender-avatar object-cover"
+            />
+          ) : (
+            <span
+              className="crm-sender-avatar"
+              style={{ background: fromPatient ? avatarColor(senderSeed) : '#5C5D60' }}
+            >
+              {senderInitials}
+            </span>
+          )}
           <span className="font-semibold">{senderName}</span>
           <span aria-hidden className="opacity-70">{formatTime(message.createdAt, language)}</span>
         </div>

@@ -88,7 +88,7 @@ export const DEFAULT_AI_ASSISTANT: AiAssistantConfig = {
   intentProvider: 'deepseek',
   embedProvider: 'local',
   embedModel: '',
-  name: 'J.zel',
+  name: 'Docmee',
   persona: '',
   useKb: true,
   useHelp: true,

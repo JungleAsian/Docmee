@@ -302,6 +302,11 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent, overbook, overbookingReason } = parsed.data
+    // Explicit capacity override is a secretary operation. Other human roles may
+    // create an ordinary booking, but cannot request an overbooked slot.
+    if (overbook && request.user?.role !== 'secretary') {
+      return reply.code(403).send({ error: 'Only secretaries may overbook a slot' })
+    }
 
     const result = await withDb(async (sql) => {
       const doctor = await createDoctorsRepository(sql).findById(clinicId, doctorId)
@@ -328,24 +333,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       const startMin = toMin(start)
       const endMin = startMin + duration
 
-      // Reject a slot that collides with one of the doctor's existing bookings.
-      const dayAppts = await appts.listInRange(clinicId, {
-        from: `${date}T00:00:00`,
-        to: `${nextDay(date)}T00:00:00`,
-        doctorId,
-      })
-      const clashCount = dayAppts.filter((a) => {
-        if (a.status === 'cancelled') return false
-        const bs = toMin(timeOf(a.startTime))
-        const be = toMin(timeOf(a.endTime))
-        return startMin < be && bs < endMin
-      }).length
       const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
-      const isOverbooked = clashCount > 0
-      if (isOverbooked && (!overbook || clashCount >= capacity)) return { error: 'clash' as const }
-      if (isOverbooked && !overbookingReason?.trim()) return { error: 'overbooking_reason' as const }
-
-      const appointment = await appts.create({
+      const booking = await appts.createWithinCapacity({
         clinicId,
         // Always the resolved patient's id — patientId (the raw request param)
         // is undefined on the patientName/walk-in branch, which would silently
@@ -358,12 +347,15 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         notes,
         bookingOrigin: 'manual',
         actorId: request.user?.userId,
-        overbooked: isOverbooked,
-        overbookingReason: isOverbooked ? overbookingReason?.trim() : undefined,
+        capacity,
+        allowOverbooking: overbook === true,
+        overbookingReason: overbookingReason?.trim(),
         // A panel booking has no conversation_id (→ "Booked by staff"); the urgent
         // flag lives on metadata so the calendar can colour the card red.
         metadata: urgent ? { urgent: true } : undefined,
       })
+      if (!booking.ok) return { error: booking.reason }
+      const appointment = booking.appointment
       // The Docmee appointment above is always saved — Google Calendar sync is a
       // best-effort attachment, not a precondition. A clinic with no Calendar
       // connected, or a live API failure, must never lose the booking; the row is

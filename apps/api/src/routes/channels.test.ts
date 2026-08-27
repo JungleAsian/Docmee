@@ -114,6 +114,28 @@ describe('Meta phone registration', () => {
     }]
   }
 
+  it('projects active channel names to staff without provider identifiers or secrets', async () => {
+    channelStore.accounts = [
+      { ...baseAccount, accessTokenEnc: 'enc:top-secret', settings: { wabaId: 'waba-secret' } },
+      { ...baseAccount, id: 'acc-2', channel: 'instagram', displayName: 'Old Instagram', status: 'inactive' },
+    ]
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/clinics/c-1/channels/active',
+      headers: secretaryAuth,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      channels: [{ channel: 'whatsapp', name: 'Clinic WhatsApp' }],
+    })
+    expect(response.body).not.toContain('acc-1')
+    expect(response.body).not.toContain('phone-1')
+    expect(response.body).not.toContain('top-secret')
+    expect(response.body).not.toContain('waba-secret')
+  })
+
   it('clears stale token expiry metadata for a non-expiring system-user token', async () => {
     addMetaAccount()
     channelStore.accounts[0]!.accountId = '1220622364468433'

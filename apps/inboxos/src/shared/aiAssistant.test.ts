@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { EMBED_PROVIDERS, readAiAssistant } from './aiAssistant.js'
 
-describe('J.zel embedding provider configuration', () => {
+describe('Docmee assistant configuration', () => {
+  it('uses the current product name for new clinic configurations', () => {
+    expect(readAiAssistant(undefined).name).toBe('Docmee')
+  })
+
   it('keeps the valid local default selectable', () => {
     expect(readAiAssistant(undefined).embedProvider).toBe('local')
     expect(EMBED_PROVIDERS.map((provider) => provider.id)).toContain('local')

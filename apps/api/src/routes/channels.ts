@@ -645,6 +645,25 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
   )
 
   app.get<{ Params: { id: string } }>(
+    '/clinics/:id/channels/active',
+    { preHandler: requireRole('secretary', 'doctor', 'clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
+      const active = new Map<string, { channel: string; name: string }>()
+      for (const account of accounts) {
+        if (account.status !== 'active' || active.has(account.channel)) continue
+        active.set(account.channel, {
+          channel: account.channel,
+          name: account.displayName?.trim() || account.channel,
+        })
+      }
+      return { channels: [...active.values()] }
+    },
+  )
+
+  app.get<{ Params: { id: string } }>(
     '/clinics/:id/channels',
     { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
     async (request, reply) => {

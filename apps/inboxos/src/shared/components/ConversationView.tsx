@@ -4,7 +4,7 @@
 // the AI bot or a human secretary is driving the thread, a send box, and
 // resolve/reopen actions. Reopen creates a NEW conversation (Decision 4) and the
 // view follows the caller to it via onConversationChange.
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
@@ -95,6 +95,7 @@ export function ConversationView({
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [classificationTab, setClassificationTab] = useState('all')
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -121,6 +122,29 @@ export function ConversationView({
 
   const conversation = conversationQuery.data?.conversation
   const messages = messagesQuery.data?.messages ?? []
+  const classificationTabs = useMemo(() => {
+    const intents = new Set<string>()
+    let hasUnclassified = false
+    for (const message of messages) {
+      if (message.role !== 'user') continue
+      const intent = message.classification?.intent?.trim()
+      if (intent) intents.add(intent)
+      else hasUnclassified = true
+    }
+    return [
+      { key: 'all', label: 'All' },
+      ...Array.from(intents).sort().map((intent) => ({ key: intent, label: intent.replace(/[_-]+/g, ' ') })),
+      ...(hasUnclassified ? [{ key: 'unclassified', label: 'Unclassified' }] : []),
+    ]
+  }, [messages])
+  const visibleMessages = useMemo(() => {
+    if (classificationTab === 'all') return messages
+    return messages.filter((message) => {
+      if (message.role !== 'user') return false
+      const intent = message.classification?.intent?.trim()
+      return classificationTab === 'unclassified' ? !intent : intent === classificationTab
+    })
+  }, [classificationTab, messages])
   const closed = isClosedStatus(conversation?.status)
   // The bot drives an open thread; once a human is assigned or it's escalated, a
   // secretary is in control (shared helper so the list pill and this view agree).
@@ -445,18 +469,25 @@ export function ConversationView({
       )}
 
       {/* Messages */}
+      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--crm-border-color)] px-3 py-2" role="tablist" aria-label="Message classifications">
+        {classificationTabs.map((tab) => (
+          <button key={tab.key} type="button" role="tab" aria-selected={classificationTab === tab.key} onClick={() => setClassificationTab(tab.key)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium capitalize ${classificationTab === tab.key ? 'bg-[var(--crm-primary-color)] text-white' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'}`}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
       <div ref={scrollRef} className="crm-chat-messages space-y-2.5">
         {messagesQuery.isLoading ? (
           <p className="text-sm text-gray-400">{t('common.loading')}</p>
-        ) : messages.length === 0 ? (
+        ) : visibleMessages.length === 0 ? (
           <p className="text-sm text-gray-400">{t('view.noMessages')}</p>
         ) : (
           (() => {
             // Req 5: mark the single moment the first human agent took the thread over
             // from the bot, rendered as a centred timeline marker.
-            const firstAgentIdx = messages.findIndex((x) => x.role === 'agent')
-            return messages.map((m, i) => {
-              const prev = messages[i - 1]
+            const firstAgentIdx = visibleMessages.findIndex((x) => x.role === 'agent')
+            return visibleMessages.map((m, i) => {
+              const prev = visibleMessages[i - 1]
               const newDay =
                 !prev ||
                 new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString()

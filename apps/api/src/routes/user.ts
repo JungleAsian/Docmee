@@ -36,6 +36,8 @@ const notificationPrefsSchema = z.object({
   mutedTypes: z.array(z.string().refine(isNotificationType, 'unknown alert type')).optional(),
   alertCategories: alertCategoriesSchema.optional(),
   soundEnabled: z.boolean().optional(),
+  soundId: soundPresetSchema.optional(),
+  volume: z.number().finite().min(0).max(1).optional(),
   soundPresets: soundPresetsSchema.optional(),
 })
 

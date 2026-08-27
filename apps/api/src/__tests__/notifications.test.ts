@@ -64,6 +64,8 @@ const DEFAULT_PREFS = {
   emailEnabled: true,
   mutedTypes: [],
   soundEnabled: false,
+  soundId: 'default',
+  volume: 0.7,
   soundPresets: {},
   jzelEnabled: true,
   alertCategories: {

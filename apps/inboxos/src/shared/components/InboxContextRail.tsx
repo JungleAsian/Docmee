@@ -87,7 +87,7 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
         {othersOpen && (
           <div className="crm-inbox-others border-t border-[var(--crm-border-color)]">
             {visibility.safetyHandoff && <SafetyHandoffPanel key={`safety-${conversationId}`} conversationId={conversationId} />}
-            {visibility.assignee && <AssignPanel key={`assign-${conversationId}`} conversationId={conversationId} />}
+            {visibility.assignee && visibility.assignControls && <AssignPanel key={`assign-${conversationId}`} conversationId={conversationId} />}
             {visibility.lifecycleStatus && <LifecyclePanel key={`lifecycle-${conversationId}`} conversationId={conversationId} />}
             {visibility.tags && <TagsPanel key={`tags-${conversationId}`} conversationId={conversationId} />}
             {visibility.aiAssistance && can(role, 'assistant') && (

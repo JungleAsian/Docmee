@@ -83,6 +83,16 @@ export interface Message {
   deliveryStatus?: DeliveryStatus | null
   createdAt: string
   metadata: Record<string, unknown>
+  /** Structured classifier output, when the inbound message has been classified. */
+  classification?: {
+    intent?: string
+    confidence?: number
+    provider?: string
+    model?: string
+    classifierVersion?: string
+    source?: string
+    classifiedAt?: string
+  } | null
 }
 
 export interface Tag {
@@ -725,6 +735,8 @@ export interface NotificationPrefs {
   mutedTypes: string[]
   alertCategories?: AlertCategories
   soundEnabled: boolean
+  soundId?: SoundPreset
+  volume?: number
   soundPresets?: Partial<Record<AlertCategoryKey, SoundPreset>>
   jzelEnabled?: boolean
 }

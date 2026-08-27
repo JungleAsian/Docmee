@@ -76,6 +76,10 @@ export interface NotificationPrefs {
   alertCategories?: AlertCategoryPrefs
   /** Browser-side audible alerts for the panel. */
   soundEnabled: boolean
+  /** Stable approved sound identifier for clients that do not use category presets. */
+  soundId?: SoundPreset
+  /** Normalized audible volume, clamped to [0, 1]. */
+  volume?: number
   /** Which tone plays per alert category (item 4 of the 25-item batch). Missing
    *  keys fall back to 'default'. */
   soundPresets?: Partial<Record<AlertCategoryKey, SoundPreset>>
@@ -88,6 +92,8 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   mutedTypes: [],
   alertCategories: { ...DEFAULT_ALERT_CATEGORIES },
   soundEnabled: false,
+  soundId: 'default',
+  volume: 0.7,
   soundPresets: {},
   jzelEnabled: true,
 }
@@ -103,6 +109,9 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
   const obj = raw as Record<string, unknown>
   const emailEnabled = obj['emailEnabled'] === false ? false : true
   const soundEnabled = obj['soundEnabled'] === true
+  const soundId = isSoundPreset(obj['soundId']) ? obj['soundId'] : 'default'
+  const volumeRaw = typeof obj['volume'] === 'number' && Number.isFinite(obj['volume']) ? obj['volume'] : 0.7
+  const volume = Math.min(1, Math.max(0, volumeRaw))
   const jzelEnabled = obj['jzelEnabled'] === false ? false : true
   const mutedRaw = Array.isArray(obj['mutedTypes']) ? obj['mutedTypes'] : []
   const mutedTypes = mutedRaw.filter(
@@ -125,7 +134,7 @@ export function normalizeNotificationPrefs(raw: unknown): NotificationPrefs {
       if (isSoundPreset(presets[key])) soundPresets[key] = presets[key]
     }
   }
-  return { emailEnabled, mutedTypes: [...new Set(mutedTypes)], alertCategories, soundEnabled, soundPresets, jzelEnabled }
+  return { emailEnabled, mutedTypes: [...new Set(mutedTypes)], alertCategories, soundEnabled, soundId, volume, soundPresets, jzelEnabled }
 }
 
 /**

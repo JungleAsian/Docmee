@@ -75,6 +75,9 @@ export const SOUND_CATEGORY_KEYS: AlertCategoryKey[] = [
   'internal',
 ]
 export const SOUND_PRESETS = ['default', 'chime', 'ping', 'bell'] as const
+export function normalizedVolume(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0.7
+}
 
 /** Alert types a user may mute (p1 safety alerts always email and are excluded). */
 export const MUTABLE_ALERT_TYPES = ALERT_TYPES.filter((t) => NOTIFICATION_PRIORITY[t] !== 'p1')

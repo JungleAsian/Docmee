@@ -32,7 +32,7 @@ const SOUND_PRESET_TONES: Record<SoundPreset, readonly (readonly [number, number
   bell: [[0, 659], [0.16, 988]],
 }
 
-function playNotificationSound(preset: SoundPreset = 'default') {
+function playNotificationSound(preset: SoundPreset = 'default', volume = 0.7) {
   try {
     const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!AudioContextClass) return
@@ -40,7 +40,7 @@ function playNotificationSound(preset: SoundPreset = 'default') {
     const now = ctx.currentTime
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.0001, now)
-    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.015)
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.001, Math.min(1, volume)) * 0.08, now + 0.015)
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42)
     gain.connect(ctx.destination)
     for (const [offset, frequency] of SOUND_PRESET_TONES[preset] ?? SOUND_PRESET_TONES.default) {
@@ -96,8 +96,8 @@ export function NotificationBell() {
       // Item 4 of the 25-item batch: play the tone assigned to the newest arrival's
       // category (falls back to the 'default' preset when unset).
       const category = alertCategoryFor(newlyArrived[0]!.alertType)
-      const preset = prefsQuery.data?.preferences.soundPresets?.[category] ?? 'default'
-      playNotificationSound(preset)
+      const preset = prefsQuery.data?.preferences.soundPresets?.[category] ?? prefsQuery.data?.preferences.soundId ?? 'default'
+      playNotificationSound(preset, prefsQuery.data?.preferences.volume)
     }
   }, [clinicId, query.isLoading, query.isError, soundEnabled, unread, prefsQuery.data])
 

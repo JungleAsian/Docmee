@@ -28,10 +28,11 @@ export function TagsPanel({ conversationId }: { conversationId: string }) {
     queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
   })
   const customTags = useMemo(() => {
-    const configured = clinicQuery.data?.clinic.settings?.inboxTags
-    return Array.isArray(configured)
-      ? configured.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0 && !TAG_TYPES.some((tt) => tt.name === tag))
-      : []
+    const settings = clinicQuery.data?.clinic.settings
+    const definitions = settings?.inboxTagDefinitions
+    if (Array.isArray(definitions)) return definitions.filter((tag): tag is { name: string; color: string; archived: boolean } => Boolean(tag) && typeof tag === 'object' && typeof (tag as { name?: unknown }).name === 'string' && (tag as { archived?: unknown }).archived !== true && !TAG_TYPES.some((tt) => tt.name === (tag as { name: string }).name)).map((tag) => ({ name: tag.name, label: tag.name, color: typeof tag.color === 'string' ? tag.color : '#64748b' }))
+    const configured = settings?.inboxTags
+    return Array.isArray(configured) ? configured.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0 && !TAG_TYPES.some((tt) => tt.name === tag)).map((name) => ({ name, label: name, color: '#64748b' })) : []
   }, [clinicQuery.data])
 
   const addMutation = useMutation({
@@ -59,7 +60,7 @@ export function TagsPanel({ conversationId }: { conversationId: string }) {
         <p className="text-xs text-gray-400">{t('common.loading')}</p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {[...TAG_TYPES.map((tt) => ({ name: tt.name, label: tagLabel(tt.name, language), color: tagColor(tt.name) })), ...customTags.map((name) => ({ name, label: name, color: '#64748b' }))].map((tag) => {
+          {[...TAG_TYPES.map((tt) => ({ name: tt.name, label: tagLabel(tt.name, language), color: tagColor(tt.name) })), ...customTags].map((tag) => {
             const on = active.has(tag.name)
             return (
               <button

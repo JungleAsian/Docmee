@@ -1546,6 +1546,11 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const title = String(node.config?.['title'] ?? `Appointment: ${contextString(ctx, 'patient_name') || 'Patient'}`)
       const startTime = `${date}T${time}:00`
       const endTime = addMinutes(startTime, duration)
+      const instantRange = clinicInstantRange(date, time, duration, clinic.timezone || 'UTC')
+      if (!instantRange) throw new Error('The selected appointment time is invalid in the clinic timezone')
+      if (Date.parse(instantRange.startTime) <= Date.now()) {
+        throw new Error('The selected appointment time must be in the future')
+      }
       // Same grid the offered slots were computed with (the doctor's real
       // hours for this weekday, when configured) — otherwise a slot correctly
       // offered outside the default 09:00–18:00 window would be rejected here
@@ -1554,8 +1559,6 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       if (!slotsCoverRange(availableSlots, startTime, endTime)) {
         throw new Error('The selected appointment time is no longer available for the required duration')
       }
-      const instantRange = clinicInstantRange(date, time, duration, clinic.timezone || 'UTC')
-      if (!instantRange) throw new Error('The selected appointment time is invalid in the clinic timezone')
       const mode = String(node.config?.['mode'] ?? 'create')
 
       if (mode === 'reschedule') {

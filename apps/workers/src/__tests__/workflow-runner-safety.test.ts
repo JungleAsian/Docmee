@@ -267,6 +267,38 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it.each(['create', 'reschedule'])('rejects a past workflow %s before capacity or calendar operations', async (mode) => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T10:00:00.000Z'))
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.createOrRescheduleBooking({
+        id: 'booking-1',
+        type: 'create_booking',
+        config: {
+          ...(mode === 'reschedule' ? { mode: 'reschedule', appointmentIdField: 'appointment_id' } : {}),
+          doctorId: '44444444-4444-4444-8444-444444444444',
+          dateField: 'preferred_date',
+          timeField: 'preferred_time',
+        },
+      }, {
+        ...ctx,
+        appointment_id: 'appt-existing',
+        preferred_date: '2026-09-15',
+        preferred_time: '09:00',
+      })
+      return [{ status: 'completed' }]
+    })
+
+    try {
+      await expect(processWorkflowRunJob(job)).rejects.toThrow('must be in the future')
+    } finally {
+      nowSpy.mockRestore()
+    }
+
+    expect(h.saveWithinCapacity).not.toHaveBeenCalled()
+    expect(h.listSlots).not.toHaveBeenCalled()
+    expect(h.createCalendarEvent).not.toHaveBeenCalled()
+  })
+
   it('stores a clinic-local workflow booking as the correct UTC instant', async () => {
     h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinic', timezone: 'America/Guatemala', settings: {} })
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {

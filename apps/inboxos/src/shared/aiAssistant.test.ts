@@ -6,6 +6,12 @@ describe('Docmee assistant configuration', () => {
     expect(readAiAssistant(undefined).name).toBe('Docmee')
   })
 
+  it('normalizes only the exact legacy default assistant name', () => {
+    expect(readAiAssistant({ aiAssistant: { name: 'J.zel' } } as never).name).toBe('Docmee')
+    expect(readAiAssistant({ aiAssistant: { name: 'J.Zel' } } as never).name).toBe('J.Zel')
+    expect(readAiAssistant({ aiAssistant: { name: 'J.zel Dental' } } as never).name).toBe('J.zel Dental')
+  })
+
   it('keeps the valid local default selectable', () => {
     expect(readAiAssistant(undefined).embedProvider).toBe('local')
     expect(EMBED_PROVIDERS.map((provider) => provider.id)).toContain('local')

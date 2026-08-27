@@ -50,6 +50,11 @@ function validEmbedProvider(v: unknown): v is EmbedProvider {
   return v === 'openai' || v === 'gemini' || v === 'custom' || v === 'local'
 }
 
+function normalizeAssistantName(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') return 'Docmee'
+  return value === 'J.zel' ? 'Docmee' : value.trim()
+}
+
 export function readAiAssistant(clinic: Clinic): AiAssistantConfig {
   const raw = ((clinic.settings as { aiAssistant?: Partial<AiAssistantConfig> }).aiAssistant ??
     {}) as Partial<AiAssistantConfig>
@@ -66,7 +71,7 @@ export function readAiAssistant(clinic: Clinic): AiAssistantConfig {
     intentProvider: validIntentProvider(raw.intentProvider) ? raw.intentProvider : 'deepseek',
     embedProvider: validEmbedProvider(raw.embedProvider) ? raw.embedProvider : 'local',
     embedModel: typeof raw.embedModel === 'string' ? raw.embedModel.trim() : '',
-    name: typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name.trim() : 'J.zel',
+    name: normalizeAssistantName(raw.name),
     persona: typeof raw.persona === 'string' ? raw.persona : '',
     useKb: raw.useKb !== false,
     useHelp: raw.useHelp !== false,

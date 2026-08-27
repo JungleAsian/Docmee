@@ -25,6 +25,7 @@ import {
   EMBED_PROVIDERS,
   MODEL_SUGGESTIONS,
   DEFAULT_CHAT_MODEL,
+  normalizeAiAssistantName,
   readAiAssistant,
   type AiAssistantConfig,
   type ChatProvider,
@@ -392,7 +393,7 @@ function AiAssistantSection({
           <button
             type="button"
             disabled={!textDirty || saving || locked}
-            onClick={() => onPatch({ name: name.trim() || 'Docmee', persona, model: model.trim(), baseURL: baseURL.trim() })}
+            onClick={() => onPatch({ name: normalizeAiAssistantName(name), persona, model: model.trim(), baseURL: baseURL.trim() })}
             className="rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-50"
           >
             {t('common.save')}

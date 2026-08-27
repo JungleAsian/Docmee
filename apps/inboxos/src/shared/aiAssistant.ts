@@ -107,6 +107,11 @@ function isEmbedProvider(value: unknown): value is EmbedProvider {
   return value === 'local' || value === 'openai' || value === 'gemini' || value === 'custom'
 }
 
+export function normalizeAiAssistantName(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') return DEFAULT_AI_ASSISTANT.name
+  return value === 'J.zel' ? DEFAULT_AI_ASSISTANT.name : value.trim()
+}
+
 /** Read the clinic's J.zel config, falling back to defaults for missing fields. */
 export function readAiAssistant(settings: ClinicSettings | null | undefined): AiAssistantConfig {
   const raw = (settings?.aiAssistant ?? {}) as Partial<AiAssistantConfig>
@@ -123,7 +128,7 @@ export function readAiAssistant(settings: ClinicSettings | null | undefined): Ai
     intentProvider: isIntentProvider(raw.intentProvider) ? raw.intentProvider : 'deepseek',
     embedProvider: isEmbedProvider(raw.embedProvider) ? raw.embedProvider : 'local',
     embedModel: typeof raw.embedModel === 'string' ? raw.embedModel : '',
-    name: typeof raw.name === 'string' && raw.name.trim() !== '' ? raw.name : DEFAULT_AI_ASSISTANT.name,
+    name: normalizeAiAssistantName(raw.name),
     persona: typeof raw.persona === 'string' ? raw.persona : '',
     useKb: raw.useKb !== false,
     useHelp: raw.useHelp !== false,

@@ -66,6 +66,30 @@ const STATUS_BADGE: Record<ConversationStatus, string> = {
 // member id. 'mine'/'all'/'unassigned' are reserved and never collide with a uuid.
 type AssigneeFilter = 'all' | 'mine' | 'unassigned' | (string & {})
 
+type ActiveChannelQueryState = {
+  data?: { channels: Array<{ channel: Channel; name: string }> }
+  isLoading: boolean
+  isError: boolean
+}
+
+export function resolveActiveChannelFilter(
+  showInactiveChannels: boolean,
+  query: ActiveChannelQueryState,
+): ReadonlySet<Channel> | undefined {
+  if (showInactiveChannels || query.isLoading || query.isError || !query.data) return undefined
+  return new Set(query.data.channels.map((entry) => entry.channel))
+}
+
+export function projectConversationList(
+  rows: Conversation[],
+  search: string,
+  channel: ChannelFilter,
+  activeChannels?: ReadonlySet<Channel>,
+) {
+  const filteredRows = filterConversations(rows, search, channel, activeChannels)
+  return { rows: filteredRows, counts: lensCounts(filteredRows) }
+}
+
 export function ConversationList({
   selectedId,
   onSelect,
@@ -90,10 +114,8 @@ export function ConversationList({
     queryFn: () => api.get<{ channels: Array<{ channel: Channel; name: string }> }>(`/clinics/${clinicId}/channels/active`),
   })
   const activeChannels = useMemo(
-    () => showInactiveChannels
-      ? undefined
-      : new Set((activeChannelsQuery.data?.channels ?? []).map((entry) => entry.channel)),
-    [activeChannelsQuery.data?.channels, showInactiveChannels],
+    () => resolveActiveChannelFilter(showInactiveChannels, activeChannelsQuery),
+    [activeChannelsQuery.data, activeChannelsQuery.isError, activeChannelsQuery.isLoading, showInactiveChannels],
   )
   const qc = useQueryClient()
   // Operational lens (design's Active/Bot/Assigned/Closed tabs) — derived entirely
@@ -201,18 +223,22 @@ export function ConversationList({
 
   const allRows = query.data?.conversations ?? []
   const filtersActive = search.trim() !== '' || channel !== 'all'
-  // Tab counts over the full loaded set (stable as the user types a search).
-  const counts = useMemo(() => lensCounts(allRows), [allRows])
+  const projection = useMemo(
+    () => projectConversationList(allRows, search, channel, activeChannels),
+    [allRows, search, channel, activeChannels],
+  )
+  // Counts describe the same filtered rows rendered below.
+  const counts = projection.counts
 
   // Apply the search/channel filter, then float safety-critical / urgent threads to
   // the top (stable within each severity band, so recency order is preserved
   // otherwise) — Req 20.
   const conversations = useMemo(() => {
-    return filterConversations(allRows, search, channel, activeChannels)
+    return projection.rows
       .map((c, i) => ({ c, i, rank: safetyRank(assessSafety(c.tags).level) }))
       .sort((a, b) => b.rank - a.rank || a.i - b.i)
       .map((x) => x.c)
-  }, [allRows, search, channel, activeChannels])
+  }, [projection.rows])
 
   // Split into the safety queue and the rest so each gets its own group header.
   // Safety-flagged threads ALWAYS surface, regardless of the active lens — a tab must

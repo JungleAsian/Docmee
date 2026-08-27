@@ -34,7 +34,7 @@ import type {
   CustomFlowRenderMode,
   CustomFlowStoreAs,
 } from '../types'
-import { removeSerializedFlowEdges } from '../flowEdgeChanges'
+import { removeSerializedFlowEdges, removeSerializedFlowTargets } from '../flowEdgeChanges'
 
 const ReactFlow = ReactFlowBase
 const Background = BackgroundBase
@@ -222,13 +222,7 @@ export function FlowCanvas({
       const removed = new Set(changes.filter((c) => c.type === 'remove').map((c) => c.id))
       if (removed.size > 0) {
         const remaining = steps.filter((s) => !removed.has(s.id))
-        const clean = remaining.map((s) => ({
-          ...s,
-          next: s.next && !removed.has(s.next) ? s.next : null,
-          branches: s.branches?.filter((b) => !removed.has(b.next)),
-          options: s.options?.map((o) => ({ ...o, goToNext: removed.has(o.goToNext) ? '' : o.goToNext })),
-          onFailNext: s.onFailNext && !removed.has(s.onFailNext) ? s.onFailNext : undefined,
-        }))
+        const clean = removeSerializedFlowTargets(remaining, removed)
         update(clean, removed.has(startStepId ?? '') ? clean[0]?.id ?? null : startStepId)
         if (removed.has(selectedId ?? '')) setSelectedId(null)
         return

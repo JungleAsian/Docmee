@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, parse } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { createChannelAccountsRepository } from '@docmee/db'
+import { createChannelAccountsRepository, createClinicsRepository } from '@docmee/db'
 import { decryptValue, encryptValue } from '@docmee/shared'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
@@ -650,14 +650,26 @@ const channelsRoute: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-      const accounts = await withDb(async (sql) => createChannelAccountsRepository(sql).listByClinic(clinicId))
+      const { accounts, clinic } = await withDb(async (sql) => {
+        const [accounts, clinic] = await Promise.all([
+          createChannelAccountsRepository(sql).listByClinic(clinicId),
+          createClinicsRepository(sql).findById(clinicId),
+        ])
+        return { accounts, clinic }
+      })
       const active = new Map<string, { channel: string; name: string }>()
       for (const account of accounts) {
-        if (account.status !== 'active' || active.has(account.channel)) continue
+        if (account.channel !== 'whatsapp' || account.status !== 'active' || active.has(account.channel)) continue
         active.set(account.channel, {
           channel: account.channel,
           name: account.displayName?.trim() || account.channel,
         })
+      }
+      if (clinic?.messengerEnabled) {
+        active.set('messenger', { channel: 'messenger', name: 'Messenger' })
+      }
+      if (clinic?.instagramEnabled) {
+        active.set('instagram', { channel: 'instagram', name: 'Instagram' })
       }
       return { channels: [...active.values()] }
     },

@@ -4,6 +4,7 @@ import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from 'vitest
 const channelStore = vi.hoisted(() => ({
   accounts: [] as Array<Record<string, unknown>>,
   created: null as Record<string, unknown> | null,
+  clinic: null as Record<string, unknown> | null,
 }))
 
 vi.mock('@docmee/db', () => ({
@@ -20,6 +21,10 @@ vi.mock('@docmee/db', () => ({
       }
     },
     delete: vi.fn(),
+  }),
+  createClinicsRepository: () => ({
+    findById: async (clinicId: string) =>
+      channelStore.clinic?.id === clinicId ? channelStore.clinic : null,
   }),
 }))
 vi.mock('@docmee/shared', () => ({
@@ -103,6 +108,7 @@ describe('Meta phone registration', () => {
   afterEach(() => {
     channelStore.accounts = []
     channelStore.created = null
+    channelStore.clinic = null
     vi.unstubAllGlobals()
   })
 
@@ -134,6 +140,38 @@ describe('Meta phone registration', () => {
     expect(response.body).not.toContain('phone-1')
     expect(response.body).not.toContain('top-secret')
     expect(response.body).not.toContain('waba-secret')
+  })
+
+  it('combines active WhatsApp accounts with clinic-enabled Messenger and Instagram channels', async () => {
+    channelStore.accounts = [
+      baseAccount,
+      { ...baseAccount, id: 'acc-2', channel: 'messenger', displayName: 'Stale account row' },
+    ]
+    channelStore.clinic = {
+      id: 'c-1',
+      messengerEnabled: true,
+      messengerPageId: 'page-secret',
+      instagramEnabled: true,
+      instagramAccountId: 'instagram-secret',
+    }
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/clinics/c-1/channels/active',
+      headers: secretaryAuth,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      channels: [
+        { channel: 'whatsapp', name: 'Clinic WhatsApp' },
+        { channel: 'messenger', name: 'Messenger' },
+        { channel: 'instagram', name: 'Instagram' },
+      ],
+    })
+    expect(response.body).not.toContain('page-secret')
+    expect(response.body).not.toContain('instagram-secret')
+    expect(response.body).not.toContain('Stale account row')
   })
 
   it('clears stale token expiry metadata for a non-expiring system-user token', async () => {

@@ -575,7 +575,7 @@ function PickClinicState({ title, body }: { title: string; body: string }) {
   return (
     <div className="clinic-card flex flex-col items-center justify-center gap-2 p-12 text-center">
       <span className="mb-1 inline-flex items-center rounded bg-teal-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-teal-600 dark:bg-teal-950/40 dark:text-teal-300">
-        Admin Studio
+        Back
       </span>
       <div className="text-3xl">🏥</div>
       <h4 className="text-sm font-bold">{title}</h4>

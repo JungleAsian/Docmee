@@ -12,6 +12,7 @@ import authRoute from './routes/auth.js'
 import clinicsRoute from './routes/clinics.js'
 import conversationsRoute from './routes/conversations.js'
 import conversationMediaRoute from './routes/conversation-media.js'
+import mediaAssetsRoute from './routes/media-assets.js'
 import assistantRoute from './routes/assistant.js'
 import jzelRoute from './routes/jzel.js'
 import patientsRoute from './routes/patients.js'
@@ -126,6 +127,7 @@ export async function buildApp() {
   // encapsulated and never affects the JSON conversation routes. Declares its own
   // /conversations/:id/send-media path.
   await app.register(conversationMediaRoute)
+  await app.register(mediaAssetsRoute)
   // Internal AI Assistant for secretaries (Req 41) — staff-only summary/suggestions.
   await app.register(assistantRoute, { prefix: '/conversations' })
   // J.zel interactive chat — POST /assist/chat

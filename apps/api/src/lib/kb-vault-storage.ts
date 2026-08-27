@@ -56,6 +56,10 @@ export function kbUploadObjectKey(input: {
   return `${PREFIX}/${input.clinicId}/kb/uploads/${input.documentId}/original/${timestamp(input.createdAt)}/${name}`
 }
 
+export function mediaObjectKey(input: { clinicId: string; assetId: string; fileName: string }): string {
+  return `${PREFIX}/${safeSegment(input.clinicId)}/media/${safeSegment(input.assetId)}/${safeSegment(input.fileName || 'attachment')}`
+}
+
 export function kbGithubObjectKey(input: {
   clinicId: string
   commit: string

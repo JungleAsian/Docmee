@@ -671,7 +671,7 @@ function PickClinicState({ title, body }: { title: string; body: string }) {
   return (
     <div className="clinic-card flex flex-col items-center justify-center gap-2 p-10 text-center">
       <span className="mb-1 inline-flex items-center rounded bg-teal-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-teal-600 dark:bg-teal-950/40 dark:text-teal-300">
-        Admin Studio
+        Back
       </span>
       <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300"><Buildings className="h-6 w-6" aria-hidden /></div>
       <h4 className="text-sm font-bold">{title}</h4>
@@ -732,4 +732,3 @@ function formatRange(startIso: string, endIso: string): string {
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
   return `${start.toLocaleDateString(undefined, opts)} - ${end.toLocaleDateString(undefined, opts)}`
 }
-

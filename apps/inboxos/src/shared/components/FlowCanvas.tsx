@@ -206,12 +206,29 @@ export function FlowCanvas({
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       onNodesChange(changes)
+      // React Flow emits remove changes when a user presses Delete. Keep the
+      // canonical step model in sync so a deleted node cannot reappear on the
+      // next render or remain as an invalid workflow target.
+      const removed = new Set(changes.filter((c) => c.type === 'remove').map((c) => c.id))
+      if (removed.size > 0) {
+        const remaining = steps.filter((s) => !removed.has(s.id))
+        const clean = remaining.map((s) => ({
+          ...s,
+          next: s.next && !removed.has(s.next) ? s.next : null,
+          branches: s.branches?.filter((b) => !removed.has(b.next)),
+          options: s.options?.map((o) => ({ ...o, goToNext: removed.has(o.goToNext) ? '' : o.goToNext })),
+          onFailNext: s.onFailNext && !removed.has(s.onFailNext) ? s.onFailNext : undefined,
+        }))
+        update(clean, removed.has(startStepId ?? '') ? clean[0]?.id ?? null : startStepId)
+        if (removed.has(selectedId ?? '')) setSelectedId(null)
+        return
+      }
       const dragEnd = changes.filter((c): c is Extract<NodeChange, { type: 'position' }> => c.type === 'position' && c.dragging === false)
       if (dragEnd.length === 0) return
       const moved = new Map(dragEnd.map((c) => [c.id, c.position]))
       update(steps.map((s) => (moved.has(s.id) ? { ...s, x: Math.round(moved.get(s.id)!.x), y: Math.round(moved.get(s.id)!.y) } : s)))
     },
-    [onNodesChange, steps, update],
+    [onNodesChange, steps, startStepId, selectedId, update],
   )
 
   // Connecting two nodes creates a branch (op 'any') on the source step.
@@ -219,9 +236,21 @@ export function FlowCanvas({
     (c: Connection) => {
       if (!c.source || !c.target) return
       const target = c.target.startsWith('__') ? (c.target.slice(2) as Terminal) : c.target
+      // Reject self-links, unknown step ids, and duplicate targets. These are
+      // easy to create accidentally by dragging in the canvas and otherwise
+      // produce a graph the runtime cannot traverse deterministically.
+      if (c.source === c.target || (!isTerminal(target) && !steps.some((s) => s.id === target))) return
       update(
         steps.map((s) =>
-          s.id === c.source ? { ...s, next: null, branches: [...(s.branches ?? []), { op: 'any', next: target }] } : s,
+          s.id === c.source
+            ? {
+                ...s,
+                next: null,
+                branches: (s.branches ?? []).some((b) => b.next === target)
+                  ? s.branches
+                  : [...(s.branches ?? []), { op: 'any', next: target }],
+              }
+            : s,
         ),
       )
     },

@@ -121,7 +121,10 @@ export {
   createWorkflowsRepository,
   createWorkflowApprovalsRepository,
   createWorkflowExecutionsRepository,
+  createMediaAssetsRepository,
 } from './repositories/index.js'
+
+export type { MediaAssetsRepository, CreateMediaAssetInput } from './repositories/index.js'
 
 export type {
   ClinicsRepository,

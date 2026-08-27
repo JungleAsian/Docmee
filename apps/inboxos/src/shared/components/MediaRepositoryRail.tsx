@@ -41,6 +41,7 @@ export function MediaRepositoryRail({
   const role = useAuthStore((state) => state.user?.role)
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
+  const sendAttemptRef = useRef<{ signature: string; key: string } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const query = useQuery({
@@ -61,11 +62,18 @@ export function MediaRepositoryRail({
     onError: (error) => setLocalError(error instanceof ApiError ? error.message : 'Upload failed'),
   })
   const send = useMutation({
-    mutationFn: () => api.post(`/conversations/${conversationId}/send-media-asset`, {
-      assetId: selectedId,
-      ...(caption.trim() ? { caption: caption.trim() } : {}),
-    }),
+    mutationFn: () => {
+      const signature = `${conversationId}:${selectedId ?? ''}:${caption.trim()}`
+      if (sendAttemptRef.current?.signature !== signature) {
+        sendAttemptRef.current = { signature, key: `media-asset:${conversationId}:${crypto.randomUUID()}` }
+      }
+      return api.post(`/conversations/${conversationId}/send-media-asset`, {
+        assetId: selectedId,
+        ...(caption.trim() ? { caption: caption.trim() } : {}),
+      }, { headers: { 'Idempotency-Key': sendAttemptRef.current.key } })
+    },
     onSuccess: () => {
+      sendAttemptRef.current = null
       onSent()
       qc.invalidateQueries({ queryKey: ['messages', conversationId] })
       qc.invalidateQueries({ queryKey: ['conversations'] })

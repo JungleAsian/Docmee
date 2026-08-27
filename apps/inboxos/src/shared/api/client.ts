@@ -100,6 +100,8 @@ async function refreshAccessToken(): Promise<string | null> {
 export interface ApiOptions {
   method?: string
   body?: unknown
+  /** Additional trusted request headers, such as an idempotency key. */
+  headers?: Record<string, string>
   /** Skip the bearer header (used by the login call). */
   anonymous?: boolean
 }
@@ -112,6 +114,7 @@ async function request<T>(path: string, opts: ApiOptions = {}, isRetry = false):
   // which broke every bodyless POST: heartbeat, conversation close/reopen/resume-bot,
   // notification acknowledge, AI assist, error resolve and KB re-embed.
   if (opts.body !== undefined) headers['content-type'] = 'application/json'
+  Object.assign(headers, opts.headers)
   if (!opts.anonymous && accessToken) {
     headers['authorization'] = `Bearer ${accessToken}`
     Object.assign(headers, activeClinicHeader())
@@ -208,9 +211,9 @@ async function blobUrl(path: string, isRetry = false): Promise<string> {
 // Authenticated multipart upload (Req 3 — a secretary attaches an image). Mirrors
 // request()'s bearer header + single 401-refresh, but sends a FormData body and
 // lets the browser set the multipart Content-Type (with its boundary) itself.
-async function upload<T>(path: string, form: FormData, isRetry = false): Promise<T> {
+async function upload<T>(path: string, form: FormData, extraHeaders: Record<string, string> = {}, isRetry = false): Promise<T> {
   const { accessToken } = authSnapshot()
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...extraHeaders }
   if (accessToken) {
     headers['authorization'] = `Bearer ${accessToken}`
     Object.assign(headers, activeClinicHeader())
@@ -220,7 +223,7 @@ async function upload<T>(path: string, form: FormData, isRetry = false): Promise
 
   if (res.status === 401 && !isRetry) {
     const next = await refreshAccessToken()
-    if (next) return upload<T>(path, form, true)
+    if (next) return upload<T>(path, form, extraHeaders, true)
     redirectToLogin()
     throw new ApiError(401, 'Unauthorized')
   }

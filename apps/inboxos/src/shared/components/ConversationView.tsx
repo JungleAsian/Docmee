@@ -101,6 +101,7 @@ export function ConversationView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const mediaAttemptRef = useRef<{ signature: string; key: string } | null>(null)
 
   // Screen 5: accept an AI draft from the AssistantPanel into the reply box. The
   // panel pushes a per-conversation insert request through the composer store; we
@@ -228,9 +229,13 @@ export function ConversationView({
   // Graph media upload, server-side). Like a manual reply it pauses the bot; the
   // current draft (if any) rides along as the image caption. WhatsApp-only.
   const sendMediaMutation = useMutation({
-    mutationFn: (form: FormData) =>
-      api.upload(`/conversations/${conversationId}/send-media`, form),
+    mutationFn: ({ form, idempotencyKey }: { form: FormData; idempotencyKey: string }) => {
+      return api.upload(`/conversations/${conversationId}/send-media`, form, {
+        'Idempotency-Key': idempotencyKey,
+      })
+    },
     onSuccess: () => {
+      mediaAttemptRef.current = null
       setDraft('')
       qc.invalidateQueries({ queryKey: ['messages', conversationId] })
       qc.invalidateQueries({ queryKey: ['conversations'] })
@@ -288,7 +293,11 @@ export function ConversationView({
     const caption = draft.trim()
     if (caption) form.append('caption', caption)
     form.append('file', file)
-    sendMediaMutation.mutate(form)
+    const signature = `${conversationId}:${file.name}:${file.size}:${file.lastModified}:${caption}`
+    if (mediaAttemptRef.current?.signature !== signature) {
+      mediaAttemptRef.current = { signature, key: `media-upload:${conversationId}:${crypto.randomUUID()}` }
+    }
+    sendMediaMutation.mutate({ form, idempotencyKey: mediaAttemptRef.current.key })
   }
 
   // Permission-denied — the selected thread belongs to a clinic/role the operator

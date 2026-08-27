@@ -211,25 +211,25 @@ const DEFAULT_MODEL: Record<AiProvider, string> = {
 
 const PROVIDER_META: Record<AiProvider, { subtitle: string; keyLabel: string; placeholder: string; action: string }> = {
   claude: {
-    subtitle: 'Connect the clinic Claude account for J.zel answers.',
+    subtitle: 'Connect the clinic Claude account for Docmee answers.',
     keyLabel: 'Anthropic API key',
     placeholder: 'sk-ant-...',
     action: 'Connect Claude',
   },
   openai: {
-    subtitle: 'Connect the clinic ChatGPT/OpenAI account for J.zel answers.',
+    subtitle: 'Connect the clinic ChatGPT/OpenAI account for Docmee answers.',
     keyLabel: 'OpenAI API key',
     placeholder: 'sk-...',
     action: 'Connect ChatGPT',
   },
   gemini: {
-    subtitle: 'Connect the clinic Gemini account for J.zel answers.',
+    subtitle: 'Connect the clinic Gemini account for Docmee answers.',
     keyLabel: 'Gemini API key',
     placeholder: 'AIza...',
     action: 'Connect Gemini',
   },
   custom: {
-    subtitle: 'Connect any OpenAI-compatible AI endpoint for J.zel.',
+    subtitle: 'Connect any OpenAI-compatible AI endpoint for Docmee.',
     keyLabel: 'API key',
     placeholder: 'your endpoint key',
     action: 'Connect custom AI',
@@ -326,12 +326,12 @@ export function AiProvidersPanel({ clinic }: { clinic: Clinic }) {
     <div className="space-y-4">
       <IntegrationGroupBanner
         icon="claude"
-        title="J.zel AI providers"
-        description="Connect AI provider keys used by J.zel for chat responses, knowledge-base grounding, and clinic-specific assistance."
+        title="Docmee AI providers"
+        description="Connect AI provider keys used by Docmee for chat responses, knowledge-base grounding, and clinic-specific assistance."
       />
       {jzelConfigLocked && (
         <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-          J.zel is hidden for your user account, so J.zel and AI service configuration is locked.
+          Docmee is hidden for your user account, so Docmee and AI service configuration is locked.
         </p>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -876,7 +876,7 @@ function ProviderLoginCard({
 
   const connect = useMutation({
     mutationFn: async () => {
-      if (locked) throw new Error('J.zel is hidden for your user account. AI service configuration is locked.')
+      if (locked) throw new Error('Docmee is hidden for your user account. AI service configuration is locked.')
       const nextEmbedProvider =
         embeddingProviderFor(provider) ?? connectedEmbeddingProvider(statuses, currentAi.embedProvider)
       await api.post(`/clinic/${clinic.id}/ai/${provider}/connect`, {
@@ -900,14 +900,14 @@ function ProviderLoginCard({
     },
     onSuccess: () => {
       setApiKey('')
-      setMessage(`${title} connected and selected for J.zel.`)
+      setMessage(`${title} connected and selected for Docmee.`)
       refresh()
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : 'Could not connect this provider.'),
   })
   const disconnect = useMutation({
     mutationFn: () => {
-      if (locked) throw new Error('J.zel is hidden for your user account. AI service configuration is locked.')
+      if (locked) throw new Error('Docmee is hidden for your user account. AI service configuration is locked.')
       return api.del(`/clinic/${clinic.id}/ai/${provider}/disconnect`)
     },
     onSuccess: () => {
@@ -932,7 +932,7 @@ function ProviderLoginCard({
       needs={[
         provider === 'custom' ? 'An OpenAI-compatible endpoint URL from your AI provider.' : `An API key from the ${title} provider account.`,
         'A model name approved for this clinic.',
-        'A clinic decision that this provider should power J.zel.',
+        'A clinic decision that this provider should power Docmee.',
       ]}
       steps={[
         'Open the provider account in a new tab.',
@@ -946,7 +946,7 @@ function ProviderLoginCard({
       >
         {locked && (
           <p className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-            Locked because J.zel is hidden for your user account.
+            Locked because Docmee is hidden for your user account.
           </p>
         )}
         {loading ? (
@@ -1058,7 +1058,7 @@ function ProviderLoginCard({
 
         <label className="block">
           <span className="mb-1 block font-medium text-gray-500 dark:text-gray-400">
-            Model for J.zel
+            Model for Docmee
           </span>
           <input
             type="text"
@@ -1121,7 +1121,7 @@ function ProviderLoginCard({
           <p className={connect.isError || disconnect.isError ? 'text-red-500' : 'text-emerald-500'}>{message}</p>
         )}
         <p className="text-[11px] text-gray-400">
-          Keys are encrypted on the server and never shown again. Connecting also selects this provider for J.zel.
+          Keys are encrypted on the server and never shown again. Connecting also selects this provider for Docmee.
         </p>
         </>
         )}
@@ -1189,4 +1189,3 @@ function SaveRow({
     </div>
   )
 }
-

@@ -50,13 +50,13 @@ function readPersistedChat(key: string): PersistedChat | null {
 function jzelErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
     if (error.message === 'assistant_provider_not_configured') {
-      return 'J.zel needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.'
+      return 'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.'
     }
     if (error.message === 'assistant_provider_failed') {
-      return 'J.zel reached the AI provider, but the provider rejected the request. Check the provider key, model, and account status.'
+      return 'Docmee reached the AI provider, but the provider rejected the request. Check the provider key, model, and account status.'
     }
     if (error.message === 'assistant_disabled') {
-      return 'J.zel is disabled for this clinic. Enable it in AI Assistant settings.'
+      return 'Docmee is disabled for this clinic. Enable it in AI Assistant settings.'
     }
   }
   return fallback

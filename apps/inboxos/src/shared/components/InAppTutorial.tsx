@@ -68,7 +68,7 @@ function stepSet(role: PanelRole | undefined): TutorialStep[] {
     },
     {
       icon: Sparkle,
-      title: { es: 'J.zel, tu asistente', en: 'J.zel, your assistant' },
+      title: { es: 'Docmee, tu asistente', en: 'Docmee, your assistant' },
       body: {
         es: 'El avatar flotante ayuda con dudas de uso, triage, agenda y operaciones. Puedes moverlo, redimensionarlo o abrirlo cuando necesites ayuda.',
         en: 'The floating avatar helps with usage questions, triage, scheduling, and operations. You can move, resize, or open it when you need help.',

@@ -67,7 +67,7 @@ const ROUTE_COPY: Array<[RegExp, BannerCopy]> = [
   [/^\/inbox/, {
     eyebrow: 'Patient conversations',
     title: 'InboxOS',
-    body: 'Manage WhatsApp, internal notes, assignments, and J.zel assistance from one focused workspace.',
+    body: 'Manage WhatsApp, internal notes, assignments, and Docmee assistance from one focused workspace.',
     asset: 'phoneDark',
   }],
   [/^\/alerts/, {
@@ -151,7 +151,7 @@ const ROUTE_COPY: Array<[RegExp, BannerCopy]> = [
   [/^\/studio\/custom-flows/, {
     eyebrow: 'Admin Studio',
     title: 'Custom flows',
-    body: 'Shape J.zel conversation logic, escalation behavior, and clinic-specific flow rules visually.',
+    body: 'Shape Docmee conversation logic, escalation behavior, and clinic-specific flow rules visually.',
     asset: 'hologram',
   }],
   [/^\/studio\/workflows/, {
@@ -163,7 +163,7 @@ const ROUTE_COPY: Array<[RegExp, BannerCopy]> = [
   [/^\/studio\/kb/, {
     eyebrow: 'Admin Studio',
     title: 'Clinic knowledge base',
-    body: 'Train J.zel with approved clinic knowledge and keep help content grounded and current.',
+    body: 'Train Docmee with approved clinic knowledge and keep help content grounded and current.',
     asset: 'kbCrossedArms',
   }],
   [/^\/studio\/cost-monitoring/, {

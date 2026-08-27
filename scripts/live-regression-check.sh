@@ -75,7 +75,7 @@ require_grep 'docmee:tutorial-open' "$SIDEBAR_FILE" "Sidebar Tutorial replay tri
 require_grep 'Tutorial' "$SIDEBAR_FILE" "Sidebar Tutorial label is missing"
 require_grep 'export function InAppTutorial' "$TUTORIAL_FILE" "InAppTutorial component is missing"
 require_grep 'Conversation inbox' "$TUTORIAL_FILE" "Walkthrough conversation inbox step is missing"
-require_grep 'J\.zel, your assistant' "$TUTORIAL_FILE" "Walkthrough J.zel step is missing"
+require_grep 'Docmee, your assistant' "$TUTORIAL_FILE" "Walkthrough assistant step is missing"
 require_grep 'Calendar and bookings' "$TUTORIAL_FILE" "Walkthrough calendar step is missing"
 require_grep '<InAppTutorial />' "$ADMIN_LAYOUT_FILE" "Admin layout no longer mounts InAppTutorial"
 require_grep '<InAppTutorial />' "$CLINIC_LAYOUT_FILE" "Clinic layout no longer mounts InAppTutorial"

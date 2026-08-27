@@ -828,6 +828,23 @@ export async function processAgentJob(job: Job): Promise<void> {
       apiKey: intentProvider === 'deepseek' ? undefined : resolveClinicAiKey(clinic.settings, intentProvider),
       baseURL: typeof intentCfg.baseURL === 'string' ? intentCfg.baseURL.trim() : undefined,
     })
+    // Keep the classifier decision on the inbound message itself. Conversation
+    // metadata remains useful for routing summaries, but message-level records
+    // are the authoritative source for inbox filters, audits, and replays.
+    if (data.waMessageId && typeof messages.findByChannelMessageId === 'function') {
+      const inbound = await messages.findByChannelMessageId(data.clinicId, data.waMessageId)
+      if (inbound && typeof messages.setClassification === 'function') {
+        await messages.setClassification(data.clinicId, inbound.id, {
+          intent,
+          confidence: 1,
+          provider: intentProvider,
+          model: 'intent-router',
+          classifierVersion: 'v1',
+          source: 'ai',
+          classifiedAt: new Date().toISOString(),
+        })
+      }
+    }
     const orchestration = orchestrateConversation(intent, {
       isInsideBusinessHours: insideHours,
       patientOptedOut,

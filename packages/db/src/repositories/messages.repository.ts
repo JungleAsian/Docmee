@@ -17,6 +17,7 @@ export interface CreateMessageInput {
 
 export interface MessagesRepository {
   findById(clinicId: string, id: string): Promise<ConversationMessage | null>
+  findByChannelMessageId(clinicId: string, channelMessageId: string): Promise<ConversationMessage | null>
   /**
    * Timestamp of the patient's most recent inbound (`user`) message across all of
    * their conversations, or null. Drives the 24-hour customer-care window check and
@@ -32,6 +33,8 @@ export interface MessagesRepository {
   listByConversation(clinicId: string, conversationId: string): Promise<ConversationMessage[]>
   listByConversationSince(clinicId: string, conversationId: string, since: string): Promise<ConversationMessage[]>
   create(data: CreateMessageInput): Promise<ConversationMessage>
+  /** Persist the structured intent decision used to route an inbound message. */
+  setClassification(clinicId: string, id: string, classification: NonNullable<ConversationMessage['classification']>): Promise<void>
   /** Persist synchronous provider acceptance without manufacturing an asynchronous receipt. */
   markProviderAccepted(clinicId: string, id: string, channelMessageId: string): Promise<void>
   /** Record a locally blocked or provider-rejected outbound attempt. */
@@ -65,6 +68,15 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
     async findById(clinicId, id) {
       const rows = await sql<ConversationMessage[]>`
         SELECT * FROM conversation_messages WHERE clinic_id = ${clinicId} AND id = ${id} LIMIT 1
+      `
+      return rows[0] ?? null
+    },
+
+    async findByChannelMessageId(clinicId, channelMessageId) {
+      const rows = await sql<ConversationMessage[]>`
+        SELECT * FROM conversation_messages
+        WHERE clinic_id = ${clinicId} AND channel_message_id = ${channelMessageId}
+        ORDER BY created_at DESC LIMIT 1
       `
       return rows[0] ?? null
     },
@@ -163,6 +175,14 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
       `
 
       return msg
+    },
+
+    async setClassification(clinicId, id, classification) {
+      await sql`
+        UPDATE conversation_messages
+        SET classification = ${sql.json(toJson({ ...classification }))}
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+      `
     },
 
     async markProviderAccepted(clinicId, id, channelMessageId) {

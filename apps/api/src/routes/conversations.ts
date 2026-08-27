@@ -470,8 +470,9 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
 
   // ── Set status (Req 11) — generic lifecycle transition ──
   // Moves a conversation to any of the 7 statuses (pending/snoozed/archived plus
-  // open/resolved). Setting it back to `open` also clears the bot-pause metadata
-  // so the bot truly resumes. The dedicated assign/close/resume-bot routes remain
+  // open/resolved). Handoff records an explicit bot pause marker, while setting it
+  // back to `open` clears that metadata so the bot truly resumes. The dedicated
+  // assign/close/resume-bot routes remain
   // the one-click paths for the common transitions.
   app.post<{ Params: { id: string } }>(
     '/:id/status',
@@ -492,6 +493,11 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
         if (parsed.data.status === 'open') {
           delete metadata.botPausedAt
           delete metadata.handoffReason
+        } else if (parsed.data.status === 'handoff') {
+          // Keep an explicit pause marker for one-click secretary handoff. The
+          // status drives routing; metadata drives audit/safety surfaces.
+          metadata.botPausedAt = new Date().toISOString()
+          metadata.handoffReason = 'manual_pause'
         }
         // CRE-60: snoozing parks the thread until snooze_until (default 3h); any other
         // transition clears it so a reopened/resolved thread never auto-wakes.

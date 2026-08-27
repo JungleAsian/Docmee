@@ -10,7 +10,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDateTime, formatDay, formatTime, relativeTime } from '../format'
-import { conversationMode } from '../conversationMode'
 import { AssignControl } from './AssignControl'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
@@ -146,9 +145,6 @@ export function ConversationView({
     })
   }, [classificationTab, messages])
   const closed = isClosedStatus(conversation?.status)
-  // The bot drives an open thread; once a human is assigned or it's escalated, a
-  // secretary is in control (shared helper so the list pill and this view agree).
-  const humanMode = conversationMode(conversation?.status) === 'human'
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -337,16 +333,6 @@ export function ConversationView({
               {conversation?.channel === 'whatsapp' && (
                 <span className="crm-whatsapp-tag">WhatsApp</span>
               )}
-              {/* Mode pill (Req 5/6) — who is driving the thread. */}
-              <span
-                className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                  humanMode
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                    : 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300'
-                }`}
-              >
-                {humanMode ? '●' : '✦'} {humanMode ? t('view.mode.human') : t('view.mode.bot')}
-              </span>
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--crm-text-soft)]">
               {/* When the title shows the patient's name, surface the raw handle
@@ -417,33 +403,6 @@ export function ConversationView({
         )}
         {conversation && <KbCitations metadata={conversation.metadata} />}
       </div>
-
-      {/* Req 5/6 — full-width mode strip directly under the header. The single
-          loudest, always-visible cue for WHO is driving the thread: violet when the
-          bot is auto-answering, emerald when a human has taken over (bot paused).
-          Makes the handoff state unmistakable without scrolling to the composer. */}
-      {conversation && !closed && (
-        <div
-          className={`flex shrink-0 items-center gap-2 px-4 py-2 text-[12px] font-medium ${
-            humanMode
-              ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
-              : 'bg-violet-50 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200'
-          }`}
-        >
-          <span
-            aria-hidden
-            className={`h-2 w-2 shrink-0 rounded-full ${humanMode ? 'bg-emerald-500' : 'bg-violet-500'}`}
-          />
-          <span className="min-w-0 flex-1 truncate">
-            {humanMode ? t('view.modeStrip.human') : t('view.modeStrip.bot')}
-          </span>
-          {humanMode && (
-            <span className="hidden shrink-0 text-[11px] opacity-80 sm:inline">
-              {t('view.modeStrip.humanRight')}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* Messages */}
       <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--crm-border-color)] px-3 py-2" role="tablist" aria-label="Message classifications">

@@ -9,6 +9,7 @@ import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { useI18n } from '../hooks/useI18n'
 import { useActiveClinic } from '../hooks/useActiveClinic'
+import { conversationMode } from '../conversationMode'
 import type { Conversation, TeamMember } from '../types'
 
 const CAN_ASSIGN = new Set(['secretary', 'doctor', 'clinic_admin', 'ia_studio_admin'])
@@ -45,6 +46,20 @@ export function AssignPanel({ conversationId }: { conversationId: string }) {
       qc.invalidateQueries({ queryKey: ['conversations'] })
     },
   })
+  const pauseAiMutation = useMutation({
+    mutationFn: () => api.post(`/conversations/${conversationId}/status`, { status: 'handoff' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+  const resumeBotMutation = useMutation({
+    mutationFn: () => api.post(`/conversations/${conversationId}/resume-bot`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
 
   const conversation = conversationQuery.data?.conversation
   const members = assignableMembersForRole(teamQuery.data?.members ?? [], user?.role)
@@ -52,6 +67,8 @@ export function AssignPanel({ conversationId }: { conversationId: string }) {
   const assigneeLabel = conversation?.assignedTo
     ? (assignee?.fullName ?? assignee?.email ?? conversation.assignedTo)
     : t('conv.unassigned')
+  const botMode = conversationMode(conversation?.status) === 'bot'
+  const pending = assignMutation.isPending || pauseAiMutation.isPending || resumeBotMutation.isPending
 
   return (
     <section className="p-3">
@@ -72,6 +89,27 @@ export function AssignPanel({ conversationId }: { conversationId: string }) {
           >
             {t('assign.toMe')}
           </button>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => (botMode ? pauseAiMutation.mutate() : resumeBotMutation.mutate())}
+              disabled={pending}
+              className="rounded-md border border-violet-600 px-2 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60 dark:text-violet-300 dark:hover:bg-violet-950/30"
+            >
+              {botMode
+                ? (pauseAiMutation.isPending ? t('assign.pausingAi') : t('assign.pauseAi'))
+                : (resumeBotMutation.isPending ? t('assign.returningToBot') : t('assign.returnToBot'))}
+            </button>
+            <button
+              type="button"
+              onClick={() => user?.id && assignMutation.mutate(user.id)}
+              disabled={pending || !user?.id || conversation?.assignedTo === user.id}
+              className="rounded-md border border-teal-600 px-2 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-60 dark:text-teal-300 dark:hover:bg-teal-950/30"
+            >
+              {assignMutation.isPending ? t('assign.handingOver') : t('assign.handover')}
+            </button>
+          </div>
 
           <label className="block">
             <span className="sr-only">{t('assign.member')}</span>

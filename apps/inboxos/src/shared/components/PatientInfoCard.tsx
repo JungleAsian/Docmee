@@ -32,9 +32,15 @@ const STATUS_BADGE: Record<PatientStatus, { className: string; glyph: string }> 
 export function PatientInfoCard({
   conversationId,
   onSchedule,
+  showNextAppointment = true,
+  showAppointmentDateTime = true,
+  showPatientHistory = true,
 }: {
   conversationId: string
   onSchedule?: () => void
+  showNextAppointment?: boolean
+  showAppointmentDateTime?: boolean
+  showPatientHistory?: boolean
 }) {
   const { t, language } = useI18n()
 
@@ -99,25 +105,26 @@ export function PatientInfoCard({
         </span>
       )}
 
-      {/* Last / next appointment */}
-      <dl className="mt-3 space-y-1.5 text-xs">
+      {/* Last / next appointment. Date/time visibility is clinic-controlled, but
+          the booking action remains available so hiding metadata never blocks care. */}
+      {showAppointmentDateTime && <dl className="mt-3 space-y-1.5 text-xs">
         <div className="flex items-center justify-between gap-2">
           <dt className="font-medium text-[var(--crm-text-muted)]">{t('view.appt.last')}</dt>
           <dd className="min-w-0 truncate text-right text-[var(--crm-text-main)]">
             {last ? formatDateTime(last.startTime, language) : t('view.appt.none')}
           </dd>
         </div>
-        <div className="flex items-center justify-between gap-2">
+        {showNextAppointment && <div className="flex items-center justify-between gap-2">
           <dt className="font-medium text-[var(--crm-text-muted)]">{t('view.appt.next')}</dt>
           <dd className="min-w-0 truncate text-right text-[var(--crm-text-main)]">
             {next ? formatDateTime(next.startTime, language) : t('view.appt.none')}
           </dd>
-        </div>
-      </dl>
+        </div>}
+      </dl>}
 
       {/* Actions */}
       <div className="mt-3 flex flex-wrap gap-2">
-        {patientId && (
+        {patientId && showPatientHistory && (
           <Link
             href={`/inbox/${conversationId}/patient`}
             className="inline-flex items-center gap-1 rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"

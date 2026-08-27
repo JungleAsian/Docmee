@@ -1,6 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify'
 import multipart from '@fastify/multipart'
 import { createHash } from 'node:crypto'
+import { createReadStream, createWriteStream, promises as fs } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { createMediaAssetsRepository } from '@docmee/db'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -18,6 +22,12 @@ function hasValidSignature(type: string, buffer: Buffer) {
   if (type === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
   if (type === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
   return false
+}
+
+async function readPrefix(path: string): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of createReadStream(path, { start: 0, end: 511 })) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  return Buffer.concat(chunks)
 }
 
 const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
@@ -38,22 +48,29 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
     const file = await request.file()
     if (!file) return reply.code(400).send({ error: 'No file uploaded' })
     if (!TYPES.has(file.mimetype as never)) return reply.code(400).send({ error: 'Only PDF, JPEG, PNG, and WebP files are supported' })
-    let buffer: Buffer
-    try { buffer = await file.toBuffer() } catch { return reply.code(413).send({ error: 'File exceeds the 100 MB limit' }) }
-    if (buffer.length === 0) return reply.code(400).send({ error: 'Empty files are not allowed' })
-    if (!hasValidSignature(file.mimetype, buffer)) return reply.code(400).send({ error: 'File content does not match its declared type' })
-    const usage = await withDb(async (sql) => {
-      const repo = createMediaAssetsRepository(sql)
-      return { bytes: await repo.activeBytes(clinicId), count: await repo.activeCount(clinicId) }
-    })
-    if (usage.count >= MAX_ACTIVE_FILES) return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
-    const used = usage.bytes
-    if (used + buffer.length > QUOTA_BYTES) return reply.code(413).send({ error: 'Clinic media quota exceeded' })
-    const checksum = createHash('sha256').update(buffer).digest('hex')
-    const key = mediaObjectKey({ clinicId, assetId: checksum.slice(0, 24), fileName: file.filename || 'attachment' })
-    await uploadKbVaultObject({ key, body: buffer, contentType: file.mimetype, metadata: { clinicId, checksum } })
-    const asset = await withDb((sql) => createMediaAssetsRepository(sql).create({ clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: buffer.length, checksum, storageKey: key }))
-    return reply.code(201).send({ asset })
+    const tempPath = join(tmpdir(), `docmee-media-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+    try {
+      await pipeline(file.file, createWriteStream(tempPath, { flags: 'wx' }))
+      const stat = await fs.stat(tempPath)
+      if (stat.size === 0) return reply.code(400).send({ error: 'Empty files are not allowed' })
+      if (stat.size > MAX_BYTES) return reply.code(413).send({ error: 'File exceeds the 100 MB limit' })
+      const usage = await withDb(async (sql) => {
+        const repo = createMediaAssetsRepository(sql)
+        return { bytes: await repo.activeBytes(clinicId), count: await repo.activeCount(clinicId) }
+      })
+      if (usage.count >= MAX_ACTIVE_FILES) return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
+      if (usage.bytes + stat.size > QUOTA_BYTES) return reply.code(413).send({ error: 'Clinic media quota exceeded' })
+      const checksumHash = createHash('sha256')
+      for await (const chunk of createReadStream(tempPath)) checksumHash.update(chunk)
+      const checksum = checksumHash.digest('hex')
+      if (!hasValidSignature(file.mimetype, await readPrefix(tempPath))) return reply.code(400).send({ error: 'File content does not match its declared type' })
+      const key = mediaObjectKey({ clinicId, assetId: checksum.slice(0, 24), fileName: file.filename || 'attachment' })
+      await uploadKbVaultObject({ key, body: createReadStream(tempPath), contentType: file.mimetype, metadata: { clinicId, checksum } })
+      const asset = await withDb((sql) => createMediaAssetsRepository(sql).create({ clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: stat.size, checksum, storageKey: key }))
+      return reply.code(201).send({ asset })
+    } finally {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined)
+    }
   })
 
   app.get<{ Params: { id: string; assetId: string } }>('/clinics/:id/media/:assetId/download', { preHandler: requireRole('clinic_admin', 'ia_studio_admin', 'secretary', 'doctor') }, async (request, reply) => {

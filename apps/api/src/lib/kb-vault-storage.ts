@@ -1,5 +1,6 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import type { Readable } from 'node:stream'
 
 const REGION =
   process.env['S3_BUCKET_KB_REGION']?.trim() ||
@@ -72,7 +73,7 @@ export function kbGithubObjectKey(input: {
 
 export async function uploadKbVaultObject(input: {
   key: string
-  body: Buffer | string
+  body: Buffer | string | Readable
   contentType?: string
   metadata?: Record<string, string>
 }): Promise<{ bucket: string; key: string } | null> {

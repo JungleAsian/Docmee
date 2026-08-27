@@ -19,6 +19,7 @@ const h = vi.hoisted(() => ({
   listByPatient: vi.fn(),
   listDoctors: vi.fn(),
   createAppt: vi.fn(),
+  saveWithinCapacity: vi.fn(),
   updateAppt: vi.fn(),
   addEvent: vi.fn(),
   createTag: vi.fn(),
@@ -82,6 +83,7 @@ vi.mock('@docmee/db', () => ({
     listProviders: h.listProviders,
     listByPatient: h.listByPatient,
     create: h.createAppt,
+    saveWithinCapacity: h.saveWithinCapacity,
     update: h.updateAppt,
     addEvent: h.addEvent,
   }),
@@ -132,6 +134,7 @@ beforeEach(() => {
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → clinic calendar
   h.createAppt.mockResolvedValue({ id: 'appt-1' })
+  h.saveWithinCapacity.mockResolvedValue({ ok: true, appointment: { id: 'appt-1' } })
   h.createMessage.mockResolvedValue({ id: 'm1' })
   h.markProviderAccepted.mockResolvedValue(undefined)
   h.markSendFailed.mockResolvedValue(undefined)

@@ -33,6 +33,7 @@ const h = vi.hoisted(() => ({
   listProviders: vi.fn(),
   listByPatient: vi.fn(),
   apptCreate: vi.fn(),
+  apptSaveWithinCapacity: vi.fn(),
   apptUpdate: vi.fn(),
   apptAddEvent: vi.fn(),
   listDoctors: vi.fn(),
@@ -104,6 +105,7 @@ vi.mock('@docmee/db', () => ({
     listProviders: h.listProviders,
     listByPatient: h.listByPatient,
     create: h.apptCreate,
+    saveWithinCapacity: h.apptSaveWithinCapacity,
     update: h.apptUpdate,
     addEvent: h.apptAddEvent,
   }),
@@ -216,6 +218,7 @@ describe('scheduling worker — appointment_scheduled auto-tag (Req 11)', () => 
     h.listByPatient.mockResolvedValue([])
     h.listDoctors.mockResolvedValue([])
     h.apptCreate.mockResolvedValue({ id: 'appt1' })
+    h.apptSaveWithinCapacity.mockResolvedValue({ ok: true, appointment: { id: 'appt1' } })
     h.apptUpdate.mockResolvedValue({})
     h.apptAddEvent.mockResolvedValue(undefined)
     h.createGoogleCalendarOps.mockReturnValue({
@@ -239,7 +242,7 @@ describe('scheduling worker — appointment_scheduled auto-tag (Req 11)', () => 
 
   it('tags appointment_scheduled when a booking is saved', async () => {
     await processSchedulingJob(makeJob(bookJob))
-    expect(h.apptCreate).toHaveBeenCalledTimes(1)
+    expect(h.apptSaveWithinCapacity).toHaveBeenCalledTimes(1)
     expect(h.createTag).toHaveBeenCalledWith(
       expect.objectContaining({ clinicId: CLINIC, name: 'appointment_scheduled' }),
     )

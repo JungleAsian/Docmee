@@ -54,19 +54,20 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
       const stat = await fs.stat(tempPath)
       if (stat.size === 0) return reply.code(400).send({ error: 'Empty files are not allowed' })
       if (stat.size > MAX_BYTES) return reply.code(413).send({ error: 'File exceeds the 100 MB limit' })
-      const usage = await withDb(async (sql) => {
-        const repo = createMediaAssetsRepository(sql)
-        return { bytes: await repo.activeBytes(clinicId), count: await repo.activeCount(clinicId) }
-      })
-      if (usage.count >= MAX_ACTIVE_FILES) return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
-      if (usage.bytes + stat.size > QUOTA_BYTES) return reply.code(413).send({ error: 'Clinic media quota exceeded' })
       const checksumHash = createHash('sha256')
       for await (const chunk of createReadStream(tempPath)) checksumHash.update(chunk)
       const checksum = checksumHash.digest('hex')
       if (!hasValidSignature(file.mimetype, await readPrefix(tempPath))) return reply.code(400).send({ error: 'File content does not match its declared type' })
       const key = mediaObjectKey({ clinicId, assetId: checksum.slice(0, 24), fileName: file.filename || 'attachment' })
       await uploadKbVaultObject({ key, body: createReadStream(tempPath), contentType: file.mimetype, metadata: { clinicId, checksum } })
-      const asset = await withDb((sql) => createMediaAssetsRepository(sql).create({ clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: stat.size, checksum, storageKey: key }))
+      let asset
+      try {
+        asset = await withDb((sql) => createMediaAssetsRepository(sql).createWithinQuota({ clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: stat.size, checksum, storageKey: key }, { maxFiles: MAX_ACTIVE_FILES, maxBytes: QUOTA_BYTES }))
+      } catch (error) {
+        if (error instanceof Error && error.message === 'media_file_limit_reached') return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
+        if (error instanceof Error && error.message === 'media_quota_exceeded') return reply.code(413).send({ error: 'Clinic media quota exceeded' })
+        throw error
+      }
       return reply.code(201).send({ asset })
     } finally {
       await fs.rm(tempPath, { force: true }).catch(() => undefined)

@@ -29,17 +29,29 @@ export interface CreateAppointmentInput {
   overbookingReason?: string
 }
 
-export interface CreateAppointmentWithinCapacityInput extends CreateAppointmentInput {
-  doctorId: string
+export interface SaveAppointmentCreateInput extends CreateAppointmentInput {
+  mode: 'create'
   /** Maximum simultaneous appointments allowed for the doctor. */
   capacity: number
   /** Only a secretary-authorized route may set this true. */
   allowOverbooking: boolean
 }
 
-export type CreateAppointmentWithinCapacityResult =
+export interface SaveAppointmentRescheduleInput {
+  mode: 'reschedule'
+  clinicId: string
+  appointmentId: string
+  startTime: string
+  endTime: string
+  update: Omit<UpdateAppointmentInput, 'startTime' | 'endTime'>
+  actorId?: string
+}
+
+export type SaveAppointmentWithinCapacityInput = SaveAppointmentCreateInput | SaveAppointmentRescheduleInput
+
+export type SaveAppointmentWithinCapacityResult =
   | { ok: true; appointment: Appointment; clashCount: number }
-  | { ok: false; reason: 'clash' | 'overbooking_reason'; clashCount: number }
+  | { ok: false; reason: 'clash' | 'overbooking_reason' | 'not_found'; clashCount: number }
 
 export interface UpdateAppointmentInput {
   status?: AppointmentStatus
@@ -139,9 +151,9 @@ export interface AppointmentsRepository {
    */
   listCalendarSyncCandidates(limit: number, maxAgeDays: number): Promise<AppointmentWithNames[]>
   create(data: CreateAppointmentInput): Promise<Appointment>
-  /** Serialize competing bookings for a doctor's day, validate overlapping
-   * capacity, and insert the appointment + created event in one transaction. */
-  createWithinCapacity(data: CreateAppointmentWithinCapacityInput): Promise<CreateAppointmentWithinCapacityResult>
+  /** Serialize creates and reschedules for a doctor/provider, validate
+   * [start,end) capacity, and persist the row + lifecycle event atomically. */
+  saveWithinCapacity(data: SaveAppointmentWithinCapacityInput): Promise<SaveAppointmentWithinCapacityResult>
   update(clinicId: string, id: string, data: UpdateAppointmentInput): Promise<Appointment>
   addEvent(clinicId: string, appointmentId: string, eventType: AppointmentEventType, actorId?: string): Promise<AppointmentEvent>
   listEvents(clinicId: string, appointmentId: string): Promise<AppointmentEvent[]>
@@ -260,50 +272,88 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
     },
 
     async create(data) {
-      const rows = await sql<Appointment[]>`
-        INSERT INTO appointments
-          (clinic_id, patient_id, provider_id, doctor_id, service_id, conversation_id, start_time, end_time, notes, metadata, calendar_sync_pending, booking_origin, actor_id, overbooked, overbooking_reason)
-        VALUES (
-          ${data.clinicId},
-          ${data.patientId},
-          ${data.providerId     ?? null},
-          ${data.doctorId       ?? null},
-          ${data.serviceId      ?? null},
-          ${data.conversationId ?? null},
-          ${data.startTime}::timestamptz,
-          ${data.endTime}::timestamptz,
-          ${data.notes          ?? null},
-          ${sql.json(toJson(data.metadata ?? {}))},
-          TRUE,
-          ${data.bookingOrigin ?? 'manual'},
-          ${data.actorId ?? null},
-          ${data.overbooked ?? false},
-          ${data.overbookingReason ?? null}
-        )
-        RETURNING *
-      `
-      const appt = rows[0]!
-      await this.addEvent(data.clinicId, appt.id, 'created')
-      return appt
+      const result = await this.saveWithinCapacity({
+        ...data,
+        mode: 'create',
+        capacity: 1,
+        allowOverbooking: false,
+      })
+      if (!result.ok) throw new Error(`Appointment capacity rejected: ${result.reason}`)
+      return result.appointment
     },
 
-    async createWithinCapacity(data) {
+    async saveWithinCapacity(data) {
       return (sql.begin(async (tx) => {
-        // A day-level key is intentionally coarser than one exact start time:
-        // appointments with different starts can still overlap, so all capacity
-        // decisions for this clinic/doctor/local date must serialize together.
-        const localDate = data.startTime.slice(0, 10)
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${data.clinicId}), hashtext(${`${data.doctorId}:${localDate}`}))`
-        const clashes = await tx<[{ count: string }]>`
-          SELECT COUNT(*)::text AS count
-          FROM appointments
-          WHERE clinic_id = ${data.clinicId}
-            AND doctor_id = ${data.doctorId}
-            AND status <> 'cancelled'
-            AND start_time < ${data.endTime}::timestamptz
-            AND end_time > ${data.startTime}::timestamptz
-        `
+        let current: Appointment | null = null
+        if (data.mode === 'reschedule') {
+          const rows = await tx<Appointment[]>`
+            SELECT * FROM appointments
+            WHERE clinic_id = ${data.clinicId} AND id = ${data.appointmentId}
+            FOR UPDATE
+          `
+          current = rows[0] ?? null
+          if (!current) return { ok: false as const, reason: 'not_found' as const, clashCount: 0 }
+        }
+
+        const doctorId = data.mode === 'create' ? data.doctorId : current!.doctorId ?? undefined
+        const providerId = data.mode === 'create' ? data.providerId : current!.providerId ?? undefined
+        const resourceId = doctorId ?? providerId
+        if (!resourceId) throw new Error('Appointment requires a doctorId or providerId')
+
+        // Lock the whole clinic/resource, not one start time or date. Cross-midnight
+        // appointments can overlap rows whose starts have different dates, so a
+        // date-scoped key would leave a race at midnight.
+        const resourceKey = `${doctorId ? 'doctor' : 'provider'}:${resourceId}`
+        const excludedAppointmentId = data.mode === 'reschedule' ? data.appointmentId : null
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${data.clinicId}), hashtext(${resourceKey}))`
+        const clashes = doctorId
+          ? await tx<[{ count: string }]>`
+              SELECT COUNT(*)::text AS count
+              FROM appointments
+              WHERE clinic_id = ${data.clinicId}
+                AND doctor_id = ${doctorId}
+                AND status <> 'cancelled'
+                AND (${excludedAppointmentId}::uuid IS NULL OR id <> ${excludedAppointmentId}::uuid)
+                AND start_time < ${data.endTime}::timestamptz
+                AND end_time > ${data.startTime}::timestamptz
+            `
+          : await tx<[{ count: string }]>`
+              SELECT COUNT(*)::text AS count
+              FROM appointments
+              WHERE clinic_id = ${data.clinicId}
+                AND provider_id = ${providerId!}
+                AND status <> 'cancelled'
+                AND (${excludedAppointmentId}::uuid IS NULL OR id <> ${excludedAppointmentId}::uuid)
+                AND start_time < ${data.endTime}::timestamptz
+                AND end_time > ${data.startTime}::timestamptz
+            `
         const clashCount = Number(clashes[0]?.count ?? 0)
+
+        if (data.mode === 'reschedule') {
+          if (clashCount > 0) return { ok: false as const, reason: 'clash' as const, clashCount }
+          const update = data.update
+          const rows = await tx<Appointment[]>`
+            UPDATE appointments SET
+              status                 = COALESCE(${update.status ?? null}, status),
+              google_event_id        = CASE WHEN ${update.googleEventId !== undefined} THEN ${update.googleEventId ?? null} ELSE google_event_id END,
+              start_time             = ${data.startTime}::timestamptz,
+              end_time               = ${data.endTime}::timestamptz,
+              notes                  = COALESCE(${update.notes ?? null}, notes),
+              metadata               = CASE WHEN ${update.metadata !== undefined} THEN ${tx.json(toJson(update.metadata ?? {}))} ELSE metadata END,
+              calendar_sync_pending  = COALESCE(${update.calendarSyncPending ?? null}, TRUE),
+              calendar_sync_error    = CASE WHEN ${update.calendarSyncError !== undefined} THEN ${update.calendarSyncError ?? null} ELSE calendar_sync_error END,
+              calendar_sync_attempts = COALESCE(${update.calendarSyncAttempts ?? null}, calendar_sync_attempts)
+            WHERE clinic_id = ${data.clinicId} AND id = ${data.appointmentId}
+            RETURNING *
+          `
+          const appointment = rows[0]!
+          await tx`
+            INSERT INTO appointment_events (appointment_id, clinic_id, event_type, actor_id)
+            VALUES (${appointment.id}, ${data.clinicId}, 'rescheduled', ${data.actorId ?? null})
+          `
+          return { ok: true as const, appointment, clashCount }
+        }
+
         const capacity = Math.max(1, Math.floor(data.capacity))
         if (clashCount > 0 && (!data.allowOverbooking || clashCount >= capacity)) {
           return { ok: false as const, reason: 'clash' as const, clashCount }
@@ -313,26 +363,26 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
           return { ok: false as const, reason: 'overbooking_reason' as const, clashCount }
         }
 
-        const rows = (await tx`
+        const rows = await tx<Appointment[]>`
           INSERT INTO appointments
             (clinic_id, patient_id, provider_id, doctor_id, service_id, conversation_id, start_time, end_time, notes, metadata, calendar_sync_pending, booking_origin, actor_id, overbooked, overbooking_reason)
           VALUES (
             ${data.clinicId}, ${data.patientId}, ${data.providerId ?? null},
-            ${data.doctorId}, ${data.serviceId ?? null}, ${data.conversationId ?? null},
+            ${data.doctorId ?? null}, ${data.serviceId ?? null}, ${data.conversationId ?? null},
             ${data.startTime}::timestamptz, ${data.endTime}::timestamptz,
             ${data.notes ?? null}, ${tx.json(toJson(data.metadata ?? {}))}, TRUE,
             ${data.bookingOrigin ?? 'manual'}, ${data.actorId ?? null},
             ${clashCount > 0}, ${clashCount > 0 ? reason : null}
           )
           RETURNING *
-        `) as Appointment[]
+        `
         const appointment = rows[0]!
         await tx`
           INSERT INTO appointment_events (appointment_id, clinic_id, event_type, actor_id)
           VALUES (${appointment.id}, ${data.clinicId}, 'created', ${data.actorId ?? null})
         `
         return { ok: true as const, appointment, clashCount }
-      }) as unknown as Promise<CreateAppointmentWithinCapacityResult>)
+      }) as unknown as Promise<SaveAppointmentWithinCapacityResult>)
     },
 
     async update(clinicId, id, data) {

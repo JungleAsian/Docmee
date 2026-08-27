@@ -21,6 +21,7 @@ import {
 } from '@docmee/db'
 import { readPendingWorkflowRuns } from './workflow-run.js'
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
+import { patientAllowsAutomation } from './automation-boundary.js'
 
 type Language = 'es' | 'en'
 
@@ -274,6 +275,12 @@ export async function runStalledConversationCheck(sql: Sql): Promise<void> {
 
       if (action.kind === 'none') continue
 
+      // Ownership is authoritative at execution time. Missing patients are not
+      // safe automation targets, and human-only patients must receive no timer
+      // sends or automatic close/state transitions.
+      const patient = conv.patientId ? await patients.findById(conv.clinicId, conv.patientId) : null
+      if (!patientAllowsAutomation(patient)) continue
+
       if (action.kind === 'close') {
         await conversations.update(conv.clinicId, conv.id, {
           status: 'resolved',
@@ -294,8 +301,11 @@ export async function runStalledConversationCheck(sql: Sql): Promise<void> {
         continue
       }
 
-      const patient = conv.patientId ? await patients.findById(conv.clinicId, conv.patientId) : null
-      const language = getPatientLanguage(patient)
+      // Re-read immediately before the provider call so a secretary takeover
+      // that races this monitor tick still wins over the pending reminder.
+      const sendPatient = conv.patientId ? await patients.findById(conv.clinicId, conv.patientId) : null
+      if (!patientAllowsAutomation(sendPatient)) continue
+      const language = getPatientLanguage(sendPatient)
       const text =
         action.kind === 'reannounce'
           ? reannouncementMessage(lastMessage.content, language)

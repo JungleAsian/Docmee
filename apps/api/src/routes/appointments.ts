@@ -334,7 +334,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       const endMin = startMin + duration
 
       const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
-      const booking = await appts.createWithinCapacity({
+      const booking = await appts.saveWithinCapacity({
+        mode: 'create',
         clinicId,
         // Always the resolved patient's id — patientId (the raw request param)
         // is undefined on the patientName/walk-in branch, which would silently
@@ -443,11 +444,26 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
           patch.endTime = `${date}T${toHHMM(toMin(start) + Math.max(duration, DEFAULT_DURATION_MIN))}:00`
         }
 
-        const updated = await appts.update(clinicId, request.params.apptId, patch)
+        let updated
+        if (date !== undefined && start !== undefined) {
+          const { startTime: _startTime, endTime: _endTime, ...atomicUpdate } = patch
+          const moved = await appts.saveWithinCapacity({
+            mode: 'reschedule',
+            clinicId,
+            appointmentId: request.params.apptId,
+            startTime: patch.startTime!,
+            endTime: patch.endTime!,
+            update: atomicUpdate,
+            actorId: request.user?.userId,
+          })
+          if (!moved.ok) return { error: moved.reason }
+          updated = moved.appointment
+        } else {
+          updated = await appts.update(clinicId, request.params.apptId, patch)
+        }
         // Item 4 of the 25-item batch: secretary alert on a reschedule / cancellation.
         // Best-effort — a queue failure never breaks the change itself.
         if (date !== undefined && start !== undefined) {
-          await appts.addEvent(clinicId, updated.id, 'rescheduled', request.user?.userId)
           try {
             await notificationQueue.add('notify', {
               clinicId,
@@ -505,6 +521,10 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       })
 
       if (!result) return reply.code(404).send({ error: 'Appointment not found' })
+      if ('error' in result) {
+        if (result.error === 'clash') return reply.code(409).send({ error: 'Slot no longer available' })
+        return reply.code(404).send({ error: 'Appointment not found' })
+      }
       return { appointment: result }
     },
   )

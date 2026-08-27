@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   advanceRescheduleFlow: vi.fn(),
   advanceCancelFlow: vi.fn(),
   createGoogleCalendarOps: vi.fn(),
+  calendarCreateEvent: vi.fn(),
+  calendarUpdateEvent: vi.fn(),
   sendWhatsAppText: vi.fn(),
   notificationAdd: vi.fn(),
   findClinic: vi.fn(),
@@ -24,6 +26,7 @@ const h = vi.hoisted(() => ({
   listByPatient: vi.fn(),
   listDoctors: vi.fn(),
   createAppt: vi.fn(),
+  saveWithinCapacity: vi.fn(),
   updateAppt: vi.fn(),
   addEvent: vi.fn(),
   createTag: vi.fn(),
@@ -85,6 +88,7 @@ vi.mock('@docmee/db', () => ({
     listProviders: h.listProviders,
     listByPatient: h.listByPatient,
     create: h.createAppt,
+    saveWithinCapacity: h.saveWithinCapacity,
     update: h.updateAppt,
     addEvent: h.addEvent,
   }),
@@ -117,6 +121,7 @@ const bookJob = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.advanceBookingFlow.mockReset()
   h.findClinic.mockResolvedValue({
     id: CLINIC,
     name: 'Clinica Sol',
@@ -132,6 +137,7 @@ beforeEach(() => {
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → clinic calendar
   h.createAppt.mockResolvedValue({ id: 'appt-1' })
+  h.saveWithinCapacity.mockResolvedValue({ ok: true, appointment: { id: 'appt-1' }, clashCount: 0 })
   h.createMessage.mockResolvedValue({ id: 'm1' })
   h.markProviderAccepted.mockResolvedValue(undefined)
   h.markSendFailed.mockResolvedValue(undefined)
@@ -140,13 +146,75 @@ beforeEach(() => {
   h.createError.mockResolvedValue(undefined)
   h.createGoogleCalendarOps.mockReturnValue({
     listSlots: vi.fn(),
-    createEvent: vi.fn(),
-    updateEvent: vi.fn(),
+    createEvent: h.calendarCreateEvent,
+    updateEvent: h.calendarUpdateEvent,
     deleteEvent: vi.fn(),
   })
 })
 
 describe('processSchedulingJob — DB-first booking (Calendar best-effort)', () => {
+  it('suppresses the scheduling run when the patient is already human-only', async () => {
+    h.findPatient.mockResolvedValue({ id: PATIENT, fullName: 'Ana', automationMode: 'human_only', metadata: {} })
+
+    await processSchedulingJob(makeJob(bookJob))
+
+    expect(h.advanceBookingFlow).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.saveWithinCapacity).not.toHaveBeenCalled()
+  })
+
+  it('re-checks human-only ownership immediately before sending a reply', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, fullName: 'Ana', automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, fullName: 'Ana', automationMode: 'human_only', metadata: {} })
+    h.advanceBookingFlow.mockResolvedValue({ reply: 'Respuesta automática', done: true, handoff: false })
+
+    await processSchedulingJob(makeJob(bookJob))
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.createMessage).not.toHaveBeenCalled()
+  })
+
+  it('uses the atomic capacity operation with no automation overbooking allowance', async () => {
+    h.advanceBookingFlow.mockImplementation(async (_state, _msg, _ctx, deps) => {
+      await deps.saveAppointment({
+        providerId: 'p1', doctorName: 'Dr. X', specialty: 'General',
+        startTime: '2026-06-25T09:30:00.000Z', endTime: '2026-06-25T10:00:00.000Z',
+        reason: 'Consulta general', preferredDate: '2026-06-25', preferredTime: '09:30',
+        googleEventId: null, calendarSyncError: null,
+      })
+      return { reply: 'Confirmada', done: true, handoff: false }
+    })
+
+    await processSchedulingJob(makeJob(bookJob))
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'create', capacity: 1, allowOverbooking: false,
+    }))
+    expect(h.createAppt).not.toHaveBeenCalled()
+  })
+
+  it('does not create a Calendar event when the atomic capacity check rejects the booking', async () => {
+    h.saveWithinCapacity.mockResolvedValue({ ok: false, reason: 'clash', clashCount: 1 })
+    h.advanceBookingFlow.mockImplementation(async (_state, _msg, _ctx, deps) => {
+      const googleEventId = await deps.calendar.createEvent({
+        title: 'Appointment', date: '2026-06-25', time: '09:30', durationMinutes: 30,
+      })
+      await deps.saveAppointment({
+        providerId: 'p1', doctorName: 'Dr. X', specialty: 'General',
+        startTime: '2026-06-25T09:30:00.000Z', endTime: '2026-06-25T10:00:00.000Z',
+        reason: 'Consulta general', preferredDate: '2026-06-25', preferredTime: '09:30',
+        googleEventId, calendarSyncError: null,
+      })
+      return { reply: 'Confirmada', done: true, handoff: false }
+    })
+
+    await processSchedulingJob(makeJob(bookJob))
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledTimes(1)
+    expect(h.calendarCreateEvent).not.toHaveBeenCalled()
+  })
+
   it('booking-flow reports a Calendar sync failure → appointment saved pending, no human handoff', async () => {
     // This is exactly what booking-flow.ts now does when calendar.createEvent
     // throws: it still calls saveAppointment, with googleEventId: null and the
@@ -169,7 +237,7 @@ describe('processSchedulingJob — DB-first booking (Calendar best-effort)', () 
 
     await processSchedulingJob(makeJob(bookJob))
 
-    expect(h.createAppt).toHaveBeenCalledTimes(1)
+    expect(h.saveWithinCapacity).toHaveBeenCalledTimes(1)
     expect(h.updateAppt).toHaveBeenCalledWith(
       CLINIC,
       'appt-1',
@@ -220,5 +288,70 @@ describe('processSchedulingJob — DB-first booking (Calendar best-effort)', () 
       }),
     )
     expect(h.createError).not.toHaveBeenCalled()
+  })
+
+  it('reschedules through the same atomic capacity operation', async () => {
+    h.listByPatient.mockResolvedValue([{
+      id: 'appt-existing',
+      clinicId: CLINIC,
+      patientId: PATIENT,
+      providerId: 'p1',
+      doctorId: null,
+      startTime: '2099-06-25T09:30:00.000Z',
+      endTime: '2099-06-25T10:00:00.000Z',
+      status: 'confirmed',
+      googleEventId: null,
+    }])
+    h.advanceRescheduleFlow.mockImplementation(async (_state, _msg, _ctx, deps) => {
+      await deps.applyReschedule({
+        appointmentId: 'appt-existing',
+        startTime: '2099-06-26T09:30:00.000Z',
+        endTime: '2099-06-26T10:00:00.000Z',
+        calendarSyncResult: 'skipped',
+        calendarSyncError: null,
+      })
+      return { reply: 'Reprogramada', done: true }
+    })
+
+    await processSchedulingJob(makeJob({ ...bookJob, action: 'reschedule' }))
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'reschedule',
+      appointmentId: 'appt-existing',
+      startTime: '2099-06-26T09:30:00.000Z',
+      endTime: '2099-06-26T10:00:00.000Z',
+    }))
+    expect(h.updateAppt).not.toHaveBeenCalledWith(
+      CLINIC,
+      'appt-existing',
+      expect.objectContaining({ startTime: expect.any(String) }),
+    )
+  })
+
+  it('does not move a Calendar event when the atomic reschedule rejects a clash', async () => {
+    h.listByPatient.mockResolvedValue([{
+      id: 'appt-existing', patientId: PATIENT, providerId: 'p1', doctorId: null,
+      startTime: '2099-06-25T09:30:00.000Z', endTime: '2099-06-25T10:00:00.000Z',
+      status: 'confirmed', googleEventId: 'event-existing',
+    }])
+    h.saveWithinCapacity.mockResolvedValue({ ok: false, reason: 'clash', clashCount: 1 })
+    h.advanceRescheduleFlow.mockImplementation(async (_state, _msg, _ctx, deps) => {
+      await deps.calendar.updateEvent({
+        eventId: 'event-existing', title: 'Appointment', date: '2099-06-26', time: '09:30', durationMinutes: 30,
+      })
+      await deps.applyReschedule({
+        appointmentId: 'appt-existing',
+        startTime: '2099-06-26T09:30:00.000Z',
+        endTime: '2099-06-26T10:00:00.000Z',
+        calendarSyncResult: 'synced',
+        calendarSyncError: null,
+      })
+      return { reply: 'Reprogramada', done: true }
+    })
+
+    await processSchedulingJob(makeJob({ ...bookJob, action: 'reschedule' }))
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledTimes(1)
+    expect(h.calendarUpdateEvent).not.toHaveBeenCalled()
   })
 })

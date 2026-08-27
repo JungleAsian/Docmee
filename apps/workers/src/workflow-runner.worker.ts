@@ -705,6 +705,18 @@ class WorkflowEffectReconciliationRequired extends Error {
   }
 }
 
+class WorkflowAutomationSuppressed extends Error {
+  constructor() {
+    super('Workflow automation suppressed because the patient is human-only')
+  }
+}
+
+async function assertWorkflowAutomationAllowed(sql: Sql, clinicId: string, patientId: string | undefined): Promise<void> {
+  if (!patientId) return
+  const patient = await createPatientsRepository(sql).findById(clinicId, patientId)
+  if (!patientAllowsAutomation(patient)) throw new WorkflowAutomationSuppressed()
+}
+
 function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: string): WorkflowExecutors {
   const { clinicId } = data
   const notify = async (content: string, ctx: WorkflowContext) =>
@@ -898,6 +910,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
   return {
     async runSideEffect(node, _ctx, invoke) {
+      await assertWorkflowAutomationAllowed(sql, clinicId, _ctx.patientId)
       const executions = createWorkflowExecutionsRepository(sql)
       const executionKey = workflowExecutionKey(data, node.id)
       const claimed = await executions.claimEffect({
@@ -1536,21 +1549,30 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         if (!appointmentId) throw new Error('An appointment ID is required to reschedule a booking')
         const appointment = await appointments.findById(clinicId, appointmentId)
         if (!appointment) throw new Error(`Appointment not found: ${appointmentId}`)
-        // The Docmee-side move always applies — Google Calendar is best-effort. A
-        // failed/skipped sync doesn't block the reschedule; it's flagged for the
-        // background calendar-sync-retry job instead.
+        const moved = await appointments.saveWithinCapacity({
+          mode: 'reschedule',
+          clinicId,
+          appointmentId,
+          startTime,
+          endTime,
+          update: {
+            status: 'confirmed',
+            calendarSyncPending: true,
+            calendarSyncError: null,
+          },
+        })
+        if (!moved.ok) throw new Error('The selected appointment time is no longer available')
+        // The atomic Docmee move is authoritative. Google Calendar remains a
+        // best-effort attachment and is retried when its update fails.
         if (appointment.googleEventId) {
           try {
             await calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration })
-            await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed', calendarSyncPending: false, calendarSyncError: null })
+            await appointments.update(clinicId, appointmentId, { calendarSyncPending: false, calendarSyncError: null })
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
-            await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed', calendarSyncPending: true, calendarSyncError: message })
+            await appointments.update(clinicId, appointmentId, { calendarSyncPending: true, calendarSyncError: message })
           }
-        } else {
-          await appointments.update(clinicId, appointmentId, { startTime, endTime, status: 'confirmed' })
         }
-        await appointments.addEvent(clinicId, appointmentId, 'rescheduled')
         ctx['appointment_id'] = appointmentId
         ctx['booking_status'] = 'rescheduled'
         return
@@ -1560,7 +1582,10 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       // The Docmee appointment is always saved — Google Calendar is a best-effort
       // attachment. A failed/unavailable Calendar create no longer discards the
       // booking; it's flagged pending for the background retry sweep instead.
-      const created = await appointments.create({
+      const saved = await appointments.saveWithinCapacity({
+        mode: 'create',
+        capacity: 1,
+        allowOverbooking: false,
         clinicId,
         patientId: ctx.patientId,
         doctorId,
@@ -1571,6 +1596,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         bookingOrigin: 'workflow',
         metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
       })
+      if (!saved.ok) throw new Error('The selected appointment time is no longer available')
+      const created = saved.appointment
       let googleEventId: string | null = null
       try {
         googleEventId = await calendar.createEvent({ title, date, time, durationMinutes: duration })
@@ -1608,6 +1635,8 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
       console.error(`[workflow] ${data.workflowId} has an invalid persisted graph: ${graphErrors.join('; ')}`)
       return
     }
+    const ctx: WorkflowContext = { ...(data.context ?? {}), ...data.trigger }
+    await assertWorkflowAutomationAllowed(sql, data.clinicId, ctx.patientId)
     const sourceEventId = data.trigger.sourceEventId
     const run = data.startNodeId
       ? await executions.findRun(data.clinicId, data.workflowId, sourceEventId)
@@ -1629,7 +1658,6 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
     })
     const approvals = createWorkflowApprovalsRepository(sql)
     if (data.approvalId && !(await approvals.claimResume(data.clinicId, data.approvalId))) return
-    const ctx: WorkflowContext = { ...(data.context ?? {}), ...data.trigger }
     const exec = buildExecutors(sql, data, run.id)
     const trace = await runWorkflow(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
     const terminal = trace[trace.length - 1]?.status === 'paused' ? 'paused' : 'completed'
@@ -1637,6 +1665,15 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
     await executions.setRunStatus(run.id, terminal, { trace, terminalState: terminal })
     console.log(`[workflow] ${workflow.name} ran ${trace.length} step(s) for clinic ${data.clinicId}`)
   } catch (error) {
+    if (error instanceof WorkflowAutomationSuppressed) {
+      if (workflowRunId) {
+        await executions.setRunStatus(workflowRunId, 'completed', {
+          reason: 'patient_human_only',
+          terminalState: 'suppressed',
+        }).catch((statusError) => console.error('[workflow] failed to record suppressed terminal state', statusError))
+      }
+      return
+    }
     if (data.approvalId) await createWorkflowApprovalsRepository(sql).markFailed(data.clinicId, data.approvalId, error instanceof Error ? error.message : String(error)).catch(() => {})
     if (workflowRunId) {
       await executions.setRunStatus(workflowRunId, 'failed', {

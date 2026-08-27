@@ -37,6 +37,7 @@ import { patientSource, mergePatientIntake, type BookingIntake } from './intake.
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
 import { scheduleAppointmentFollowUps, scheduleNoResponseFollowUp } from './follow-up.js'
 import { createClinicCrmExporter, patientPhone } from './crm.js'
+import { patientAllowsAutomation } from './automation-boundary.js'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -135,6 +136,33 @@ const unconfiguredCalendar: CalendarOps = {
   deleteEvent: () => Promise.reject(new Error('calendar not configured')),
 }
 
+class SchedulingAutomationSuppressed extends Error {
+  constructor() {
+    super('Scheduling automation suppressed because the patient is human-only')
+  }
+}
+
+function guardedCalendar(calendar: CalendarOps, assertAllowed: () => Promise<void>): CalendarOps {
+  return {
+    listSlots: async (date) => {
+      await assertAllowed()
+      return calendar.listSlots(date)
+    },
+    createEvent: async (params) => {
+      await assertAllowed()
+      return calendar.createEvent(params)
+    },
+    updateEvent: async (params) => {
+      await assertAllowed()
+      return calendar.updateEvent(params)
+    },
+    deleteEvent: async (eventId) => {
+      await assertAllowed()
+      return calendar.deleteEvent(eventId)
+    },
+  }
+}
+
 function getCalendarConfig(clinic: Clinic): CalendarConfig | null {
   const gc = (clinic.settings as { googleCalendar?: unknown }).googleCalendar
   if (!gc || typeof gc !== 'object') return null
@@ -216,6 +244,13 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     const conversations = createConversationsRepository(sql)
     const appointments = createAppointmentsRepository(sql)
     const channelAccounts = createChannelAccountsRepository(sql)
+    const automationAllowed = async (): Promise<boolean> => {
+      if (!data.patientId) return true
+      return patientAllowsAutomation(await patients.findById(data.clinicId, data.patientId))
+    }
+    const assertAutomationAllowed = async (): Promise<void> => {
+      if (!(await automationAllowed())) throw new SchedulingAutomationSuppressed()
+    }
 
     const clinic = await clinics.findById(data.clinicId)
     if (!clinic) {
@@ -231,6 +266,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
     const messages = createMessagesRepository(sql)
     const reply = async (text: string): Promise<string | null> => {
+      await assertAutomationAllowed()
       if (!data.conversationId) {
         throw new Error('Outbound delivery blocked: conversation is not durable')
       }
@@ -292,6 +328,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
 
     const patient = data.patientId ? await patients.findById(data.clinicId, data.patientId) : null
+    if (data.patientId && !patientAllowsAutomation(patient)) return
     const language: Language = data.isNewPatient ? detectLanguage(data.message) : getPatientLanguage(patient)
     const clinicInfo = { name: clinic.name, timezone: clinic.timezone }
 
@@ -345,7 +382,10 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
 
     const calendar: CalendarOps | null = calendarConfig
-      ? createGoogleCalendarOps({ ...calendarConfig, timezone: clinic.timezone, grid: parseBookingGrid(clinic.settings), onTokensRefreshed: persistClinicTokens })
+      ? guardedCalendar(
+          createGoogleCalendarOps({ ...calendarConfig, timezone: clinic.timezone, grid: parseBookingGrid(clinic.settings), onTokensRefreshed: persistClinicTokens }),
+          assertAutomationAllowed,
+        )
       : null
 
     const patientAppointments = await appointments.listByPatient(data.clinicId, patientId)
@@ -384,6 +424,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
             await calendar.deleteEvent(eventId)
           },
           markCancelled: async (appointmentId, { eventDeleted, error }) => {
+            await assertAutomationAllowed()
             await appointments.update(data.clinicId, appointmentId, {
               status: 'cancelled',
               ...(eventDeleted ? { googleEventId: null, calendarSyncPending: false, calendarSyncError: null } : {}),
@@ -425,12 +466,15 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         if (apptDoctor) {
           const docCal = getDoctorCalendarConfig(apptDoctor)
           rescheduleCalendar = docCal
-            ? createGoogleCalendarOps({
-                ...docCal,
-                timezone: clinic.timezone,
-                grid: parseBookingGrid(clinic.settings),
-                onTokensRefreshed: persistDoctorTokens(sql, data.clinicId, apptDoctor.id),
-              })
+            ? guardedCalendar(
+                createGoogleCalendarOps({
+                  ...docCal,
+                  timezone: clinic.timezone,
+                  grid: parseBookingGrid(clinic.settings),
+                  onTokensRefreshed: persistDoctorTokens(sql, data.clinicId, apptDoctor.id),
+                }),
+                assertAutomationAllowed,
+              )
             : calendar
         }
 
@@ -446,6 +490,14 @@ export async function processSchedulingJob(job: Job): Promise<void> {
 
         const stored = loadStoredFlow(metadata, 'reschedule')
         const state = stored?.action === 'reschedule' ? stored.state : initialRescheduleState()
+        let pendingCalendarUpdate: Parameters<CalendarOps['updateEvent']>[0] | null = null
+        const flowCalendar: CalendarOps = {
+          ...rescheduleCalendar,
+          updateEvent: async (params) => {
+            await assertAutomationAllowed()
+            pendingCalendarUpdate = params
+          },
+        }
         const result = await advanceRescheduleFlow(state, data.message, {
           language,
           clinic: clinicInfo,
@@ -453,16 +505,36 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           ...(apptDoctor ? { availability: normalizeAvailability(apptDoctor.availableDays) } : {}),
           ...(target ? { serviceDurationMinutes: apptDurationMinutes(target) } : {}),
         }, {
-          calendar: rescheduleCalendar,
+          calendar: flowCalendar,
           applyReschedule: async ({ appointmentId, startTime, endTime, calendarSyncResult, calendarSyncError }) => {
-            await appointments.update(data.clinicId, appointmentId, {
+            await assertAutomationAllowed()
+            const moved = await appointments.saveWithinCapacity({
+              mode: 'reschedule',
+              clinicId: data.clinicId,
+              appointmentId,
               startTime,
               endTime,
-              status: 'confirmed',
-              ...(calendarSyncResult === 'synced' ? { calendarSyncPending: false, calendarSyncError: null } : {}),
-              ...(calendarSyncResult !== 'synced' ? { calendarSyncPending: true, calendarSyncError } : {}),
+              update: {
+                status: 'confirmed',
+                calendarSyncPending: true,
+                calendarSyncError: calendarSyncResult === 'failed' ? calendarSyncError : null,
+              },
             })
-            await appointments.addEvent(data.clinicId, appointmentId, 'rescheduled')
+            if (!moved.ok) throw new Error('The selected appointment time is no longer available')
+            if (pendingCalendarUpdate) {
+              try {
+                await rescheduleCalendar.updateEvent(pendingCalendarUpdate)
+                await appointments.update(data.clinicId, appointmentId, {
+                  calendarSyncPending: false,
+                  calendarSyncError: null,
+                })
+              } catch (error) {
+                await appointments.update(data.clinicId, appointmentId, {
+                  calendarSyncPending: true,
+                  calendarSyncError: error instanceof Error ? error.message : String(error),
+                })
+              }
+            }
             try {
               await notificationQueue.add('notify', {
                 clinicId: data.clinicId,
@@ -524,12 +596,15 @@ export async function processSchedulingJob(job: Job): Promise<void> {
             : null
           const docCal = doctor ? getDoctorCalendarConfig(doctor) : null
           bookingCalendar = docCal && doctor
-            ? createGoogleCalendarOps({
-                ...docCal,
-                timezone: clinic.timezone,
-                grid: parseBookingGrid(clinic.settings),
-                onTokensRefreshed: persistDoctorTokens(sql, data.clinicId, doctor.id),
-              })
+            ? guardedCalendar(
+                createGoogleCalendarOps({
+                  ...docCal,
+                  timezone: clinic.timezone,
+                  grid: parseBookingGrid(clinic.settings),
+                  onTokensRefreshed: persistDoctorTokens(sql, data.clinicId, doctor.id),
+                }),
+                assertAutomationAllowed,
+              )
             : null
         }
 
@@ -545,14 +620,25 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           break
         }
 
+        let pendingCalendarCreate: Parameters<CalendarOps['createEvent']>[0] | null = null
+        const actualBookingCalendar = bookingCalendar ?? guardedCalendar(unconfiguredCalendar, assertAutomationAllowed)
+        const flowBookingCalendar: CalendarOps = {
+          ...actualBookingCalendar,
+          createEvent: async (params) => {
+            await assertAutomationAllowed()
+            pendingCalendarCreate = params
+            return 'pending-docmee-capacity-check'
+          },
+        }
         const result = await advanceBookingFlow(state, data.message, {
           language,
           clinic: clinicInfo,
           providers: resourceList,
           patientName: patient?.fullName ?? null,
         }, {
-          calendar: bookingCalendar ?? unconfiguredCalendar,
+          calendar: flowBookingCalendar,
           saveAppointment: async ({ providerId, doctorName, specialty, serviceId, startTime, endTime, reason, preferredDate, preferredTime, googleEventId, calendarSyncError }) => {
+            await assertAutomationAllowed()
             // Req 10: the full intake captured during the flow (reason, the
             // patient's preferred date/time, the chosen doctor + specialty + service
             // and the originating source channel) is persisted onto the appointment...
@@ -566,7 +652,10 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               source: patientSource(patient),
               ...(serviceId ? { serviceId } : {}),
             }
-            const created = await appointments.create({
+            const saved = await appointments.saveWithinCapacity({
+              mode: 'create',
+              capacity: 1,
+              allowOverbooking: false,
               clinicId: data.clinicId,
               patientId,
               ...(doctorMode ? { doctorId: providerId } : { providerId }),
@@ -578,11 +667,24 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               bookingOrigin: 'docmee',
               metadata: { intake },
             })
+            if (!saved.ok) throw new Error('The selected appointment time is no longer available')
+            const created = saved.appointment
+            let syncedEventId = googleEventId
+            let syncError = calendarSyncError
+            if (pendingCalendarCreate) {
+              try {
+                syncedEventId = await actualBookingCalendar.createEvent(pendingCalendarCreate)
+                syncError = null
+              } catch (error) {
+                syncedEventId = null
+                syncError = error instanceof Error ? error.message : String(error)
+              }
+            }
             await appointments.update(data.clinicId, created.id, {
               status: 'confirmed',
-              googleEventId,
-              calendarSyncPending: googleEventId == null,
-              calendarSyncError,
+              googleEventId: syncedEventId,
+              calendarSyncPending: syncedEventId == null,
+              calendarSyncError: syncError,
             })
             await appointments.addEvent(data.clinicId, created.id, 'confirmed')
             // Item 4 of the 25-item batch: secretary alert (bell + optional sound) on
@@ -685,6 +787,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       }
       }
     } catch (err) {
+      if (err instanceof SchedulingAutomationSuppressed) return
       const errorMessage = err instanceof Error ? err.message : String(err)
       // A response send happens within the booking flow's guarded section. Keep
       // delivery outages out of the calendar-failure queue so operators can act on
@@ -717,6 +820,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
 
     // Persist (or clear) the flow state for the next inbound message.
+    if (!(await automationAllowed())) return
     if (conversation) {
       const updated = { ...metadata }
       if (nextFlow) updated['scheduling'] = nextFlow

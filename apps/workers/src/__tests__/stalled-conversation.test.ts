@@ -25,6 +25,10 @@ vi.mock('../meta-token.js', () => ({
   resolveWhatsAppSender: h.resolveWhatsAppSender,
 }))
 
+vi.mock('@docmee/queue', () => ({
+  createQueue: () => ({ add: vi.fn() }),
+}))
+
 import {
   decideStalledConversationAction,
   resolveStalledConversationConfig,
@@ -404,6 +408,53 @@ describe('runStalledConversationCheck', () => {
         }),
       }),
     )
+  })
+
+  it('does not send or mutate stalled state for a human-only patient', async () => {
+    h.listMidFlowCandidates.mockResolvedValue([
+      {
+        id: CONVO,
+        clinicId: CLINIC,
+        patientId: 'patient-1',
+        channelContactHandle: '50299998889',
+        metadata: activeMetadata,
+      },
+    ])
+    h.findLast.mockResolvedValue({
+      content: '¿Prefieres mañana o tarde?',
+      createdAt: new Date(Date.now() - 15 * 60_000).toISOString(),
+    })
+    h.findPatient.mockResolvedValue({ id: 'patient-1', automationMode: 'human_only', metadata: {} })
+
+    await runStalledConversationCheck({} as never)
+
+    expect(h.msgCreate).not.toHaveBeenCalled()
+    expect(h.convUpdate).not.toHaveBeenCalled()
+  })
+
+  it('re-checks human-only ownership immediately before sending a reminder', async () => {
+    const send = vi.fn().mockResolvedValue('wamid.reply')
+    h.resolveWhatsAppSender.mockReturnValue(send)
+    h.listMidFlowCandidates.mockResolvedValue([{
+      id: CONVO,
+      clinicId: CLINIC,
+      patientId: 'patient-1',
+      channelContactHandle: '50299998889',
+      metadata: activeMetadata,
+    }])
+    h.findLast.mockResolvedValue({
+      content: '¿Prefieres mañana o tarde?',
+      createdAt: new Date(Date.now() - 15 * 60_000).toISOString(),
+    })
+    h.findPatient
+      .mockResolvedValueOnce({ id: 'patient-1', automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: 'patient-1', automationMode: 'human_only', metadata: {} })
+
+    await runStalledConversationCheck({} as never)
+
+    expect(send).not.toHaveBeenCalled()
+    expect(h.msgCreate).not.toHaveBeenCalled()
+    expect(h.convUpdate).not.toHaveBeenCalled()
   })
 
   it('closes the conversation on a close decision, without sending a WhatsApp message', async () => {

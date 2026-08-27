@@ -113,17 +113,34 @@ vi.mock('@docmee/db', () => ({
       store.appts.set(id, row)
       return row
     },
-    createWithinCapacity: async (data: Record<string, unknown>) => {
+    createWithinCapacity: async () => {
+      throw new Error('legacy createWithinCapacity path used')
+    },
+    saveWithinCapacity: async (data: Record<string, unknown>) => {
       const start = data.startTime as string
       const end = data.endTime as string
+      const appointmentId = data.mode === 'reschedule' ? data.appointmentId as string : null
+      const existing = appointmentId ? store.appts.get(appointmentId) : null
+      if (appointmentId && (!existing || existing.clinicId !== data.clinicId)) {
+        return { ok: false, reason: 'not_found', clashCount: 0 }
+      }
+      const resourceDoctorId = data.mode === 'reschedule' ? existing?.doctorId : data.doctorId
       const clashes = [...store.appts.values()].filter(
         (row) =>
           row.clinicId === data.clinicId &&
-          row.doctorId === data.doctorId &&
+          row.id !== appointmentId &&
+          row.doctorId === resourceDoctorId &&
           row.status !== 'cancelled' &&
           (row.startTime as string) < end &&
           (row.endTime as string) > start,
       )
+      if (data.mode === 'reschedule') {
+        if (clashes.length > 0) return { ok: false, reason: 'clash', clashCount: clashes.length }
+        const appointment = { ...existing, ...(data.update as Record<string, unknown>), startTime: start, endTime: end }
+        store.appts.set(appointmentId!, appointment)
+        store.events.push({ clinicId: data.clinicId, appointmentId, eventType: 'rescheduled', actorId: data.actorId })
+        return { ok: true, appointment, clashCount: 0 }
+      }
       const capacity = Math.max(1, Number(data.capacity ?? 1))
       if (clashes.length > 0 && (!data.allowOverbooking || clashes.length >= capacity)) {
         return { ok: false, reason: 'clash', clashCount: clashes.length }
@@ -143,6 +160,7 @@ vi.mock('@docmee/db', () => ({
         overbookingReason: clashes.length > 0 ? reason : null,
       }
       store.appts.set(id, appointment)
+      store.events.push({ clinicId: data.clinicId, appointmentId: id, eventType: 'created', actorId: data.actorId })
       return { ok: true, appointment, clashCount: clashes.length }
     },
     update: async (clinicId: string, id: string, data: Record<string, unknown>) => {
@@ -320,6 +338,45 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(response.statusCode).toBe(403)
   })
 
+  it('allows a secretary to overbook only with a reason and within doctor capacity', async () => {
+    const payload = {
+      patientId: 'pat-1',
+      doctorId: 'doc-1',
+      date: '2026-09-16',
+      start: '09:00',
+    }
+    const ordinary = await app.inject({
+      method: 'POST', url: '/clinics/c-1/appointments', headers: auth, payload,
+    })
+    const missingReason = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { ...payload, overbook: true },
+    })
+    const allowed = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { ...payload, overbook: true, overbookingReason: 'Urgent clinical need' },
+    })
+    const beyondCapacity = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { ...payload, overbook: true, overbookingReason: 'Another urgent case' },
+    })
+
+    expect(ordinary.statusCode).toBe(201)
+    expect(missingReason.statusCode).toBe(422)
+    expect(allowed.statusCode).toBe(201)
+    expect(JSON.parse(allowed.body).appointment).toMatchObject({
+      overbooked: true,
+      overbookingReason: 'Urgent clinical need',
+    })
+    expect(beyondCapacity.statusCode).toBe(409)
+  })
+
   it('POST for an unknown patient → 404', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -362,6 +419,34 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(appt.startTime).toBe('2026-06-29T09:00:00')
     expect(appt.endTime).toBe('2026-06-29T10:00:00') // 60-min duration preserved
     expect(store.events.some((e) => e.eventType === 'rescheduled')).toBe(true)
+  })
+
+  it('PATCH reschedule rejects an occupied slot and leaves the appointment unchanged', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-09-14', start: '09:00' },
+    })
+    const second = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-09-14', start: '10:00' },
+    })
+    const secondId = JSON.parse(second.body).appointment.id as string
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/clinics/c-1/appointments/${secondId}`,
+      headers: auth,
+      payload: { date: '2026-09-14', start: '09:00' },
+    })
+
+    expect(first.statusCode).toBe(201)
+    expect(second.statusCode).toBe(201)
+    expect(response.statusCode).toBe(409)
+    expect(store.appts.get(secondId)?.startTime).toBe('2026-09-14T10:00:00')
   })
 
   it('PATCH with neither status nor a full reschedule → 400', async () => {

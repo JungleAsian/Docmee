@@ -446,7 +446,9 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
 
         let updated
         if (date !== undefined && start !== undefined) {
-          const { startTime: _startTime, endTime: _endTime, ...atomicUpdate } = patch
+          const atomicUpdate = { ...patch }
+          delete atomicUpdate.startTime
+          delete atomicUpdate.endTime
           const moved = await appts.saveWithinCapacity({
             mode: 'reschedule',
             clinicId,

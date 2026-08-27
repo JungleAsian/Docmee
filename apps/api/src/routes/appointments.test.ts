@@ -233,6 +233,19 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(JSON.parse(res.body).slots.map((s: { start: string }) => s.start)).toEqual(['10:00'])
   })
 
+  it('GET /slots includeBooked keeps occupied working slots visible to staff', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/clinics/c-1/appointments/slots?doctorId=doc-1&date=2026-06-22&serviceId=svc-1&includeBooked=true',
+      headers: auth,
+    })
+    expect(res.statusCode).toBe(200)
+    const slots = JSON.parse(res.body).slots
+    expect(slots.map((s: { start: string }) => s.start)).toEqual(['09:00', '10:00'])
+    expect(slots[0]).toMatchObject({ bookedCount: 1, parallelAvailable: true, overbookingCapacity: 2 })
+    expect(slots[1]).toMatchObject({ bookedCount: 0, parallelAvailable: false })
+  })
+
   it('POST onto a taken slot → 409', async () => {
     const res = await app.inject({
       method: 'POST',

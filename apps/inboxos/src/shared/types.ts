@@ -274,6 +274,10 @@ export interface AppointmentEventFeedItem {
 export interface BookingSlot {
   start: string // HH:MM
   end: string // HH:MM
+  /** Present for secretary calendar views that request occupied slots. */
+  bookedCount?: number
+  overbookingCapacity?: number
+  parallelAvailable?: boolean
 }
 
 export interface SlotsResponse {

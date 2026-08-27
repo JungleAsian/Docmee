@@ -49,6 +49,9 @@ const slotsQuerySchema = z.object({
   doctorId: z.string().min(1),
   date: isoDate,
   serviceId: z.string().min(1).optional(),
+  // Staff can ask for occupied working slots so the secretary can deliberately
+  // add a parallel appointment. The default remains free-only for AI booking.
+  includeBooked: z.coerce.boolean().optional(),
 })
 
 // Staff can either pick an existing patient (patientId) or type a brand-new
@@ -234,6 +237,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
       const { doctorId, date, serviceId } = parsed.data
+      const canSeeBookedSlots = Boolean(parsed.data.includeBooked) &&
+        ['secretary', 'clinic_admin', 'ia_studio_admin'].includes(request.user?.role ?? '')
 
       const result = await withDb(async (sql) => {
         const doctor = await createDoctorsRepository(sql).findById(clinicId, doctorId)
@@ -259,13 +264,30 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         const calendarConnected = Boolean(
           doctor.googleCalendarAccessTokenEncrypted && doctor.googleCalendarRefreshTokenEncrypted,
         )
+        const candidates = computeFreeSlots(ranges, duration, [], cadence)
+        const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
+        const slotRows = candidates.map((candidate) => {
+          const bookedCount = busy.filter((booking) => {
+            const start = toMin(candidate.start)
+            const end = toMin(candidate.end)
+            return start < toMin(booking.end) && toMin(booking.start) < end
+          }).length
+          return {
+            ...candidate,
+            bookedCount,
+            overbookingCapacity: capacity,
+            parallelAvailable: bookedCount > 0 && bookedCount < capacity,
+          }
+        })
         return {
           date,
           doctorId,
           durationMinutes: duration,
           calendarConnected,
           working: ranges.length > 0,
-          slots: computeFreeSlots(ranges, duration, busy, cadence),
+          slots: canSeeBookedSlots
+            ? slotRows
+            : slotRows.filter((slot) => slot.bookedCount === 0).map(({ start, end }) => ({ start, end })),
         }
       })
       if (result === null) return reply.code(404).send({ error: 'Doctor not found' })

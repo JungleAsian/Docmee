@@ -1,7 +1,7 @@
-// J.zel — interactive in-app assistant chat (Phase 2).
+// Docmee — interactive in-app assistant chat (Phase 2).
 //   POST /assist/chat  → { reply, name }
 //
-// One clinic = one J.zel. The persona is chosen automatically from the logged-in
+// One clinic = one Docmee assistant. The persona is chosen automatically from the logged-in
 // user's role; the model + clinic persona + knowledge toggles come from
 // clinic.settings.aiAssistant. Answers are grounded in the clinic Knowledge Base
 // (server-side, embedded) and the Docmee Help content (sent by the client as
@@ -47,8 +47,8 @@ function isSuperuserSession(request: FastifyRequest): boolean {
 
 function providerNotConfiguredMessage(superuser: boolean): string {
   return superuser
-    ? 'J.zel needs the superuser AI provider key before it can answer. Connect the superuser provider key in Channels & Integrations.'
-    : 'J.zel needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.'
+    ? 'Docmee needs the superuser AI provider key before it can answer. Connect the superuser provider key in Channels & Integrations.'
+    : 'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.'
 }
 
 function kbThreshold(settings: Record<string, unknown>): number {
@@ -163,7 +163,7 @@ async function resolveFloatingJzelRuntime(request: FastifyRequest) {
   const ai = superuser
     ? {
         ...baseAi,
-        // Floating J.zel for platform admins uses the superuser provider and the
+        // Floating Docmee assistant for platform admins uses the superuser provider and the
         // superuser home clinic KB, but not the selected clinic agent persona.
         persona: '',
       }
@@ -243,7 +243,7 @@ ${context}`,
     // Keep the recent turns only; the per-clinic key + model are bound here.
     const history = historyBudget.turns.map((turn) => ({ ...turn, content: capPatientInput(turn.content) }))
 
-    // Provider + model + key come from the clinic's J.zel config (Automations → AI Assistant).
+    // Provider + model + key come from the clinic's Docmee config (Automations → AI Assistant).
     if (!hasChatProviderCredential(ai, clinic.settings)) {
       return reply.code(409).send({
         error: 'assistant_provider_not_configured',
@@ -279,7 +279,7 @@ ${context}`,
       return reply.code(502).send({
         error: 'assistant_provider_failed',
         message:
-          'J.zel could not reach the configured AI provider. Check the provider key, model, and account status.',
+          'Docmee could not reach the configured AI provider. Check the provider key, model, and account status.',
         provider: ai.chatProvider,
         model: ai.model,
       })
@@ -291,7 +291,7 @@ ${context}`,
     const message =
       typeof body.message === 'string' && body.message.trim()
         ? body.message.trim()
-        : 'In one short paragraph, confirm that J.zel can answer using the Docmee Help Center and clinic Knowledge Base.'
+        : 'In one short paragraph, confirm that Docmee can answer using the Docmee Help Center and clinic Knowledge Base.'
     const clinicId = resolveClinicScope(request, body.clinicId)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
 
@@ -340,7 +340,7 @@ ${context}`,
           kbMatches,
           kbMode: kb.mode,
           error:
-            'J.zel needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.',
+            'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.',
         })
       }
       const complete = resolveChat(ai, clinic.settings)
@@ -365,14 +365,14 @@ ${context}`,
         usedHelp: ai.useHelp,
         kbMatches,
         kbMode: kb.mode,
-        error: error instanceof Error ? error.message : 'J.zel test failed',
+        error: error instanceof Error ? error.message : 'Docmee test failed',
       })
     }
   })
 
-  // ── J.zel AI-service connection status (drives the floating-avatar dot) ──
+  // ── Docmee AI-service connection status (drives the floating-avatar dot) ──
   //   connected    → a provider key is configured AND a tiny live ping succeeds
-  //   disconnected → J.zel is off, or no provider key is configured
+  //   disconnected → Docmee is off, or no provider key is configured
   //   error        → a key is configured but the provider call failed
   // Cached per clinic so the dot doesn't trigger an LLM call on every page load.
   const healthCache = new Map<string, { status: 'connected' | 'error'; expires: number }>()

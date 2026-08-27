@@ -11,11 +11,9 @@
 //   POST   /clinics/:id/appointments                     book
 //   PATCH  /clinics/:id/appointments/:apptId             reschedule / change status
 //
-// NOTE (timezone): slot math is done in clinic-local wall-clock HH:MM and the API
-// stores/echoes the same strings, so the panel and tests stay consistent. Mapping
-// those to the clinic's IANA timezone for the timestamptz column (and reconciling
-// with Google Calendar busy times) is tracked as a follow-up — booked DB rows here
-// are the panel's own source of truth for collisions.
+// NOTE (timezone): the panel submits clinic-local wall-clock values, but every
+// appointment is persisted as the corresponding instant. This matches automated
+// booking and lets the database capacity check compare all booking origins safely.
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import {
@@ -96,13 +94,75 @@ const patchSchema = z
   )
 
 const toMin = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
-const toHHMM = (m: number): string =>
-  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+function formattedParts(instant: Date, timezone: string): [number, number, number, number, number, number] {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value)
+  return [get('year'), get('month'), get('day'), get('hour'), get('minute'), get('second')]
+}
 
-/** HH:MM portion of an ISO timestamp ("2026-06-22T09:30:00…" → "09:30"). */
-const timeOf = (iso: string | Date): string => {
+/** Convert a clinic-local wall time to its real instant, rejecting DST gaps. */
+function clinicLocalInstant(value: string, timezone: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value)
+  if (!match) return null
+  const desired = [
+    Number(match[1]), Number(match[2]), Number(match[3]),
+    Number(match[4]), Number(match[5]), Number(match[6] ?? 0),
+  ] as [number, number, number, number, number, number]
+  const desiredWallMs = Date.UTC(
+    desired[0], desired[1] - 1, desired[2], desired[3], desired[4], desired[5],
+  )
+  let instantMs = desiredWallMs
+  try {
+    for (let pass = 0; pass < 3; pass += 1) {
+      const actual = formattedParts(new Date(instantMs), timezone)
+      const actualWallMs = Date.UTC(
+        actual[0], actual[1] - 1, actual[2], actual[3], actual[4], actual[5],
+      )
+      instantMs += desiredWallMs - actualWallMs
+    }
+    const instant = new Date(instantMs)
+    return formattedParts(instant, timezone).every((part, index) => part === desired[index])
+      ? instant
+      : null
+  } catch {
+    return null
+  }
+}
+
+function addLocalMinutes(date: string, time: string, minutes: number): string {
+  const wallClock = new Date(`${date}T${time}:00Z`)
+  wallClock.setUTCMinutes(wallClock.getUTCMinutes() + minutes)
+  return wallClock.toISOString().slice(0, 19)
+}
+
+function clinicInstantRange(
+  date: string,
+  time: string,
+  duration: number,
+  timezone: string,
+): { startTime: string; endTime: string } | null {
+  const start = clinicLocalInstant(`${date}T${time}:00`, timezone)
+  const end = clinicLocalInstant(addLocalMinutes(date, time, duration), timezone)
+  if (!start || !end) return null
+  return { startTime: start.toISOString(), endTime: end.toISOString() }
+}
+
+/** HH:MM in the clinic timezone for a stored appointment instant. */
+const timeOf = (iso: string | Date, timezone?: string): string => {
   const value = iso instanceof Date ? iso.toISOString() : String(iso)
-  return value.slice(11, 16)
+  if (!timezone || !/(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) return value.slice(11, 16)
+  const parts = formattedParts(new Date(value), timezone)
+  return `${String(parts[3]).padStart(2, '0')}:${String(parts[4]).padStart(2, '0')}`
 }
 /** The date that follows `YYYY-MM-DD`, for an exclusive end-of-day range bound. */
 function nextDay(date: string): string {
@@ -137,7 +197,11 @@ function getCalendarSettings(settings: Record<string, unknown>): GoogleCalendarS
 }
 
 function durationMinutes(startTime: string | Date, endTime: string | Date): number {
-  const diff = toMin(timeOf(endTime)) - toMin(timeOf(startTime))
+  const start = new Date(startTime).getTime()
+  const end = new Date(endTime).getTime()
+  const diff = Number.isFinite(start) && Number.isFinite(end)
+    ? Math.round((end - start) / 60_000)
+    : toMin(timeOf(endTime)) - toMin(timeOf(startTime))
   return Math.max(diff, DEFAULT_DURATION_MIN)
 }
 
@@ -249,14 +313,17 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
           (serviceId
             ? (await appts.listServices(clinicId)).find((s) => s.id === serviceId)?.durationMinutes
             : undefined) ?? DEFAULT_DURATION_MIN
+        const timezone = clinic?.timezone || 'America/Guatemala'
+        const dayStart = clinicLocalInstant(`${date}T00:00:00`, timezone)
+        const dayEnd = clinicLocalInstant(`${nextDay(date)}T00:00:00`, timezone)
         const dayAppts = await appts.listInRange(clinicId, {
-          from: `${date}T00:00:00`,
-          to: `${nextDay(date)}T00:00:00`,
+          from: dayStart?.toISOString() ?? `${date}T00:00:00`,
+          to: dayEnd?.toISOString() ?? `${nextDay(date)}T00:00:00`,
           doctorId,
         })
         const busy: TimeRange[] = dayAppts
           .filter((a) => a.status !== 'cancelled')
-          .map((a) => ({ start: timeOf(a.startTime), end: timeOf(a.endTime) }))
+          .map((a) => ({ start: timeOf(a.startTime, timezone), end: timeOf(a.endTime, timezone) }))
         const ranges = rangesForDate(normalizeAvailability(doctor.availableDays), date)
         const configuredCadence = Number((clinic?.settings ?? {})['bookingCadenceMinutes'] ?? (clinic?.settings ?? {})['slotMinutes'])
         const cadence = Number.isFinite(configuredCadence) && configuredCadence > 0 ? configuredCadence : duration
@@ -330,8 +397,9 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         (serviceId
           ? (await appts.listServices(clinicId)).find((s) => s.id === serviceId)?.durationMinutes
           : undefined) ?? DEFAULT_DURATION_MIN
-      const startMin = toMin(start)
-      const endMin = startMin + duration
+      const timezone = clinic?.timezone || 'America/Guatemala'
+      const instantRange = clinicInstantRange(date, start, duration, timezone)
+      if (!instantRange) return { error: 'invalid_time' as const }
 
       const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
       const booking = await appts.saveWithinCapacity({
@@ -343,8 +411,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         patientId: patient.id,
         doctorId,
         serviceId,
-        startTime: `${date}T${start}:00`,
-        endTime: `${date}T${toHHMM(endMin)}:00`,
+        startTime: instantRange.startTime,
+        endTime: instantRange.endTime,
         notes,
         bookingOrigin: 'manual',
         actorId: request.user?.userId,
@@ -407,6 +475,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     if ('error' in result) {
       if (result.error === 'clash') return reply.code(409).send({ error: 'Slot no longer available' })
       if (result.error === 'past') return reply.code(422).send({ error: 'Cannot book a past date' })
+      if (result.error === 'invalid_time') return reply.code(422).send({ error: 'Invalid time in clinic timezone' })
       if (result.error === 'overbooking_reason') return reply.code(422).send({ error: 'overbookingReason is required' })
       return reply
         .code(404)
@@ -439,9 +508,17 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         }
         if (date !== undefined && start !== undefined) {
           // Preserve the original duration when moving the appointment.
-          const duration = toMin(timeOf(existing.endTime)) - toMin(timeOf(existing.startTime))
-          patch.startTime = `${date}T${start}:00`
-          patch.endTime = `${date}T${toHHMM(toMin(start) + Math.max(duration, DEFAULT_DURATION_MIN))}:00`
+          const duration = durationMinutes(existing.startTime, existing.endTime)
+          const clinic = await createClinicsRepository(sql).findById(clinicId)
+          const instantRange = clinicInstantRange(
+            date,
+            start,
+            duration,
+            clinic?.timezone || 'America/Guatemala',
+          )
+          if (!instantRange) return { error: 'invalid_time' as const }
+          patch.startTime = instantRange.startTime
+          patch.endTime = instantRange.endTime
         }
 
         let updated
@@ -525,6 +602,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       if (!result) return reply.code(404).send({ error: 'Appointment not found' })
       if ('error' in result) {
         if (result.error === 'clash') return reply.code(409).send({ error: 'Slot no longer available' })
+        if (result.error === 'invalid_time') return reply.code(422).send({ error: 'Invalid time in clinic timezone' })
         return reply.code(404).send({ error: 'Appointment not found' })
       }
       return { appointment: result }

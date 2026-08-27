@@ -271,8 +271,8 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     })
     expect(res.statusCode).toBe(201)
     const { appointment } = JSON.parse(res.body)
-    expect(appointment.startTime).toBe('2026-06-22T09:00:00')
-    expect(appointment.endTime).toBe('2026-06-22T10:00:00')
+    expect(appointment.startTime).toBe('2026-06-22T15:00:00.000Z')
+    expect(appointment.endTime).toBe('2026-06-22T16:00:00.000Z')
     expect(appointment.status).toBe('pending')
   })
 
@@ -318,6 +318,28 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
 
     expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409])
     expect(store.appts.size - before).toBe(1)
+  })
+
+  it('manual booking collides with an automated booking stored as a clinic-timezone instant', async () => {
+    store.appts.set('bot-timezone-booking', {
+      id: 'bot-timezone-booking',
+      clinicId: 'c-1',
+      patientId: 'pat-1',
+      doctorId: 'doc-1',
+      status: 'pending',
+      bookingOrigin: 'automated',
+      startTime: '2026-10-05T15:00:00.000Z',
+      endTime: '2026-10-05T15:30:00.000Z',
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-10-05', start: '09:00' },
+    })
+
+    expect(response.statusCode).toBe(409)
   })
 
   it('rejects explicit overbooking from non-secretary roles', async () => {
@@ -416,8 +438,8 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     })
     expect(res.statusCode).toBe(200)
     const appt = JSON.parse(res.body).appointment
-    expect(appt.startTime).toBe('2026-06-29T09:00:00')
-    expect(appt.endTime).toBe('2026-06-29T10:00:00') // 60-min duration preserved
+    expect(appt.startTime).toBe('2026-06-29T15:00:00.000Z')
+    expect(appt.endTime).toBe('2026-06-29T16:00:00.000Z') // 60-min duration preserved
     expect(store.events.some((e) => e.eventType === 'rescheduled')).toBe(true)
   })
 
@@ -446,7 +468,7 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(first.statusCode).toBe(201)
     expect(second.statusCode).toBe(201)
     expect(response.statusCode).toBe(409)
-    expect(store.appts.get(secondId)?.startTime).toBe('2026-09-14T10:00:00')
+    expect(store.appts.get(secondId)?.startTime).toBe('2026-09-14T16:00:00.000Z')
   })
 
   it('PATCH with neither status nor a full reschedule → 400', async () => {

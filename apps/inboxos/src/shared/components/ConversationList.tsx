@@ -90,6 +90,10 @@ export function projectConversationList(
   return { rows: filteredRows, counts: lensCounts(filteredRows) }
 }
 
+export function visibleConversationLenses(_showInactiveChannels: boolean): readonly ConversationLens[] {
+  return LENSES
+}
+
 export function ConversationList({
   selectedId,
   onSelect,
@@ -410,7 +414,7 @@ export function ConversationList({
         {/* Operational lens tabs (Active / Bot / Assigned / Closed) with live counts —
             the secretary's primary triage control, narrowing the queue client-side. */}
         <div role="tablist" aria-label={t('conv.lens.label')} className="flex flex-wrap gap-1.5">
-          {LENSES.filter((l) => showInactiveChannels || l !== 'closed').map((l) => (
+          {visibleConversationLenses(showInactiveChannels).map((l) => (
             <LensTab
               key={l}
               active={lens === l}

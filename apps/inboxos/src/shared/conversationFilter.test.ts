@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { conversationMatches, filterConversations, type ChannelFilter } from './conversationFilter'
-import { projectConversationList, resolveActiveChannelFilter } from './components/ConversationList'
+import { projectConversationList, resolveActiveChannelFilter, visibleConversationLenses } from './components/ConversationList'
 import type { Channel, Conversation } from './types'
 
 function conv(overrides: Partial<Conversation>): Conversation {
@@ -113,5 +113,9 @@ describe('filterConversations', () => {
 
     expect(projection.rows.map((conversation) => conversation.id)).toEqual(['bot'])
     expect(projection.counts).toEqual({ active: 0, bot: 1, assigned: 0, closed: 0 })
+  })
+
+  it('keeps the Closed lifecycle lens when inactive channels are hidden', () => {
+    expect(visibleConversationLenses(false)).toEqual(['active', 'bot', 'assigned', 'closed'])
   })
 })

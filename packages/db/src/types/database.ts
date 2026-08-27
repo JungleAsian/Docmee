@@ -177,9 +177,13 @@ export interface Patient {
   status: PatientStatus
   notes: string | null
   metadata: Record<string, unknown>
+  /** Independent from STOP/START consent and opted_out tags. */
+  automationMode: PatientAutomationMode
   createdAt: string
   updatedAt: string
 }
+
+export type PatientAutomationMode = 'automated' | 'human_only'
 
 export interface PatientContact {
   id: string
@@ -233,6 +237,7 @@ export interface ConversationMessage {
   transcription: string | null
   tokenCount: number | null
   metadata: Record<string, unknown>
+  classification: MessageClassification | null
   createdAt: string
   /**
    * Latest delivery-lifecycle state for an outbound message (Req 3), derived from
@@ -243,11 +248,24 @@ export interface ConversationMessage {
   deliveryStatus?: DeliveryStatus | null
 }
 
+export type MessageClassificationSource = 'ai' | 'rule' | 'human' | 'system'
+export interface MessageClassification {
+  intent: string
+  confidence: number
+  provider: string
+  model: string
+  classifierVersion: string
+  source: MessageClassificationSource
+  classifiedAt: string
+}
+
 export interface ConversationTag {
   id: string
   clinicId: string
   name: string
   color: string
+  archived: boolean
+  sortOrder: number
   createdAt: string
   updatedAt: string
 }
@@ -398,6 +416,7 @@ export interface Doctor {
   /** Weekly availability, e.g. `{ "mon": ["09:00","17:00"], "tue": [...] }`. */
   availableDays: Record<string, unknown>
   isActive: boolean
+  manualOverbookingCapacity: number
   createdAt: string
   updatedAt: string
 }
@@ -435,6 +454,41 @@ export interface Appointment {
   /** Last Calendar sync error message, if any. Null while pending-but-never-attempted or once synced. */
   calendarSyncError: string | null
   calendarSyncAttempts: number
+  bookingOrigin: AppointmentBookingOrigin
+  actorId: string | null
+  overbooked: boolean
+  overbookingReason: string | null
+  providerCorrelationKey: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AppointmentBookingOrigin = 'docmee' | 'workflow' | 'manual' | 'system'
+
+export type MediaAssetContentType = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp'
+export interface MediaAsset {
+  id: string
+  clinicId: string
+  uploadedBy: string | null
+  filename: string
+  contentType: MediaAssetContentType
+  byteSize: number
+  checksum: string
+  storageKey: string
+  deletedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type AttachmentProviderStatus = 'pending' | 'accepted' | 'sent' | 'delivered' | 'read' | 'failed'
+export interface MessageAttachment {
+  id: string
+  clinicId: string
+  messageId: string
+  mediaAssetId: string
+  providerMessageId: string | null
+  providerStatus: AttachmentProviderStatus
+  failureCode: string | null
   createdAt: string
   updatedAt: string
 }

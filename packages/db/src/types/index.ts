@@ -23,11 +23,14 @@ export type {
   AuditEvent,
   // Patients
   Patient,
+  PatientAutomationMode,
   PatientStatus,
   PatientContact,
   Conversation,
   ConversationStatus,
   ConversationMessage,
+  MessageClassification,
+  MessageClassificationSource,
   ContentType,
   MessageRole,
   ConversationTag,
@@ -47,6 +50,7 @@ export type {
   Service,
   Provider,
   Doctor,
+  AppointmentBookingOrigin,
   ProviderAvailability,
   Appointment,
   AppointmentStatus,
@@ -94,4 +98,8 @@ export type {
   ReportType,
   // Push subscriptions (Req 39)
   PushSubscriptionRow,
+  MediaAsset,
+  MediaAssetContentType,
+  MessageAttachment,
+  AttachmentProviderStatus,
 } from './database.js'

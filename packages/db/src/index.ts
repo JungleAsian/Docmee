@@ -24,11 +24,14 @@ export type {
   UserMenuOverride,
   AuditEvent,
   Patient,
+  PatientAutomationMode,
   PatientStatus,
   PatientContact,
   Conversation,
   ConversationStatus,
   ConversationMessage,
+  MessageClassification,
+  MessageClassificationSource,
   ContentType,
   MessageRole,
   ConversationTag,
@@ -46,6 +49,7 @@ export type {
   Service,
   Provider,
   Doctor,
+  AppointmentBookingOrigin,
   ProviderAvailability,
   Appointment,
   AppointmentStatus,
@@ -82,6 +86,10 @@ export type {
   WorkflowEdge,
   GeneratedReport,
   ReportType,
+  MediaAsset,
+  MediaAssetContentType,
+  MessageAttachment,
+  AttachmentProviderStatus,
 } from './types/index.js'
 
 // ── Repository factories ───────────────────────────────────────────────────────

@@ -54,6 +54,9 @@ export type EncryptedValue = {
   tag: string
 }
 
+export { assertAutomationAllowed, defaultInboxLayout, defaultPatientChatVisibility, isHumanOnly, readInboxSettings } from './docmeeExpansion.js'
+export type { AutomationMode, InboxLayoutSettings, PatientAutomationState, PatientChatVisibility } from './docmeeExpansion.js'
+
 // ── Encryption ────────────────────────────────────────────────────────────────
 // AES-256-GCM for secrets at rest (Google OAuth tokens, channel access tokens).
 // The key comes from ENCRYPTION_KEY: 32 raw bytes encoded as base64 or hex.

@@ -41,7 +41,7 @@ import {
   type WorkflowExecutors,
 } from '@docmee/agents'
 import { patientAllowsAutomation } from './automation-boundary.js'
-import { decryptValue, encryptValue } from '@docmee/shared'
+import { clinicInstantRange, decryptValue, encryptValue } from '@docmee/shared'
 import { randomUUID } from 'node:crypto'
 import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
 import { activeWhatsAppAccount, resolveWhatsAppInteractiveSender, resolveWhatsAppSender } from './meta-token.js'
@@ -712,7 +712,7 @@ class WorkflowAutomationSuppressed extends Error {
 }
 
 async function assertWorkflowAutomationAllowed(sql: Sql, clinicId: string, patientId: string | undefined): Promise<void> {
-  if (!patientId) return
+  if (!patientId) throw new WorkflowAutomationSuppressed()
   const patient = await createPatientsRepository(sql).findById(clinicId, patientId)
   if (!patientAllowsAutomation(patient)) throw new WorkflowAutomationSuppressed()
 }
@@ -742,11 +742,15 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
   const sendWorkflowMessage = async (text: string, ctx: WorkflowContext): Promise<string | null> => {
     if (!text.trim()) return null
+    await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
     const target = await resolveTarget(sql, clinicId, ctx.patientId)
     if (!target) {
       console.log(`[workflow] no sendable WhatsApp target for clinic ${clinicId}; skipping send`)
       return null
     }
+    // The target lookup and any preceding workflow work can yield. Re-read at
+    // the final boundary so a concurrent human-only switch always wins.
+    await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
     const wamid = await target.send(text)
     await persistOutbound(sql, clinicId, ctx.conversationId, text, wamid)
     return wamid
@@ -1542,6 +1546,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       if (!slotsCoverRange(availableSlots, startTime, endTime)) {
         throw new Error('The selected appointment time is no longer available for the required duration')
       }
+      const instantRange = clinicInstantRange(date, time, duration, clinic.timezone || 'UTC')
+      if (!instantRange) throw new Error('The selected appointment time is invalid in the clinic timezone')
       const mode = String(node.config?.['mode'] ?? 'create')
 
       if (mode === 'reschedule') {
@@ -1553,8 +1559,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
           mode: 'reschedule',
           clinicId,
           appointmentId,
-          startTime,
-          endTime,
+          startTime: instantRange.startTime,
+          endTime: instantRange.endTime,
           update: {
             status: 'confirmed',
             calendarSyncPending: true,
@@ -1591,8 +1597,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         doctorId,
         ...(serviceId ? { serviceId } : {}),
         ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
-        startTime,
-        endTime,
+        startTime: instantRange.startTime,
+        endTime: instantRange.endTime,
         bookingOrigin: 'workflow',
         metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
       })

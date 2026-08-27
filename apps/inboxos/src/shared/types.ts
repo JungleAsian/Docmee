@@ -772,4 +772,11 @@ export interface AdvancedAnalytics {
 // optional surfaces (e.g. the advanced analytics dashboard).
 export interface Features {
   advancedAnalytics: boolean
+  inboxLayoutV2: boolean
+  humanOnlyMode: boolean
+  classifications: boolean
+  calendarPolicyV2: boolean
+  mediaRepository: boolean
+  notificationChimes: boolean
+  workflowEdgesV2: boolean
 }

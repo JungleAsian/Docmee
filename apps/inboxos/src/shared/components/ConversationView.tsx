@@ -21,6 +21,9 @@ import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
 import { assessSafety, type SafetyLevel } from '../safety'
 import { useComposerStore } from '../store/composer'
+import { useActiveClinic } from '../hooks/useActiveClinic'
+import { useFeatures } from '../hooks/useFeatures'
+import { readInboxSettings } from '../inboxSettings'
 import type { Tag } from '../types'
 import type {
   Appointment,
@@ -90,6 +93,8 @@ export function ConversationView({
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
+  const { clinicId } = useActiveClinic()
+  const { features } = useFeatures()
   const [draft, setDraft] = useState('')
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
@@ -97,6 +102,7 @@ export function ConversationView({
   const [toolsOpen, setToolsOpen] = useState(false)
   const [mediaRailOpen, setMediaRailOpen] = useState(false)
   const [classificationTab, setClassificationTab] = useState('all')
+  const [mediaUncertain, setMediaUncertain] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -121,9 +127,19 @@ export function ConversationView({
     refetchInterval: 10_000,
     queryFn: () => api.get<{ messages: Message[] }>(`/conversations/${conversationId}/messages`),
   })
+  const clinicQuery = useQuery({
+    queryKey: ['clinic', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
+  })
+  const tagsQuery = useQuery({
+    queryKey: ['tags', conversationId],
+    queryFn: () => api.get<{ tags: Tag[] }>(`/conversations/${conversationId}/tags`),
+  })
 
   const conversation = conversationQuery.data?.conversation
   const messages = messagesQuery.data?.messages ?? []
+  const visibility = readInboxSettings(features.inboxLayoutV2 ? clinicQuery.data?.clinic.settings : undefined).patientChatVisibility
   const classificationTabs = useMemo(() => {
     const intents = new Set<string>()
     let hasUnclassified = false
@@ -140,13 +156,13 @@ export function ConversationView({
     ]
   }, [messages])
   const visibleMessages = useMemo(() => {
-    if (classificationTab === 'all') return messages
+    if (!features.classifications || classificationTab === 'all') return messages
     return messages.filter((message) => {
       if (message.role !== 'user') return false
       const intent = message.classification?.intent?.trim()
       return classificationTab === 'unclassified' ? !intent : intent === classificationTab
     })
-  }, [classificationTab, messages])
+  }, [classificationTab, features.classifications, messages])
   const closed = isClosedStatus(conversation?.status)
 
   useEffect(() => {
@@ -228,14 +244,20 @@ export function ConversationView({
   // Req 3: attach an image and DELIVER it to the patient over WhatsApp (two-step
   // Graph media upload, server-side). Like a manual reply it pauses the bot; the
   // current draft (if any) rides along as the image caption. WhatsApp-only.
-  const sendMediaMutation = useMutation({
+  const sendMediaMutation = useMutation<{ status?: 'accepted' | 'uncertain'; retryable?: boolean }, Error, { form: FormData; idempotencyKey: string }>({
     mutationFn: ({ form, idempotencyKey }: { form: FormData; idempotencyKey: string }) => {
       return api.upload(`/conversations/${conversationId}/send-media`, form, {
         'Idempotency-Key': idempotencyKey,
       })
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.status === 'uncertain') {
+        setMediaUncertain(true)
+        qc.invalidateQueries({ queryKey: ['messages', conversationId] })
+        return
+      }
       mediaAttemptRef.current = null
+      setMediaUncertain(false)
       setDraft('')
       qc.invalidateQueries({ queryKey: ['messages', conversationId] })
       qc.invalidateQueries({ queryKey: ['conversations'] })
@@ -323,7 +345,7 @@ export function ConversationView({
 
   return (
     <div className="relative flex h-full flex-col">
-      {mediaRailOpen && conversation?.channel === 'whatsapp' && (
+      {features.mediaRepository && mediaRailOpen && conversation?.channel === 'whatsapp' && (
         <MediaRepositoryRail
           conversationId={conversationId}
           caption={draft}
@@ -335,7 +357,7 @@ export function ConversationView({
           workers have flagged a possible emergency or an urgent/upset patient, so a
           secretary can't miss it (the tag chips alone live in a side panel that's
           collapsed on mobile). */}
-      <SafetyBanner conversationId={conversationId} />
+      {visibility.safetyHandoff && <SafetyBanner conversationId={conversationId} />}
 
       {/* Header */}
       <div className="crm-chat-header">
@@ -375,11 +397,23 @@ export function ConversationView({
                 </>
               )}
             </div>
+            {visibility.tags && (
+              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1" aria-label="Conversation tags">
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                  {conversation?.assignedTo || conversation?.status === 'assigned' || conversation?.status === 'handoff' ? 'Secretary' : '+ AI bot'}
+                </span>
+                {(tagsQuery.data?.tags ?? []).map((tag) => (
+                  <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: tag.color }}>
+                    {tag.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <AssignControl conversationId={conversationId} />
-            {conversation?.patientId && (
+            {visibility.assignControls && <AssignControl conversationId={conversationId} />}
+            {visibility.patientHistory && conversation?.patientId && (
               <Link
                 href={`/inbox/${conversationId}/patient`}
                 className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
@@ -387,7 +421,7 @@ export function ConversationView({
                 {t('patient.title')}
               </Link>
             )}
-            {conversation && (
+            {visibility.chatStatus && conversation && (
               <select
                 aria-label={t('view.changeStatus')}
                 value={conversation.status}
@@ -405,7 +439,7 @@ export function ConversationView({
                 ))}
               </select>
             )}
-            {conversation && !closed && (
+            {visibility.chatStatus && conversation && !closed && (
               <button
                 type="button"
                 onClick={() => closeMutation.mutate()}
@@ -417,20 +451,26 @@ export function ConversationView({
             )}
           </div>
         </div>
-        {conversation?.patientId && (
-          <ApptSummary conversationId={conversationId} patientId={conversation.patientId} />
+        {conversation?.patientId && (visibility.nextAppointment || visibility.appointmentDateTime) && (
+          <ApptSummary
+            conversationId={conversationId}
+            patientId={conversation.patientId}
+            showNextAppointment={visibility.nextAppointment}
+            showAppointmentDateTime={visibility.appointmentDateTime}
+            showPatientHistory={visibility.patientHistory}
+          />
         )}
         {conversation && <KbCitations metadata={conversation.metadata} />}
       </div>
 
       {/* Messages */}
-      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--crm-border-color)] px-3 py-2" role="tablist" aria-label="Message classifications">
+      {features.classifications && <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--crm-border-color)] px-3 py-2" role="tablist" aria-label="Message classifications">
         {classificationTabs.map((tab) => (
           <button key={tab.key} type="button" role="tab" aria-selected={classificationTab === tab.key} onClick={() => setClassificationTab(tab.key)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium capitalize ${classificationTab === tab.key ? 'bg-[var(--crm-primary-color)] text-white' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'}`}>
             {tab.label}
           </button>
         ))}
-      </div>
+      </div>}
       <div ref={scrollRef} className="crm-chat-messages space-y-2.5">
         {messagesQuery.isLoading ? (
           <p className="text-sm text-gray-400">{t('common.loading')}</p>
@@ -498,6 +538,11 @@ export function ConversationView({
           {attachError && (
             <p className="px-3 pt-2 text-xs font-medium text-red-600 dark:text-red-400">
               ⚠ {t('view.attachInvalid')}
+            </p>
+          )}
+          {mediaUncertain && (
+            <p role="alert" className="px-3 pt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+              ⚠ Delivery outcome is uncertain. Do not resend; staff reconciliation is required.
             </p>
           )}
           {/* WhatsApp/Messenger-style composer: attachments, templates, list &
@@ -574,7 +619,7 @@ export function ConversationView({
                         >
                           📎
                         </button>
-                        <button
+                        {features.mediaRepository && <button
                           type="button"
                           title="Open media repository"
                           aria-label="Open media repository"
@@ -582,7 +627,7 @@ export function ConversationView({
                           className="crm-composer-icon-btn text-sm"
                         >
                           🗂️
-                        </button>
+                        </button>}
                       </>
                     )}
                   </div>
@@ -714,7 +759,19 @@ function SafetyBanner({ conversationId }: { conversationId: string }) {
 // leaving the conversation. Picks the soonest upcoming non-cancelled appointment;
 // if there is none, falls back to the most recent past one. Links to the full
 // patient history. Best-effort: renders nothing while loading or on error.
-function ApptSummary({ conversationId, patientId }: { conversationId: string; patientId: string }) {
+function ApptSummary({
+  conversationId,
+  patientId,
+  showNextAppointment,
+  showAppointmentDateTime,
+  showPatientHistory,
+}: {
+  conversationId: string
+  patientId: string
+  showNextAppointment: boolean
+  showAppointmentDateTime: boolean
+  showPatientHistory: boolean
+}) {
   const { t, language } = useI18n()
   const appointmentsQuery = useQuery({
     queryKey: ['patient-appointments', patientId],
@@ -729,7 +786,7 @@ function ApptSummary({ conversationId, patientId }: { conversationId: string; pa
   const upcoming = appointments
     .filter((a) => a.startTime >= now && a.status !== 'cancelled')
     .sort((a, b) => a.startTime.localeCompare(b.startTime))
-  const next = upcoming[0]
+  const next = showNextAppointment ? upcoming[0] : undefined
   const last = appointments.find((a) => a.startTime < now)
   const appt = next ?? last
   const label = next ? t('view.appt.next') : t('view.appt.last')
@@ -738,16 +795,14 @@ function ApptSummary({ conversationId, patientId }: { conversationId: string; pa
     <div className="flex items-center gap-2 px-4 pb-2 text-xs">
       <span aria-hidden>📅</span>
       {appt ? (
-        <Link
-          href={`/inbox/${conversationId}/patient`}
-          className="flex items-center gap-2 hover:text-teal-600"
-        >
+        <div className="flex items-center gap-2">
           <span className="font-medium text-gray-500">{label}:</span>
-          <span className="text-gray-600 dark:text-gray-300">{formatDateTime(appt.startTime, language)}</span>
+          {showAppointmentDateTime && <span className="text-gray-600 dark:text-gray-300">{formatDateTime(appt.startTime, language)}</span>}
           <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${APPT_BADGE[appt.status]}`}>
             {t(`appt.status.${appt.status}` as const)}
           </span>
-        </Link>
+          {showPatientHistory && <Link href={`/inbox/${conversationId}/patient`} className="hover:text-teal-600">→</Link>}
+        </div>
       ) : (
         <span className="text-gray-400">{t('view.appt.none')}</span>
       )}

@@ -38,7 +38,7 @@ const ROLE_MENU_ITEMS = ['inbox', 'alerts', 'calendar', 'waitlist', 'metrics', '
 const JZEL_AI_INTEGRATIONS = new Set(['claude', 'openai', 'gemini', 'custom'])
 const JZEL_CONFIGURATION_LOCKED = {
   error: 'jzel_configuration_locked',
-  message: 'J.zel is hidden for this user. J.zel and AI service configuration is locked.',
+  message: 'Docmee is hidden for this user. Docmee and AI service configuration is locked.',
 }
 
 const DEFAULT_ROLE_PERMISSIONS = {
@@ -99,7 +99,7 @@ function withRoleAccessDefaults(settings: Record<string, unknown>): Record<strin
   }
 }
 
-function touchesJzelConfiguration(settings: unknown): boolean {
+function touchesDocmeeConfiguration(settings: unknown): boolean {
   if (!isRecord(settings)) return false
   if ('aiAssistant' in settings) return true
   const integrations = settings['integrations']
@@ -107,7 +107,7 @@ function touchesJzelConfiguration(settings: unknown): boolean {
   return Object.keys(integrations).some((provider) => JZEL_AI_INTEGRATIONS.has(provider))
 }
 
-async function isJzelConfigurationLocked(
+async function isDocmeeConfigurationLocked(
   sql: Parameters<typeof createUsersRepository>[0],
   clinicId: string,
   userId: string,
@@ -550,15 +550,15 @@ const clinicsRoute: FastifyPluginAsync = async (app) => {
       if (data.messengerPageAccessToken) data.messengerPageAccessToken = encryptValue(data.messengerPageAccessToken)
       if (data.instagramPageAccessToken) data.instagramPageAccessToken = encryptValue(data.instagramPageAccessToken)
       const isStudioAdmin = request.user?.role === 'ia_studio_admin'
-      const requestedJzelConfigChange = touchesJzelConfiguration(data.settings)
+      const requestedDocmeeConfigChange = touchesDocmeeConfiguration(data.settings)
       const clinic = await withDb(async (sql) => {
         const repo = createClinicsRepository(sql)
         const existing = await repo.findById(clinicId)
         if (!existing) return null
         if (
-          requestedJzelConfigChange &&
+          requestedDocmeeConfigChange &&
           request.user?.userId &&
-          (await isJzelConfigurationLocked(sql, clinicId, request.user.userId))
+          (await isDocmeeConfigurationLocked(sql, clinicId, request.user.userId))
         ) {
           return 'jzel-configuration-locked' as const
         }

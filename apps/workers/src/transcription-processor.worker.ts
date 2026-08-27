@@ -247,10 +247,12 @@ async function handleFailure(payload: TranscriptionJob, lastError: Error | null)
 
     // Record the operational failure for staff, but do not auto-reply when the
     // secretary has placed this number in permanent human-only mode.
-    if (payload.patientId) {
-      const patient = await createPatientsRepository(sql).findById(payload.clinicId, payload.patientId)
-      if (!patientAllowsAutomation(patient)) return
-    }
+    // Fail closed when identity is absent: without a durable patient row we
+    // cannot prove that this number is eligible for automation.
+    if (!payload.patientId) return
+    const patients = createPatientsRepository(sql)
+    const patient = await patients.findById(payload.clinicId, payload.patientId)
+    if (!patientAllowsAutomation(patient)) return
 
     // Send the apology on the clinic's active WhatsApp number. Failure here is
     // swallowed — we have already recorded the underlying problem.
@@ -258,7 +260,13 @@ async function handleFailure(payload: TranscriptionJob, lastError: Error | null)
       const accounts = await createChannelAccountsRepository(sql).listByClinic(payload.clinicId)
       const account = activeWhatsAppAccount(accounts, payload.phoneNumberId)
       const sendWhatsApp = resolveWhatsAppSender(account, payload.patientWaId, payload.waAccessToken)
-      if (sendWhatsApp) await sendWhatsApp(APOLOGY_TEXT)
+      if (sendWhatsApp) {
+        // Final ownership re-read immediately before provider invocation closes
+        // the race with a secretary enabling permanent human-only mode.
+        const latest = await patients.findById(payload.clinicId, payload.patientId)
+        if (!patientAllowsAutomation(latest)) return
+        await sendWhatsApp(APOLOGY_TEXT)
+      }
     } catch (sendErr) {
       console.error('[transcription] failed to send apology:', sendErr)
     }

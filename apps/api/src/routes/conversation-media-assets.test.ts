@@ -42,6 +42,10 @@ vi.mock('@docmee/db', () => ({
   }),
 }))
 vi.mock('../lib/db.js', () => ({ withDb: async (callback: (sql: unknown) => unknown) => callback({}) }))
+vi.mock('../lib/features.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/features.js')>()),
+  isDocmeeExpansionFeatureEnabled: async () => true,
+}))
 vi.mock('../lib/channel-send.js', () => ({
   uploadWhatsAppMedia: h.uploadMedia,
   sendWhatsAppImage: h.sendImage,

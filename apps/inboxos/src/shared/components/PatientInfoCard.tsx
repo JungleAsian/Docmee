@@ -36,12 +36,16 @@ export function PatientInfoCard({
   showNextAppointment = true,
   showAppointmentDateTime = true,
   showPatientHistory = true,
+  showChatStatus = true,
+  showHumanOnlyMode = true,
 }: {
   conversationId: string
   onSchedule?: () => void
   showNextAppointment?: boolean
   showAppointmentDateTime?: boolean
   showPatientHistory?: boolean
+  showChatStatus?: boolean
+  showHumanOnlyMode?: boolean
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
@@ -120,7 +124,7 @@ export function PatientInfoCard({
       </div>
 
       {/* New / returning */}
-      {badge && (
+      {showChatStatus && badge && (
         <span
           className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${badge.className}`}
         >
@@ -164,7 +168,7 @@ export function PatientInfoCard({
             📅 {t('cal.book')}
           </button>
         )}
-        {(role === 'secretary' || role === 'clinic_admin' || role === 'ia_studio_admin') && patientId && (
+        {showHumanOnlyMode && (role === 'secretary' || role === 'clinic_admin' || role === 'ia_studio_admin') && patientId && (
           <button type="button" onClick={() => optOut.mutate()} disabled={optOut.isPending} className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${automationMode === 'human_only' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-[var(--crm-border-color)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'}`}>
             {automationMode === 'human_only' ? t('patient.optOutEnabled') : t('patient.optOut')}
           </button>

@@ -15,10 +15,15 @@ vi.mock('@docmee/agents', () => ({
   getOAuth2Client: () => ({}),
   createGoogleCalendarOps: () => calendarOps,
 }))
-vi.mock('@docmee/shared', () => ({
+vi.mock('@docmee/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@docmee/shared')>()),
   encryptValue: (v: string) => `enc:${v}`,
   decryptValue: (v: string) => v.replace(/^enc:/, ''),
   verifyPassword: () => true,
+}))
+vi.mock('../lib/features.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/features.js')>()),
+  isDocmeeExpansionFeatureEnabled: async () => true,
 }))
 
 let nextId = 1
@@ -54,6 +59,7 @@ const store = vi.hoisted(() => ({
   services: [{ id: 'svc-1', clinicId: 'c-1', name: 'Limpieza', durationMinutes: 60 }] as Record<string, unknown>[],
   appts: new Map<string, Record<string, unknown>>(),
   events: [] as Record<string, unknown>[],
+  lastListRange: null as null | { from: string; to: string; doctorId?: string },
 }))
 
 vi.mock('@docmee/db', () => ({
@@ -94,14 +100,16 @@ vi.mock('@docmee/db', () => ({
   }),
   createAppointmentsRepository: () => ({
     listServices: async (clinicId: string) => store.services.filter((s) => s.clinicId === clinicId),
-    listInRange: async (clinicId: string, { from, to, doctorId }: { from: string; to: string; doctorId?: string }) =>
-      [...store.appts.values()].filter(
+    listInRange: async (clinicId: string, { from, to, doctorId }: { from: string; to: string; doctorId?: string }) => {
+      store.lastListRange = { from, to, doctorId }
+      return [...store.appts.values()].filter(
         (a) =>
           a.clinicId === clinicId &&
           (a.startTime as string) >= from &&
           (a.startTime as string) < to &&
           (!doctorId || a.doctorId === doctorId),
-      ),
+      )
+    },
     findById: async (clinicId: string, id: string) => {
       const row = store.appts.get(id)
       return row && row.clinicId === clinicId ? row : null
@@ -565,6 +573,21 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       headers: { authorization: `Bearer ${otherClinicToken}` },
     })
     expect(res.statusCode).toBe(403)
+  })
+
+  it('GET converts date-only bounds from clinic-local midnight to UTC instants', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/clinics/c-1/appointments?from=2026-06-22&to=2026-06-23',
+      headers: auth,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(store.lastListRange).toEqual({
+      from: '2026-06-22T06:00:00.000Z',
+      to: '2026-06-23T06:00:00.000Z',
+      doctorId: undefined,
+    })
   })
 
   it('GET without auth → 401, cross-clinic → 403', async () => {

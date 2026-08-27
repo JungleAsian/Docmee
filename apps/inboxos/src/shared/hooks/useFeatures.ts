@@ -7,13 +7,23 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Features } from '../types'
 
-const DEFAULT_FEATURES: Features = { advancedAnalytics: false }
+const DEFAULT_FEATURES: Features = {
+  advancedAnalytics: false,
+  inboxLayoutV2: false,
+  humanOnlyMode: false,
+  classifications: false,
+  calendarPolicyV2: false,
+  mediaRepository: false,
+  notificationChimes: false,
+  workflowEdgesV2: false,
+}
 
 export function useFeatures(): { features: Features; ready: boolean } {
   const query = useQuery({
     queryKey: ['config'],
-    // Config rarely changes within a session; cache it for the whole session.
-    staleTime: Infinity,
+    // Rollback switches must take effect in an already-open operator session.
+    staleTime: 15_000,
+    refetchInterval: 30_000,
     queryFn: () => api.get<{ features: Features }>('/config'),
   })
   return {

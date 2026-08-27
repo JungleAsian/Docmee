@@ -62,6 +62,41 @@ const attempt = {
 }
 
 describe('media assets durable state transitions', () => {
+  it('atomically claims due and stale cleanup rows without double-consuming them', async () => {
+    const queries: string[] = []
+    const claimed = {
+      id: 'asset-1',
+      clinicId: 'clinic-1',
+      uploadedBy: 'staff-1',
+      filename: 'scan.png',
+      contentType: 'image/png',
+      byteSize: 42,
+      checksum: 'checksum',
+      storageKey: 'voice-notes/clinic-1/media/asset-1/scan.png',
+      storageStatus: 'delete_pending',
+      storageFailureCode: null,
+      storageCleanupAttempts: 2,
+      storageCleanupRetryAt: null,
+      deletedAt: null,
+      createdAt: '2026-08-27T00:00:00.000Z',
+      updatedAt: '2026-08-27T00:10:00.000Z',
+    }
+    const repo = createMediaAssetsRepository(transactionalSql(queries, () => [claimed]))
+
+    const result = await repo.claimDueCleanup(25)
+
+    expect(result).toEqual([claimed])
+    expect(queries).toHaveLength(1)
+    expect(queries[0]).toContain("storage_status = 'delete_failed'")
+    expect(queries[0]).toContain('storage_cleanup_retry_at <= NOW()')
+    expect(queries[0]).toContain("storage_status = 'delete_pending'")
+    expect(queries[0]).toContain("storage_status = 'uploading'")
+    expect(queries[0]).toContain('FOR UPDATE SKIP LOCKED')
+    expect(queries[0]).toContain("SET storage_status = 'delete_pending'")
+    expect(queries[0]).toContain('storage_cleanup_attempts = media_assets.storage_cleanup_attempts + 1')
+    expect(queries[0]).toContain('RETURNING media_assets.*')
+  })
+
   it('prepares the idempotent attempt, message, attachment, and locked handoff in one transaction', async () => {
     const queries: string[] = []
     const repo = createMediaAssetsRepository(transactionalSql(queries, (query) => {

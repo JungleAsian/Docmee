@@ -120,7 +120,7 @@ function TerminalNode({ data }: NodeProps<Node<TermNodeData>>) {
 const nodeTypes = { step: StepNode, terminal: TerminalNode }
 
 // --- model <-> graph --------------------------------------------------------
-function toGraph(steps: CustomFlowStep[], startStepId: string | null): { nodes: Node[]; edges: Edge[] } {
+function toGraph(steps: CustomFlowStep[], startStepId: string | null, cleanConnections: boolean): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = steps.map((s, i) => ({
     id: s.id,
     type: 'step',
@@ -176,25 +176,29 @@ function toGraph(steps: CustomFlowStep[], startStepId: string | null): { nodes: 
   }
   return {
     nodes,
-    edges: edges.map((edge) => ({
-      ...edge,
-      type: 'smoothstep',
-      markerEnd: { type: MarkerType.ArrowClosed },
-    })),
+    edges: cleanConnections
+      ? edges.map((edge) => ({
+          ...edge,
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed },
+        }))
+      : edges,
   }
 }
 
 export function FlowCanvas({
   steps,
   startStepId,
+  cleanConnections = true,
   onChange,
 }: {
   steps: CustomFlowStep[]
   startStepId: string | null
+  cleanConnections?: boolean
   onChange: (next: { steps: CustomFlowStep[]; startStepId: string | null }) => void
 }) {
   const { t } = useI18n()
-  const graph = useMemo(() => toGraph(steps, startStepId), [steps, startStepId])
+  const graph = useMemo(() => toGraph(steps, startStepId, cleanConnections), [steps, startStepId, cleanConnections])
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [edges, setEdges, applyEdgeChanges] = useEdgesState(graph.edges)
   const [selectedId, setSelectedId] = useState<string | null>(null)

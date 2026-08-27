@@ -245,7 +245,9 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     const appointments = createAppointmentsRepository(sql)
     const channelAccounts = createChannelAccountsRepository(sql)
     const automationAllowed = async (): Promise<boolean> => {
-      if (!data.patientId) return true
+      // Automated replies must always be attributable to a durable patient. A
+      // missing identity cannot prove that the number is automation-eligible.
+      if (!data.patientId) return false
       return patientAllowsAutomation(await patients.findById(data.clinicId, data.patientId))
     }
     const assertAutomationAllowed = async (): Promise<void> => {
@@ -282,6 +284,10 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         },
       })
       try {
+        // Re-read immediately before the irreversible provider call. A secretary
+        // may have switched the patient to human-only after this job began or
+        // while the outbound attempt was being persisted.
+        await assertAutomationAllowed()
         const channelMessageId = await sendReply(text)
         if (!channelMessageId) throw new Error('Provider accepted no message identifier')
         let acceptanceError: unknown

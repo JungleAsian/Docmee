@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { PillToggle } from './PillToggle'
 import { useI18n } from '../hooks/useI18n'
+import { useFeatures } from '../hooks/useFeatures'
 import {
   ALERT_TYPES,
   MUTABLE_ALERT_TYPES,
@@ -35,6 +36,7 @@ const MUTABLE = new Set(MUTABLE_ALERT_TYPES)
 
 export function NotificationPreferences() {
   const { t } = useI18n()
+  const { features } = useFeatures()
   const qc = useQueryClient()
   const key = ['notification-prefs']
 
@@ -102,59 +104,63 @@ export function NotificationPreferences() {
       </label>
       <p className="text-xs text-gray-500 dark:text-gray-400">{t('notif.prefs.emailHint')}</p>
 
-      <label className="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
-        <span className="flex items-center gap-2">
-          <span aria-hidden>🔔</span>
-          <span>
-            <span className="block font-medium">{t('notif.prefs.soundEnabled')}</span>
-            <span className="block text-xs text-gray-500 dark:text-gray-400">{t('notif.prefs.soundHint')}</span>
-          </span>
-        </span>
-        <PillToggle
-          checked={soundEnabled}
-          label={t('notif.prefs.soundEnabled')}
-          onChange={setSoundEnabled}
-        />
-      </label>
+      {features.notificationChimes && (
+        <>
+          <label className="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+            <span className="flex items-center gap-2">
+              <span aria-hidden>🔔</span>
+              <span>
+                <span className="block font-medium">{t('notif.prefs.soundEnabled')}</span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400">{t('notif.prefs.soundHint')}</span>
+              </span>
+            </span>
+            <PillToggle
+              checked={soundEnabled}
+              label={t('notif.prefs.soundEnabled')}
+              onChange={setSoundEnabled}
+            />
+          </label>
 
-      {soundEnabled && (
-        <div className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
-          <div className="mb-3 flex items-center justify-between gap-3 text-sm">
-            <label htmlFor="notification-volume" className="text-xs font-medium">Volume</label>
-            <input id="notification-volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Notification volume" />
-            <span className="w-10 text-right text-xs text-gray-500">{Math.round(volume * 100)}%</span>
-          </div>
-          <div className="mb-3 flex items-center justify-between gap-2 text-sm">
-            <span className="text-xs font-medium">Default chime</span>
-            <select value={soundId} onChange={(e) => setSoundId(e.target.value as SoundPreset)} className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700" aria-label="Default notification chime">
-              {SOUND_PRESETS.map((preset) => <option key={preset} value={preset}>{t(`notif.sound.${preset}` as const)}</option>)}
-            </select>
-            <button type="button" onClick={() => previewSound(soundId, volume)} className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700">Test</button>
-          </div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            {t('notif.prefs.soundsTitle')}
-          </p>
-          <ul className="mt-2 space-y-1.5">
-            {SOUND_CATEGORY_KEYS.map((category) => (
-              <li key={category} className="flex items-center justify-between gap-2 text-sm">
-                <span>{t(`notif.category.${category}` as const)}</span>
-                <select
-                  value={soundPresets[category] ?? 'default'}
-                  onChange={(e) =>
-                    setSoundPresets((prev) => ({ ...prev, [category]: e.target.value as SoundPreset }))
-                  }
-                  className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700"
-                >
-                  {SOUND_PRESETS.map((preset) => (
-                    <option key={preset} value={preset}>
-                      {t(`notif.sound.${preset}` as const)}
-                    </option>
-                  ))}
+          {soundEnabled && (
+            <div className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
+              <div className="mb-3 flex items-center justify-between gap-3 text-sm">
+                <label htmlFor="notification-volume" className="text-xs font-medium">Volume</label>
+                <input id="notification-volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Notification volume" />
+                <span className="w-10 text-right text-xs text-gray-500">{Math.round(volume * 100)}%</span>
+              </div>
+              <div className="mb-3 flex items-center justify-between gap-2 text-sm">
+                <span className="text-xs font-medium">Default chime</span>
+                <select value={soundId} onChange={(e) => setSoundId(e.target.value as SoundPreset)} className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700" aria-label="Default notification chime">
+                  {SOUND_PRESETS.map((preset) => <option key={preset} value={preset}>{t(`notif.sound.${preset}` as const)}</option>)}
                 </select>
-              </li>
-            ))}
-          </ul>
-        </div>
+                <button type="button" onClick={() => previewSound(soundId, volume)} className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700">Test</button>
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {t('notif.prefs.soundsTitle')}
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {SOUND_CATEGORY_KEYS.map((category) => (
+                  <li key={category} className="flex items-center justify-between gap-2 text-sm">
+                    <span>{t(`notif.category.${category}` as const)}</span>
+                    <select
+                      value={soundPresets[category] ?? 'default'}
+                      onChange={(e) =>
+                        setSoundPresets((prev) => ({ ...prev, [category]: e.target.value as SoundPreset }))
+                      }
+                      className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700"
+                    >
+                      {SOUND_PRESETS.map((preset) => (
+                        <option key={preset} value={preset}>
+                          {t(`notif.sound.${preset}` as const)}
+                        </option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
 
       <div>

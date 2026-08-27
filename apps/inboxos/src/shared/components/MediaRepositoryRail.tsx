@@ -44,6 +44,7 @@ export function MediaRepositoryRail({
   const sendAttemptRef = useRef<{ signature: string; key: string } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [deliveryUncertain, setDeliveryUncertain] = useState(false)
   const query = useQuery({
     queryKey: ['media-assets', clinicId],
     enabled: Boolean(clinicId),
@@ -61,7 +62,7 @@ export function MediaRepositoryRail({
     },
     onError: (error) => setLocalError(error instanceof ApiError ? error.message : 'Upload failed'),
   })
-  const send = useMutation({
+  const send = useMutation<{ status?: 'accepted' | 'uncertain'; retryable?: boolean }>({
     mutationFn: () => {
       const signature = `${conversationId}:${selectedId ?? ''}:${caption.trim()}`
       if (sendAttemptRef.current?.signature !== signature) {
@@ -72,8 +73,15 @@ export function MediaRepositoryRail({
         ...(caption.trim() ? { caption: caption.trim() } : {}),
       }, { headers: { 'Idempotency-Key': sendAttemptRef.current.key } })
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.status === 'uncertain') {
+        setDeliveryUncertain(true)
+        setLocalError('Delivery outcome is uncertain. Do not resend; staff reconciliation is required.')
+        qc.invalidateQueries({ queryKey: ['messages', conversationId] })
+        return
+      }
       sendAttemptRef.current = null
+      setDeliveryUncertain(false)
       onSent()
       qc.invalidateQueries({ queryKey: ['messages', conversationId] })
       qc.invalidateQueries({ queryKey: ['conversations'] })
@@ -126,8 +134,8 @@ export function MediaRepositoryRail({
         {(localError || send.isError) && <p role="alert" className="mt-2 text-xs text-red-600">{localError ?? (send.error instanceof ApiError ? send.error.message : 'Media send failed')}</p>}
       </div>
       <footer className="border-t border-[var(--crm-border-color)] p-3">
-        <button type="button" onClick={() => send.mutate()} disabled={!selectedId || send.isPending} className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
-          {send.isPending ? 'Sending…' : 'Send selected media'}
+        <button type="button" onClick={() => send.mutate()} disabled={!selectedId || send.isPending || deliveryUncertain} className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+          {deliveryUncertain ? 'Reconciliation required' : send.isPending ? 'Sending…' : 'Send selected media'}
         </button>
       </footer>
     </aside>

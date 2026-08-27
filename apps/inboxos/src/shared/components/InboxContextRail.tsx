@@ -19,30 +19,20 @@ import { AssistantPanel } from './AssistantPanel'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { can } from '../permissions'
-
-// Keep the UI reader dependency-free; the API/workers use the canonical shared
-// contract, while this tolerant reader prevents an older clinic settings blob
-// from making the Inbox crash during staged rollout.
-const readInboxSettings = (settings: Record<string, unknown> | null | undefined) => {
-  const layout = (settings?.inboxLayout && typeof settings.inboxLayout === 'object' ? settings.inboxLayout : {}) as Record<string, unknown>
-  const visibility = (settings?.patientChatVisibility && typeof settings.patientChatVisibility === 'object' ? settings.patientChatVisibility : {}) as Record<string, unknown>
-  const keys = ['safetyHandoff', 'lifecycleStatus', 'tags', 'aiAssistance', 'inactiveChannels', 'assignee', 'assignControls', 'patientHistory', 'chatStatus', 'nextAppointment', 'appointmentDateTime'] as const
-  return {
-    inboxLayout: { calendarExpanded: layout.calendarExpanded !== false, internalNotesVisible: layout.internalNotesVisible !== false },
-    patientChatVisibility: Object.fromEntries(keys.map((key) => [key, visibility[key] === undefined ? true : visibility[key] === true])) as Record<(typeof keys)[number], boolean>,
-  }
-}
+import { readInboxSettings } from '../inboxSettings'
+import { useFeatures } from '../hooks/useFeatures'
 
 export function InboxContextRail({ conversationId }: { conversationId: string }) {
   const { t } = useI18n()
   const role = useAuthStore((s) => s.user?.role)
+  const { features } = useFeatures()
   const clinicId = useAuthStore((s) => s.user?.clinicId)
   const clinicQuery = useQuery({
     queryKey: ['clinic', clinicId],
     enabled: Boolean(clinicId),
     queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
   })
-  const inboxSettings = readInboxSettings(clinicQuery.data?.clinic.settings)
+  const inboxSettings = readInboxSettings(features.inboxLayoutV2 ? clinicQuery.data?.clinic.settings : undefined)
   const visibility = inboxSettings.patientChatVisibility
   const [othersOpen, setOthersOpen] = useState(false)
   const bookingRef = useRef<HTMLElement>(null)
@@ -60,12 +50,14 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
         showNextAppointment={visibility.nextAppointment}
         showAppointmentDateTime={visibility.appointmentDateTime}
         showPatientHistory={visibility.patientHistory}
+        showChatStatus={visibility.chatStatus}
+        showHumanOnlyMode={features.humanOnlyMode}
       />
 
-      <AppointmentBookingCard
+      {features.calendarPolicyV2 && <AppointmentBookingCard
         ref={bookingRef}
         conversationId={conversationId}
-      />
+      />}
 
       {inboxSettings.inboxLayout.internalNotesVisible && <NotesPanel key={`notes-${conversationId}`} conversationId={conversationId} />}
 

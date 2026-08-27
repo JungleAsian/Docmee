@@ -15,6 +15,7 @@ import {
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
+import { isDocmeeExpansionFeatureEnabled } from '../lib/features.js'
 
 const patientsRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
@@ -35,6 +36,9 @@ const patientsRoute: FastifyPluginAsync = async (app) => {
     '/patients/:id/automation-mode',
     { preHandler: requireRole('secretary', 'clinic_admin', 'ia_studio_admin') },
     async (request, reply) => {
+      if (!(await isDocmeeExpansionFeatureEnabled('humanOnlyMode'))) {
+        return reply.code(404).send({ error: 'Not found' })
+      }
       const clinicId = resolveClinicScope(request)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
       const mode = request.body?.automationMode

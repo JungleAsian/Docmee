@@ -50,6 +50,7 @@ export interface MediaAssetsRepository {
   reserveWithinQuota(data: CreateMediaAssetInput & { id: string }, limits: { maxFiles: number; maxBytes: number }): Promise<MediaAsset>
   markUploadReady(clinicId: string, id: string): Promise<void>
   beginDeletion(clinicId: string, id: string): Promise<MediaAsset | null>
+  claimDueCleanup(limit?: number): Promise<MediaAsset[]>
   markDeletionComplete(clinicId: string, id: string): Promise<void>
   markDeletionFailed(clinicId: string, id: string, failureCode: string): Promise<void>
   attach(data: { clinicId: string; messageId: string; mediaAssetId: string; providerMessageId?: string | null; providerStatus?: AttachmentProviderStatus }): Promise<MessageAttachment>
@@ -197,6 +198,31 @@ export function createMediaAssetsRepository(sql: Sql): MediaAssetsRepository {
         `
         return updated[0] ?? null
       }) as unknown as Promise<MediaAsset | null>)
+    },
+    async claimDueCleanup(limit = 25) {
+      const claimLimit = Math.max(1, Math.min(100, Math.trunc(limit)))
+      return sql<MediaAsset[]>`
+        WITH due_cleanup AS (
+          SELECT id
+          FROM media_assets
+          WHERE deleted_at IS NULL
+            AND (
+              (storage_status = 'delete_failed' AND storage_cleanup_retry_at <= NOW())
+              OR (storage_status = 'delete_pending' AND updated_at <= NOW() - INTERVAL '10 minutes')
+              OR (storage_status = 'uploading' AND created_at <= NOW() - INTERVAL '30 minutes')
+            )
+          ORDER BY COALESCE(storage_cleanup_retry_at, updated_at, created_at), id
+          FOR UPDATE SKIP LOCKED
+          LIMIT ${claimLimit}
+        )
+        UPDATE media_assets
+        SET storage_status = 'delete_pending', storage_failure_code = NULL,
+            storage_cleanup_attempts = media_assets.storage_cleanup_attempts + 1,
+            storage_cleanup_retry_at = NULL, updated_at = NOW()
+        FROM due_cleanup
+        WHERE media_assets.id = due_cleanup.id
+        RETURNING media_assets.*
+      `
     },
     async markDeletionComplete(clinicId, id) {
       const rows = await sql<{ id: string }[]>`

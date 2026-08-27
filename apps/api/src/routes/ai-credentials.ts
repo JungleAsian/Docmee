@@ -4,7 +4,7 @@
 // clinics.settings.integrations.<provider> (jsonb — the established place for
 // per-clinic secrets, same as calendar/googleCalendar). The key is write-only:
 // it is never echoed back to the panel, and clinics.ts redacts it on read.
-// J.zel requires a clinic-owned key. There is no shared server fallback for clinic AI.
+// Docmee requires a clinic-owned key. There is no shared server fallback for clinic AI.
 //
 // OAuth note: Anthropic, OpenAI, and Gemini do not offer a third-party OAuth flow
 // that grants API access to Docmee here. The login path opens the provider's API
@@ -22,7 +22,7 @@ type AiProvider = 'claude' | 'openai' | 'gemini' | 'custom'
 const PROVIDERS: AiProvider[] = ['claude', 'openai', 'gemini', 'custom']
 const JZEL_CONFIGURATION_LOCKED = {
   error: 'jzel_configuration_locked',
-  message: 'J.zel is hidden for this user. J.zel and AI service configuration is locked.',
+  message: 'Docmee is hidden for this user. Docmee and AI service configuration is locked.',
 }
 
 interface StoredAiCredential {
@@ -58,7 +58,7 @@ function getStored(settings: Record<string, unknown>, provider: AiProvider): Sto
   return null
 }
 
-async function isJzelConfigurationLocked(
+async function isDocmeeConfigurationLocked(
   sql: Parameters<typeof createUsersRepository>[0],
   clinicId: string,
   userId: string,
@@ -159,7 +159,7 @@ const aiCredentialsRoute: FastifyPluginAsync = async (app) => {
       try {
         if (
           request.user?.userId &&
-          (await isJzelConfigurationLocked(sql, clinicId, request.user.userId))
+          (await isDocmeeConfigurationLocked(sql, clinicId, request.user.userId))
         ) {
           return reply.code(403).send(JZEL_CONFIGURATION_LOCKED)
         }
@@ -177,7 +177,7 @@ const aiCredentialsRoute: FastifyPluginAsync = async (app) => {
     },
   )
 
-  // ── Disconnect — drop this clinic's stored key. J.zel stays disconnected until
+  // ── Disconnect — drop this clinic's stored key. Docmee stays disconnected until
   // a new clinic-owned provider key is connected.
   app.delete<{ Params: { clinicId: string; provider: string } }>(
     '/clinic/:clinicId/ai/:provider/disconnect',
@@ -192,7 +192,7 @@ const aiCredentialsRoute: FastifyPluginAsync = async (app) => {
       try {
         if (
           request.user?.userId &&
-          (await isJzelConfigurationLocked(sql, clinicId, request.user.userId))
+          (await isDocmeeConfigurationLocked(sql, clinicId, request.user.userId))
         ) {
           return reply.code(403).send(JZEL_CONFIGURATION_LOCKED)
         }
@@ -226,7 +226,7 @@ const aiCredentialsRoute: FastifyPluginAsync = async (app) => {
       try {
         if (
           request.user?.userId &&
-          (await isJzelConfigurationLocked(sql, clinicId, request.user.userId))
+          (await isDocmeeConfigurationLocked(sql, clinicId, request.user.userId))
         ) {
           return reply.code(403).send(JZEL_CONFIGURATION_LOCKED)
         }

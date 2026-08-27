@@ -25,6 +25,7 @@ import { processWorkflowRunJob } from './workflow-runner.worker.js'
 import { runTimeoutChecks } from './timeout-monitor.js'
 import { bootstrapReportsScheduler } from './reports.scheduler.js'
 import { runCalendarSyncRetry } from './calendar-sync-retry.js'
+import { startMediaCleanupScheduler } from './media-cleanup.js'
 import { createServiceDbClient } from '@docmee/db'
 
 export const conversationWorker = createWorker(
@@ -118,6 +119,11 @@ export const calendarSyncRetryScheduler = setInterval(() => {
 }, CALENDAR_SYNC_RETRY_INTERVAL_MS)
 if (typeof calendarSyncRetryScheduler.unref === 'function') calendarSyncRetryScheduler.unref()
 
+// Media cleanup retry: atomically claims due/stale storage rows and reconciles
+// their private S3 objects every five minutes. The consumer remains idle when
+// media storage is not configured.
+export const mediaCleanupScheduler = startMediaCleanupScheduler()
+
 // P18 — Reports use a durable BullMQ scheduler. Sheets and review requests keep
 // their existing process-local cadence pending their own scheduler work.
 void bootstrapReportsScheduler(reportsQueue).catch((err) => console.error('[reports] durable scheduler bootstrap failed:', err))
@@ -151,6 +157,7 @@ async function shutdownWorkers(signal: string): Promise<void> {
   clearInterval(licenseHeartbeatScheduler)
   clearInterval(phase3Scheduler)
   clearInterval(calendarSyncRetryScheduler)
+  clearInterval(mediaCleanupScheduler)
   await Promise.allSettled(allWorkers.map((w) => w.close()))
   console.log('[workers] shutdown complete')
   process.exit(0)

@@ -20,6 +20,10 @@ vi.mock('@docmee/db', () => ({
   createMediaAssetsRepository: () => ({ reserveWithinQuota: h.reserveWithinQuota, markUploadReady: h.markUploadReady, beginDeletion: h.beginDeletion, markDeletionComplete: h.markDeletionComplete, markDeletionFailed: h.markDeletionFailed, findById: h.findById }),
 }))
 vi.mock('../lib/db.js', () => ({ withDb: async (callback: (sql: unknown) => unknown) => callback({}) }))
+vi.mock('../lib/features.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/features.js')>()),
+  isDocmeeExpansionFeatureEnabled: async () => true,
+}))
 vi.mock('../lib/kb-vault-storage.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/kb-vault-storage.js')>()
   return { ...actual, kbVaultEnabled: () => true, mediaObjectKey: () => 'private/clinic-1/repository.png', uploadKbVaultObject: h.uploadObject, deleteKbVaultObject: h.deleteObject, createKbVaultDownloadUrl: h.downloadUrl }

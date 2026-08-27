@@ -9,6 +9,7 @@ import { createMediaAssetsRepository } from '@docmee/db'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
+import { isDocmeeExpansionFeatureEnabled } from '../lib/features.js'
 import {
   createKbVaultDownloadUrl,
   deleteKbVaultObject,
@@ -50,6 +51,11 @@ async function readPrefix(path: string): Promise<Buffer> {
 const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
   await app.register(multipart, { limits: { fileSize: MEDIA_ASSET_MAX_BYTES } })
   app.addHook('preHandler', requireAuth)
+  app.addHook('preHandler', async (_request, reply) => {
+    if (!(await isDocmeeExpansionFeatureEnabled('mediaRepository'))) {
+      return reply.code(404).send({ error: 'Not found' })
+    }
+  })
 
   app.get<{ Params: { id: string } }>('/clinics/:id/media', { preHandler: requireRole('clinic_admin', 'ia_studio_admin', 'secretary', 'doctor') }, async (request, reply) => {
     const clinicId = resolveClinicScope(request, request.params.id)

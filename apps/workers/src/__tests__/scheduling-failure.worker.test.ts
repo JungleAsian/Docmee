@@ -169,4 +169,17 @@ describe('processSchedulingJob — calendar failure (Req 29)', () => {
       }),
     )
   })
+
+  it('does not send when a secretary switches to human-only after the outbound attempt is persisted', async () => {
+    h.advanceBookingFlow.mockRejectedValue(new Error('calendar unavailable'))
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, fullName: 'Ana', automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, fullName: 'Ana', automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, fullName: 'Ana', automationMode: 'human_only', metadata: {} })
+
+    await processSchedulingJob(makeJob(job))
+
+    expect(h.createMessage).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
 })

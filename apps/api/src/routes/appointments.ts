@@ -25,12 +25,19 @@ import {
   type AppointmentEventType,
 } from '@docmee/db'
 import { createGoogleCalendarOps, type CalendarOps, type RefreshedTokens } from '@docmee/agents'
-import { decryptValue, encryptValue } from '@docmee/shared'
+import {
+  clinicInstantRange,
+  clinicLocalInstant,
+  decryptValue,
+  encryptValue,
+  formattedClinicParts as formattedParts,
+} from '@docmee/shared'
 import { notificationQueue } from '@docmee/queue'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth } from '../middleware/auth.js'
+import { isDocmeeExpansionFeatureEnabled } from '../lib/features.js'
 import { computeFreeSlots, normalizeAvailability, rangesForDate, type TimeRange } from '../lib/slots.js'
 
 const DEFAULT_DURATION_MIN = 30
@@ -94,69 +101,6 @@ const patchSchema = z
   )
 
 const toMin = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
-function formattedParts(instant: Date, timezone: string): [number, number, number, number, number, number] {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(instant)
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value)
-  return [get('year'), get('month'), get('day'), get('hour'), get('minute'), get('second')]
-}
-
-/** Convert a clinic-local wall time to its real instant, rejecting DST gaps. */
-function clinicLocalInstant(value: string, timezone: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value)
-  if (!match) return null
-  const desired = [
-    Number(match[1]), Number(match[2]), Number(match[3]),
-    Number(match[4]), Number(match[5]), Number(match[6] ?? 0),
-  ] as [number, number, number, number, number, number]
-  const desiredWallMs = Date.UTC(
-    desired[0], desired[1] - 1, desired[2], desired[3], desired[4], desired[5],
-  )
-  let instantMs = desiredWallMs
-  try {
-    for (let pass = 0; pass < 3; pass += 1) {
-      const actual = formattedParts(new Date(instantMs), timezone)
-      const actualWallMs = Date.UTC(
-        actual[0], actual[1] - 1, actual[2], actual[3], actual[4], actual[5],
-      )
-      instantMs += desiredWallMs - actualWallMs
-    }
-    const instant = new Date(instantMs)
-    return formattedParts(instant, timezone).every((part, index) => part === desired[index])
-      ? instant
-      : null
-  } catch {
-    return null
-  }
-}
-
-function addLocalMinutes(date: string, time: string, minutes: number): string {
-  const wallClock = new Date(`${date}T${time}:00Z`)
-  wallClock.setUTCMinutes(wallClock.getUTCMinutes() + minutes)
-  return wallClock.toISOString().slice(0, 19)
-}
-
-function clinicInstantRange(
-  date: string,
-  time: string,
-  duration: number,
-  timezone: string,
-): { startTime: string; endTime: string } | null {
-  const start = clinicLocalInstant(`${date}T${time}:00`, timezone)
-  const end = clinicLocalInstant(addLocalMinutes(date, time, duration), timezone)
-  if (!start || !end) return null
-  return { startTime: start.toISOString(), endTime: end.toISOString() }
-}
-
 /** HH:MM in the clinic timezone for a stored appointment instant. */
 const timeOf = (iso: string | Date, timezone?: string): string => {
   const value = iso instanceof Date ? iso.toISOString() : String(iso)
@@ -253,13 +197,21 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
 
-      const appointments = await withDb(async (sql) =>
-        createAppointmentsRepository(sql).listInRange(clinicId, {
-          from: parsed.data.from,
-          to: parsed.data.to,
+      const appointments = await withDb(async (sql) => {
+        const clinic = await createClinicsRepository(sql).findById(clinicId)
+        const timezone = clinic?.timezone || 'America/Guatemala'
+        const localBound = (value: string): string => {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+          const instant = clinicLocalInstant(`${value}T00:00:00`, timezone)
+          if (!instant) throw new Error(`Invalid calendar date in clinic timezone: ${value}`)
+          return instant.toISOString()
+        }
+        return createAppointmentsRepository(sql).listInRange(clinicId, {
+          from: localBound(parsed.data.from),
+          to: localBound(parsed.data.to),
           doctorId: parsed.data.doctorId,
-        }),
-      )
+        })
+      })
       return { appointments }
     },
   )
@@ -369,6 +321,9 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent, overbook, overbookingReason } = parsed.data
+    if (overbook && !(await isDocmeeExpansionFeatureEnabled('calendarPolicyV2'))) {
+      return reply.code(404).send({ error: 'Not found' })
+    }
     // Explicit capacity override is a secretary operation. Other human roles may
     // create an ordinary booking, but cannot request an overbooked slot.
     if (overbook && request.user?.role !== 'secretary') {

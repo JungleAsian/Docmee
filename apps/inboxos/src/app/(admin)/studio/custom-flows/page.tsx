@@ -11,6 +11,7 @@ import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
+import { useFeatures } from '@/shared/hooks/useFeatures'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { formatDateTime } from '@/shared/format'
@@ -440,6 +441,7 @@ function FlowEditor({
   onSaved: () => void
 }) {
   const { t } = useI18n()
+  const { features } = useFeatures()
   const [model, setModel] = useState<EditableFlow>(() => initial ?? flowToEditable(flow))
   const [error, setError] = useState('')
   const [view, setView] = useState<'form' | 'canvas'>('form')
@@ -522,6 +524,7 @@ function FlowEditor({
           <FlowCanvas
             steps={editableStepsToCustom(model.steps)}
             startStepId={model.startStepId ?? model.steps[0]?.id ?? null}
+            cleanConnections={features.workflowEdgesV2}
             onChange={({ steps, startStepId }) =>
               setModel((m) => ({ ...m, steps: customStepsToEditable(steps), startStepId: startStepId ?? undefined }))
             }

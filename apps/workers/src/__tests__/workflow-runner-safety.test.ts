@@ -20,6 +20,10 @@ const h = vi.hoisted(() => ({
   updateAppointment: vi.fn(),
   listSlots: vi.fn(),
   createCalendarEvent: vi.fn(),
+  listAccounts: vi.fn(),
+  listContacts: vi.fn(),
+  sendWhatsAppText: vi.fn(),
+  createMessage: vi.fn(),
   end: vi.fn(),
 }))
 
@@ -33,8 +37,17 @@ vi.mock('@docmee/agents', () => ({
   SLOT_MENU_MORE_OPTION_ID: 'more',
 }))
 
-vi.mock('@docmee/shared', () => ({ decryptValue: (value: string) => value, encryptValue: (value: string) => value }))
+vi.mock('@docmee/shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@docmee/shared')>()),
+  decryptValue: (value: string) => value,
+  encryptValue: (value: string) => value,
+}))
 vi.mock('@docmee/llm', () => ({ chatComplete: vi.fn(), defaultChatModel: () => 'test' }))
+vi.mock('@docmee/channels', () => ({
+  sendWhatsAppText: h.sendWhatsAppText,
+  sendWhatsAppInteractiveButtons: vi.fn(),
+  sendWhatsAppInteractiveList: vi.fn(),
+}))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
 vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: vi.fn() }) }))
@@ -42,7 +55,7 @@ vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: vi.fn() }) }))
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: h.end }),
   createWorkflowsRepository: () => ({ findById: h.findWorkflow }),
-  createPatientsRepository: () => ({ findById: h.findPatient }),
+  createPatientsRepository: () => ({ findById: h.findPatient, listContacts: h.listContacts }),
   createWorkflowExecutionsRepository: () => ({
     claimRun: h.claimRun,
     findRun: h.findRun,
@@ -54,7 +67,7 @@ vi.mock('@docmee/db', () => ({
   }),
   createWorkflowApprovalsRepository: () => ({ claimResume: vi.fn(), markResumed: vi.fn(), markFailed: vi.fn() }),
   createClinicsRepository: () => ({ findById: h.findClinic, update: vi.fn() }),
-  createChannelAccountsRepository: () => ({}),
+  createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
   createConversationsRepository: () => ({}),
   createDoctorsRepository: () => ({ findById: h.findDoctor, listByClinic: vi.fn(), update: vi.fn() }),
   createDoctorServicesRepository: () => ({}),
@@ -64,7 +77,7 @@ vi.mock('@docmee/db', () => ({
     saveWithinCapacity: h.saveWithinCapacity,
     update: h.updateAppointment,
   }),
-  createMessagesRepository: () => ({}),
+  createMessagesRepository: () => ({ create: h.createMessage }),
   createMessageTemplatesRepository: () => ({}),
   createNotificationsRepository: () => ({}),
   createKnowledgeRepository: () => ({}),
@@ -104,6 +117,10 @@ beforeEach(() => {
   h.saveWithinCapacity.mockResolvedValue({ ok: true, appointment: { id: 'appt-1' }, clashCount: 0 })
   h.updateAppointment.mockResolvedValue({ id: 'appt-1' })
   h.createCalendarEvent.mockResolvedValue('event-1')
+  h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'phone-1', accessTokenEnc: 'token' }])
+  h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '15551234567', isPrimary: true }])
+  h.sendWhatsAppText.mockResolvedValue('wamid.sent')
+  h.createMessage.mockResolvedValue({ id: 'message-1' })
 })
 
 describe('processWorkflowRunJob automation ownership', () => {
@@ -129,6 +146,27 @@ describe('processWorkflowRunJob automation ownership', () => {
 
     expect(h.claimEffect).not.toHaveBeenCalled()
     expect(h.invokeEffect).not.toHaveBeenCalled()
+  })
+
+  it('re-checks human-only ownership immediately before the provider send', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.sendMessage('This must not be sent', ctx)
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.createMessage).not.toHaveBeenCalled()
+    expect(h.setRunStatus).toHaveBeenLastCalledWith('run-1', 'completed', expect.objectContaining({
+      reason: 'patient_human_only',
+      terminalState: 'suppressed',
+    }))
   })
 
   it('creates workflow bookings through the atomic capacity operation with overbooking disabled', async () => {
@@ -178,13 +216,36 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'reschedule',
       appointmentId: 'appt-existing',
-      startTime: '2026-09-15T09:00:00',
-      endTime: '2026-09-15T09:30:00',
+      startTime: '2026-09-15T09:00:00.000Z',
+      endTime: '2026-09-15T09:30:00.000Z',
     }))
     expect(h.updateAppointment).not.toHaveBeenCalledWith(
       CLINIC,
       'appt-existing',
       expect.objectContaining({ startTime: expect.any(String) }),
     )
+  })
+
+  it('stores a clinic-local workflow booking as the correct UTC instant', async () => {
+    h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinic', timezone: 'America/Guatemala', settings: {} })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.createOrRescheduleBooking({
+        id: 'booking-1',
+        type: 'create_booking',
+        config: {
+          doctorId: '44444444-4444-4444-8444-444444444444',
+          dateField: 'preferred_date',
+          timeField: 'preferred_time',
+        },
+      }, { ...ctx, preferred_date: '2026-09-15', preferred_time: '09:00' })
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
+      startTime: '2026-09-15T15:00:00.000Z',
+      endTime: '2026-09-15T15:30:00.000Z',
+    }))
   })
 })

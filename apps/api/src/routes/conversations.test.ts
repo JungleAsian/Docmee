@@ -38,6 +38,10 @@ vi.mock('../lib/channel-send.js', () => ({
   sendWhatsAppImage: sendWaImage,
   sendWhatsAppDocument: sendWaDocument,
 }))
+vi.mock('../lib/features.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/features.js')>()),
+  isDocmeeExpansionFeatureEnabled: async () => true,
+}))
 const mediaInfra = vi.hoisted(() => ({
   uploadObject: vi.fn(async (input: { key: string }) => ({ bucket: 'test-media', key: input.key })),
   deleteObject: vi.fn(async () => true),

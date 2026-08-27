@@ -56,6 +56,7 @@ export type EncryptedValue = {
 
 export { assertAutomationAllowed, defaultInboxLayout, defaultPatientChatVisibility, isHumanOnly, readInboxSettings } from './docmeeExpansion.js'
 export type { AutomationMode, InboxLayoutSettings, PatientAutomationState, PatientChatVisibility } from './docmeeExpansion.js'
+export { addClinicLocalMinutes, clinicDate, clinicInstantRange, clinicLocalInstant, formattedClinicParts } from './clinicTime.js'
 
 // ── Encryption ────────────────────────────────────────────────────────────────
 // AES-256-GCM for secrets at rest (Google OAuth tokens, channel access tokens).

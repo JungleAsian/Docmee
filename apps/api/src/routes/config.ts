@@ -3,11 +3,11 @@
 // advanced analytics dashboard. Unauthenticated, like /health.
 //   GET /config -> { features: { advancedAnalytics: boolean } }
 import type { FastifyPluginAsync } from 'fastify'
-import { getFeatures } from '../lib/features.js'
+import { getDocmeeExpansionFeatures, getFeatures } from '../lib/features.js'
 
 const configRoute: FastifyPluginAsync = async (app) => {
   app.get('/config', async () => {
-    return { features: getFeatures() }
+    return { features: { ...getFeatures(), ...(await getDocmeeExpansionFeatures()) } }
   })
 }
 

@@ -270,7 +270,7 @@ const credentialHealthRoute: FastifyPluginAsync = async (app) => {
         validation: clinicAiConfigured
           ? `${clinicName} uses ${clinicAiProvider} via ${clinicAiSource}.`
           : `${clinicName} selects ${clinicAiProvider}, but neither a clinic credential nor its supported server fallback is configured.`,
-        guidance: 'Connect the selected provider for this clinic, then run the J.zel provider/KB readiness test.',
+        guidance: 'Connect the selected provider for this clinic, then run the Docmee provider/KB readiness test.',
         rotationMode: ['monitor', 'guide', 'validate', 'audit'],
       }),
       item({

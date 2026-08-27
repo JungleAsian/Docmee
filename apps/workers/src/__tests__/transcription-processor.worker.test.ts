@@ -193,6 +193,18 @@ describe('processTranscriptionJob', () => {
     expect(h.agentAdd).not.toHaveBeenCalled()
   })
 
+  it('re-checks human-only mode immediately before a transcription apology send', async () => {
+    h.downloadMedia.mockRejectedValue(new Error('media 404'))
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+
+    await processTranscriptionJob(makeJob(base))
+
+    expect(h.createErrorReview).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
   it('succeeds on a later attempt after a transient failure', async () => {
     h.transcribe
       .mockRejectedValueOnce(new Error('deepgram timeout'))

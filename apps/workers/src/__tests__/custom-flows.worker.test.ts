@@ -182,6 +182,18 @@ describe('processAgentJob — custom flow engine', () => {
     expect(h.sendWhatsAppInteractiveList).not.toHaveBeenCalled()
   })
 
+  it('does not send even an emergency auto-reply when the patient is human-only', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    const patientId = '22222222-2222-2222-2222-222222222222'
+    h.findPatient.mockResolvedValue({ id: patientId, automationMode: 'human_only', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, patientId, message: 'no puedo respirar' }))
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.createMessage).not.toHaveBeenCalled()
+    expect(h.notificationAdd).not.toHaveBeenCalled()
+  })
+
   it('starts a multi-step flow on a trigger and persists the cursor', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.listEnabledFlows.mockResolvedValue([bookingFlow])

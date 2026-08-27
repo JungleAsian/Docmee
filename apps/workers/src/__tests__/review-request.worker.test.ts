@@ -107,6 +107,13 @@ describe('processReviewRequestJob', () => {
     expect(h.createIfAbsent).not.toHaveBeenCalled()
   })
 
+  it('NEVER messages a human-only patient', async () => {
+    h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    await processReviewRequestJob(makeJob())
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.createIfAbsent).not.toHaveBeenCalled()
+  })
+
   it('does not double-send when the review was already claimed', async () => {
     h.createIfAbsent.mockResolvedValue(null) // (appointment, type) already claimed
     await processReviewRequestJob(makeJob())

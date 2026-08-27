@@ -529,6 +529,14 @@ export async function processAgentJob(job: Job): Promise<void> {
     const account = activeWhatsAppAccount(await channelAccounts.listByClinic(data.clinicId), data.phoneNumberId)
     const patient = data.patientId ? await patients.findById(data.clinicId, data.patientId) : null
 
+    // Enforce human-only before constructing or invoking any outbound transport.
+    // This remains authoritative even for stale/replayed queue jobs and emergency
+    // keyword branches that intentionally run before the ordinary routing logic.
+    if (patient && isHumanOnly(patient)) {
+      console.log(`[agent] patient ${patient.id} is human-only; suppressing automation`)
+      return
+    }
+
     // Channel-aware reply transport (WhatsApp account or Messenger Page token).
     const rawSendReply = resolveSendReply(data.channel, clinic, account, data.patientWaId)
 
@@ -742,14 +750,6 @@ export async function processAgentJob(job: Job): Promise<void> {
         }
       }
       console.log(`[agent] opt-out: staying silent for clinic ${data.clinicId}`)
-      return
-    }
-
-    // Permanent human-only mode is separate from STOP/START consent and the
-    // opted_out tag. Keep classification available for staff, but suppress all
-    // automated routing and outbound replies at this trust boundary.
-    if (patient && isHumanOnly(patient)) {
-      console.log(`[agent] patient ${patient.id} is human-only; suppressing automation`)
       return
     }
 

@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   findOpenByContact: vi.fn(),
   createConversation: vi.fn(),
   createMessage: vi.fn(),
+  findPatient: vi.fn(),
   end: vi.fn(),
 }))
 
@@ -37,6 +38,7 @@ vi.mock('@docmee/db', () => ({
     update: vi.fn(),
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
+  createPatientsRepository: () => ({ findById: h.findPatient }),
 }))
 
 import { processTranscriptionJob } from '../transcription-processor.worker.js'
@@ -80,6 +82,7 @@ beforeEach(() => {
   h.findConversationById.mockResolvedValue(null)
   h.findOpenByContact.mockResolvedValue(null)
   h.createConversation.mockResolvedValue({ id: CONVO, metadata: {} })
+  h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', metadata: {} })
 })
 
 afterAll(() => {
@@ -142,6 +145,16 @@ describe('processTranscriptionJob', () => {
     expect(h.agentAdd.mock.calls[0][1].conversationId).toBe(CONVO)
   })
 
+  it('stores a human-only voice note but never enqueues an automated reply', async () => {
+    h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+
+    await processTranscriptionJob(makeJob(base))
+
+    expect(h.createMessage).toHaveBeenCalledTimes(1)
+    expect(h.agentAdd).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
   it('fails for queue retry when persistence fails rather than enqueueing an unthreaded agent turn', async () => {
     h.findOpenByContact.mockRejectedValue(new Error('db down'))
     await expect(processTranscriptionJob(makeJob(base))).rejects.toThrow('db down')
@@ -167,6 +180,17 @@ describe('processTranscriptionJob', () => {
     expect(to).toBe('50299998889')
     expect(text).toMatch(/texto/)
     expect(h.end).toHaveBeenCalled()
+  })
+
+  it('records a transcription failure but sends no apology to a human-only patient', async () => {
+    h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.downloadMedia.mockRejectedValue(new Error('media 404'))
+
+    await processTranscriptionJob(makeJob(base))
+
+    expect(h.createErrorReview).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.agentAdd).not.toHaveBeenCalled()
   })
 
   it('succeeds on a later attempt after a transient failure', async () => {

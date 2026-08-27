@@ -127,6 +127,28 @@ function codexSessionFiles(root: string) {
   return files
 }
 
+const MAX_CODEX_SESSION_READ_BYTES = 32 * 1024 * 1024
+const CODEX_SESSION_PREFIX_BYTES = 1024 * 1024
+
+/** Bound active-session reads so the cost export cannot exceed V8's maximum
+ * string length while a long-running Codex transcript is still being written. */
+function readCodexSessionWindow(file: string): string {
+  const size = fs.statSync(file).size
+  if (size <= MAX_CODEX_SESSION_READ_BYTES) return fs.readFileSync(file, 'utf8')
+
+  const fd = fs.openSync(file, 'r')
+  try {
+    const prefix = Buffer.alloc(CODEX_SESSION_PREFIX_BYTES)
+    const tailLength = MAX_CODEX_SESSION_READ_BYTES - CODEX_SESSION_PREFIX_BYTES
+    const tail = Buffer.alloc(tailLength)
+    const prefixRead = fs.readSync(fd, prefix, 0, prefix.length, 0)
+    const tailRead = fs.readSync(fd, tail, 0, tail.length, Math.max(0, size - tail.length))
+    return `${prefix.subarray(0, prefixRead).toString('utf8')}\n${tail.subarray(0, tailRead).toString('utf8')}`
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 function readCodexUsageSince(since: Date) {
   const codexRoot = path.join(process.env.USERPROFILE || process.env.HOME || '', '.codex')
   const files = [
@@ -149,7 +171,7 @@ function readCodexUsageSince(since: Date) {
     let sessionMatches = file.includes(currentCodexThreadId)
     let before: CodexTokenUsage | undefined
     let after: CodexTokenUsage | undefined
-    for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    for (const line of readCodexSessionWindow(file).split(/\r?\n/)) {
       if (!line.trim()) continue
       try {
         const event = JSON.parse(line) as CodexSessionEvent

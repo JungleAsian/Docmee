@@ -31,6 +31,7 @@ import {
   type PatientContact,
 } from '@docmee/db'
 import { isWithinCustomerCareWindow } from './follow-up.js'
+import { isHumanOnly } from '@docmee/shared'
 
 export const REVIEW_FOLLOW_UP_TYPE = 'review_request'
 
@@ -116,7 +117,7 @@ export async function processReviewRequestJob(_job: Job): Promise<void> {
 
       for (const appt of completed) {
         const patient = await patients.findById(clinic.id, appt.patientId)
-        if (!patient || isPatientOptedOut(patient)) continue
+        if (!patient || isPatientOptedOut(patient) || isHumanOnly(patient)) continue
 
         const handle = primaryWhatsAppHandle(await patients.listContacts(clinic.id, appt.patientId))
         if (!handle) continue

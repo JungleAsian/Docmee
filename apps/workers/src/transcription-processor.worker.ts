@@ -21,7 +21,9 @@ import {
   createChannelAccountsRepository,
   createConversationsRepository,
   createMessagesRepository,
+  createPatientsRepository,
 } from '@docmee/db'
+import { patientAllowsAutomation } from './automation-boundary.js'
 
 // messageId is the inbound WhatsApp message id (wamid.*), not a DB uuid — keep it a
 // plain string so real jobs from the conversation processor validate.
@@ -151,7 +153,11 @@ export async function processTranscriptionJob(job: Job): Promise<void> {
   //    Persistence is the ownership boundary. If it fails, fail this job so BullMQ
   //    retries it; never send an unthreaded agent turn that can create a second
   //    conversation or duplicate reply.
-  const conversationId = await storeVoiceNote(payload, result)
+  const stored = await storeVoiceNote(payload, result)
+
+  // Voice-note transcription is still useful to the secretary, but human-only
+  // patients must never reach the agent queue.
+  if (!stored.automationAllowed) return
 
   // 5. Re-enqueue to the agent as if the patient had typed the transcript, threaded
   //    onto the same conversation so the bot reply stays in the inbox thread.
@@ -162,7 +168,7 @@ export async function processTranscriptionJob(job: Job): Promise<void> {
     phoneNumberId: payload.phoneNumberId,
     message: result.text,
     waMessageId: payload.messageId,
-    conversationId,
+    conversationId: stored.conversationId,
     isVoiceNote: true,
   }, { jobId: `agent-voice:${payload.clinicId}:${payload.messageId}` })
 }
@@ -176,7 +182,7 @@ export async function processTranscriptionJob(job: Job): Promise<void> {
 async function storeVoiceNote(
   payload: TranscriptionJob,
   result: TranscriptionResult,
-): Promise<string> {
+): Promise<{ conversationId: string; automationAllowed: boolean }> {
   const sql = createServiceDbClient({ url: process.env['DATABASE_URL'] ?? '' })
   try {
     const conversations = createConversationsRepository(sql)
@@ -213,7 +219,13 @@ async function storeVoiceNote(
       },
     })
 
-    return conversation.id
+    const patient = payload.patientId
+      ? await createPatientsRepository(sql).findById(payload.clinicId, payload.patientId)
+      : null
+    return {
+      conversationId: conversation.id,
+      automationAllowed: payload.patientId ? patientAllowsAutomation(patient) : true,
+    }
   } finally {
     await sql.end()
   }
@@ -232,6 +244,13 @@ async function handleFailure(payload: TranscriptionJob, lastError: Error | null)
         conversationId: payload.conversationId ?? null,
       },
     })
+
+    // Record the operational failure for staff, but do not auto-reply when the
+    // secretary has placed this number in permanent human-only mode.
+    if (payload.patientId) {
+      const patient = await createPatientsRepository(sql).findById(payload.clinicId, payload.patientId)
+      if (!patientAllowsAutomation(patient)) return
+    }
 
     // Send the apology on the clinic's active WhatsApp number. Failure here is
     // swallowed — we have already recorded the underlying problem.

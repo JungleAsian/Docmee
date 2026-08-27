@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, API_BASE } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
+import { InboxDisplaySettingsPanel } from '@/shared/components/InboxDisplaySettingsPanel'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { StudioIntegrationsPanel } from '@/shared/components/StudioIntegrationsPanel'
 import { WabaTableModal } from '@/shared/components/WabaTableModal'
@@ -319,6 +320,7 @@ export default function ChannelsPage() {
             </div>
             <StudioIntegrationsPanel clinic={clinic} />
           </section>
+          <InboxDisplaySettingsPanel clinic={clinic} />
           {isSuperuser && <SuperuserClinicSettingsEditor clinic={clinic} />}
         </>
       )}

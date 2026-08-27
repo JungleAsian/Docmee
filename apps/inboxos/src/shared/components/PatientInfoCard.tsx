@@ -9,11 +9,12 @@
 // ['patient-appointments', id] queries (TanStack dedupes them) so it adds no
 // fetch beyond what the thread already loads.
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDateTime } from '../format'
 import type { Appointment, Channel, Conversation, Patient, PatientStatus } from '../types'
+import { useAuthStore } from '../store/auth'
 
 const CHANNEL_LABEL: Record<Channel, string> = {
   whatsapp: 'WhatsApp',
@@ -43,6 +44,8 @@ export function PatientInfoCard({
   showPatientHistory?: boolean
 }) {
   const { t, language } = useI18n()
+  const qc = useQueryClient()
+  const role = useAuthStore((s) => s.user?.role)
 
   const conversationQuery = useQuery({
     queryKey: ['conversation', conversationId],
@@ -57,6 +60,26 @@ export function PatientInfoCard({
     queryFn: () => api.get<{ patient: Patient }>(`/patients/${patientId}`),
   })
   const patient = patientQuery.data?.patient
+  const automationMode = (patient as (Patient & { automationMode?: string }) | undefined)?.automationMode ?? 'automated'
+  const optOut = useMutation({
+    mutationFn: async () => {
+      if (!patientId) throw new Error('Patient unavailable')
+      const next = automationMode === 'human_only' ? 'automated' : 'human_only'
+      await api.patch(`/patients/${patientId}/automation-mode`, { automationMode: next })
+      if (next === 'human_only') {
+        await Promise.all([
+          api.post(`/conversations/${conversationId}/tags`, { tag: 'Opt-out' }),
+          api.post(`/conversations/${conversationId}/tags`, { tag: 'Secretary mode' }),
+        ])
+      }
+      return next
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['patient', patientId] })
+      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      qc.invalidateQueries({ queryKey: ['tags', conversationId] })
+    },
+  })
 
   const appointmentsQuery = useQuery({
     queryKey: ['patient-appointments', patientId],
@@ -139,6 +162,11 @@ export function PatientInfoCard({
             className="inline-flex items-center gap-1 rounded-lg bg-[var(--crm-primary-color)] px-3 py-1.5 text-xs font-bold text-white hover:bg-[var(--crm-primary-hover)]"
           >
             📅 {t('cal.book')}
+          </button>
+        )}
+        {(role === 'secretary' || role === 'clinic_admin' || role === 'ia_studio_admin') && patientId && (
+          <button type="button" onClick={() => optOut.mutate()} disabled={optOut.isPending} className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${automationMode === 'human_only' ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-[var(--crm-border-color)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'}`}>
+            {automationMode === 'human_only' ? t('patient.optOutEnabled') : t('patient.optOut')}
           </button>
         )}
       </div>

@@ -12,6 +12,7 @@ import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { useI18n } from '../hooks/useI18n'
 import { useTeam } from '../hooks/useTeam'
+import { useActiveClinic } from '../hooks/useActiveClinic'
 import { avatarColor, avatarLabel, relativeTime } from '../format'
 import { waitingMinutes, slaLevel, formatWaiting } from '../sla'
 import { assessSafety, safetyRank, type SafetyLevel } from '../safety'
@@ -76,6 +77,13 @@ export function ConversationList({
   const userId = useAuthStore((s) => s.user?.id)
   const role = useAuthStore((s) => s.user?.role)
   const members = useTeam()
+  const { clinicId } = useActiveClinic()
+  const clinicSettings = useQuery({
+    queryKey: ['clinic', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
+  })
+  const showInactiveChannels = ((clinicSettings.data?.clinic.settings?.patientChatVisibility as Record<string, unknown> | undefined)?.inactiveChannels ?? true) === true
   const qc = useQueryClient()
   // Operational lens (design's Active/Bot/Assigned/Closed tabs) — derived entirely
   // client-side over the full clinic set so the tab counts are accurate and switching
@@ -360,7 +368,7 @@ export function ConversationList({
         {/* Operational lens tabs (Active / Bot / Assigned / Closed) with live counts —
             the secretary's primary triage control, narrowing the queue client-side. */}
         <div role="tablist" aria-label={t('conv.lens.label')} className="flex flex-wrap gap-1.5">
-          {LENSES.map((l) => (
+          {LENSES.filter((l) => showInactiveChannels || l !== 'closed').map((l) => (
             <LensTab
               key={l}
               active={lens === l}
@@ -766,8 +774,8 @@ function ListSkeleton() {
   )
 }
 
-// Operational lens tab — label + a live count badge. The active tab is filled; the
-// count badge inverts on the active tab so it stays legible.
+  // Operational classification tabs. Keep these rectangular/underlined so the
+  // conversation section reads as tabs rather than action pills.
 function LensTab({
   active,
   count,
@@ -785,17 +793,17 @@ function LensTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition ${
+      className={`inline-flex items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-[11.5px] font-semibold transition ${
         active
-          ? 'bg-[var(--crm-primary-color)] text-white'
-          : 'border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'
+          ? 'border-[var(--crm-primary-color)] text-[var(--crm-primary-color)]'
+          : 'border-transparent text-[var(--crm-text-muted)] hover:border-[var(--crm-border-color)]'
       }`}
     >
       {label}
       <span
-        className={`min-w-[1.1rem] rounded-full px-1 text-center text-[10px] font-bold tabular-nums ${
+        className={`min-w-[1.1rem] rounded px-1 text-center text-[10px] font-bold tabular-nums ${
           active
-            ? 'bg-white/25 text-white'
+            ? 'bg-[var(--crm-hover-bg)] text-[var(--crm-primary-color)]'
             : 'bg-[var(--crm-elevated-bg)] text-[var(--crm-text-muted)]'
         }`}
       >
@@ -804,4 +812,3 @@ function LensTab({
     </button>
   )
 }
-

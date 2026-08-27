@@ -26,7 +26,7 @@ import { can } from '../permissions'
 const readInboxSettings = (settings: Record<string, unknown> | null | undefined) => {
   const layout = (settings?.inboxLayout && typeof settings.inboxLayout === 'object' ? settings.inboxLayout : {}) as Record<string, unknown>
   const visibility = (settings?.patientChatVisibility && typeof settings.patientChatVisibility === 'object' ? settings.patientChatVisibility : {}) as Record<string, unknown>
-  const keys = ['safetyHandoff', 'lifecycleStatus', 'tags', 'aiAssistance', 'assignee', 'assignControls', 'patientHistory', 'chatStatus', 'nextAppointment', 'appointmentDateTime'] as const
+  const keys = ['safetyHandoff', 'lifecycleStatus', 'tags', 'aiAssistance', 'inactiveChannels', 'assignee', 'assignControls', 'patientHistory', 'chatStatus', 'nextAppointment', 'appointmentDateTime'] as const
   return {
     inboxLayout: { calendarExpanded: layout.calendarExpanded !== false, internalNotesVisible: layout.internalNotesVisible !== false },
     patientChatVisibility: Object.fromEntries(keys.map((key) => [key, visibility[key] === undefined ? true : visibility[key] === true])) as Record<(typeof keys)[number], boolean>,
@@ -44,12 +44,10 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
   })
   const inboxSettings = readInboxSettings(clinicQuery.data?.clinic.settings)
   const visibility = inboxSettings.patientChatVisibility
-  const [bookingOpen, setBookingOpen] = useState<boolean>(inboxSettings.inboxLayout.calendarExpanded)
   const [othersOpen, setOthersOpen] = useState(false)
   const bookingRef = useRef<HTMLElement>(null)
 
   const openBooking = () => {
-    setBookingOpen(true)
     // Let the section expand before scrolling it into view.
     requestAnimationFrame(() => bookingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
   }
@@ -67,9 +65,9 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
       <AppointmentBookingCard
         ref={bookingRef}
         conversationId={conversationId}
-        expanded={bookingOpen}
-        onToggle={() => setBookingOpen((v) => !v)}
       />
+
+      {inboxSettings.inboxLayout.internalNotesVisible && <NotesPanel key={`notes-${conversationId}`} conversationId={conversationId} />}
 
       {/* Others — everything the rail used to show, now collapsed by default. */}
       <section className="rounded-[var(--crm-border-radius-md)] border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] shadow-[var(--crm-shadow-sm)]">
@@ -95,7 +93,6 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
             {visibility.aiAssistance && can(role, 'assistant') && (
               <AssistantPanel key={`assistant-${conversationId}`} conversationId={conversationId} />
             )}
-            {inboxSettings.inboxLayout.internalNotesVisible && <NotesPanel key={`notes-${conversationId}`} conversationId={conversationId} />}
           </div>
         )}
       </section>

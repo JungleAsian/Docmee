@@ -23,6 +23,8 @@ export const TAG_TYPES: TagType[] = [
   { name: 'medical_safety', labelEs: 'Seguridad médica', labelEn: 'Medical safety', color: '#dc2626' },
   { name: 'patient_upset', labelEs: 'Paciente molesto', labelEn: 'Upset patient', color: '#ea580c' },
   { name: 'opted_out', labelEs: 'Dado de baja', labelEn: 'Opted out', color: '#6b7280' },
+  { name: 'Opt-out', labelEs: 'Opt-out', labelEn: 'Opt-out', color: '#be123c' },
+  { name: 'Secretary mode', labelEs: 'Modo secretaría', labelEn: 'Secretary mode', color: '#7c3aed' },
   { name: 'urgent', labelEs: 'Urgente', labelEn: 'Urgent', color: '#dc2626' },
   { name: 'appointment', labelEs: 'Cita', labelEn: 'Appointment', color: '#2563eb' },
   { name: 'appointment_scheduled', labelEs: 'Cita agendada', labelEn: 'Appointment scheduled', color: '#2563eb' },

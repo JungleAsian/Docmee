@@ -1,207 +1,35 @@
 'use client'
 
-// Inbox redesign (#2) — a compact appointment-booking calendar embedded in the
-// right context rail so a secretary can view a doctor's free slots and book one
-// for the current patient without leaving the conversation. Deliberately mirrors
-// the full Calendar page's flow (pick a doctor → pick a date → pick a free slot →
-// confirm) against the same API: GET /clinics/:id/appointments/slots and
-// POST /clinics/:id/appointments. Booking always targets the conversation's own
-// patient (no patient picker needed here).
-import { forwardRef, useState } from 'react'
+import { forwardRef, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { useActiveClinic } from '../hooks/useActiveClinic'
-import type { Conversation, Doctor, SlotsResponse } from '../types'
+import { useAuthStore } from '../store/auth'
+import type { AppointmentWithNames, Conversation, Doctor, SlotsResponse } from '../types'
 
-// Local YYYY-MM-DD for the date input's default (today), in the operator's tz.
-function todayLocal(): string {
-  const d = new Date()
-  const off = d.getTimezoneOffset() * 60_000
-  return new Date(d.getTime() - off).toISOString().slice(0, 10)
-}
+function localDate(d: Date): string { const off = d.getTimezoneOffset() * 60_000; return new Date(d.getTime() - off).toISOString().slice(0, 10) }
+function monthStart(date: string): Date { const d = new Date(`${date}T12:00:00`); return new Date(d.getFullYear(), d.getMonth(), 1) }
+function monthDays(date: string): string[] { const first = monthStart(date); const start = new Date(first); start.setDate(1 - first.getDay()); return Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return localDate(d) }) }
 
-export const AppointmentBookingCard = forwardRef<
-  HTMLElement,
-  { conversationId: string; expanded: boolean; onToggle: () => void }
->(function AppointmentBookingCard({ conversationId, expanded, onToggle }, ref) {
-  const { t } = useI18n()
-  const qc = useQueryClient()
-  const { clinicId } = useActiveClinic()
-  const [doctorId, setDoctorId] = useState('')
-  const [date, setDate] = useState(todayLocal())
-  const [slot, setSlot] = useState('')
-  const [errorKey, setErrorKey] = useState<string | null>(null)
-  const [booked, setBooked] = useState(false)
-
-  const conversationQuery = useQuery({
-    queryKey: ['conversation', conversationId],
-    queryFn: () => api.get<{ conversation: Conversation }>(`/conversations/${conversationId}`),
-  })
-  const patientId = conversationQuery.data?.conversation?.patientId ?? null
-
-  const doctorsQuery = useQuery({
-    queryKey: ['doctors', clinicId],
-    enabled: Boolean(clinicId) && expanded,
-    queryFn: () => api.get<{ doctors: Doctor[] }>(`/clinics/${clinicId}/doctors`),
-  })
-  const doctors = (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive)
-
-  const slotsQuery = useQuery({
-    queryKey: ['slots', clinicId, doctorId, date],
-    enabled: Boolean(clinicId && doctorId && date) && expanded,
-    queryFn: () =>
-      api.get<SlotsResponse>(
-        `/clinics/${clinicId}/appointments/slots?${new URLSearchParams({ doctorId, date })}`,
-      ),
-  })
-  const slotsData = slotsQuery.data
-
-  const bookMutation = useMutation({
-    mutationFn: () =>
-      api.post(`/clinics/${clinicId}/appointments`, { patientId, doctorId, date, start: slot }),
-    onMutate: () => {
-      setErrorKey(null)
-      setBooked(false)
-    },
-    onSuccess: () => {
-      setBooked(true)
-      setSlot('')
-      qc.invalidateQueries({ queryKey: ['patient-appointments', patientId] })
-      qc.invalidateQueries({ queryKey: ['appointments', clinicId] })
-      qc.invalidateQueries({ queryKey: ['slots', clinicId, doctorId, date] })
-    },
-    onError: (e) =>
-      setErrorKey(e instanceof ApiError && e.status === 409 ? 'cal.slotTaken' : 'cal.bookError'),
-  })
-
-  return (
-    <section
-      ref={ref}
-      className="rounded-[var(--crm-border-radius-md)] border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] shadow-[var(--crm-shadow-sm)]"
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-      >
-        <span className="text-xs font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
-          📅 {t('cal.title')}
-        </span>
-        <span aria-hidden className="text-[var(--crm-text-muted)]">
-          {expanded ? '▾' : '▸'}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="space-y-3 border-t border-[var(--crm-border-color)] px-4 py-3">
-          {/* Doctor — chosen first, before any schedule is shown. */}
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-[var(--crm-text-muted)]">
-              {t('cal.doctor')}
-            </span>
-            <select
-              value={doctorId}
-              onChange={(e) => {
-                setDoctorId(e.target.value)
-                setSlot('')
-                setBooked(false)
-              }}
-              className="w-full rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-2 py-1.5 text-xs outline-none focus:border-[var(--crm-primary-color)]"
-            >
-              <option value="">{t('cal.selectDoctor')}</option>
-              {doctors.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                  {d.specialty ? ` · ${d.specialty}` : ''}
-                </option>
-              ))}
-            </select>
-            {doctorsQuery.isSuccess && doctors.length === 0 && (
-              <p className="mt-1 text-[11px] text-[var(--crm-text-muted)]">{t('cal.noDoctors')}</p>
-            )}
-          </label>
-
-          {/* Date */}
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-[var(--crm-text-muted)]">
-              {t('cal.today')}
-            </span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => {
-                setDate(e.target.value)
-                setSlot('')
-                setBooked(false)
-              }}
-              className="w-full rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-2 py-1.5 text-xs outline-none focus:border-[var(--crm-primary-color)]"
-            />
-          </label>
-
-          {/* Slots — only after a doctor is chosen. */}
-          {doctorId && (
-            <div>
-              {!slotsData?.calendarConnected && slotsData && (
-                <p className="mb-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                  ⚠ {t('cal.disconnected')}
-                </p>
-              )}
-              {slotsQuery.isLoading ? (
-                <p className="text-[11px] text-[var(--crm-text-muted)]">{t('cal.slotsLoading')}</p>
-              ) : slotsData && !slotsData.working ? (
-                <p className="text-[11px] text-[var(--crm-text-muted)]">{t('cal.dayOff')}</p>
-              ) : slotsData && slotsData.slots.length === 0 ? (
-                <p className="text-[11px] text-[var(--crm-text-muted)]">{t('cal.noSlots')}</p>
-              ) : slotsData ? (
-                <>
-                  <p className="mb-1.5 text-[11px] font-semibold text-[var(--crm-text-muted)]">
-                    {t('cal.pickSlot')}
-                  </p>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {slotsData.slots.map((s) => (
-                      <button
-                        key={s.start}
-                        type="button"
-                        onClick={() => {
-                          setSlot(s.start)
-                          setBooked(false)
-                        }}
-                        className={`rounded-md border px-1 py-1 text-xs font-semibold transition ${
-                          slot === s.start
-                            ? 'border-[var(--crm-primary-color)] bg-[var(--crm-primary-color)] text-white'
-                            : 'border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] text-[var(--crm-text-main)] hover:bg-[var(--crm-hover-bg)]'
-                        }`}
-                      >
-                        {s.start}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          )}
-
-          {errorKey && (
-            <p className="text-[11px] font-medium text-red-600 dark:text-red-400">⚠ {t(errorKey)}</p>
-          )}
-          {booked && (
-            <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              ✓ {t('cal.booked')}
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => bookMutation.mutate()}
-            disabled={!patientId || !doctorId || !slot || bookMutation.isPending}
-            className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white hover:bg-[var(--crm-primary-hover)] disabled:opacity-60"
-          >
-            {bookMutation.isPending ? t('cal.booking') : t('cal.confirm')}
-          </button>
-        </div>
-      )}
-    </section>
-  )
+export const AppointmentBookingCard = forwardRef<HTMLElement, { conversationId: string; expanded?: boolean; onToggle?: () => void }>(function AppointmentBookingCard({ conversationId }, ref) {
+  const { t, language } = useI18n(); const qc = useQueryClient(); const { clinicId } = useActiveClinic(); const role = useAuthStore((s) => s.user?.role)
+  const canParallelBook = role === 'secretary' || role === 'clinic_admin' || role === 'ia_studio_admin'; const today = localDate(new Date())
+  const [doctorId, setDoctorId] = useState(''); const [date, setDate] = useState(today); const [slot, setSlot] = useState(''); const [parallel, setParallel] = useState(false); const [reason, setReason] = useState(''); const [errorKey, setErrorKey] = useState<string | null>(null); const [booked, setBooked] = useState(false)
+  const conversationQuery = useQuery({ queryKey: ['conversation', conversationId], queryFn: () => api.get<{ conversation: Conversation }>(`/conversations/${conversationId}`) }); const patientId = conversationQuery.data?.conversation?.patientId ?? null
+  const doctorsQuery = useQuery({ queryKey: ['doctors', clinicId], enabled: Boolean(clinicId), queryFn: () => api.get<{ doctors: Doctor[] }>(`/clinics/${clinicId}/doctors`) }); const doctors = (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive)
+  const days = useMemo(() => monthDays(date), [date]); const month = monthStart(date); const monthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`
+  const nextMonth = new Date(month); nextMonth.setMonth(nextMonth.getMonth() + 1); const nextMonthKey = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`
+  const appointmentsQuery = useQuery({ queryKey: ['appointments', clinicId, monthKey, doctorId], enabled: Boolean(clinicId), queryFn: () => api.get<{ appointments: AppointmentWithNames[] }>(`/clinics/${clinicId}/appointments?${new URLSearchParams({ from: `${monthKey}-01`, to: nextMonthKey, ...(doctorId ? { doctorId } : {}) })}`) })
+  const slotsQuery = useQuery({ queryKey: ['slots', clinicId, doctorId, date], enabled: Boolean(clinicId && doctorId && date), queryFn: () => api.get<SlotsResponse>(`/clinics/${clinicId}/appointments/slots?${new URLSearchParams({ doctorId, date })}`) })
+  const bookingsByDate = useMemo(() => { const map = new Map<string, AppointmentWithNames[]>(); for (const appointment of appointmentsQuery.data?.appointments ?? []) { const key = appointment.startTime.slice(0, 10); map.set(key, [...(map.get(key) ?? []), appointment]) } return map }, [appointmentsQuery.data?.appointments])
+  const bookMutation = useMutation({ mutationFn: () => api.post(`/clinics/${clinicId}/appointments`, { patientId, doctorId, date, start: slot, ...(parallel ? { overbook: true, overbookingReason: reason.trim() } : {}) }), onMutate: () => { setErrorKey(null); setBooked(false) }, onSuccess: () => { setBooked(true); setSlot(''); setParallel(false); setReason(''); qc.invalidateQueries({ queryKey: ['patient-appointments', patientId] }); qc.invalidateQueries({ queryKey: ['appointments', clinicId] }); qc.invalidateQueries({ queryKey: ['slots', clinicId, doctorId, date] }) }, onError: (e) => setErrorKey(e instanceof ApiError && e.status === 409 ? 'cal.slotTaken' : e instanceof ApiError && e.status === 422 ? 'cal.overbookingReason' : 'cal.bookError') })
+  const changeMonth = (delta: number) => { const next = new Date(month); next.setMonth(next.getMonth() + delta); setDate(localDate(next)); setSlot('') }; const monthLabel = new Intl.DateTimeFormat(language === 'es' ? 'es' : 'en', { month: 'long', year: 'numeric' }).format(month); const weekdays = language === 'es' ? ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'] : ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+  return <section ref={ref} className="rounded-[var(--crm-border-radius-md)] border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] shadow-[var(--crm-shadow-sm)]"><div className="flex items-center justify-between gap-2 px-4 py-3"><span className="text-xs font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">📅 {t('cal.title')}</span><span className="text-[10px] text-[var(--crm-text-muted)]">{t('cal.secretaryOnly')}</span></div><div className="space-y-3 border-t border-[var(--crm-border-color)] px-4 py-3">
+    <label className="block"><span className="mb-1 block text-[11px] font-semibold text-[var(--crm-text-muted)]">{t('cal.doctor')}</span><select value={doctorId} onChange={(e) => { setDoctorId(e.target.value); setSlot(''); setBooked(false) }} className="w-full rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-2 py-1.5 text-xs"><option value="">{t('cal.selectDoctor')}</option>{doctors.map((d) => <option key={d.id} value={d.id}>{d.name}{d.specialty ? ` · ${d.specialty}` : ''}</option>)}</select></label>
+    <div className="flex items-center justify-between"><button type="button" onClick={() => changeMonth(-1)} aria-label={t('cal.previousMonth')} className="px-2 text-sm">‹</button><span className="text-sm font-bold capitalize">{monthLabel}</span><button type="button" onClick={() => changeMonth(1)} aria-label={t('cal.nextMonth')} className="px-2 text-sm">›</button></div>
+    <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-[var(--crm-text-muted)]">{weekdays.map((day) => <span key={day}>{day}</span>)}{days.map((day) => { const inMonth = day.slice(0, 7) === monthKey; const selected = day === date; const entries = bookingsByDate.get(day) ?? []; return <button key={day} type="button" onClick={() => { setDate(day); setSlot(''); setBooked(false) }} className={`relative min-h-8 rounded-md text-xs ${!inMonth ? 'opacity-30' : ''} ${selected ? 'bg-[var(--crm-primary-color)] text-white' : 'hover:bg-[var(--crm-hover-bg)]'}`}><span>{Number(day.slice(8))}</span>{entries.length > 0 && <span className="absolute bottom-0.5 left-1/2 flex -translate-x-1/2 gap-0.5">{entries.slice(0, 3).map((a) => <span key={a.id} title={a.conversationId ? t('cal.bookedByAi') : t('cal.bookedBySecretary')} className={`h-1.5 w-1.5 rounded-full ${a.conversationId ? 'bg-violet-500' : 'bg-slate-500'}`} />)}</span>}</button> })}</div>
+    {doctorId && (slotsQuery.isLoading ? <p className="text-[11px] text-[var(--crm-text-muted)]">{t('cal.slotsLoading')}</p> : slotsQuery.data && !slotsQuery.data.working ? <p className="text-[11px] text-[var(--crm-text-muted)]">{t('cal.dayOff')}</p> : slotsQuery.data?.slots.length === 0 ? <p className="text-[11px] text-[var(--crm-text-muted)]">{t('cal.noSlots')}</p> : <div><p className="mb-1.5 text-[11px] font-semibold text-[var(--crm-text-muted)]">{t('cal.pickSlot')} · {date}</p><div className="grid grid-cols-2 gap-1.5">{slotsQuery.data?.slots.map((s) => <div key={s.start} className="flex items-center gap-1"><button type="button" onClick={() => { setSlot(s.start); setParallel(false); setBooked(false) }} className={`min-w-0 flex-1 rounded-md border px-1 py-1 text-xs font-semibold ${slot === s.start && !parallel ? 'border-[var(--crm-primary-color)] bg-[var(--crm-primary-color)] text-white' : 'border-[var(--crm-border-color)] hover:bg-[var(--crm-hover-bg)]'}`}>{s.start}</button>{canParallelBook && <button type="button" title={t('cal.parallel')} aria-label={`${t('cal.parallel')} ${s.start}`} onClick={() => { setSlot(s.start); setParallel(true); setBooked(false) }} className="rounded-md border border-dashed border-[var(--crm-primary-color)] px-2 py-1 text-sm font-bold text-[var(--crm-primary-color)]">+</button>}</div>)}</div></div>)}
+    {parallel && <label className="block"><span className="mb-1 block text-[11px] font-semibold text-[var(--crm-text-muted)]">{t('cal.parallelReason')}</span><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('cal.parallelReasonPlaceholder')} className="w-full rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-2 py-1.5 text-xs" /></label>}<div className="flex flex-wrap gap-3 text-[10px] text-[var(--crm-text-muted)]"><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-violet-500" />{t('cal.bookedByAi')}</span><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-slate-500" />{t('cal.bookedBySecretary')}</span></div>{errorKey && <p className="text-[11px] font-medium text-red-600">⚠ {t(errorKey)}</p>}{booked && <p className="text-[11px] font-medium text-emerald-600">✓ {t('cal.booked')}</p>}<button type="button" onClick={() => bookMutation.mutate()} disabled={!patientId || !doctorId || !slot || (parallel && !reason.trim()) || bookMutation.isPending} className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white disabled:opacity-60">{bookMutation.isPending ? t('cal.booking') : parallel ? t('cal.confirmParallel') : t('cal.confirm')}</button>
+  </div></section>
 })

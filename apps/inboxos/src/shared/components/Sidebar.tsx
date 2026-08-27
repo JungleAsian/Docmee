@@ -75,7 +75,11 @@ export function Sidebar({
   return (
     <aside className={`crm-sidebar flex shrink-0 flex-col ${collapsed ? 'crm-sidebar-collapsed' : ''}`}>
       <div className="crm-sidebar-header">
-        {!collapsed && (
+        {collapsed ? (
+          <div className="flex items-center justify-center px-2 py-3">
+            <img src="/brand/docmee-loader-avatar.png?v=20260821" alt={t('app.name')} className="h-8 w-8 object-contain" />
+          </div>
+        ) : (
           <div className="crm-logo">
             <div className="min-w-0 leading-tight">
               <img

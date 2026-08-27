@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Typecheck + Lint + Test
+    name: Typecheck + Lint + Build + Test
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -55,5 +55,9 @@ jobs:
       - run: pnpm typecheck
 
       - run: pnpm lint
+
+      # Workspace package manifests resolve through dist/. A clean CI checkout
+      # must build those entries before Vitest imports dependent packages.
+      - run: pnpm build
 
       - run: pnpm test

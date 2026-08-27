@@ -40,6 +40,8 @@ export async function sendZernioWhatsAppText(
 ): Promise<string | null> {
   if (process.env['LLM_STUB'] === 'true') return null
   if (!conversationId.trim()) throw new Error('Zernio send failed: conversationId is required')
+  const body = message.trim()
+  if (!body) throw new Error('Zernio WhatsApp text body must not be empty')
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (accessToken?.trim()) headers['Authorization'] = `Bearer ${accessToken.trim()}`
@@ -49,7 +51,7 @@ export async function sendZernioWhatsAppText(
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ accountId, message }),
+      body: JSON.stringify({ accountId, message: body }),
     },
   )
 

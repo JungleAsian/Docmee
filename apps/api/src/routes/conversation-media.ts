@@ -18,16 +18,19 @@
 // upload is a different mechanism); a non-WhatsApp thread → 400.
 import type { FastifyPluginAsync } from 'fastify'
 import multipart from '@fastify/multipart'
+import { createHash } from 'node:crypto'
 import {
   createConversationsRepository,
   createMessagesRepository,
   createChannelAccountsRepository,
   createErrorReviewsRepository,
+  createMediaAssetsRepository,
 } from '@docmee/db'
 import { withDb } from '../lib/db.js'
 import { uploadWhatsAppMedia, sendWhatsAppImage } from '../lib/channel-send.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
+import { kbVaultEnabled, mediaObjectKey, uploadKbVaultObject } from '../lib/kb-vault-storage.js'
 
 // WhatsApp accepts JPEG and PNG for image messages; cap at Meta's 5 MB image limit.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -144,6 +147,31 @@ const conversationMediaRoute: FastifyPluginAsync = async (app) => {
               botPausedAt: new Date().toISOString(),
               handoffReason: 'human_reply',
             },
+          })
+        }
+        // Keep an internal, clinic-scoped copy when private media storage is
+        // configured. The Meta media id remains in message metadata for the
+        // authenticated WhatsApp proxy; this asset record gives the clinic a
+        // durable repository entry and lets delivery receipts correlate to it.
+        if (kbVaultEnabled()) {
+          const checksum = createHash('sha256').update(buffer).digest('hex')
+          const key = mediaObjectKey({ clinicId, assetId: checksum.slice(0, 24), fileName: file.filename || 'image' })
+          await uploadKbVaultObject({ key, body: buffer, contentType: file.mimetype, metadata: { clinicId, checksum, source: 'whatsapp-outbound', mediaId } })
+          const asset = await createMediaAssetsRepository(sql).create({
+            clinicId,
+            uploadedBy: request.user!.userId,
+            filename: file.filename || 'image',
+            contentType: file.mimetype as 'image/jpeg' | 'image/png',
+            byteSize: buffer.length,
+            checksum,
+            storageKey: key,
+          })
+          await createMediaAssetsRepository(sql).attach({
+            clinicId,
+            messageId: created.id,
+            mediaAssetId: asset.id,
+            providerMessageId: channelMessageId,
+            providerStatus: channelMessageId ? 'accepted' : 'pending',
           })
         }
         return created

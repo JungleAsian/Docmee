@@ -10,6 +10,7 @@ import {
   createPatientsRepository,
   createAppointmentsRepository,
   createConversationsRepository,
+  createAuditRepository,
 } from '@docmee/db'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -27,6 +28,37 @@ const patientsRoute: FastifyPluginAsync = async (app) => {
     if (!patient) return reply.code(404).send({ error: 'Patient not found' })
     return { patient }
   })
+
+  // Secretaries and clinic admins can pause automation for one patient/number.
+  // This is independent from STOP/START consent and the opted_out tag.
+  app.patch<{ Params: { id: string }; Body: { automationMode?: 'automated' | 'human_only' } }>(
+    '/patients/:id/automation-mode',
+    { preHandler: requireRole('secretary', 'clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const mode = request.body?.automationMode
+      if (mode !== 'automated' && mode !== 'human_only') return reply.code(400).send({ error: 'Invalid automation mode' })
+      const result = await withDb(async (sql) => {
+        const patients = createPatientsRepository(sql)
+        const current = await patients.findById(clinicId, request.params.id)
+        if (!current) return null
+        const patient = await patients.update(clinicId, request.params.id, { automationMode: mode })
+        await createAuditRepository(sql).log({
+          clinicId,
+          actorId: request.user?.userId,
+          actorEmail: request.user?.email,
+          action: 'patient.automation_mode_changed',
+          resourceType: 'patient',
+          resourceId: patient.id,
+          metadata: { from: current.automationMode ?? 'automated', to: mode },
+        })
+        return patient
+      })
+      if (!result) return reply.code(404).send({ error: 'Patient not found' })
+      return { patient: result }
+    },
+  )
 
   // ── Appointment history for one patient (patient history view) ──
   app.get<{ Params: { id: string } }>('/patients/:id/appointments', async (request, reply) => {

@@ -1,6 +1,6 @@
 import type { Sql } from '../client.js'
 import { toJson } from '../client.js'
-import type { Patient, PatientContact, PatientStatus, Channel } from '../types/index.js'
+import type { Patient, PatientContact, PatientStatus, Channel, PatientAutomationMode } from '../types/index.js'
 
 export interface CreatePatientInput {
   clinicId: string
@@ -15,6 +15,7 @@ export interface UpdatePatientInput {
   status?: PatientStatus
   notes?: string
   metadata?: Record<string, unknown>
+  automationMode?: PatientAutomationMode
 }
 
 export interface CreatePatientContactInput {
@@ -84,6 +85,7 @@ export function createPatientsRepository(sql: Sql): PatientsRepository {
           status    = COALESCE(${data.status   ?? null}, status),
           notes     = COALESCE(${data.notes    ?? null}, notes),
           metadata  = CASE WHEN ${data.metadata !== undefined} THEN ${sql.json(toJson(data.metadata ?? {}))} ELSE metadata END
+          ,automation_mode = COALESCE(${data.automationMode ?? null}, automation_mode)
         WHERE clinic_id = ${clinicId} AND id = ${id}
         RETURNING *
       `

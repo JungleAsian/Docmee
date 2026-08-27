@@ -50,6 +50,7 @@ vi.mock('@docmee/llm', () => ({
 
 vi.mock('@docmee/shared', () => ({
   decryptValue: (v: string) => v,
+  isHumanOnly: (patient: { automationMode?: string }) => patient.automationMode === 'human_only',
 }))
 
 vi.mock('@docmee/agents', async () => {
@@ -139,6 +140,7 @@ describe('agent worker — new_patient auto-tag (Req 11)', () => {
     patientWaId: '5215555555555',
     message: 'Hola, ¿cuáles son sus horarios?',
     waMessageId: 'wamid.ABC',
+    patientId: PATIENT,
     conversationId: CONVO,
   }
 
@@ -147,7 +149,7 @@ describe('agent worker — new_patient auto-tag (Req 11)', () => {
     h.listAccounts.mockResolvedValue([
       { channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' },
     ])
-    h.findPatient.mockResolvedValue(null)
+    h.findPatient.mockResolvedValue({ id: PATIENT, metadata: {} })
     h.listEmbeddedChunks.mockResolvedValue([])
     h.listEnabledFlows.mockResolvedValue([])
     h.classifyIntent.mockResolvedValue('general_question')
@@ -182,6 +184,7 @@ describe('agent worker — new_patient auto-tag (Req 11)', () => {
       patientWaId: '5215555555555',
       message: 'Hola',
       waMessageId: 'wamid.NOCONVO',
+      patientId: PATIENT,
       isNewPatient: true,
     }
     await processAgentJob(makeJob(noConvo))

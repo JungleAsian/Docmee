@@ -32,6 +32,7 @@ import {
 } from '@docmee/db'
 import { isWithinCustomerCareWindow } from './follow-up.js'
 import { isHumanOnly } from '@docmee/shared'
+import { resolveAutomationEligiblePatient } from './automation-patient-guard.js'
 
 export const REVIEW_FOLLOW_UP_TYPE = 'review_request'
 
@@ -156,6 +157,14 @@ export async function processReviewRequestJob(_job: Job): Promise<void> {
         const text = inWindow
           ? reviewMessage(language, doctorName, link)
           : `${template!.body} ${link}`
+
+        const deliveryPatient = await resolveAutomationEligiblePatient(
+          patients,
+          clinic.id,
+          appt.patientId,
+          'review-request',
+        )
+        if (!deliveryPatient) continue
 
         await sendWhatsApp(text)
         await followUps.markSent(clinic.id, followUp.id)

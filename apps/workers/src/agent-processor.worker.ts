@@ -40,10 +40,10 @@ import {
 } from '@docmee/agents'
 import { hybridClarificationMessage, resolveHybridFlowBranch } from './custom-flow-hybrid.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
+import { resolveAutomationEligiblePatient } from './automation-patient-guard.js'
 import { sendMessengerText, sendInstagramText } from '@docmee/channels'
 import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender, resolveWhatsAppInteractiveSender } from './meta-token.js'
 import { schedulingQueue, notificationQueue, type Job } from '@docmee/queue'
-import { isHumanOnly } from '@docmee/shared'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -527,13 +527,13 @@ export async function processAgentJob(job: Job): Promise<void> {
     }
 
     const account = activeWhatsAppAccount(await channelAccounts.listByClinic(data.clinicId), data.phoneNumberId)
-    const patient = data.patientId ? await patients.findById(data.clinicId, data.patientId) : null
-
-    // Enforce human-only before constructing or invoking any outbound transport.
-    // This remains authoritative even for stale/replayed queue jobs and emergency
-    // keyword branches that intentionally run before the ordinary routing logic.
-    if (patient && isHumanOnly(patient)) {
-      console.log(`[agent] patient ${patient.id} is human-only; suppressing automation`)
+    const patient = await resolveAutomationEligiblePatient(
+      patients,
+      data.clinicId,
+      data.patientId,
+      'agent',
+    )
+    if (!patient) {
       return
     }
 
@@ -572,6 +572,23 @@ export async function processAgentJob(job: Job): Promise<void> {
           // thread when it actually went out.
           let channelMessageId: string | null = null
           try {
+            // Final trust-boundary read. The secretary may have selected
+            // human-only while classification, flow execution, or attempt
+            // persistence was in progress.
+            const deliveryPatient = await resolveAutomationEligiblePatient(
+              patients,
+              data.clinicId,
+              data.patientId,
+              'agent',
+            )
+            if (!deliveryPatient) {
+              await messages.markSendFailed(
+                data.clinicId,
+                attempt.id,
+                'automation_delivery_blocked_by_patient_ownership',
+              )
+              return
+            }
             channelMessageId = await rawSendReply(text)
             if (!channelMessageId) throw new Error('Provider accepted no message identifier')
           } catch (err) {
@@ -644,6 +661,13 @@ export async function processAgentJob(job: Job): Promise<void> {
       data.channel === 'whatsapp' ? resolveWhatsAppInteractiveSender(account, data.patientWaId) : null
     const sendInteractive: ((prompt: FlowInteractivePrompt) => Promise<void>) | null = rawSendInteractive
       ? async (prompt) => {
+          const deliveryPatient = await resolveAutomationEligiblePatient(
+            patients,
+            data.clinicId,
+            data.patientId,
+            'agent',
+          )
+          if (!deliveryPatient) return
           const channelMessageId = await rawSendInteractive(prompt)
           if (data.conversationId) {
             try {

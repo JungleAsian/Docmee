@@ -62,7 +62,7 @@ const base = { clinicId: CLINIC, patientId: PATIENT, type: FOLLOW_UP_TYPES.CONFI
 beforeEach(() => {
   vi.clearAllMocks()
   h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinic', timezone: 'UTC' })
-  h.findPatient.mockResolvedValue({ id: PATIENT, metadata: {} })
+  h.findPatient.mockReset().mockResolvedValue({ id: PATIENT, metadata: {} })
   h.listContacts.mockResolvedValue([
     { channel: 'whatsapp', contactHandle: '50299998889', isPrimary: true },
   ])
@@ -156,6 +156,19 @@ describe('processFollowUpJob', () => {
     h.findPatient.mockResolvedValue({ id: PATIENT, metadata: { optedOut: true } })
     await processFollowUpJob(makeJob(base))
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it('does not send when the patient flips to human-only after the follow-up is claimed', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+
+    await processFollowUpJob(makeJob(base))
+
+    expect(h.createIfAbsent).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.markSent).not.toHaveBeenCalled()
+    expect(h.msgCreate).not.toHaveBeenCalled()
   })
 
   it('skips a follow-up for a cancelled appointment', async () => {

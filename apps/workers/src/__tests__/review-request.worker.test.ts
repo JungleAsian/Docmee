@@ -50,7 +50,7 @@ beforeEach(() => {
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE_ID', accessTokenEnc: 'token' },
   ])
   h.listDoctors.mockResolvedValue([{ id: DOCTOR, name: 'Dr. Ruiz' }])
-  h.findPatient.mockResolvedValue({ id: PATIENT, metadata: {} })
+  h.findPatient.mockReset().mockResolvedValue({ id: PATIENT, metadata: {} })
   h.listContacts.mockResolvedValue([
     { channel: 'whatsapp', contactHandle: '50299998889', isPrimary: true },
   ])
@@ -112,6 +112,18 @@ describe('processReviewRequestJob', () => {
     await processReviewRequestJob(makeJob())
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.createIfAbsent).not.toHaveBeenCalled()
+  })
+
+  it('does not send when the patient flips to human-only after the review is prepared', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+
+    await processReviewRequestJob(makeJob())
+
+    expect(h.createIfAbsent).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.markSent).not.toHaveBeenCalled()
   })
 
   it('does not double-send when the review was already claimed', async () => {

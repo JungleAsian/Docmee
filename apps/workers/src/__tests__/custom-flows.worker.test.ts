@@ -90,6 +90,7 @@ vi.mock('@docmee/db', () => ({
 import { processAgentJob } from '../agent-processor.worker.js'
 
 const CLINIC = '11111111-1111-1111-1111-111111111111'
+const PATIENT = '22222222-2222-2222-2222-222222222222'
 const CONVO = '33333333-3333-3333-3333-333333333333'
 
 const makeJob = (data: unknown) => ({ data }) as never
@@ -117,6 +118,7 @@ const baseJob = {
   patientWaId: '5215555555555',
   message: 'quiero agendar',
   waMessageId: 'wamid.ABC',
+  patientId: PATIENT,
   conversationId: CONVO,
 }
 
@@ -124,7 +126,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinica', settings: {}, timezone: 'America/Mexico_City' })
   h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' }])
-  h.findPatient.mockResolvedValue(null)
+  h.findPatient.mockReset().mockResolvedValue({ id: PATIENT, metadata: {} })
   h.listEmbeddedChunks.mockResolvedValue([])
   h.listEnabledFlows.mockResolvedValue([])
   h.classifyIntent.mockResolvedValue('general_question')
@@ -337,7 +339,7 @@ describe('processAgentJob — custom flow engine', () => {
     vi.clearAllMocks()
     h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinica', settings: {}, timezone: 'America/Mexico_City' })
     h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' }])
-    h.findPatient.mockResolvedValue(null)
+    h.findPatient.mockResolvedValue({ id: PATIENT, metadata: {} })
     h.findConversation.mockResolvedValue({
       id: CONVO,
       status: 'open',
@@ -363,6 +365,20 @@ describe('processAgentJob — custom flow engine', () => {
 })
 
 describe('processAgentJob — single_choice (Punchlist Aug 3 parity spec)', () => {
+  it('suppresses an interactive menu when the patient flips to human-only before provider send', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.listEnabledFlows.mockResolvedValue([choiceFlow])
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'menu' }))
+
+    expect(h.sendWhatsAppInteractiveButtons).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppInteractiveList).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
   it('starts the menu with a real WhatsApp interactive send, not plain text', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.listEnabledFlows.mockResolvedValue([choiceFlow])

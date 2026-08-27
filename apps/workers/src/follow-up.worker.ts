@@ -19,6 +19,7 @@ import {
   type FollowUpContext,
 } from './follow-up.js'
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
+import { resolveAutomationEligiblePatient } from './automation-patient-guard.js'
 import { type Job } from '@docmee/queue'
 import { isHumanOnly } from '@docmee/shared'
 import {
@@ -329,6 +330,14 @@ export async function processFollowUpJob(job: Job): Promise<void> {
       console.log(`[follow-up] ${data.type} already recorded/claimed; skipping`)
       return
     }
+
+    const deliveryPatient = await resolveAutomationEligiblePatient(
+      patients,
+      data.clinicId,
+      data.patientId,
+      'follow-up',
+    )
+    if (!deliveryPatient) return
 
     const wamid = await sendWhatsApp(text)
     // The approved path was already flipped to 'sent' by claimForSend.

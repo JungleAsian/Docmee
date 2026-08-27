@@ -109,7 +109,7 @@ beforeEach(() => {
   h.listAccounts.mockResolvedValue([
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' },
   ])
-  h.findPatient.mockResolvedValue({ id: PATIENT, fullName: 'Ana', metadata: {} })
+  h.findPatient.mockReset().mockResolvedValue({ id: PATIENT, fullName: 'Ana', metadata: {} })
   h.updatePatient.mockResolvedValue({ id: PATIENT })
   h.listEmbeddedChunks.mockResolvedValue([])
   h.listEnabledFlows.mockResolvedValue([])
@@ -186,13 +186,24 @@ describe('processAgentJob — START re-subscribe (Req 19)', () => {
     expect(h.updatePatient).not.toHaveBeenCalled()
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
   })
+
+  it('suppresses the opt-in confirmation when the patient flips to human-only before provider send', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, metadata: { optedOut: true } })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'START' }))
+
+    expect(h.updatePatient).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
 })
 
 describe('processAgentJob — Meta send-error logging (Req 19/29)', () => {
   it('records a meta_send_failure to error_reviews when the channel send rejects', async () => {
     h.sendWhatsAppText.mockRejectedValueOnce(new Error('WhatsApp send failed 401: token expired'))
     // Emergency path calls the send transport directly with the reassurance.
-    await processAgentJob(makeJob({ ...baseJob, patientId: undefined, message: 'no puedo respirar, ayuda' }))
+    await processAgentJob(makeJob({ ...baseJob, message: 'no puedo respirar, ayuda' }))
 
     expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
     expect(h.createError).toHaveBeenCalledWith(

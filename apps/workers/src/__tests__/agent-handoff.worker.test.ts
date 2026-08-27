@@ -91,6 +91,7 @@ vi.mock('@docmee/db', () => ({
 import { processAgentJob } from '../agent-processor.worker.js'
 
 const CLINIC = '11111111-1111-1111-1111-111111111111'
+const PATIENT = '22222222-2222-2222-2222-222222222222'
 const CONVO = '33333333-3333-3333-3333-333333333333'
 
 const makeJob = (data: unknown) => ({ data }) as never
@@ -101,6 +102,7 @@ const baseJob = {
   patientWaId: '5215555555555',
   message: 'Hola, ¿cuáles son sus horarios?',
   waMessageId: 'wamid.ABC',
+  patientId: PATIENT,
   conversationId: CONVO,
 }
 
@@ -114,7 +116,7 @@ beforeEach(() => {
   h.listAccounts.mockResolvedValue([
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' },
   ])
-  h.findPatient.mockResolvedValue(null)
+  h.findPatient.mockReset().mockResolvedValue({ id: PATIENT, fullName: 'Ana', metadata: {} })
   h.listEmbeddedChunks.mockResolvedValue([])
   h.listEnabledFlows.mockResolvedValue([])
   h.classifyIntent.mockResolvedValue('general_question')
@@ -122,6 +124,53 @@ beforeEach(() => {
   h.createMessage.mockResolvedValue({ id: 'm1' })
   // runClinicBot always resolves a ClinicBotResult; the worker reads .language.
   h.runClinicBot.mockResolvedValue({ replied: true, triggeredHandoff: false, language: 'es' })
+})
+
+describe('processAgentJob — final human-only delivery boundary', () => {
+  it('fails closed before automation when the queued job has no patient identity', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, patientId: undefined }))
+
+    expect(h.findPatient).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+  })
+
+  it('fails closed before automation when the queued patient cannot be resolved', async () => {
+    h.findPatient.mockResolvedValue(null)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+
+    await processAgentJob(makeJob(baseJob))
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+  })
+
+  it('suppresses an emergency reply when the patient flips to human-only before provider send', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'no puedo respirar, ayuda' }))
+
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it('suppresses a late AI-routed reply when the patient flips to human-only before provider send', async () => {
+    h.findPatient
+      .mockResolvedValueOnce({ id: PATIENT, metadata: {} })
+      .mockResolvedValueOnce({ id: PATIENT, automationMode: 'human_only', metadata: {} })
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.classifyIntent.mockResolvedValue('general_question')
+
+    await processAgentJob(makeJob(baseJob))
+
+    expect(h.classifyIntent).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
 })
 
 describe('processAgentJob — bot interruption rule', () => {
@@ -299,6 +348,7 @@ describe('processAgentJob — outbound reply persistence (Req 4)', () => {
           patientWaId: '5215555555555',
           message: 'no puedo respirar, ayuda',
           waMessageId: 'wamid.ABC',
+          patientId: PATIENT,
         }),
       ),
     ).rejects.toThrow('conversation is not durable')

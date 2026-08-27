@@ -23,6 +23,10 @@ export interface CreateAppointmentInput {
   endTime: string
   notes?: string
   metadata?: Record<string, unknown>
+  bookingOrigin?: 'docmee' | 'workflow' | 'manual' | 'system'
+  actorId?: string
+  overbooked?: boolean
+  overbookingReason?: string
 }
 
 export interface UpdateAppointmentInput {
@@ -243,7 +247,7 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
     async create(data) {
       const rows = await sql<Appointment[]>`
         INSERT INTO appointments
-          (clinic_id, patient_id, provider_id, doctor_id, service_id, conversation_id, start_time, end_time, notes, metadata, calendar_sync_pending)
+          (clinic_id, patient_id, provider_id, doctor_id, service_id, conversation_id, start_time, end_time, notes, metadata, calendar_sync_pending, booking_origin, actor_id, overbooked, overbooking_reason)
         VALUES (
           ${data.clinicId},
           ${data.patientId},
@@ -255,7 +259,11 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
           ${data.endTime}::timestamptz,
           ${data.notes          ?? null},
           ${sql.json(toJson(data.metadata ?? {}))},
-          TRUE
+          TRUE,
+          ${data.bookingOrigin ?? 'manual'},
+          ${data.actorId ?? null},
+          ${data.overbooked ?? false},
+          ${data.overbookingReason ?? null}
         )
         RETURNING *
       `

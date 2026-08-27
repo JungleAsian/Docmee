@@ -1567,6 +1567,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
         startTime,
         endTime,
+        bookingOrigin: 'workflow',
         metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
       })
       let googleEventId: string | null = null

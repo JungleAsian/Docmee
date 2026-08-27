@@ -65,6 +65,8 @@ const bookSchema = z
     // Screen 2: flag a booking urgent (drives the red card + "Urgent" tag). Stored
     // on metadata so no schema migration is needed.
     urgent: z.boolean().optional(),
+    overbook: z.boolean().optional(),
+    overbookingReason: z.string().max(500).optional(),
   })
   .refine((data) => Boolean(data.patientId) !== Boolean(data.patientName), {
     message: 'Provide exactly one of patientId or patientName',
@@ -236,6 +238,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       const result = await withDb(async (sql) => {
         const doctor = await createDoctorsRepository(sql).findById(clinicId, doctorId)
         if (!doctor) return null
+        const clinic = await createClinicsRepository(sql).findById(clinicId)
         const appts = createAppointmentsRepository(sql)
         const duration =
           (serviceId
@@ -250,6 +253,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
           .filter((a) => a.status !== 'cancelled')
           .map((a) => ({ start: timeOf(a.startTime), end: timeOf(a.endTime) }))
         const ranges = rangesForDate(normalizeAvailability(doctor.availableDays), date)
+        const configuredCadence = Number((clinic?.settings ?? {})['bookingCadenceMinutes'] ?? (clinic?.settings ?? {})['slotMinutes'])
+        const cadence = Number.isFinite(configuredCadence) && configuredCadence > 0 ? configuredCadence : duration
         // Mirror routes/doctors.ts redactDoctor: "connected" = both tokens present.
         const calendarConnected = Boolean(
           doctor.googleCalendarAccessTokenEncrypted && doctor.googleCalendarRefreshTokenEncrypted,
@@ -260,7 +265,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
           durationMinutes: duration,
           calendarConnected,
           working: ranges.length > 0,
-          slots: computeFreeSlots(ranges, duration, busy),
+          slots: computeFreeSlots(ranges, duration, busy, cadence),
         }
       })
       if (result === null) return reply.code(404).send({ error: 'Doctor not found' })
@@ -274,7 +279,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     if (!parsed.ok) return
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-    const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent } = parsed.data
+    const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent, overbook, overbookingReason } = parsed.data
 
     const result = await withDb(async (sql) => {
       const doctor = await createDoctorsRepository(sql).findById(clinicId, doctorId)
@@ -286,6 +291,14 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       if (!patient) return { error: 'patient' as const }
 
       const appts = createAppointmentsRepository(sql)
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      const clinicToday = new Intl.DateTimeFormat('en-CA', { timeZone: clinic?.timezone || 'America/Guatemala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+      // Historical records may be entered by staff (for migration/reconciliation),
+      // but a slot on the clinic's current day must never be in the past.
+      if (date === clinicToday) {
+        const localNow = new Intl.DateTimeFormat('en-GB', { timeZone: clinic?.timezone || 'America/Guatemala', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())
+        if (start <= localNow) return { error: 'past' as const }
+      }
       const duration =
         (serviceId
           ? (await appts.listServices(clinicId)).find((s) => s.id === serviceId)?.durationMinutes
@@ -299,13 +312,16 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         to: `${nextDay(date)}T00:00:00`,
         doctorId,
       })
-      const clash = dayAppts.some((a) => {
+      const clashCount = dayAppts.filter((a) => {
         if (a.status === 'cancelled') return false
         const bs = toMin(timeOf(a.startTime))
         const be = toMin(timeOf(a.endTime))
         return startMin < be && bs < endMin
-      })
-      if (clash) return { error: 'clash' as const }
+      }).length
+      const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
+      const isOverbooked = clashCount > 0
+      if (isOverbooked && (!overbook || clashCount >= capacity)) return { error: 'clash' as const }
+      if (isOverbooked && !overbookingReason?.trim()) return { error: 'overbooking_reason' as const }
 
       const appointment = await appts.create({
         clinicId,
@@ -318,6 +334,10 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         startTime: `${date}T${start}:00`,
         endTime: `${date}T${toHHMM(endMin)}:00`,
         notes,
+        bookingOrigin: 'manual',
+        actorId: request.user?.userId,
+        overbooked: isOverbooked,
+        overbookingReason: isOverbooked ? overbookingReason?.trim() : undefined,
         // A panel booking has no conversation_id (→ "Booked by staff"); the urgent
         // flag lives on metadata so the calendar can colour the card red.
         metadata: urgent ? { urgent: true } : undefined,
@@ -371,6 +391,8 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
 
     if ('error' in result) {
       if (result.error === 'clash') return reply.code(409).send({ error: 'Slot no longer available' })
+      if (result.error === 'past') return reply.code(422).send({ error: 'Cannot book a past date' })
+      if (result.error === 'overbooking_reason') return reply.code(422).send({ error: 'overbookingReason is required' })
       return reply
         .code(404)
         .send({ error: result.error === 'doctor' ? 'Doctor not found' : 'Patient not found' })

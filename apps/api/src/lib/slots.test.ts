@@ -79,6 +79,15 @@ describe('slots — computeFreeSlots', () => {
     expect(slots.map((s) => s.start)).toEqual(['09:00', '14:00'])
   })
 
+  it('uses an independent cadence when service duration is longer', () => {
+    const slots = computeFreeSlots([{ start: '09:00', end: '11:00' }], 60, [], 30)
+    expect(slots).toEqual([
+      { start: '09:00', end: '10:00' },
+      { start: '09:30', end: '10:30' },
+      { start: '10:00', end: '11:00' },
+    ])
+  })
+
   it('returns nothing for a non-positive duration', () => {
     expect(computeFreeSlots([{ start: '09:00', end: '17:00' }], 0, [])).toEqual([])
   })

@@ -575,6 +575,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
               startTime,
               endTime,
               notes: reason,
+              bookingOrigin: 'docmee',
               metadata: { intake },
             })
             await appointments.update(data.clinicId, created.id, {

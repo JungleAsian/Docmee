@@ -93,14 +93,15 @@ export function computeFreeSlots(
   ranges: TimeRange[],
   durationMinutes: number,
   busy: TimeRange[],
+  cadenceMinutes: number = durationMinutes,
 ): Slot[] {
-  if (durationMinutes <= 0) return []
+  if (durationMinutes <= 0 || cadenceMinutes <= 0) return []
   const busyMin = busy.map((b) => ({ start: toMin(b.start), end: toMin(b.end) }))
   const slots: Slot[] = []
   for (const range of ranges) {
     const rangeStart = toMin(range.start)
     const rangeEnd = toMin(range.end)
-    for (let s = rangeStart; s + durationMinutes <= rangeEnd; s += durationMinutes) {
+    for (let s = rangeStart; s + durationMinutes <= rangeEnd; s += cadenceMinutes) {
       const e = s + durationMinutes
       if (busyMin.some((b) => overlaps(s, e, b.start, b.end))) continue
       slots.push({ start: toHHMM(s), end: toHHMM(e) })

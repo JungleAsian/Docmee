@@ -10,6 +10,7 @@ import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
 import { useI18n } from '../hooks/useI18n'
 import { useTeam } from '../hooks/useTeam'
+import { conversationMode } from '../conversationMode'
 import type { Conversation, TeamMember } from '../types'
 
 const CAN_ASSIGN = new Set(['secretary', 'doctor', 'clinic_admin', 'ia_studio_admin'])
@@ -40,6 +41,13 @@ export function AssignControl({ conversationId }: { conversationId: string }) {
       qc.invalidateQueries({ queryKey: ['conversations'] })
     },
   })
+  const resumeBotMutation = useMutation({
+    mutationFn: () => api.post(`/conversations/${conversationId}/resume-bot`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
 
   const conversation = conversationQuery.data?.conversation
   const assignee = members.find((m) => m.id === conversation?.assignedTo)
@@ -55,26 +63,30 @@ export function AssignControl({ conversationId }: { conversationId: string }) {
     )
   }
 
+  const botMode = conversationMode(conversation?.status) === 'bot'
+  const pending = assignMutation.isPending || resumeBotMutation.isPending
+
   return (
-    <label className="flex items-center gap-1.5 text-xs">
-      <span className="text-gray-500">{t('assign.header')}:</span>
-      <select
-        value={conversation?.assignedTo ?? ''}
-        onChange={(e) => {
-          if (e.target.value) assignMutation.mutate(e.target.value)
-        }}
-        disabled={assignMutation.isPending}
-        className="max-w-[10rem] truncate rounded-md border border-gray-300 px-2 py-1 text-xs outline-none focus:border-teal-500 dark:border-gray-700 dark:bg-gray-800"
+    <div className="flex items-center gap-1.5 text-xs" aria-label="Conversation handling">
+      <span className={`rounded-full px-2 py-1 font-bold ${botMode ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>
+        {botMode ? '✦ Bot' : `● ${assigneeLabel}`}
+      </span>
+      <button
+        type="button"
+        onClick={() => user?.id && assignMutation.mutate(user.id)}
+        disabled={pending || !user?.id || conversation?.assignedTo === user.id}
+        className="rounded-full border border-teal-600 px-2.5 py-1.5 font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-50 dark:text-teal-300 dark:hover:bg-teal-950/30"
       >
-        <option value="" disabled>
-          {t('conv.unassigned')}
-        </option>
-        {members.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.fullName ?? m.email}
-          </option>
-        ))}
-      </select>
-    </label>
+        {assignMutation.isPending ? 'Assigning…' : 'Assign to me'}
+      </button>
+      <button
+        type="button"
+        onClick={() => resumeBotMutation.mutate()}
+        disabled={pending || botMode}
+        className="rounded-full border border-violet-600 px-2.5 py-1.5 font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-950/30"
+      >
+        {resumeBotMutation.isPending ? 'Returning…' : 'Bot'}
+      </button>
+    </div>
   )
 }

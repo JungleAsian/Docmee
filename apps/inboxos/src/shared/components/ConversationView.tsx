@@ -256,18 +256,6 @@ export function ConversationView({
     },
   })
 
-  // Req 5: hand a human-owned conversation back to the bot (status→open, unassign,
-  // clear the bot-pause metadata). The one-click counterpart to the human takeover
-  // that fires when a secretary replies; the bot then resumes auto-answering.
-  const resumeBotMutation = useMutation({
-    mutationFn: () => api.post(`/conversations/${conversationId}/resume-bot`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
-      qc.invalidateQueries({ queryKey: ['messages', conversationId] })
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-    },
-  })
-
   // Req 29: flag a bad bot reply → Admin Studio Error Review (bad_response).
   const flagMutation = useMutation({
     mutationFn: (message: Message) =>
@@ -411,17 +399,6 @@ export function ConversationView({
                   </option>
                 ))}
               </select>
-            )}
-            {/* Req 5: one-click return to the bot while a human owns the thread. */}
-            {conversation && humanMode && !closed && (
-              <button
-                type="button"
-                onClick={() => resumeBotMutation.mutate()}
-                disabled={resumeBotMutation.isPending}
-                className="rounded-full bg-violet-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-60"
-              >
-                ↩ {resumeBotMutation.isPending ? t('view.mode.resuming') : t('view.mode.resumeBot')}
-              </button>
             )}
             {conversation && !closed && (
               <button

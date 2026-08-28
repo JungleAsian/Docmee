@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import multipart from '@fastify/multipart'
-import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream, createWriteStream, promises as fs } from 'node:fs'
+import { createWriteStream, promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -16,11 +15,12 @@ import {
   kbVaultEnabled,
   MEDIA_ASSET_MAX_ACTIVE_FILES,
   MEDIA_ASSET_MAX_BYTES,
-  MEDIA_ASSET_QUOTA_BYTES,
-  mediaObjectKey,
-  uploadKbVaultObject,
-  validateMediaAsset,
 } from '../lib/kb-vault-storage.js'
+import {
+  ingestMediaAssetFromPath,
+  MediaAssetIngestError,
+  mediaAssetIngestHttpError,
+} from '../lib/media-asset-ingest.js'
 
 function toMediaAssetSummary(asset: {
   id: string
@@ -40,12 +40,6 @@ function toMediaAssetSummary(asset: {
     cleanupRequired: asset.storageStatus === 'delete_failed',
     createdAt: asset.createdAt,
   }
-}
-
-async function readPrefix(path: string): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  for await (const chunk of createReadStream(path, { start: 0, end: 511 })) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  return Buffer.concat(chunks)
 }
 
 const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
@@ -78,47 +72,23 @@ const mediaAssetsRoute: FastifyPluginAsync = async (app) => {
     const tempPath = join(tmpdir(), `docmee-media-${Date.now()}-${Math.random().toString(16).slice(2)}`)
     try {
       await pipeline(file.file, createWriteStream(tempPath, { flags: 'wx' }))
-      const stat = await fs.stat(tempPath)
-      const validationError = validateMediaAsset({
-        contentType: file.mimetype,
-        byteSize: stat.size,
-        signatureBytes: await readPrefix(tempPath),
-      })
-      if (validationError === 'empty') return reply.code(400).send({ error: 'Empty files are not allowed' })
-      if (validationError === 'too_large') return reply.code(413).send({ error: 'File exceeds the 100 MB limit' })
-      if (validationError === 'unsupported_type') return reply.code(400).send({ error: 'Only PDF, JPEG, PNG, and WebP files are supported' })
-      if (validationError === 'invalid_signature') return reply.code(400).send({ error: 'File content does not match its declared type' })
-      const checksumHash = createHash('sha256')
-      for await (const chunk of createReadStream(tempPath)) checksumHash.update(chunk)
-      const checksum = checksumHash.digest('hex')
-      const assetId = randomUUID()
-      const key = mediaObjectKey({ clinicId, assetId, fileName: file.filename || 'attachment' })
-      let asset
       try {
-        asset = await withDb((sql) => createMediaAssetsRepository(sql).reserveWithinQuota({ id: assetId, clinicId, uploadedBy: request.user!.userId, filename: file.filename || 'attachment', contentType: file.mimetype as never, byteSize: stat.size, checksum, storageKey: key }, { maxFiles: MEDIA_ASSET_MAX_ACTIVE_FILES, maxBytes: MEDIA_ASSET_QUOTA_BYTES }))
+        const asset = await ingestMediaAssetFromPath({
+          clinicId,
+          uploadedBy: request.user!.userId,
+          filename: file.filename || 'attachment',
+          contentType: file.mimetype,
+          tempPath,
+          logError: (message) => request.log.error(message),
+        })
+        return reply.code(201).send({ asset: toMediaAssetSummary(asset) })
       } catch (error) {
-        if (error instanceof Error && error.message === 'media_file_limit_reached') return reply.code(413).send({ error: 'Clinic media file limit reached (10 active files)' })
-        if (error instanceof Error && error.message === 'media_quota_exceeded') return reply.code(413).send({ error: 'Clinic media quota exceeded' })
+        if (error instanceof MediaAssetIngestError) {
+          const httpError = mediaAssetIngestHttpError(error)
+          return reply.code(httpError.status).send({ error: httpError.message })
+        }
         throw error
       }
-      try {
-        await uploadKbVaultObject({ key, body: createReadStream(tempPath), contentType: file.mimetype, metadata: { clinicId, checksum } })
-        await withDb((sql) => createMediaAssetsRepository(sql).markUploadReady(clinicId, asset.id))
-      } catch (error) {
-        await withDb((sql) => createMediaAssetsRepository(sql).beginDeletion(clinicId, asset.id)).catch(() => undefined)
-        try {
-          const deleted = await deleteKbVaultObject(key)
-          if (!deleted) throw new Error('S3 storage is unavailable')
-          await withDb((sql) => createMediaAssetsRepository(sql).markDeletionComplete(clinicId, asset.id))
-        } catch {
-          await withDb((sql) => createMediaAssetsRepository(sql).markDeletionFailed(clinicId, asset.id, 's3_delete_failed')).catch((persistError) => {
-            request.log.error(`[media-assets] failed to persist cleanup failure: ${(persistError as Error).message}`)
-          })
-        }
-        request.log.error(`[media-assets] private storage upload failed: ${(error as Error).message}`)
-        return reply.code(503).send({ error: 'Private media storage upload failed' })
-      }
-      return reply.code(201).send({ asset: toMediaAssetSummary({ ...asset, storageStatus: 'active' }) })
     } finally {
       await fs.rm(tempPath, { force: true }).catch(() => undefined)
     }

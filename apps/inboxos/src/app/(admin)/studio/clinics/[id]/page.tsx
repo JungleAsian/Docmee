@@ -7,8 +7,9 @@
 import { use, useCallback, useContext, useEffect, useRef, useState, createContext, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError, API_BASE } from '@/shared/api/client'
+import { api, ApiError } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
+import { GoogleOAuthButton } from '@/shared/components/GoogleOAuthButton'
 import { LicenseBadge } from '@/shared/components/LicenseBadge'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { WEEKDAYS, toBusinessHours } from '@/shared/businessHours'
@@ -790,9 +791,6 @@ function CalendarSection({ clinic }: { clinic: Clinic }) {
   const settings = clinic.settings as ClinicSettings
   const connected = Boolean(settings.googleCalendar)
   const [showReadiness, setShowReadiness] = useState(false)
-  // The API begins the OAuth flow with a redirect; open it in the same tab.
-  const authUrl = `${API_BASE}/clinic/${clinic.id}/calendar/auth`
-
   // Disconnect drops the stored tokens server-side; re-read the clinic so the
   // badge flips back to "Not connected" and the bot stops booking.
   const disconnect = useMutation({
@@ -828,12 +826,12 @@ function CalendarSection({ clinic }: { clinic: Clinic }) {
               {disconnect.isPending ? t('calendar.disconnecting') : t('calendar.disconnect')}
             </button>
           )}
-          <a
-            href={authUrl}
+          <GoogleOAuthButton
+            clinicId={clinic.id}
             className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
           >
             {connected ? t('calendar.reconnect') : t('calendar.connect')}
-          </a>
+          </GoogleOAuthButton>
         </div>
       </div>
       {showReadiness && (

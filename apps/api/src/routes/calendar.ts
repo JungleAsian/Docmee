@@ -6,6 +6,9 @@ import type { FastifyPluginAsync } from 'fastify'
 import { getOAuth2Client } from '@docmee/agents'
 import { encryptValue } from '@docmee/shared'
 import { createServiceDbClient, createClinicsRepository, createDoctorsRepository } from '@docmee/db'
+import { consumeGoogleOAuthState, issueGoogleOAuthState } from '../auth/oauth-state-store.js'
+import { resolveClinicScope } from '../lib/scope.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 
 interface GoogleCalendarSettings {
   accessToken: string
@@ -13,7 +16,15 @@ interface GoogleCalendarSettings {
   calendarId: string
   /** Unix epoch ms the access token expires; lets the worker refresh proactively. */
   expiryDate?: number
+  /** OAuth scopes granted to this clinic connection. Older connections omit it. */
+  scopes?: string[]
 }
+
+const CLINIC_GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.readonly',
+] as const
 
 function getCalendarSettings(settings: Record<string, unknown>): GoogleCalendarSettings | null {
   const gc = settings['googleCalendar']
@@ -112,58 +123,28 @@ async function googleRejectsRedirectUri(authUrl: string): Promise<boolean> {
 }
 
 const calendarRoute: FastifyPluginAsync = async (app) => {
-  // 1. Begin OAuth — redirect the clinic admin to Google's consent screen.
-  app.get<{ Params: { clinicId: string } }>('/clinic/:clinicId/calendar/auth', async (request, reply) => {
-    const oauth2Client = await getOAuth2Client(request.params.clinicId)
-    const url = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      // One unified Google connection per clinic: calendar.events powers booking
-      // (Req 9), spreadsheets powers the CRM / Google Sheets export (Req 31) which
-      // reuses these same tokens.
-      scope: [
-        'https://www.googleapis.com/auth/calendar.events',
-        'https://www.googleapis.com/auth/spreadsheets',
-      ],
-      state: request.params.clinicId,
-      prompt: 'consent',
-    })
-    if (await googleRejectsRedirectUri(url)) {
-      return reply
-        .code(409)
-        .header('content-type', 'text/html; charset=utf-8')
-        .send(
-          googleOAuthSetupPage({
-            redirectUri: process.env['GOOGLE_REDIRECT_URI']?.trim() || null,
-            clientId: process.env['GOOGLE_CLIENT_ID']?.trim() || null,
-          }),
-        )
-    }
-    return reply.redirect(url)
-  })
-
-  // 1b. Begin OAuth for a single doctor's own calendar — same shared OAuth app
-  // and callback route as the clinic flow above; the `state` prefix ("doctor:")
-  // is what lets the shared callback route each connection to the right place.
-  app.get<{ Params: { clinicId: string; doctorId: string } }>(
-    '/clinics/:clinicId/doctors/:doctorId/calendar/auth',
+  // 1. Begin OAuth from an authenticated admin request. The browser receives the
+  // Google URL only after Docmee has issued an opaque, expiring, one-time state.
+  app.post<{ Params: { clinicId: string } }>(
+    '/clinic/:clinicId/calendar/auth-url',
+    { preHandler: [requireAuth, requireRole('clinic_admin', 'ia_studio_admin')] },
     async (request, reply) => {
-      const { clinicId, doctorId } = request.params
+      const clinicId = resolveClinicScope(request, request.params.clinicId)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
       const sql = dbClient()
-      let doctorExists = false
       try {
-        doctorExists = (await createDoctorsRepository(sql).findById(clinicId, doctorId)) !== null
+        if (!(await createClinicsRepository(sql).findById(clinicId))) return reply.code(404).send({ error: 'Clinic not found' })
       } finally {
         await sql.end()
       }
-      if (!doctorExists) return reply.code(404).send({ error: 'Doctor not found' })
-
       const oauth2Client = await getOAuth2Client(clinicId)
+      const state = await issueGoogleOAuthState({ flow: 'clinic', clinicId, userId: request.user!.userId })
       const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
-        // Doctor-level connections only ever power calendar booking — no
-        // spreadsheets/CRM export scope, that stays clinic-only.
-        scope: ['https://www.googleapis.com/auth/calendar.events'],
-        state: `doctor:${clinicId}:${doctorId}`,
+        // One unified Google connection per clinic: calendar.events powers booking,
+        // spreadsheets powers CRM export, and Drive remains read-only for staff media browsing.
+        scope: [...CLINIC_GOOGLE_SCOPES],
+        state,
         prompt: 'consent',
       })
       if (await googleRejectsRedirectUri(url)) {
@@ -177,23 +158,67 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
             }),
           )
       }
-      return reply.redirect(url)
+      return { url }
+    },
+  )
+
+  // 1b. Begin OAuth for a single doctor's own calendar — same shared OAuth app
+  // and callback route as the clinic flow above; the stored state binding routes
+  // each callback to the intended doctor without exposing tenant IDs to Google.
+  app.post<{ Params: { clinicId: string; doctorId: string } }>(
+    '/clinics/:clinicId/doctors/:doctorId/calendar/auth-url',
+    { preHandler: [requireAuth, requireRole('clinic_admin', 'ia_studio_admin')] },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.clinicId)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const { doctorId } = request.params
+      const sql = dbClient()
+      let doctorExists = false
+      try {
+        doctorExists = (await createDoctorsRepository(sql).findById(clinicId, doctorId)) !== null
+      } finally {
+        await sql.end()
+      }
+      if (!doctorExists) return reply.code(404).send({ error: 'Doctor not found' })
+
+      const oauth2Client = await getOAuth2Client(clinicId)
+      const state = await issueGoogleOAuthState({ flow: 'doctor', clinicId, doctorId, userId: request.user!.userId })
+      const url = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        // Doctor-level connections only ever power calendar booking — no
+        // spreadsheets/CRM export scope, that stays clinic-only.
+        scope: ['https://www.googleapis.com/auth/calendar.events'],
+        state,
+        prompt: 'consent',
+      })
+      if (await googleRejectsRedirectUri(url)) {
+        return reply
+          .code(409)
+          .header('content-type', 'text/html; charset=utf-8')
+          .send(
+            googleOAuthSetupPage({
+              redirectUri: process.env['GOOGLE_REDIRECT_URI']?.trim() || null,
+              clientId: process.env['GOOGLE_CLIENT_ID']?.trim() || null,
+            }),
+          )
+      }
+      return { url }
     },
   )
 
   // 2. OAuth callback — exchange the code and persist encrypted tokens. Shared
-  // by both the clinic flow (state = bare clinicId) and the doctor flow
-  // (state = "doctor:<clinicId>:<doctorId>") since both reuse the one
-  // registered Google Cloud redirect URI.
+  // by both clinic and doctor flows. The callback accepts only an unexpired state
+  // that Docmee issued and atomically consumes it before exchanging the code.
   app.get<{ Querystring: { code?: string; state?: string; error?: string; error_description?: string } }>(
     '/clinic/calendar/callback',
     async (request, reply) => {
       const { code, state, error } = request.query
-      const doctorMatch = state?.match(/^doctor:([^:]+):([^:]+)$/)
-      const clinicId = doctorMatch ? doctorMatch[1] : state
+      const binding = state ? await consumeGoogleOAuthState(state) : null
+      if (!binding) return reply.code(400).send({ error: 'Invalid, expired, or already used OAuth state' })
+      const clinicId = binding.clinicId
 
       if (error) {
-        if (doctorMatch) return reply.redirect(`/studio/doctors?calendar=error&reason=${encodeURIComponent(error)}`)
+        if (binding.flow === 'doctor') return reply.redirect(`/studio/doctors?calendar=error&reason=${encodeURIComponent(error)}`)
         const target = clinicId
           ? `/studio/channels?calendar=error&clinic=${encodeURIComponent(clinicId)}&reason=${encodeURIComponent(error)}`
           : `/studio/channels?calendar=error&reason=${encodeURIComponent(error)}`
@@ -210,8 +235,8 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
 
       const sql = dbClient()
       try {
-        if (doctorMatch) {
-          const doctorId = doctorMatch[2]!
+        if (binding.flow === 'doctor') {
+          const doctorId = binding.doctorId
           const doctors = createDoctorsRepository(sql)
           const doctor = await doctors.findById(clinicId, doctorId)
           if (!doctor) return reply.code(404).send({ error: 'Doctor not found' })
@@ -229,6 +254,10 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
         if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
 
         const existing = getCalendarSettings(clinic.settings)
+        const grantedScopes = tokens.scope
+          ?.split(/\s+/)
+          .map((scope) => scope.trim())
+          .filter(Boolean) ?? [...CLINIC_GOOGLE_SCOPES]
         await clinics.update(clinicId, {
           settings: {
             ...clinic.settings,
@@ -239,6 +268,7 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
               // Stored unencrypted (not a secret); lets the scheduling worker know
               // when to refresh instead of waiting for a 401.
               ...(typeof tokens.expiry_date === 'number' ? { expiryDate: tokens.expiry_date } : {}),
+              scopes: grantedScopes,
             },
           },
         })
@@ -251,35 +281,46 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
   )
 
   // 3. Connection status (no decryption — only presence is reported).
-  app.get<{ Params: { clinicId: string } }>('/clinic/:clinicId/calendar/status', async (request, reply) => {
-    const sql = dbClient()
-    try {
-      const clinics = createClinicsRepository(sql)
-      const clinic = await clinics.findById(request.params.clinicId)
-      if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
-      return { connected: getCalendarSettings(clinic.settings) !== null }
-    } finally {
-      await sql.end()
-    }
-  })
+  app.get<{ Params: { clinicId: string } }>(
+    '/clinic/:clinicId/calendar/status',
+    { preHandler: [requireAuth, requireRole('clinic_admin', 'ia_studio_admin')] },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.clinicId)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const sql = dbClient()
+      try {
+        const clinics = createClinicsRepository(sql)
+        const clinic = await clinics.findById(clinicId)
+        if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
+        return { connected: getCalendarSettings(clinic.settings) !== null }
+      } finally {
+        await sql.end()
+      }
+    },
+  )
 
-  app.get<{ Params: { clinicId: string } }>('/clinic/:clinicId/calendar/health', async (request, reply) => {
-    const requiredEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI']
-    const missingEnv = requiredEnv.filter((name) => !hasEnv(name))
-    const sql = dbClient()
-    try {
-      const clinics = createClinicsRepository(sql)
-      const doctorsRepository = createDoctorsRepository(sql)
-      const clinic = await clinics.findById(request.params.clinicId)
-      if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
-      const calendar = getCalendarSettings(clinic.settings)
-      const doctors = await doctorsRepository.listByClinic(request.params.clinicId)
-      const connectedDoctors = doctors.filter(
-        (doctor) => doctor.googleCalendarAccessTokenEncrypted && doctor.googleCalendarRefreshTokenEncrypted,
-      )
-      const expiryDate = typeof calendar?.expiryDate === 'number' ? calendar.expiryDate : null
-      const tokenExpired = expiryDate !== null ? expiryDate <= Date.now() : false
-      const checks = [
+  app.get<{ Params: { clinicId: string } }>(
+    '/clinic/:clinicId/calendar/health',
+    { preHandler: [requireAuth, requireRole('clinic_admin', 'ia_studio_admin')] },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.clinicId)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const requiredEnv = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI']
+      const missingEnv = requiredEnv.filter((name) => !hasEnv(name))
+      const sql = dbClient()
+      try {
+        const clinics = createClinicsRepository(sql)
+        const doctorsRepository = createDoctorsRepository(sql)
+        const clinic = await clinics.findById(clinicId)
+        if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
+        const calendar = getCalendarSettings(clinic.settings)
+        const doctors = await doctorsRepository.listByClinic(clinicId)
+        const connectedDoctors = doctors.filter(
+          (doctor) => doctor.googleCalendarAccessTokenEncrypted && doctor.googleCalendarRefreshTokenEncrypted,
+        )
+        const expiryDate = typeof calendar?.expiryDate === 'number' ? calendar.expiryDate : null
+        const tokenExpired = expiryDate !== null ? expiryDate <= Date.now() : false
+        const checks = [
         {
           key: 'oauth_env',
           label: 'Google OAuth app',
@@ -323,63 +364,73 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
           key: 'booking_scope',
           label: 'Booking API scope',
           state: 'pass',
-          detail: 'OAuth requests calendar.events and spreadsheets scopes.',
+          detail: 'OAuth requests calendar.events, spreadsheets, and read-only Drive scopes.',
           action: 'Keep the consent screen approved for the requested scopes.',
         },
-      ] satisfies Array<{
-        key: string
-        label: string
-        state: 'pass' | 'warning' | 'fail'
-        detail: string
-        action: string
-      }>
-      const failed = checks.filter((check) => check.state === 'fail')
-      return {
-        checkedAt: new Date().toISOString(),
-        overall: failed.length === 0 ? 'ready' : calendar ? 'partial' : 'blocked',
-        connected: Boolean(calendar),
-        calendarId: calendar?.calendarId ?? null,
-        expiryDate,
-        doctorCoverage: {
-          activeDoctors: doctors.length,
-          connectedDoctors: connectedDoctors.length,
-        },
-        checks,
-        requiredActions: checks.filter((check) => check.state !== 'pass').map((check) => check.action),
+        ] satisfies Array<{
+          key: string
+          label: string
+          state: 'pass' | 'warning' | 'fail'
+          detail: string
+          action: string
+        }>
+        const failed = checks.filter((check) => check.state === 'fail')
+        return {
+          checkedAt: new Date().toISOString(),
+          overall: failed.length === 0 ? 'ready' : calendar ? 'partial' : 'blocked',
+          connected: Boolean(calendar),
+          calendarId: calendar?.calendarId ?? null,
+          expiryDate,
+          doctorCoverage: {
+            activeDoctors: doctors.length,
+            connectedDoctors: connectedDoctors.length,
+          },
+          checks,
+          requiredActions: checks.filter((check) => check.state !== 'pass').map((check) => check.action),
+        }
+      } finally {
+        await sql.end()
       }
-    } finally {
-      await sql.end()
-    }
-  })
+    },
+  )
 
   // 4. Disconnect — drop the stored tokens.
-  app.delete<{ Params: { clinicId: string } }>('/clinic/:clinicId/calendar/disconnect', async (request, reply) => {
-    const sql = dbClient()
-    try {
-      const clinics = createClinicsRepository(sql)
-      const clinic = await clinics.findById(request.params.clinicId)
-      if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
+  app.delete<{ Params: { clinicId: string } }>(
+    '/clinic/:clinicId/calendar/disconnect',
+    { preHandler: [requireAuth, requireRole('clinic_admin', 'ia_studio_admin')] },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.clinicId)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const sql = dbClient()
+      try {
+        const clinics = createClinicsRepository(sql)
+        const clinic = await clinics.findById(clinicId)
+        if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
 
-      const nextSettings = { ...clinic.settings }
-      delete nextSettings['googleCalendar']
-      await clinics.update(request.params.clinicId, { settings: nextSettings })
-      return reply.code(200).send({ disconnected: true })
-    } finally {
-      await sql.end()
-    }
-  })
+        const nextSettings = { ...clinic.settings }
+        delete nextSettings['googleCalendar']
+        await clinics.update(clinicId, { settings: nextSettings })
+        return reply.code(200).send({ disconnected: true })
+      } finally {
+        await sql.end()
+      }
+    },
+  )
 
   // 4b. Disconnect a single doctor's own calendar connection.
   app.delete<{ Params: { clinicId: string; doctorId: string } }>(
     '/clinics/:clinicId/doctors/:doctorId/calendar/disconnect',
+    { preHandler: [requireAuth, requireRole('clinic_admin', 'ia_studio_admin')] },
     async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.clinicId)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
       const sql = dbClient()
       try {
         const doctors = createDoctorsRepository(sql)
-        const doctor = await doctors.findById(request.params.clinicId, request.params.doctorId)
+        const doctor = await doctors.findById(clinicId, request.params.doctorId)
         if (!doctor) return reply.code(404).send({ error: 'Doctor not found' })
 
-        await doctors.disconnectCalendar(request.params.clinicId, request.params.doctorId)
+        await doctors.disconnectCalendar(clinicId, request.params.doctorId)
         return reply.code(200).send({ disconnected: true })
       } finally {
         await sql.end()

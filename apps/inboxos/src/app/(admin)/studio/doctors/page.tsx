@@ -7,8 +7,9 @@
 // actually works).
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, API_BASE, ApiError } from '@/shared/api/client'
+import { api, ApiError } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
+import { GoogleOAuthButton } from '@/shared/components/GoogleOAuthButton'
 import { PillToggle } from '@/shared/components/PillToggle'
 import {
   WEEKDAYS,
@@ -35,7 +36,7 @@ export default function DoctorsPage() {
 
   const doctors = query.data?.doctors ?? []
 
-  // Post-OAuth redirect banner from /clinics/:id/doctors/:doctorId/calendar/auth.
+  // Post-OAuth redirect banner from the doctor-specific Google callback.
   // Client-side query-param read avoids a useSearchParams Suspense requirement
   // on this page (same convention as the workflows page's deep-link handling).
   const [calendarBanner, setCalendarBanner] = useState<{ kind: 'connected' | 'error'; doctorId?: string } | null>(null)
@@ -800,12 +801,14 @@ function EditDoctorForm({
             {disconnectCalendar.isPending ? t('common.loading') : t('studio.doctors.calendarDisconnect')}
           </button>
         ) : (
-          <a
-            href={`${API_BASE}/clinics/${clinicId}/doctors/${doctor.id}/calendar/auth`}
+          <GoogleOAuthButton
+            clinicId={clinicId}
+            doctorId={doctor.id}
+            wrapperClassName="ml-auto inline-flex flex-col items-end gap-1"
             className="ml-auto rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700"
           >
             {t('studio.doctors.calendarConnect')}
-          </a>
+          </GoogleOAuthButton>
         )}
         {disconnectMessage && <p className="w-full text-red-600">{disconnectMessage}</p>}
       </div>

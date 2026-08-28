@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, API_BASE } from '@/shared/api/client'
+import { api } from '@/shared/api/client'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
+import { GoogleOAuthButton } from '@/shared/components/GoogleOAuthButton'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { useAuthStore } from '@/shared/store/auth'
 import type { Clinic } from '@/shared/types'
@@ -398,12 +399,12 @@ function CalendarIntegration({ clinic, connected }: { clinic: Clinic; connected:
       steps={['Click Connect Google.', 'Sign in with the clinic Google account.', 'Approve access, then return to Docmee and test a booking.']}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <a
-          href={`${API_BASE}/clinic/${clinic.id}/calendar/auth`}
+        <GoogleOAuthButton
+          clinicId={clinic.id}
           className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700"
         >
           Connect Google Calendar
-        </a>
+        </GoogleOAuthButton>
         <button
           type="button"
           onClick={() => disconnect.mutate()}

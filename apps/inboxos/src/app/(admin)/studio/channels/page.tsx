@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, API_BASE } from '@/shared/api/client'
+import { GoogleOAuthButton } from '@/shared/components/GoogleOAuthButton'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
 import { InboxDisplaySettingsPanel } from '@/shared/components/InboxDisplaySettingsPanel'
@@ -1436,9 +1437,9 @@ function CalendarWizard({ clinic, onSaved }: { clinic: Clinic; onSaved: () => vo
       recommendedTitle="Connect with Google for booking sync"
       recommendedBody="Authorize the clinic Google account so Docmee can create appointment events and reuse the same consent for Google Sheets export."
       recommendedButton={
-        <a href={`${API_BASE}/clinic/${clinic.id}/calendar/auth`} className="inline-flex min-h-10 items-center rounded-md bg-teal-600 px-4 py-2 text-xs font-medium text-white">
+        <GoogleOAuthButton clinicId={clinic.id} className="inline-flex min-h-10 items-center rounded-md bg-teal-600 px-4 py-2 text-xs font-medium text-white">
           Continue with Google
-        </a>
+        </GoogleOAuthButton>
       }
     >
       <h4 className="text-center text-sm font-semibold">More Options (Advanced)</h4>
@@ -1476,9 +1477,9 @@ function SheetsWizard({ clinic, onSaved }: { clinic: Clinic; onSaved: () => void
       recommendedTitle="Use the connected Google account"
       recommendedBody="Connect Google Calendar first, then choose the spreadsheet where Docmee should sync CRM exports. The same Google authorization includes Sheets access."
       recommendedButton={
-        <a href={`${API_BASE}/clinic/${clinic.id}/calendar/auth`} className="inline-flex min-h-10 items-center rounded-md bg-teal-600 px-4 py-2 text-xs font-medium text-white">
+        <GoogleOAuthButton clinicId={clinic.id} className="inline-flex min-h-10 items-center rounded-md bg-teal-600 px-4 py-2 text-xs font-medium text-white">
           Continue with Google
-        </a>
+        </GoogleOAuthButton>
       }
     >
       <h4 className="text-center text-sm font-semibold">More Options (Advanced)</h4>

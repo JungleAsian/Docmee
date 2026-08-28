@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
@@ -168,19 +168,24 @@ function IntegrationGroupBanner({
   icon,
   title,
   description,
+  actions,
 }: {
   icon: BrandIconName
   title: string
   description: string
+  actions?: ReactNode
 }) {
   return (
     <section className="clinic-card border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/20">
-      <div className="flex items-start gap-3">
-        <BrandIcon name={icon} />
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-sky-950 dark:text-sky-100">{title}</h2>
-          <p className="mt-1 max-w-3xl text-xs leading-5 text-sky-900/80 dark:text-sky-100/80">{description}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <BrandIcon name={icon} />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-sky-950 dark:text-sky-100">{title}</h2>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-sky-900/80 dark:text-sky-100/80">{description}</p>
+          </div>
         </div>
+        {actions}
       </div>
     </section>
   )
@@ -272,6 +277,7 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
   const sheets = settings.googleSheets ?? {}
   const emailDelivery = settings.emailDelivery ?? {}
   const n8n = settings.integrations?.n8n ?? {}
+  const [googleOpen, setGoogleOpen] = useState(false)
   const providerStatus = useQuery({
     queryKey: ['provider-status', clinic.id],
     queryFn: () => api.get<{ providers: ProviderReadiness[] }>('/provider-status'),
@@ -284,11 +290,24 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
         icon="google"
         title="Google workspace sync"
         description="Connect calendar and spreadsheet tools used by the clinic for appointment scheduling and operational exports."
+        actions={
+          <button
+            type="button"
+            onClick={() => setGoogleOpen((value) => !value)}
+            aria-expanded={googleOpen}
+            aria-controls="google-workspace-integrations"
+            className="shrink-0 rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100 dark:hover:bg-sky-900"
+          >
+            {googleOpen ? 'Hide integrations' : 'Show integrations'}
+          </button>
+        }
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <CalendarIntegration clinic={clinic} connected={calendarConnected} />
-        <SheetsIntegration clinic={clinic} connected={calendarConnected} sheets={sheets} />
-      </div>
+      {googleOpen ? (
+        <div id="google-workspace-integrations" className="space-y-4">
+          <CalendarIntegration clinic={clinic} connected={calendarConnected} />
+          <SheetsIntegration clinic={clinic} connected={calendarConnected} sheets={sheets} />
+        </div>
+      ) : null}
 
       <IntegrationGroupBanner
         icon="email"
@@ -322,6 +341,7 @@ export function AiProvidersPanel({ clinic }: { clinic: Clinic }) {
   const statusFor = (provider: AiProvider) =>
     aiStatus.data?.providers.find((p) => p.provider === provider) ?? null
   const providerStatuses = aiStatus.data?.providers ?? []
+  const [providersOpen, setProvidersOpen] = useState(false)
 
   return (
     <div className="space-y-4">
@@ -329,50 +349,31 @@ export function AiProvidersPanel({ clinic }: { clinic: Clinic }) {
         icon="claude"
         title="Docmee AI providers"
         description="Connect AI provider keys used by Docmee for chat responses, knowledge-base grounding, and clinic-specific assistance."
+        actions={
+          <button
+            type="button"
+            onClick={() => setProvidersOpen((value) => !value)}
+            aria-expanded={providersOpen}
+            aria-controls="docmee-ai-provider-integrations"
+            className="shrink-0 rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100 dark:hover:bg-sky-900"
+          >
+            {providersOpen ? 'Hide providers' : 'Show providers'}
+          </button>
+        }
       />
-      {jzelConfigLocked && (
-        <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
-          Docmee is hidden for your user account, so Docmee and AI service configuration is locked.
-        </p>
-      )}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ProviderLoginCard
-          clinic={clinic}
-          provider="claude"
-          title="Claude (Anthropic)"
-          status={statusFor('claude')}
-          statuses={providerStatuses}
-          loading={aiStatus.isLoading}
-          locked={jzelConfigLocked}
-        />
-        <ProviderLoginCard
-          clinic={clinic}
-          provider="openai"
-          title="Codex / ChatGPT (OpenAI)"
-          status={statusFor('openai')}
-          statuses={providerStatuses}
-          loading={aiStatus.isLoading}
-          locked={jzelConfigLocked}
-        />
-        <ProviderLoginCard
-          clinic={clinic}
-          provider="gemini"
-          title="Google Gemini"
-          status={statusFor('gemini')}
-          statuses={providerStatuses}
-          loading={aiStatus.isLoading}
-          locked={jzelConfigLocked}
-        />
-        <ProviderLoginCard
-          clinic={clinic}
-          provider="custom"
-          title="Custom / OpenAI-compatible"
-          status={statusFor('custom')}
-          statuses={providerStatuses}
-          loading={aiStatus.isLoading}
-          locked={jzelConfigLocked}
-        />
-      </div>
+      {providersOpen ? (
+        <div id="docmee-ai-provider-integrations" className="space-y-4">
+          {jzelConfigLocked && (
+            <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+              Docmee is hidden for your user account, so Docmee and AI service configuration is locked.
+            </p>
+          )}
+          <ProviderLoginCard clinic={clinic} provider="claude" title="Claude (Anthropic)" status={statusFor('claude')} statuses={providerStatuses} loading={aiStatus.isLoading} locked={jzelConfigLocked} />
+          <ProviderLoginCard clinic={clinic} provider="openai" title="Codex / ChatGPT (OpenAI)" status={statusFor('openai')} statuses={providerStatuses} loading={aiStatus.isLoading} locked={jzelConfigLocked} />
+          <ProviderLoginCard clinic={clinic} provider="gemini" title="Google Gemini" status={statusFor('gemini')} statuses={providerStatuses} loading={aiStatus.isLoading} locked={jzelConfigLocked} />
+          <ProviderLoginCard clinic={clinic} provider="custom" title="Custom / OpenAI-compatible" status={statusFor('custom')} statuses={providerStatuses} loading={aiStatus.isLoading} locked={jzelConfigLocked} />
+        </div>
+      ) : null}
     </div>
   )
 }

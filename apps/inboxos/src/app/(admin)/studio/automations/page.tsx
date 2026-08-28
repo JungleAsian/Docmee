@@ -149,6 +149,7 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
   }
 
   const { active, total } = activeCount(config)
+  const [followUpsOpen, setFollowUpsOpen] = useState(false)
 
   return (
     <div className="space-y-8">
@@ -188,72 +189,76 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
       <section id="follow-ups">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">{t('automations.section.followUps')}</h2>
-          <span className="text-xs text-gray-400">
-            {active}/{total} configured
-            {save.isPending && <span className="ml-2">· {t('automations.saving')}</span>}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">
+              {active}/{total} configured
+              {save.isPending && <span className="ml-2">· {t('automations.saving')}</span>}
+            </span>
+            <DisclosureToggle revealed={followUpsOpen} contentId="follow-up-settings" onToggle={() => setFollowUpsOpen((value) => !value)} />
+          </div>
         </div>
-        <p className="mb-3 text-xs text-gray-500">{t('automations.section.followUps.desc')}</p>
-
-        {/* 24h-window + anti-spam compliance note */}
-        <div className="mb-3 rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-[11px] text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-          {t('automations.windowNote', { cap: PROACTIVE_CAP_PER_DAY })}
-        </div>
-
-        <ul className="space-y-2">
-          {AUTOMATION_DEFS.map((def) => {
-            const on = isFollowUpEnabled(config, def.type)
-            return (
-              <li
-                key={def.type}
-                className={`rounded-lg border p-3 transition-colors ${
-                  on
-                    ? 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900'
-                    : 'border-gray-200 bg-gray-50 opacity-70 dark:border-gray-800 dark:bg-gray-900/50'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium">
-                      {t(`automations.type.${def.type}` as Parameters<Translate>[0])}
-                    </p>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      {t(`automations.type.${def.type}.desc` as Parameters<Translate>[0])}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                        🕑 {scheduleLabel(t, def.offset)}
-                      </span>
-                      <WindowBadge def={def} />
-                      {on && (
-                        <label className="inline-flex items-center gap-1 text-[11px] text-gray-500" title={t('automations.requireApproval.hint')}>
-                          <input
-                            type="checkbox"
-                            checked={requiresApproval(config, def.type)}
-                            disabled={save.isPending}
-                            onChange={(e) =>
-                              patchAutomations({ requireApproval: { ...config.requireApproval, [def.type]: e.target.checked } })
-                            }
-                            className="h-3 w-3 rounded border-gray-300"
-                          />
-                          {t('automations.requireApproval')}
-                        </label>
-                      )}
+        {followUpsOpen ? (
+          <div id="follow-up-settings" className="space-y-3">
+            <p className="text-xs text-gray-500">{t('automations.section.followUps.desc')}</p>
+            <div className="rounded-md border border-blue-100 bg-blue-50/60 px-3 py-2 text-[11px] text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+              {t('automations.windowNote', { cap: PROACTIVE_CAP_PER_DAY })}
+            </div>
+            <ul className="space-y-2">
+              {AUTOMATION_DEFS.map((def) => {
+                const on = isFollowUpEnabled(config, def.type)
+                return (
+                  <li
+                    key={def.type}
+                    className={`rounded-lg border p-3 transition-colors ${
+                      on
+                        ? 'border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900'
+                        : 'border-gray-200 bg-gray-50 opacity-70 dark:border-gray-800 dark:bg-gray-900/50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          {t(`automations.type.${def.type}` as Parameters<Translate>[0])}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {t(`automations.type.${def.type}.desc` as Parameters<Translate>[0])}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                            🕑 {scheduleLabel(t, def.offset)}
+                          </span>
+                          <WindowBadge def={def} />
+                          {on && (
+                            <label className="inline-flex items-center gap-1 text-[11px] text-gray-500" title={t('automations.requireApproval.hint')}>
+                              <input
+                                type="checkbox"
+                                checked={requiresApproval(config, def.type)}
+                                disabled={save.isPending}
+                                onChange={(e) =>
+                                  patchAutomations({ requireApproval: { ...config.requireApproval, [def.type]: e.target.checked } })
+                                }
+                                className="h-3 w-3 rounded border-gray-300"
+                              />
+                              {t('automations.requireApproval')}
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                      <PillToggle
+                        checked={on}
+                        disabled={save.isPending}
+                        label={t(`automations.type.${def.type}` as Parameters<Translate>[0])}
+                        onChange={(next) =>
+                          patchAutomations({ followUps: { ...config.followUps, [def.type]: next } })
+                        }
+                      />
                     </div>
-                  </div>
-                  <PillToggle
-                    checked={on}
-                    disabled={save.isPending}
-                    label={t(`automations.type.${def.type}` as Parameters<Translate>[0])}
-                    onChange={(next) =>
-                      patchAutomations({ followUps: { ...config.followUps, [def.type]: next } })
-                    }
-                  />
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       {/* ── Approval queue (Rev 2): drafts awaiting secretary sign-off ────────── */}
@@ -303,6 +308,7 @@ function ReviewSection({
   const settings = clinic.settings as ClinicSettings
   const savedLink = settings.reviewLink ?? ''
   const [link, setLink] = useState(savedLink)
+  const [revealed, setRevealed] = useState(false)
   const on = isReviewEnabled(config)
   const dirty = link.trim() !== savedLink
 
@@ -311,13 +317,17 @@ function ReviewSection({
 
   return (
     <section id="review">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{t('automations.section.review')}</h2>
-        <PillToggle checked={on} disabled={saving} label={t('automations.section.review')} onChange={onToggle} />
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">{t('automations.section.review')}</h2>
+        <div className="flex items-center gap-2">
+          <PillToggle checked={on} disabled={saving} label={t('automations.section.review')} onChange={onToggle} />
+          <DisclosureToggle revealed={revealed} contentId="review-request-settings" onToggle={() => setRevealed((value) => !value)} />
+        </div>
       </div>
-      <p className="mb-3 text-xs text-gray-500">{t('automations.section.review.desc')}</p>
-
-      <div
+      {revealed ? (
+        <div id="review-request-settings" className="space-y-3">
+          <p className="text-xs text-gray-500">{t('automations.section.review.desc')}</p>
+          <div
         className={`space-y-3 rounded-lg border p-3 ${
           on ? 'border-gray-200 dark:border-gray-800' : 'border-gray-200 opacity-70 dark:border-gray-800'
         }`}
@@ -376,7 +386,9 @@ function ReviewSection({
             ))}
           </div>
         </div>
-      </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -389,21 +401,21 @@ function CustomFlowsSummary({ clinicId }: { clinicId: string }) {
     queryFn: () => api.get<{ flows: CustomFlow[] }>(`/clinics/${clinicId}/custom-flows`),
   })
   const flows = query.data?.flows ?? []
+  const [revealed, setRevealed] = useState(false)
 
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('automations.section.flows')}</h2>
-        <Link
-          href="/studio/custom-flows"
-          className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400"
-        >
-          {t('automations.flows.manage')}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/studio/custom-flows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
+          <DisclosureToggle revealed={revealed} contentId="custom-flow-settings" onToggle={() => setRevealed((value) => !value)} />
+        </div>
       </div>
-      <p className="mb-3 text-xs text-gray-500">{t('automations.section.flows.desc')}</p>
-
-      {query.isLoading ? (
+      {revealed ? (
+        <div id="custom-flow-settings" className="space-y-3">
+          <p className="text-xs text-gray-500">{t('automations.section.flows.desc')}</p>
+          {query.isLoading ? (
         <p className="text-sm text-gray-400">{t('common.loading')}</p>
       ) : query.isError ? (
         <button
@@ -439,7 +451,9 @@ function CustomFlowsSummary({ clinicId }: { clinicId: string }) {
             </li>
           ))}
         </ul>
-      )}
+          )}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -452,21 +466,21 @@ function WorkflowsSummary({ clinicId }: { clinicId: string }) {
     queryFn: () => api.get<{ workflows: Workflow[] }>(`/clinics/${clinicId}/workflows`),
   })
   const workflows = query.data?.workflows ?? []
+  const [revealed, setRevealed] = useState(false)
 
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('wf.title')}</h2>
-        <Link
-          href="/studio/workflows"
-          className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400"
-        >
-          {t('automations.flows.manage')}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/studio/workflows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
+          <DisclosureToggle revealed={revealed} contentId="automation-workflow-settings" onToggle={() => setRevealed((value) => !value)} />
+        </div>
       </div>
-      <p className="mb-3 text-xs text-gray-500">{t('automations.center.workflowsDesc')}</p>
-
-      {query.isLoading ? (
+      {revealed ? (
+        <div id="automation-workflow-settings" className="space-y-3">
+          <p className="text-xs text-gray-500">{t('automations.center.workflowsDesc')}</p>
+          {query.isLoading ? (
         <p className="text-sm text-gray-400">{t('common.loading')}</p>
       ) : query.isError ? (
         <button
@@ -502,8 +516,32 @@ function WorkflowsSummary({ clinicId }: { clinicId: string }) {
             </li>
           ))}
         </ul>
-      )}
+          )}
+        </div>
+      ) : null}
     </section>
+  )
+}
+
+function DisclosureToggle({
+  revealed,
+  contentId,
+  onToggle,
+}: {
+  revealed: boolean
+  contentId: string
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={revealed}
+      aria-controls={contentId}
+      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+    >
+      {revealed ? 'Hide details' : 'Show details'}
+    </button>
   )
 }
 

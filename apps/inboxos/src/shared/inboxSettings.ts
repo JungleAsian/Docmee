@@ -8,15 +8,39 @@ export type PatientChatVisibility = Record<
   | 'patientHistory'
   | 'chatStatus'
   | 'nextAppointment'
-  | 'appointmentDateTime',
+  | 'appointmentDateTime'
+  | 'inactiveChannels'
+  | 'headerNextAppointment'
+  | 'headerPatientHistory'
+  | 'headerStatusSelector'
+  | 'headerResolveAction',
   boolean
 >
 
 const visibilityKeys = [
   'safetyHandoff', 'lifecycleStatus', 'tags', 'aiAssistance', 'assignee',
   'assignControls', 'patientHistory', 'chatStatus', 'nextAppointment',
-  'appointmentDateTime',
+  'appointmentDateTime', 'inactiveChannels', 'headerNextAppointment',
+  'headerPatientHistory', 'headerStatusSelector', 'headerResolveAction',
 ] as const
+
+const visibilityDefaults: PatientChatVisibility = {
+  safetyHandoff: true,
+  lifecycleStatus: true,
+  tags: true,
+  aiAssistance: true,
+  assignee: true,
+  assignControls: true,
+  patientHistory: true,
+  chatStatus: true,
+  nextAppointment: true,
+  appointmentDateTime: true,
+  inactiveChannels: false,
+  headerNextAppointment: true,
+  headerPatientHistory: true,
+  headerStatusSelector: true,
+  headerResolveAction: true,
+}
 
 /** Tolerant staged-rollout reader for clinic Inbox preferences. */
 export function readInboxSettings(settings: Record<string, unknown> | null | undefined) {
@@ -33,7 +57,7 @@ export function readInboxSettings(settings: Record<string, unknown> | null | und
       internalNotesVisible: layout.internalNotesVisible !== false,
     },
     patientChatVisibility: Object.fromEntries(
-      visibilityKeys.map((key) => [key, visibility[key] === undefined ? true : visibility[key] === true]),
+      visibilityKeys.map((key) => [key, visibility[key] === undefined ? visibilityDefaults[key] : visibility[key] === true]),
     ) as PatientChatVisibility,
   }
 }

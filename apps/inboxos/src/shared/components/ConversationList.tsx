@@ -19,6 +19,7 @@ import { assessSafety, safetyRank, type SafetyLevel } from '../safety'
 import { conversationMode } from '../conversationMode'
 import { filterConversations, type ChannelFilter } from '../conversationFilter'
 import { LENSES, lensCounts, matchesLens, type ConversationLens } from '../conversationLens'
+import { readInboxSettings } from '../inboxSettings'
 import type { Channel, Conversation, ConversationStatus } from '../types'
 
 // Req 20: row treatment per safety severity — a coloured left rail + a tinted row +
@@ -80,6 +81,10 @@ export function resolveActiveChannelFilter(
   return new Set(query.data.channels.map((entry) => entry.channel))
 }
 
+export function shouldShowChannelFilter(activeChannels?: ReadonlySet<Channel>): boolean {
+  return activeChannels === undefined || activeChannels.size > 1
+}
+
 export function projectConversationList(
   rows: Conversation[],
   search: string,
@@ -111,7 +116,7 @@ export function ConversationList({
     enabled: Boolean(clinicId),
     queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
   })
-  const showInactiveChannels = ((clinicSettings.data?.clinic.settings?.patientChatVisibility as Record<string, unknown> | undefined)?.inactiveChannels ?? true) === true
+  const showInactiveChannels = readInboxSettings(clinicSettings.data?.clinic.settings).patientChatVisibility.inactiveChannels
   const activeChannelsQuery = useQuery({
     queryKey: ['active-channels', clinicId],
     enabled: Boolean(clinicId && !showInactiveChannels),
@@ -395,7 +400,7 @@ export function ConversationList({
 
         {/* Channel filter (Req 4) — a dropdown (matching the Assignee filter) so the
             queue controls stay compact and consistent. */}
-        <label className="mb-2 flex items-center gap-1.5 text-xs">
+        {shouldShowChannelFilter(activeChannels) && <label className="mb-2 flex items-center gap-1.5 text-xs">
           <span className="text-gray-500">{t('conv.filter.channel')}:</span>
           <select
             value={channel}
@@ -409,7 +414,7 @@ export function ConversationList({
               </option>
             ))}
           </select>
-        </label>
+        </label>}
 
         {/* Operational lens tabs (Active / Bot / Assigned / Closed) with live counts —
             the secretary's primary triage control, narrowing the queue client-side. */}

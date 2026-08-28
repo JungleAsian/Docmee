@@ -198,6 +198,7 @@ export interface Patient {
   status: PatientStatus
   notes: string | null
   metadata: Record<string, unknown>
+  automationMode?: 'automated' | 'human_only'
   createdAt: string
   updatedAt: string
 }
@@ -286,6 +287,8 @@ export interface BookingSlot {
   end: string // HH:MM
   /** Present for secretary calendar views that request occupied slots. */
   bookedCount?: number
+  bookedByAiCount?: number
+  bookedBySecretaryCount?: number
   overbookingCapacity?: number
   parallelAvailable?: boolean
 }

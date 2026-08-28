@@ -45,5 +45,26 @@ export function bookingPresentationSource(booking: BookingProvenance): BookingPr
 }
 
 export function canUseParallelBooking(role: PanelRole | null | undefined): boolean {
-  return role === 'secretary'
+  return role === 'secretary' || role === 'clinic_admin' || role === 'ia_studio_admin'
+}
+
+export interface ManualSlotControlInput {
+  bookedCount?: number
+  overbookingCapacity?: number
+}
+
+export function manualSlotControl(
+  role: PanelRole | null | undefined,
+  slot: ManualSlotControlInput,
+): { visible: boolean; enabled: boolean; overbook: boolean; requiresReason: boolean } {
+  const visible = canUseParallelBooking(role)
+  const bookedCount = Math.max(0, slot.bookedCount ?? 0)
+  const capacity = Math.max(1, slot.overbookingCapacity ?? 1)
+  const overbook = bookedCount > 0
+  return {
+    visible,
+    enabled: visible && bookedCount < capacity,
+    overbook,
+    requiresReason: overbook,
+  }
 }

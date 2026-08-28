@@ -19,4 +19,10 @@ describe('conversationMode', () => {
     expect(conversationMode(undefined)).toBe('bot')
     expect(conversationMode(null)).toBe('bot')
   })
+
+  it('uses the persistent patient automation mode when the conversation is opted out', () => {
+    expect(conversationMode('open', 'human_only')).toBe('human')
+    expect(conversationMode('pending', 'human_only')).toBe('human')
+    expect(conversationMode('open', 'automated')).toBe('bot')
+  })
 })

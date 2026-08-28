@@ -7,6 +7,10 @@ import type { ConversationStatus } from './types'
 
 export type ConversationMode = 'bot' | 'human'
 
-export function conversationMode(status: ConversationStatus | undefined | null): ConversationMode {
+export function conversationMode(
+  status: ConversationStatus | undefined | null,
+  automationMode?: 'automated' | 'human_only' | string | null,
+): ConversationMode {
+  if (automationMode === 'human_only') return 'human'
   return status === 'assigned' || status === 'handoff' ? 'human' : 'bot'
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { conversationMatches, filterConversations, type ChannelFilter } from './conversationFilter'
-import { projectConversationList, resolveActiveChannelFilter, visibleConversationLenses } from './components/ConversationList'
+import { projectConversationList, resolveActiveChannelFilter, shouldShowChannelFilter, visibleConversationLenses } from './components/ConversationList'
 import type { Channel, Conversation } from './types'
 
 function conv(overrides: Partial<Conversation>): Conversation {
@@ -117,5 +117,12 @@ describe('filterConversations', () => {
 
   it('keeps the Closed lifecycle lens when inactive channels are hidden', () => {
     expect(visibleConversationLenses(false)).toEqual(['active', 'bot', 'assigned', 'closed'])
+  })
+
+  it('hides the channel selector when zero or one integration is active', () => {
+    expect(shouldShowChannelFilter(new Set<Channel>())).toBe(false)
+    expect(shouldShowChannelFilter(new Set<Channel>(['whatsapp']))).toBe(false)
+    expect(shouldShowChannelFilter(new Set<Channel>(['whatsapp', 'instagram']))).toBe(true)
+    expect(shouldShowChannelFilter(undefined)).toBe(true)
   })
 })

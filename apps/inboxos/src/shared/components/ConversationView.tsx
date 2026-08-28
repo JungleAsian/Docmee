@@ -24,6 +24,7 @@ import { useComposerStore } from '../store/composer'
 import { useActiveClinic } from '../hooks/useActiveClinic'
 import { useFeatures } from '../hooks/useFeatures'
 import { readInboxSettings } from '../inboxSettings'
+import { conversationMode } from '../conversationMode'
 import type { Tag } from '../types'
 import type {
   Appointment,
@@ -33,6 +34,7 @@ import type {
   ConversationStatus,
   Message,
   MessageRole,
+  Patient,
 } from '../types'
 
 // Compact status colours for the in-thread appointment summary (mirrors the
@@ -138,8 +140,14 @@ export function ConversationView({
   })
 
   const conversation = conversationQuery.data?.conversation
+  const patientQuery = useQuery({
+    queryKey: ['patient', conversation?.patientId],
+    enabled: Boolean(conversation?.patientId),
+    queryFn: () => api.get<{ patient: Patient }>(`/patients/${conversation!.patientId}`),
+  })
   const messages = messagesQuery.data?.messages ?? []
   const visibility = readInboxSettings(features.inboxLayoutV2 ? clinicQuery.data?.clinic.settings : undefined).patientChatVisibility
+  const mode = conversationMode(conversation?.status, patientQuery.data?.patient.automationMode)
   const classificationTabs = useMemo(() => {
     const intents = new Set<string>()
     let hasUnclassified = false
@@ -374,6 +382,11 @@ export function ConversationView({
               {conversation?.channel === 'whatsapp' && (
                 <span className="crm-whatsapp-tag">WhatsApp</span>
               )}
+              {conversation && (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${mode === 'human' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'}`}>
+                  {mode === 'human' ? 'Secretary mode' : 'AI mode'}
+                </span>
+              )}
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--crm-text-soft)]">
               {/* When the title shows the patient's name, surface the raw handle
@@ -399,9 +412,6 @@ export function ConversationView({
             </div>
             {visibility.tags && (
               <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1" aria-label="Conversation tags">
-                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
-                  {conversation?.assignedTo || conversation?.status === 'assigned' || conversation?.status === 'handoff' ? 'Secretary' : '+ AI bot'}
-                </span>
                 {(tagsQuery.data?.tags ?? []).map((tag) => (
                   <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: tag.color }}>
                     {tag.name}
@@ -413,7 +423,7 @@ export function ConversationView({
 
           <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {visibility.assignControls && <AssignControl conversationId={conversationId} />}
-            {visibility.patientHistory && conversation?.patientId && (
+            {visibility.headerPatientHistory && conversation?.patientId && (
               <Link
                 href={`/inbox/${conversationId}/patient`}
                 className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
@@ -421,7 +431,7 @@ export function ConversationView({
                 {t('patient.title')}
               </Link>
             )}
-            {visibility.chatStatus && conversation && (
+            {visibility.headerStatusSelector && conversation && (
               <select
                 aria-label={t('view.changeStatus')}
                 value={conversation.status}
@@ -439,7 +449,7 @@ export function ConversationView({
                 ))}
               </select>
             )}
-            {visibility.chatStatus && conversation && !closed && (
+            {visibility.headerResolveAction && conversation && !closed && (
               <button
                 type="button"
                 onClick={() => closeMutation.mutate()}
@@ -451,13 +461,13 @@ export function ConversationView({
             )}
           </div>
         </div>
-        {conversation?.patientId && (visibility.nextAppointment || visibility.appointmentDateTime) && (
+        {visibility.headerNextAppointment && conversation?.patientId && (
           <ApptSummary
             conversationId={conversationId}
             patientId={conversation.patientId}
-            showNextAppointment={visibility.nextAppointment}
-            showAppointmentDateTime={visibility.appointmentDateTime}
-            showPatientHistory={visibility.patientHistory}
+            showNextAppointment
+            showAppointmentDateTime
+            showPatientHistory={visibility.headerPatientHistory}
           />
         )}
         {conversation && <KbCitations metadata={conversation.metadata} />}

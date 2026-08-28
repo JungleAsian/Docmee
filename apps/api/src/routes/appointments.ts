@@ -38,11 +38,33 @@ import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth } from '../middleware/auth.js'
 import { isDocmeeExpansionFeatureEnabled } from '../lib/features.js'
-import { computeFreeSlots, normalizeAvailability, rangesForDate, type TimeRange } from '../lib/slots.js'
+import { computeFreeSlots, normalizeAvailability, rangesForDate } from '../lib/slots.js'
 
 const DEFAULT_DURATION_MIN = 30
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM')
+
+function appointmentBookingSource(appointment: {
+  bookingOrigin?: string | null
+  conversationId?: string | null
+  actorId?: string | null
+  metadata?: Record<string, unknown> | null
+}): 'ai' | 'secretary' | 'unknown' {
+  const source = typeof appointment.metadata?.source === 'string'
+    ? appointment.metadata.source.trim().toLowerCase()
+    : ''
+  if (
+    appointment.bookingOrigin === 'docmee' ||
+    appointment.bookingOrigin === 'workflow' ||
+    Boolean(appointment.conversationId) ||
+    source === 'docmee' ||
+    source === 'workflow'
+  ) return 'ai'
+  if (appointment.bookingOrigin === 'manual' && (Boolean(appointment.actorId) || ['manual', 'secretary', 'staff'].includes(source))) {
+    return 'secretary'
+  }
+  return 'unknown'
+}
 
 const listQuerySchema = z.object({
   from: z.string().min(1),
@@ -273,9 +295,6 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
           to: dayEnd?.toISOString() ?? `${nextDay(date)}T00:00:00`,
           doctorId,
         })
-        const busy: TimeRange[] = dayAppts
-          .filter((a) => a.status !== 'cancelled')
-          .map((a) => ({ start: timeOf(a.startTime, timezone), end: timeOf(a.endTime, timezone) }))
         const ranges = rangesForDate(normalizeAvailability(doctor.availableDays), date)
         const configuredCadence = Number((clinic?.settings ?? {})['bookingCadenceMinutes'] ?? (clinic?.settings ?? {})['slotMinutes'])
         const cadence = Number.isFinite(configuredCadence) && configuredCadence > 0 ? configuredCadence : duration
@@ -286,14 +305,19 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         const candidates = computeFreeSlots(ranges, duration, [], cadence)
         const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
         const slotRows = candidates.map((candidate) => {
-          const bookedCount = busy.filter((booking) => {
+          const overlappingAppointments = dayAppts.filter((appointment) => {
             const start = toMin(candidate.start)
             const end = toMin(candidate.end)
-            return start < toMin(booking.end) && toMin(booking.start) < end
-          }).length
+            return appointment.status !== 'cancelled' &&
+              start < toMin(timeOf(appointment.endTime, timezone)) &&
+              toMin(timeOf(appointment.startTime, timezone)) < end
+          })
+          const bookedCount = overlappingAppointments.length
           return {
             ...candidate,
             bookedCount,
+            bookedByAiCount: overlappingAppointments.filter((appointment) => appointmentBookingSource(appointment) === 'ai').length,
+            bookedBySecretaryCount: overlappingAppointments.filter((appointment) => appointmentBookingSource(appointment) === 'secretary').length,
             overbookingCapacity: capacity,
             parallelAvailable: bookedCount > 0 && bookedCount < capacity,
           }
@@ -324,10 +348,10 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     if (overbook && !(await isDocmeeExpansionFeatureEnabled('calendarPolicyV2', clinicId))) {
       return reply.code(404).send({ error: 'Not found' })
     }
-    // Explicit capacity override is a secretary operation. Other human roles may
-    // create an ordinary booking, but cannot request an overbooked slot.
-    if (overbook && request.user?.role !== 'secretary') {
-      return reply.code(403).send({ error: 'Only secretaries may overbook a slot' })
+    // Explicit capacity override is a manual operator action. AI/doctor callers
+    // can create an ordinary booking, but cannot request an overbooked slot.
+    if (overbook && !['secretary', 'clinic_admin', 'ia_studio_admin'].includes(request.user?.role ?? '')) {
+      return reply.code(403).send({ error: 'Only secretary or admin operators may overbook a slot' })
     }
 
     const result = await withDb(async (sql) => {

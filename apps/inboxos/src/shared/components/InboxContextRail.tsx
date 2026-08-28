@@ -5,7 +5,7 @@
 // used to stack (safety/handoff, assignment, lifecycle, tags, AI assistant,
 // internal notes) now lives behind a collapsible "Others" section so the rail
 // stays focused on the two things a secretary reaches for most.
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { PatientInfoCard } from './PatientInfoCard'
@@ -35,27 +35,17 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
   const inboxSettings = readInboxSettings(features.inboxLayoutV2 ? clinicQuery.data?.clinic.settings : undefined)
   const visibility = inboxSettings.patientChatVisibility
   const [othersOpen, setOthersOpen] = useState(false)
-  const bookingRef = useRef<HTMLElement>(null)
-
-  const openBooking = () => {
-    // Let the section expand before scrolling it into view.
-    requestAnimationFrame(() => bookingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
-  }
-
   return (
     <div className="flex flex-col gap-3 p-3">
       <PatientInfoCard
         conversationId={conversationId}
-        onSchedule={openBooking}
         showNextAppointment={visibility.nextAppointment}
         showAppointmentDateTime={visibility.appointmentDateTime}
         showPatientHistory={visibility.patientHistory}
         showChatStatus={visibility.chatStatus}
-        showHumanOnlyMode={features.humanOnlyMode}
       />
 
       {features.calendarPolicyV2 && <AppointmentBookingCard
-        ref={bookingRef}
         conversationId={conversationId}
       />}
 

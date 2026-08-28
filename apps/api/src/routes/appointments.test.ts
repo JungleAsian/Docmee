@@ -221,6 +221,8 @@ const secretaryToken = signAccessToken({ userId: 'u-1', clinicId: 'c-1', role: '
 const auth = { authorization: `Bearer ${secretaryToken}` }
 const doctorToken = signAccessToken({ userId: 'doctor-u-1', clinicId: 'c-1', role: 'doctor', email: 'doctor@demo.test' })
 const doctorAuth = { authorization: `Bearer ${doctorToken}` }
+const clinicAdminToken = signAccessToken({ userId: 'admin-u-1', clinicId: 'c-1', role: 'clinic_admin', email: 'admin@demo.test' })
+const clinicAdminAuth = { authorization: `Bearer ${clinicAdminToken}` }
 const otherClinicToken = signAccessToken({ userId: 'u-2', clinicId: 'c-2', role: 'secretary', email: 'b@demo.test' })
 const noCalendarToken = signAccessToken({ userId: 'u-3', clinicId: 'c-3', role: 'secretary', email: 'c@demo.test' })
 const noCalendarAuth = { authorization: `Bearer ${noCalendarToken}` }
@@ -304,8 +306,30 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(res.statusCode).toBe(200)
     const slots = JSON.parse(res.body).slots
     expect(slots.map((s: { start: string }) => s.start)).toEqual(['09:00', '10:00'])
-    expect(slots[0]).toMatchObject({ bookedCount: 1, parallelAvailable: true, overbookingCapacity: 2 })
-    expect(slots[1]).toMatchObject({ bookedCount: 0, parallelAvailable: false })
+    expect(slots[0]).toMatchObject({
+      bookedCount: 1,
+      bookedBySecretaryCount: 1,
+      bookedByAiCount: 0,
+      parallelAvailable: true,
+      overbookingCapacity: 2,
+    })
+    expect(slots[1]).toMatchObject({
+      bookedCount: 0,
+      bookedBySecretaryCount: 0,
+      bookedByAiCount: 0,
+      parallelAvailable: false,
+    })
+  })
+
+  it('GET /slots includeBooked is available to clinic administrators', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/clinics/c-1/appointments/slots?doctorId=doc-1&date=2026-06-22&serviceId=svc-1&includeBooked=true',
+      headers: clinicAdminAuth,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().slots.map((slot: { start: string }) => slot.start)).toEqual(['09:00', '10:00'])
   })
 
   it('POST onto a taken slot → 409', async () => {
@@ -407,6 +431,28 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       overbookingReason: 'Urgent clinical need',
     })
     expect(beyondCapacity.statusCode).toBe(409)
+  })
+
+  it('allows a clinic administrator to perform the same explicit manual overbooking action', async () => {
+    const payload = {
+      patientId: 'pat-1',
+      doctorId: 'doc-1',
+      date: '2026-09-23',
+      start: '09:00',
+    }
+    const ordinary = await app.inject({
+      method: 'POST', url: '/clinics/c-1/appointments', headers: clinicAdminAuth, payload,
+    })
+    const parallel = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: clinicAdminAuth,
+      payload: { ...payload, overbook: true, overbookingReason: 'Approved manual parallel booking' },
+    })
+
+    expect(ordinary.statusCode).toBe(201)
+    expect(parallel.statusCode).toBe(201)
+    expect(parallel.json().appointment).toMatchObject({ overbooked: true })
   })
 
   it('POST for an unknown patient → 404', async () => {

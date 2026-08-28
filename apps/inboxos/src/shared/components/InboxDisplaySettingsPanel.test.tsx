@@ -21,5 +21,6 @@ describe('InboxDisplaySettingsPanel', () => {
     expect(markup).toContain('aria-expanded="false"')
     expect(markup).toContain('Show settings')
     expect(markup).not.toContain('Save InboxOS settings')
+    expect(markup).not.toContain('Custom conversation tags')
   })
 })

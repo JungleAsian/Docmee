@@ -17,15 +17,18 @@ import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { rolesWith } from '@/shared/permissions'
 import { useI18n } from '@/shared/hooks/useI18n'
+import { useAuthStore } from '@/shared/store/auth'
 import { SlideOver } from '@/shared/components/SlideOver'
 import { TodayCommandCenter } from '@/shared/components/TodayCommandCenter'
 import {
-  buildDayAxis,
   formatRanges,
   isSplitShift,
   normalizeAvailability,
   rangesForDate,
 } from '@/shared/calendarGrid'
+import { canUseParallelBooking, manualSlotControl } from '@/shared/bookingPresentation'
+import { availableMinutesForHour, availableSlotHours, slotForTimeSelection } from '@/shared/calendarTimePicker'
+import { buildManualParallelBookingFields, isManualParallelBookingComplete } from '@/shared/manualParallelBooking'
 import type {
   AppointmentEventFeedItem,
   AppointmentStatus,
@@ -33,6 +36,7 @@ import type {
   BookingPatient,
   Clinic,
   Doctor,
+  PanelRole,
   Service,
   SlotsResponse,
 } from '@/shared/types'
@@ -60,7 +64,6 @@ function formatDay(date: string, lang: 'es' | 'en'): string {
 }
 /** HH:MM portion of a stored ISO timestamp — the wall-clock the API booked. */
 const timeOf = (iso: string): string => iso.slice(11, 16)
-const minOf = (hhmm: string): number => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
 
 /** Up-to-2-letter initials from a name (for the doctor mini-avatar). */
 function initials(name: string | null | undefined): string {
@@ -284,9 +287,11 @@ export default function CalendarPage() {
   const [doctorId, setDoctorId] = useState('') // '' = all doctors
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [booking, setBooking] = useState(false)
-  const [prefill, setPrefill] = useState<{ doctorId?: string; start?: string }>({})
+  const [prefill, setPrefill] = useState<{ doctorId?: string; start?: string; parallel?: boolean }>({})
   const [manageId, setManageId] = useState<string | null>(null)
   const [success, setSuccess] = useState<{ patient: string; calendarPending: boolean } | null>(null)
+  const role = useAuthStore((state) => state.user?.role)
+  const canManuallyBook = canUseParallelBooking(role)
 
   // A clinic switch invalidates the previously-picked doctor — fall back to all.
   useEffect(() => {
@@ -332,6 +337,18 @@ export default function CalendarPage() {
   })
   const appointments = apptQuery.data?.appointments ?? []
 
+  const scheduleSlotsQuery = useQuery({
+    queryKey: ['calendar-schedule-slots', clinicId, doctorId, date, canManuallyBook],
+    enabled: Boolean(clinicId && doctorId && date),
+    queryFn: () => api.get<SlotsResponse>(
+      `/clinics/${clinicId}/appointments/slots?${new URLSearchParams({
+        doctorId,
+        date,
+        ...(canManuallyBook ? { includeBooked: 'true' } : {}),
+      })}`,
+    ),
+  })
+
   const selectedDoctor = doctorId ? doctors.find((d) => d.id === doctorId) : undefined
   const manageAppt = manageId ? appointments.find((a) => a.id === manageId) : undefined
 
@@ -343,7 +360,7 @@ export default function CalendarPage() {
     [selectedDoctor, date],
   )
 
-  const openBooking = (opts?: { doctorId?: string; start?: string }) => {
+  const openBooking = (opts?: { doctorId?: string; start?: string; parallel?: boolean }) => {
     setPrefill(opts ?? {})
     setBooking(true)
   }
@@ -522,14 +539,16 @@ export default function CalendarPage() {
                     title={t('cal.dayOff')}
                     hint={`${selectedDoctor.name}`}
                   />
-                ) : (
+                ) : (<>
+                  <Legend />
                   <DayGrid
-                    ranges={ranges}
+                    slots={scheduleSlotsQuery.data?.slots ?? []}
                     appointments={appointments}
                     onManage={setManageId}
-                    onBookSlot={(start) => openBooking({ doctorId, start })}
+                    role={role}
+                    onBookSlot={(start, parallel) => openBooking({ doctorId, start, parallel })}
                   />
-                )
+                </>)
               ) : appointments.length === 0 ? (
                 <EmptyState
                   icon="🗓️"
@@ -548,7 +567,7 @@ export default function CalendarPage() {
                 <DayList appointments={appointments} onManage={setManageId} />
               )}
 
-              <Legend />
+              {effectiveView !== 'grid' && <Legend />}
             </>
           )}
         </div>
@@ -588,6 +607,7 @@ export default function CalendarPage() {
           date={date}
           initialDoctorId={prefill.doctorId}
           initialStart={prefill.start}
+          initialParallel={prefill.parallel}
           onClose={() => setBooking(false)}
           onSuccess={(patient, calendarPending) => {
             setBooking(false)
@@ -633,84 +653,90 @@ function DoctorStrip({ doctor, ranges }: { doctor: Doctor; ranges: { start: stri
 
 // ── Day grid (per-doctor hour lanes) ────────────────────────────────────────────
 function DayGrid({
-  ranges,
+  slots,
   appointments,
   onManage,
   onBookSlot,
+  role,
 }: {
-  ranges: { start: string; end: string }[]
+  slots: SlotsResponse['slots']
   appointments: AppointmentWithNames[]
   onManage: (id: string) => void
-  onBookSlot: (start: string) => void
+  onBookSlot: (start: string, parallel: boolean) => void
+  role: PanelRole | undefined
 }) {
   const { t } = useI18n()
-  const axis = useMemo(() => buildDayAxis(ranges, 30), [ranges])
-  const axisStart = axis.length ? minOf(axis[0]!.time) : 0
-  const axisEnd = axis.length ? minOf(axis.at(-1)!.time) + 30 : 0
 
-  // Bucket each appointment into the 30-min row that contains its start.
+  // The slots endpoint is already constrained by the doctor's schedule and the
+  // clinic cadence. Keep occupied slots in the axis so manual operators see the
+  // full working day rather than a disappearing list of availability.
   const byRow = useMemo(() => {
     const map = new Map<string, AppointmentWithNames[]>()
-    const outside: AppointmentWithNames[] = []
     for (const a of appointments) {
-      const m = minOf(timeOf(a.startTime))
-      if (m < axisStart || m >= axisEnd) {
-        outside.push(a)
-        continue
-      }
-      const slotMin = axisStart + Math.floor((m - axisStart) / 30) * 30
-      const key = `${String(Math.floor(slotMin / 60)).padStart(2, '0')}:${String(slotMin % 60).padStart(2, '0')}`
+      const key = timeOf(a.startTime)
       const arr = map.get(key) ?? []
       arr.push(a)
       map.set(key, arr)
     }
-    return { map, outside }
-  }, [appointments, axisStart, axisEnd])
+    return map
+  }, [appointments])
+  const rows = useMemo(() => {
+    const byStart = new Map(slots.map((slot) => [slot.start, slot]))
+    for (const start of byRow.keys()) {
+      if (!byStart.has(start)) byStart.set(start, { start, end: start, bookedCount: byRow.get(start)?.length ?? 0 })
+    }
+    return [...byStart.values()].sort((left, right) => left.start.localeCompare(right.start))
+  }, [slots, byRow])
 
   return (
     <div className="clinic-card overflow-hidden">
-      {axis.map((row) => {
-        const appts = byRow.map.get(row.time) ?? []
+      {rows.map((row) => {
+        const appts = byRow.get(row.start) ?? []
+        const control = manualSlotControl(role, row)
+        const bookedCount = Math.max(appts.length, row.bookedCount ?? 0)
+        const capacity = row.overbookingCapacity ?? 1
         return (
-          <div key={row.time} className="grid grid-cols-[56px_1fr]">
+          <div key={row.start} className="grid grid-cols-[56px_1fr]">
             <div className="border-t border-gray-100 px-2 py-1.5 text-right text-[11px] text-gray-400 dark:border-gray-800">
-              {row.time}
+              {row.start}
             </div>
-            <div
-              className={`min-h-[56px] border-l border-t border-gray-100 p-1.5 dark:border-gray-800 ${
-                row.kind === 'break'
-                  ? 'bg-amber-50/40 dark:bg-amber-950/20'
-                  : 'bg-white dark:bg-gray-900'
-              }`}
-            >
+            <div className="min-h-[56px] border-l border-t border-gray-100 bg-white p-1.5 dark:border-gray-800 dark:bg-gray-900">
               {appts.length > 0 ? (
                 <div className="space-y-1.5">
                   {appts.map((a) => (
                     <AppointmentCard key={a.id} appt={a} onManage={() => onManage(a.id)} />
                   ))}
                 </div>
-              ) : row.kind === 'break' ? (
-                <span className="text-[10.5px] italic text-gray-400">{t('cal.break')}</span>
               ) : (
                 <button
                   type="button"
-                  onClick={() => onBookSlot(row.time)}
+                  onClick={() => onBookSlot(row.start, false)}
                   className="text-[10.5px] italic text-gray-300 hover:text-teal-500 dark:text-gray-600"
                 >
                   {t('cal.free')}
                 </button>
               )}
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-[10px] text-gray-400">
+                  {bookedCount > 0 ? `${bookedCount}/${capacity} ${t('cal.bookedSchedules')}` : ''}
+                </span>
+                {control.visible && (
+                  <button
+                    type="button"
+                    disabled={!control.enabled}
+                    title={control.enabled ? (control.overbook ? t('cal.parallel') : t('cal.book')) : t('cal.capacityReached')}
+                    aria-label={`${control.overbook ? t('cal.parallel') : t('cal.book')} ${row.start}`}
+                    onClick={() => onBookSlot(row.start, control.overbook)}
+                    className="rounded border border-dashed border-teal-500 px-2 py-0.5 text-sm font-bold text-teal-600 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
+                  >
+                    +
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )
       })}
-      {byRow.outside.length > 0 && (
-        <div className="space-y-1.5 border-t border-gray-100 p-2 dark:border-gray-800">
-          {byRow.outside.map((a) => (
-            <AppointmentCard key={a.id} appt={a} onManage={() => onManage(a.id)} />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -853,6 +879,7 @@ function feedLabel(ev: AppointmentEventFeedItem): { key: string; via: 'viaAi' | 
 
 function ActivityFeed({ clinicId, date, doctorId }: { clinicId: string; date: string; doctorId: string }) {
   const { t } = useI18n()
+  const [open, setOpen] = useState(false)
   const from = `${date}T00:00:00`
   const to = `${addDays(date, 1)}T00:00:00`
   const query = useQuery({
@@ -869,9 +896,13 @@ function ActivityFeed({ clinicId, date, doctorId }: { clinicId: string; date: st
 
   return (
     <section>
-      <h3 className="text-sm font-semibold">{t('cal.activity')}</h3>
-      <p className="mt-0.5 text-[11.5px] text-gray-400">{t('cal.activityHint')}</p>
-      <div className="clinic-card mt-3 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{t('cal.activity')}</h3>
+        <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="calendar-activity-feed" className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+          {open ? 'Hide activity' : 'Show activity'}
+        </button>
+      </div>
+      {open && <div id="calendar-activity-feed" className="clinic-card mt-3 p-3">
         {query.isLoading ? (
           <p className="text-xs text-gray-400">{t('common.loading')}</p>
         ) : query.isError ? (
@@ -903,7 +934,7 @@ function ActivityFeed({ clinicId, date, doctorId }: { clinicId: string; date: st
             })}
           </div>
         )}
-      </div>
+      </div>}
     </section>
   )
 }
@@ -955,21 +986,25 @@ function SlotPicker({
   date,
   value,
   onPick,
+  manualRole,
 }: {
   clinicId: string
   doctorId: string
   serviceId: string
   date: string
   value: string
-  onPick: (start: string) => void
+  onPick: (start: string, parallel?: boolean) => void
+  manualRole?: PanelRole
 }) {
   const { t } = useI18n()
+  const [selectedHour, setSelectedHour] = useState('')
   const query = useQuery({
     queryKey: ['slots', clinicId, doctorId, serviceId, date],
     enabled: Boolean(clinicId && doctorId && date),
     queryFn: () => {
       const q = new URLSearchParams({ doctorId, date })
       if (serviceId) q.set('serviceId', serviceId)
+      if (manualRole && canUseParallelBooking(manualRole)) q.set('includeBooked', 'true')
       return api.get<SlotsResponse>(`/clinics/${clinicId}/appointments/slots?${q}`)
     },
   })
@@ -983,26 +1018,60 @@ function SlotPicker({
   if (!data.working) return <p className="text-xs text-gray-400">{t('cal.dayOff')}</p>
   if (data.slots.length === 0) return <p className="text-xs text-gray-400">{t('cal.noSlots')}</p>
 
+  const hours = availableSlotHours(data.slots)
+  const activeHour = value && hours.includes(value.slice(0, 2)) ? value.slice(0, 2) : (selectedHour && hours.includes(selectedHour) ? selectedHour : hours[0] ?? '')
+  const minutes = availableMinutesForHour(data.slots, activeHour)
+  const activeMinute = value.slice(0, 2) === activeHour && minutes.includes(value.slice(3, 5))
+    ? value.slice(3, 5)
+    : minutes[0] ?? ''
+  const chooseTime = (hour: string, minute: string) => {
+    const start = slotForTimeSelection(data.slots, hour, minute)
+    const slot = data.slots.find((item) => item.start === start)
+    if (!slot) return
+    const control = manualSlotControl(manualRole, slot)
+    if ((slot.bookedCount ?? 0) === 0) onPick(start, false)
+    else if (control.enabled) onPick(start, control.overbook)
+  }
+
   return (
     <div className="space-y-2">
       {!data.calendarConnected && (
         <p className="text-xs text-amber-700 dark:text-amber-400">⚠ {t('cal.disconnectedDoctor')}</p>
       )}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs text-gray-500">
+          HH
+          <select value={activeHour} onChange={(event) => { setSelectedHour(event.target.value); chooseTime(event.target.value, availableMinutesForHour(data.slots, event.target.value)[0] ?? '') }} className={`${field} mt-1`}>
+            {hours.map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-gray-500">
+          MM
+          <select value={activeMinute} onChange={(event) => chooseTime(activeHour, event.target.value)} className={`${field} mt-1`}>
+            {minutes.map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+          </select>
+        </label>
+      </div>
       <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
-        {data.slots.map((s) => (
-          <button
-            key={s.start}
-            type="button"
-            onClick={() => onPick(s.start)}
-            className={`rounded-md border px-2 py-1.5 text-sm ${
-              value === s.start
-                ? 'border-teal-600 bg-teal-600 font-semibold text-white'
-                : 'border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800'
-            }`}
-          >
-            {s.start}
-          </button>
-        ))}
+        {data.slots.map((s) => {
+          const occupied = (s.bookedCount ?? 0) > 0
+          const control = manualSlotControl(manualRole, s)
+          return <div key={s.start} className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={occupied}
+              onClick={() => onPick(s.start, false)}
+              className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-sm ${
+                occupied ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-800 dark:bg-gray-800'
+                  : value === s.start ? 'border-teal-600 bg-teal-600 font-semibold text-white'
+                    : 'border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800'
+              }`}
+            >
+              {s.start}
+            </button>
+            {control.visible && <button type="button" disabled={!control.enabled} aria-label={`${control.overbook ? t('cal.parallel') : t('cal.book')} ${s.start}`} onClick={() => onPick(s.start, control.overbook)} className="rounded border border-dashed border-teal-500 px-2 py-1.5 text-sm font-bold text-teal-600 disabled:border-gray-300 disabled:text-gray-400">+</button>}
+          </div>
+        })}
       </div>
     </div>
   )
@@ -1015,6 +1084,7 @@ function BookingPanel({
   date: initialDate,
   initialDoctorId,
   initialStart,
+  initialParallel = false,
   onClose,
   onSuccess,
 }: {
@@ -1023,11 +1093,13 @@ function BookingPanel({
   date: string
   initialDoctorId?: string
   initialStart?: string
+  initialParallel?: boolean
   onClose: () => void
   onSuccess: (patientName: string, calendarPending: boolean) => void
 }) {
   const { t } = useI18n()
   const qc = useQueryClient()
+  const role = useAuthStore((state) => state.user?.role)
   const [doctorId, setDoctorId] = useState(initialDoctorId ?? doctors[0]?.id ?? '')
   const [serviceId, setServiceId] = useState('')
   const [patientId, setPatientId] = useState('')
@@ -1037,6 +1109,9 @@ function BookingPanel({
   const [start, setStart] = useState(initialStart ?? '')
   const [notes, setNotes] = useState('')
   const [urgent, setUrgent] = useState(false)
+  const [parallel, setParallel] = useState(initialParallel)
+  const [parallelPatientName, setParallelPatientName] = useState('')
+  const [parallelReason, setParallelReason] = useState('')
   const [errorKey, setErrorKey] = useState<'cal.bookError' | 'cal.slotTaken' | null>(null)
 
   const servicesQuery = useQuery({
@@ -1051,17 +1126,21 @@ function BookingPanel({
   const services = servicesQuery.data?.services ?? []
   const patients = patientsQuery.data?.patients ?? []
   const selectedPatientDisplayName = patients.find((p) => p.id === patientId)?.fullName || t('cal.unknownPatient')
-  const patientDisplayName = patientMode === 'new' ? newPatientName.trim() : selectedPatientDisplayName
+  const patientDisplayName = parallel
+    ? parallelPatientName.trim()
+    : patientMode === 'new' ? newPatientName.trim() : selectedPatientDisplayName
 
   const mutation = useMutation({
     mutationFn: () =>
       api.post<{ appointment: AppointmentWithNames }>(`/clinics/${clinicId}/appointments`, {
-        ...(patientMode === 'new' ? { patientName: newPatientName.trim() } : { patientId }),
+        ...(parallel
+          ? buildManualParallelBookingFields({ patientName: parallelPatientName, serviceId, reason: parallelReason })
+          : patientMode === 'new' ? { patientName: newPatientName.trim() } : { patientId }),
         doctorId,
         serviceId: serviceId || undefined,
         date,
         start,
-        notes: notes || undefined,
+        ...(parallel ? {} : { notes: notes || undefined }),
         urgent: urgent || undefined,
       }),
     onMutate: () => setErrorKey(null),
@@ -1078,12 +1157,26 @@ function BookingPanel({
 
   const canSubmit =
     Boolean(doctorId && date && start) &&
-    (patientMode === 'existing' ? Boolean(patientId) : Boolean(newPatientName.trim())) &&
+    (parallel
+      ? isManualParallelBookingComplete({ patientName: parallelPatientName, serviceId, reason: parallelReason })
+      : patientMode === 'existing' ? Boolean(patientId) : Boolean(newPatientName.trim())) &&
     !mutation.isPending
 
   return (
     <div className="space-y-3">
-      <div className="text-sm">
+      {parallel ? (
+        <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t('cal.parallelDetails')}</p>
+          <label className="block text-sm">
+            <span className="text-gray-500">{t('cal.parallelPatientName')}</span>
+            <input value={parallelPatientName} onChange={(event) => setParallelPatientName(event.target.value)} placeholder={t('cal.parallelPatientNamePlaceholder')} className={`${field} mt-1`} />
+          </label>
+          <label className="block text-sm">
+            <span className="text-gray-500">{t('cal.parallelAppointmentReason')}</span>
+            <textarea value={parallelReason} onChange={(event) => setParallelReason(event.target.value)} placeholder={t('cal.parallelAppointmentReasonPlaceholder')} rows={2} className={`${field} mt-1`} />
+          </label>
+        </div>
+      ) : <div className="text-sm">
         <span className="text-gray-500">{t('cal.patient')}</span>
         <div className="mt-1 flex gap-1 text-xs">
           <button
@@ -1129,7 +1222,7 @@ function BookingPanel({
             />
           </label>
         )}
-      </div>
+      </div>}
 
       <label className="block text-sm">
         <span className="text-gray-500">{t('cal.doctor')}</span>
@@ -1193,7 +1286,11 @@ function BookingPanel({
             serviceId={serviceId}
             date={date}
             value={start}
-            onPick={setStart}
+            manualRole={role}
+            onPick={(nextStart, nextParallel = false) => {
+              setStart(nextStart)
+              setParallel(nextParallel)
+            }}
           />
         </div>
       </div>
@@ -1228,7 +1325,7 @@ function BookingPanel({
           disabled={!canSubmit}
           className="rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
         >
-          {mutation.isPending ? t('cal.booking') : t('cal.confirm')}
+          {mutation.isPending ? t('cal.booking') : parallel ? t('cal.confirmParallel') : t('cal.confirm')}
         </button>
         <button
           type="button"

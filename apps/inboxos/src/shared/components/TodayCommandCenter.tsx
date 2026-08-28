@@ -99,13 +99,13 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
 
   return (
     <section className="clinic-card overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 p-4 dark:border-gray-800">
+      <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 ${compact ? 'p-3' : 'p-4'} dark:border-gray-800`}>
         <div>
-          <p className="clinic-eyebrow">Today</p>
-          <h2 className="text-lg font-bold text-gray-950 dark:text-gray-50">Clinic command center</h2>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+          {!compact && <p className="clinic-eyebrow">Today</p>}
+          <h2 className={`${compact ? 'text-sm' : 'text-lg'} font-bold text-gray-950 dark:text-gray-50`}>Clinic command center</h2>
+          {!compact && <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
             Urgent patient messages, waiting replies, unassigned work, and today's visits in one staff view.
-          </p>
+          </p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
@@ -137,14 +137,14 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={`grid gap-2 ${compact ? 'p-3 sm:grid-cols-4' : 'p-4 sm:grid-cols-2 lg:grid-cols-4'}`}>
             <BriefMetric label="Needs attention" value={summary.urgent.length} tone={summary.urgent.length ? 'red' : 'green'} />
             <BriefMetric label="Waiting on staff" value={summary.waiting.length} tone={summary.waiting.length ? 'amber' : 'green'} />
             <BriefMetric label="Unassigned" value={summary.unassigned.length} tone={summary.unassigned.length ? 'indigo' : 'green'} />
             <BriefMetric label="Visits today" value={summary.appointments.length} tone="blue" />
           </div>
 
-          <div className={`grid gap-3 border-t border-gray-200 p-4 dark:border-gray-800 ${compact ? 'lg:grid-cols-2' : 'lg:grid-cols-[1.1fr_0.9fr]'}`}>
+          <div className={`grid gap-3 border-t border-gray-200 ${compact ? 'p-3 lg:grid-cols-2' : 'p-4 lg:grid-cols-[1.1fr_0.9fr]'} dark:border-gray-800`}>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-bold">Next patient action</h3>

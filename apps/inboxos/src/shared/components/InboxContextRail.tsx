@@ -16,11 +16,13 @@ import { AssignPanel } from './AssignPanel'
 import { TagsPanel } from './TagsPanel'
 import { NotesPanel } from './NotesPanel'
 import { AssistantPanel } from './AssistantPanel'
+import { CustomTagManager } from './CustomTagManager'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { can } from '../permissions'
 import { readInboxSettings } from '../inboxSettings'
 import { useFeatures } from '../hooks/useFeatures'
+import type { Clinic } from '../types'
 
 export function InboxContextRail({ conversationId }: { conversationId: string }) {
   const { t } = useI18n()
@@ -30,7 +32,7 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
   const clinicQuery = useQuery({
     queryKey: ['clinic', clinicId],
     enabled: Boolean(clinicId),
-    queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
+    queryFn: () => api.get<{ clinic: Clinic }>(`/clinics/${clinicId}`),
   })
   const inboxSettings = readInboxSettings(features.inboxLayoutV2 ? clinicQuery.data?.clinic.settings : undefined)
   const visibility = inboxSettings.patientChatVisibility
@@ -48,6 +50,8 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
       {features.calendarPolicyV2 && <AppointmentBookingCard
         conversationId={conversationId}
       />}
+
+      {features.inboxLayoutV2 && can(role, 'studio') && clinicQuery.data?.clinic && <CustomTagManager clinic={clinicQuery.data.clinic} />}
 
       {inboxSettings.inboxLayout.internalNotesVisible && <NotesPanel key={`notes-${conversationId}`} conversationId={conversationId} />}
 

@@ -82,13 +82,18 @@ export function NotesPanel({ conversationId }: { conversationId: string }) {
 
   return (
     <section className="border-b border-gray-200 p-3 dark:border-gray-800">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('notes.title')}</h3>
+      <details>
+        <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-gray-500 marker:text-gray-400">
+          {t('notes.title')}
+        </summary>
 
-      <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
-        {t('notes.warning')}
-      </p>
+        <div className="mt-2">
 
-      <div className="mb-2 space-y-2">
+          <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+            {t('notes.warning')}
+          </p>
+
+          <div className="mb-2 space-y-2">
         {query.isLoading ? (
           <p className="text-xs text-gray-400">{t('common.loading')}</p>
         ) : notes.length === 0 ? (
@@ -166,9 +171,9 @@ export function NotesPanel({ conversationId }: { conversationId: string }) {
             )
           })
         )}
-      </div>
+          </div>
 
-      <form onSubmit={onSubmit} className="space-y-1.5">
+          <form onSubmit={onSubmit} className="space-y-1.5">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -183,7 +188,9 @@ export function NotesPanel({ conversationId }: { conversationId: string }) {
         >
           {t('notes.add')}
         </button>
-      </form>
+          </form>
+        </div>
+      </details>
     </section>
   )
 }

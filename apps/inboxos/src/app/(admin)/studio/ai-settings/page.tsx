@@ -11,6 +11,7 @@
 // — only the AI-specific settings moved here.
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CollapsibleSettingsSection } from './CollapsibleSettingsSection'
 import { api } from '@/shared/api/client'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { AiProvidersPanel } from '@/shared/components/StudioIntegrationsPanel'
@@ -38,15 +39,6 @@ const TONES: BotTone[] = ['professional', 'friendly', 'brief']
 const BOT_LANGUAGES: BotLanguage[] = ['auto', 'es', 'en']
 
 const inputCls = 'rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800'
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="clinic-card p-4">
-      <h2 className="mb-3 text-sm font-semibold">{title}</h2>
-      {children}
-    </section>
-  )
-}
 
 function SaveBar({
   dirty,
@@ -150,7 +142,10 @@ function BotToneLanguageSection({ clinic }: { clinic: Clinic }) {
   })
 
   return (
-    <Section title={t('clinic.section.bot')}>
+    <CollapsibleSettingsSection
+      title={t('clinic.section.bot')}
+      contentId="bot-configuration-settings"
+    >
       <p className="mb-2 text-xs font-medium text-gray-500">{t('bot.tone.title')}</p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {TONES.map((value) => {
@@ -188,7 +183,7 @@ function BotToneLanguageSection({ clinic }: { clinic: Clinic }) {
       </div>
 
       <SaveBar dirty={dirty} pending={save.isPending} saved={save.isSuccess && !dirty} error={save.isError} onSave={() => save.mutate()} />
-    </Section>
+    </CollapsibleSettingsSection>
   )
 }
 
@@ -234,15 +229,18 @@ function AiAssistantSection({
   }
 
   return (
-    <Section title={t('aiAssistant.section.title')}>
-      <div className="mb-2 flex items-center justify-end gap-2">
+    <CollapsibleSettingsSection
+      title={t('aiAssistant.section.title')}
+      contentId="docmee-ai-assistant-settings"
+      headerActions={
         <PillToggle
           checked={ai.enabled}
           disabled={saving || locked}
           label={t('aiAssistant.enable')}
           onChange={(next) => onPatch({ enabled: next })}
         />
-      </div>
+      }
+    >
       <p className="mb-3 text-xs text-gray-500">{t('aiAssistant.section.desc')}</p>
       {locked && (
         <p className="mb-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
@@ -426,7 +424,7 @@ function AiAssistantSection({
           <p className="mt-1.5 text-[11px] text-gray-400">{t('aiAssistant.sources.hint')}</p>
         </div>
       </div>
-    </Section>
+    </CollapsibleSettingsSection>
   )
 }
 

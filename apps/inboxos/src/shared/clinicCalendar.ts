@@ -18,3 +18,15 @@ export function appointmentsForClinicDate<
     .filter((appointment) => appointment.status !== 'cancelled' && clinicDateKey(appointment.startTime, timezone) === date)
     .sort((left, right) => left.startTime.localeCompare(right.startTime))
 }
+
+export function activeAppointmentsByClinicDate<
+  T extends { startTime: string; status?: string },
+>(appointments: T[], timezone: string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>()
+  for (const appointment of appointments) {
+    if (appointment.status === 'cancelled') continue
+    const key = clinicDateKey(appointment.startTime, timezone)
+    grouped.set(key, [...(grouped.get(key) ?? []), appointment])
+  }
+  return grouped
+}

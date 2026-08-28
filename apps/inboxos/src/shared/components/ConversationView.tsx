@@ -9,8 +9,8 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
-import { avatarColor, avatarLabel, formatDateTime, formatDay, formatTime, relativeTime } from '../format'
-import { AssignControl } from './AssignControl'
+import { avatarColor, avatarLabel, formatDay, formatTime, relativeTime } from '../format'
+import { AutomationModeToggle } from './AutomationModeToggle'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
@@ -27,8 +27,6 @@ import { readInboxSettings } from '../inboxSettings'
 import { conversationMode } from '../conversationMode'
 import type { Tag } from '../types'
 import type {
-  Appointment,
-  AppointmentStatus,
   Channel,
   Conversation,
   ConversationStatus,
@@ -36,18 +34,6 @@ import type {
   MessageRole,
   Patient,
 } from '../types'
-
-// Compact status colours for the in-thread appointment summary (mirrors the
-// patient-history page palette, kept local so the view stays self-contained).
-const APPT_BADGE: Record<AppointmentStatus, string> = {
-  pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  confirmed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  arrived: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
-  in_progress: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
-  cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
-  completed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-  no_show: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-}
 
 // Req 4 — channel brand colours for the thread header (the small coloured dot +
 // channel name beside the contact). Mirrors the list's channel badge.
@@ -134,11 +120,6 @@ export function ConversationView({
     enabled: Boolean(clinicId),
     queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
   })
-  const tagsQuery = useQuery({
-    queryKey: ['tags', conversationId],
-    queryFn: () => api.get<{ tags: Tag[] }>(`/conversations/${conversationId}/tags`),
-  })
-
   const conversation = conversationQuery.data?.conversation
   const patientQuery = useQuery({
     queryKey: ['patient', conversation?.patientId],
@@ -382,11 +363,6 @@ export function ConversationView({
               {conversation?.channel === 'whatsapp' && (
                 <span className="crm-whatsapp-tag">WhatsApp</span>
               )}
-              {conversation && (
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${mode === 'human' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'}`}>
-                  {mode === 'human' ? 'Secretary mode' : 'AI mode'}
-                </span>
-              )}
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--crm-text-soft)]">
               {/* When the title shows the patient's name, surface the raw handle
@@ -410,19 +386,16 @@ export function ConversationView({
                 </>
               )}
             </div>
-            {visibility.tags && (
-              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1" aria-label="Conversation tags">
-                {(tagsQuery.data?.tags ?? []).map((tag) => (
-                  <span key={tag.id} className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: tag.color }}>
-                    {tag.name}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            {visibility.assignControls && <AssignControl conversationId={conversationId} />}
+            {features.humanOnlyMode && conversation?.patientId && (
+              <AutomationModeToggle
+                conversationId={conversationId}
+                patientId={conversation.patientId}
+                mode={mode}
+              />
+            )}
             {visibility.headerPatientHistory && conversation?.patientId && (
               <Link
                 href={`/inbox/${conversationId}/patient`}
@@ -461,15 +434,6 @@ export function ConversationView({
             )}
           </div>
         </div>
-        {visibility.headerNextAppointment && conversation?.patientId && (
-          <ApptSummary
-            conversationId={conversationId}
-            patientId={conversation.patientId}
-            showNextAppointment
-            showAppointmentDateTime
-            showPatientHistory={visibility.headerPatientHistory}
-          />
-        )}
         {conversation && <KbCitations metadata={conversation.metadata} />}
       </div>
 
@@ -760,62 +724,6 @@ function SafetyBanner({ conversationId }: { conversationId: string }) {
         <p className="font-semibold">{t(b.titleKey)}</p>
         <p className="text-xs opacity-90">{t(b.bodyKey)}</p>
       </div>
-    </div>
-  )
-}
-
-// Req 4 / Req 16: surface the patient's appointment status in-thread so a
-// secretary sees the next (or, failing that, the most recent) appointment without
-// leaving the conversation. Picks the soonest upcoming non-cancelled appointment;
-// if there is none, falls back to the most recent past one. Links to the full
-// patient history. Best-effort: renders nothing while loading or on error.
-function ApptSummary({
-  conversationId,
-  patientId,
-  showNextAppointment,
-  showAppointmentDateTime,
-  showPatientHistory,
-}: {
-  conversationId: string
-  patientId: string
-  showNextAppointment: boolean
-  showAppointmentDateTime: boolean
-  showPatientHistory: boolean
-}) {
-  const { t, language } = useI18n()
-  const appointmentsQuery = useQuery({
-    queryKey: ['patient-appointments', patientId],
-    queryFn: () => api.get<{ appointments: Appointment[] }>(`/patients/${patientId}/appointments`),
-  })
-
-  if (appointmentsQuery.isLoading || appointmentsQuery.isError) return null
-  const appointments = appointmentsQuery.data?.appointments ?? []
-
-  const now = new Date().toISOString()
-  // listByPatient returns appointments newest-first (start_time DESC).
-  const upcoming = appointments
-    .filter((a) => a.startTime >= now && a.status !== 'cancelled')
-    .sort((a, b) => a.startTime.localeCompare(b.startTime))
-  const next = showNextAppointment ? upcoming[0] : undefined
-  const last = appointments.find((a) => a.startTime < now)
-  const appt = next ?? last
-  const label = next ? t('view.appt.next') : t('view.appt.last')
-
-  return (
-    <div className="flex items-center gap-2 px-4 pb-2 text-xs">
-      <span aria-hidden>📅</span>
-      {appt ? (
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-500">{label}:</span>
-          {showAppointmentDateTime && <span className="text-gray-600 dark:text-gray-300">{formatDateTime(appt.startTime, language)}</span>}
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${APPT_BADGE[appt.status]}`}>
-            {t(`appt.status.${appt.status}` as const)}
-          </span>
-          {showPatientHistory && <Link href={`/inbox/${conversationId}/patient`} className="hover:text-teal-600">→</Link>}
-        </div>
-      ) : (
-        <span className="text-gray-400">{t('view.appt.none')}</span>
-      )}
     </div>
   )
 }

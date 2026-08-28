@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conversationMode } from './conversationMode'
+import { automationTransitionSteps, conversationMode } from './conversationMode'
 
 describe('conversationMode', () => {
   it('is human when a secretary owns the thread', () => {
@@ -24,5 +24,34 @@ describe('conversationMode', () => {
     expect(conversationMode('open', 'human_only')).toBe('human')
     expect(conversationMode('pending', 'human_only')).toBe('human')
     expect(conversationMode('open', 'automated')).toBe('bot')
+  })
+
+  it('blocks patient automation before placing a conversation in secretary mode', () => {
+    expect(automationTransitionSteps('human', 'conversation-1', 'patient-1')).toEqual([
+      {
+        method: 'patch',
+        path: '/patients/patient-1/automation-mode',
+        body: { automationMode: 'human_only' },
+      },
+      {
+        method: 'post',
+        path: '/conversations/conversation-1/status',
+        body: { status: 'handoff' },
+      },
+    ])
+  })
+
+  it('reopens the conversation before re-enabling AI mode for the patient', () => {
+    expect(automationTransitionSteps('bot', 'conversation-1', 'patient-1')).toEqual([
+      {
+        method: 'post',
+        path: '/conversations/conversation-1/resume-bot',
+      },
+      {
+        method: 'patch',
+        path: '/patients/patient-1/automation-mode',
+        body: { automationMode: 'automated' },
+      },
+    ])
   })
 })

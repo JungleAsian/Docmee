@@ -78,18 +78,18 @@ export function PatientInfoCard({
   const last = appointments.find((a) => a.startTime < now)
 
   return (
-    <section className="rounded-[var(--crm-border-radius-md)] border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-4 shadow-[var(--crm-shadow-sm)]">
+    <section className="rounded-[var(--crm-border-radius-md)] border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-3 shadow-[var(--crm-shadow-sm)]">
       {/* Identity */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <span
-          className="crm-conv-avatar !h-12 !w-12 !text-lg"
+          className="crm-conv-avatar !h-9 !w-9 !text-sm"
           style={{ background: avatarColor(conversationId) }}
         >
           {avatarLabel(handle)}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-extrabold text-[var(--crm-text-main)]">{displayName}</p>
-          <p className="truncate text-xs text-[var(--crm-text-muted)]">
+          <p className="truncate text-xs font-extrabold text-[var(--crm-text-main)]">{displayName}</p>
+          <p className="truncate text-[10px] text-[var(--crm-text-muted)]">
             {channel === 'whatsapp' || !channel ? handle : `${CHANNEL_LABEL[channel]} · ${handle}`}
           </p>
         </div>
@@ -98,14 +98,14 @@ export function PatientInfoCard({
       {/* New / returning */}
       {showChatStatus && badge && (
         <span
-          className={`mt-3 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${badge.className}`}
+          className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${badge.className}`}
         >
           {badge.glyph} {t(`patient.status.${patient!.status}` as const)}
         </span>
       )}
 
       {/* Last / next appointment. Date/time visibility is clinic-controlled. */}
-      {showAppointmentDateTime && <dl className="mt-3 space-y-1.5 text-xs">
+      {showAppointmentDateTime && <dl className="mt-2 space-y-1 text-[10px]">
         <div className="flex items-center justify-between gap-2">
           <dt className="font-medium text-[var(--crm-text-muted)]">{t('view.appt.last')}</dt>
           <dd className="min-w-0 truncate text-right text-[var(--crm-text-main)]">
@@ -121,16 +121,16 @@ export function PatientInfoCard({
       </dl>}
 
       {/* Actions */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {patientId && showPatientHistory && (
+      {patientId && showPatientHistory && (
+        <div className="mt-2 flex flex-wrap gap-2">
           <Link
             href={`/inbox/${conversationId}/patient`}
-            className="inline-flex items-center gap-1 rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-2.5 py-1 text-[10px] font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
           >
             {t('patient.title')} →
           </Link>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   )
 }

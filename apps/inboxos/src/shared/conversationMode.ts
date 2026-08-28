@@ -7,10 +7,49 @@ import type { ConversationStatus } from './types'
 
 export type ConversationMode = 'bot' | 'human'
 
+export type AutomationTransitionStep = {
+  method: 'patch' | 'post'
+  path: string
+  body?: Record<string, string>
+}
+
 export function conversationMode(
   status: ConversationStatus | undefined | null,
   automationMode?: 'automated' | 'human_only' | string | null,
 ): ConversationMode {
   if (automationMode === 'human_only') return 'human'
   return status === 'assigned' || status === 'handoff' ? 'human' : 'bot'
+}
+
+export function automationTransitionSteps(
+  target: ConversationMode,
+  conversationId: string,
+  patientId: string,
+): AutomationTransitionStep[] {
+  if (target === 'human') {
+    return [
+      {
+        method: 'patch',
+        path: `/patients/${patientId}/automation-mode`,
+        body: { automationMode: 'human_only' },
+      },
+      {
+        method: 'post',
+        path: `/conversations/${conversationId}/status`,
+        body: { status: 'handoff' },
+      },
+    ]
+  }
+
+  return [
+    {
+      method: 'post',
+      path: `/conversations/${conversationId}/resume-bot`,
+    },
+    {
+      method: 'patch',
+      path: `/patients/${patientId}/automation-mode`,
+      body: { automationMode: 'automated' },
+    },
+  ]
 }

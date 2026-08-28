@@ -19,8 +19,8 @@ describe('CustomTagManager', () => {
 
     const markup = renderToStaticMarkup(React.createElement(CustomTagManager, { clinic }))
 
-    expect(markup).toContain('Custom conversation tags')
+    expect(markup).toContain('Etiquetas personalizadas de conversación')
     expect(markup).toContain('Insurance')
-    expect(markup).toContain('Add tag')
+    expect(markup).toContain('Agregar etiqueta')
   })
 })

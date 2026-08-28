@@ -899,7 +899,7 @@ function ActivityFeed({ clinicId, date, doctorId }: { clinicId: string; date: st
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{t('cal.activity')}</h3>
         <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls="calendar-activity-feed" className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
-          {open ? 'Hide activity' : 'Show activity'}
+          {open ? t('cal.activityHide') : t('cal.activityShow')}
         </button>
       </div>
       {open && <div id="calendar-activity-feed" className="clinic-card mt-3 p-3">

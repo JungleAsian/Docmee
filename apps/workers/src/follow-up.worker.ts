@@ -21,7 +21,7 @@ import {
 import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
 import { resolveAutomationEligiblePatient } from './automation-patient-guard.js'
 import { type Job } from '@docmee/queue'
-import { isHumanOnly } from '@docmee/shared'
+import { patientAllowsAutomation } from './automation-boundary.js'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -190,8 +190,8 @@ export async function processFollowUpJob(job: Job): Promise<void> {
       console.log(`[follow-up] patient ${data.patientId} opted out; skipping ${data.type}`)
     return
   }
-  if (isHumanOnly(patient)) {
-    console.log(`[follow-up] patient ${data.patientId} is human-only; skipping ${data.type}`)
+  if (!patientAllowsAutomation(patient)) {
+    console.log(`[follow-up] patient ${data.patientId} is not automation-eligible; skipping ${data.type}`)
     return
   }
 

@@ -11,6 +11,7 @@ import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDay, formatTime, relativeTime } from '../format'
 import { AutomationModeToggle } from './AutomationModeToggle'
+import { InteractionModeToggle } from './InteractionModeToggle'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
@@ -394,6 +395,12 @@ export function ConversationView({
                 conversationId={conversationId}
                 patientId={conversation.patientId}
                 mode={mode}
+              />
+            )}
+            {features.humanOnlyMode && conversation?.patientId && patientQuery.data?.patient && (
+              <InteractionModeToggle
+                patientId={conversation.patientId}
+                metadata={patientQuery.data.patient.metadata}
               />
             )}
             {visibility.headerPatientHistory && conversation?.patientId && (

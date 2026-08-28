@@ -167,6 +167,26 @@ describe('processAgentJob — already opted out', () => {
   })
 })
 
+describe('processAgentJob — staff opt-out', () => {
+  it('blocks every automation path, including the patient START keyword', async () => {
+    h.findPatient.mockResolvedValue({
+      id: PATIENT,
+      fullName: 'Ana',
+      automationMode: 'automated',
+      metadata: { staffOptedOut: true, optedOut: true },
+    })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'START' }))
+
+    expect(h.updatePatient).not.toHaveBeenCalled()
+    expect(h.runClinicBot).not.toHaveBeenCalled()
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+    expect(h.enqueueWorkflowRuns).not.toHaveBeenCalled()
+  })
+})
+
 describe('processAgentJob — START re-subscribe (Req 19)', () => {
   it('clears the opt-out and confirms when an opted-out patient sends START', async () => {
     h.findPatient.mockResolvedValue({ id: PATIENT, fullName: 'Ana', metadata: { optedOut: true } })

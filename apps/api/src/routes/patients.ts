@@ -64,6 +64,44 @@ const patientsRoute: FastifyPluginAsync = async (app) => {
     },
   )
 
+  // Staff can independently block all automation without changing patient
+  // STOP/START consent. Inbound messages remain visible for manual replies.
+  app.patch<{ Params: { id: string }; Body: { optedOut?: boolean } }>(
+    '/patients/:id/staff-opt-out',
+    { preHandler: requireRole('secretary', 'clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const optedOut = request.body?.optedOut
+      if (typeof optedOut !== 'boolean') return reply.code(400).send({ error: 'Invalid opt-out state' })
+      const result = await withDb(async (sql) => {
+        const patients = createPatientsRepository(sql)
+        const current = await patients.findById(clinicId, request.params.id)
+        if (!current) return null
+        const currentMetadata = current.metadata && typeof current.metadata === 'object' && !Array.isArray(current.metadata)
+          ? current.metadata as Record<string, unknown>
+          : {}
+        const metadata = { ...currentMetadata, staffOptedOut: optedOut }
+        const patient = await patients.update(clinicId, request.params.id, { metadata })
+        await createAuditRepository(sql).log({
+          clinicId,
+          actorId: request.user?.userId,
+          actorEmail: request.user?.email,
+          action: 'patient.staff_opt_out_changed',
+          resourceType: 'patient',
+          resourceId: patient.id,
+          metadata: {
+            from: currentMetadata.staffOptedOut === true,
+            to: optedOut,
+          },
+        })
+        return patient
+      })
+      if (!result) return reply.code(404).send({ error: 'Patient not found' })
+      return { patient: result }
+    },
+  )
+
   // ── Appointment history for one patient (patient history view) ──
   app.get<{ Params: { id: string } }>('/patients/:id/appointments', async (request, reply) => {
     const clinicId = resolveClinicScope(request)

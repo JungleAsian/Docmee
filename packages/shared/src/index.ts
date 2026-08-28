@@ -54,7 +54,7 @@ export type EncryptedValue = {
   tag: string
 }
 
-export { assertAutomationAllowed, defaultInboxLayout, defaultPatientChatVisibility, isHumanOnly, readInboxSettings } from './docmeeExpansion.js'
+export { assertAutomationAllowed, defaultInboxLayout, defaultPatientChatVisibility, isHumanOnly, isStaffOptedOut, readInboxSettings } from './docmeeExpansion.js'
 export type { AutomationMode, InboxLayoutSettings, PatientAutomationState, PatientChatVisibility } from './docmeeExpansion.js'
 export { addClinicLocalMinutes, clinicDate, clinicInstantRange, clinicLocalInstant, formattedClinicParts } from './clinicTime.js'
 

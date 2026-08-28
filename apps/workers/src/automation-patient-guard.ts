@@ -1,5 +1,5 @@
-import { isHumanOnly } from '@docmee/shared'
 import type { Patient, PatientsRepository } from '@docmee/db'
+import { patientAllowsAutomation } from './automation-boundary.js'
 
 /**
  * Resolve the current patient record at an automated trust boundary.
@@ -25,8 +25,9 @@ export async function resolveAutomationEligiblePatient(
     console.warn(`[${worker}] automated delivery blocked: patient ${patientId} was not resolved`)
     return null
   }
-  if (isHumanOnly(patient)) {
-    console.log(`[${worker}] patient ${patientId} is human-only; suppressing automation`)
+  if (!patientAllowsAutomation(patient)) {
+    const reason = patient.automationMode === 'human_only' ? 'human-only' : 'staff opted out'
+    console.log(`[${worker}] patient ${patientId} is ${reason}; suppressing automation`)
     return null
   }
 

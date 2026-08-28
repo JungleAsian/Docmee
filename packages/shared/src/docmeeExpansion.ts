@@ -1,15 +1,22 @@
 /** Shared, dependency-free contracts used by API, workers, and InboxOS. */
 export type AutomationMode = 'automated' | 'human_only'
-export type PatientAutomationState = { automationMode?: unknown; optedOut?: unknown }
+export type PatientAutomationState = { automationMode?: unknown; metadata?: unknown; optedOut?: unknown }
 
 /** Human-only is an enforcement boundary; consent tags are deliberately ignored. */
 export function isHumanOnly(value: PatientAutomationState | null | undefined): boolean {
   return value?.automationMode === 'human_only'
 }
 
+/** Administrative lock set by staff. Patient STOP/START consent remains separate. */
+export function isStaffOptedOut(value: PatientAutomationState | null | undefined): boolean {
+  if (!value || typeof value.metadata !== 'object' || value.metadata === null) return false
+  return (value.metadata as { staffOptedOut?: unknown }).staffOptedOut === true
+}
+
 /** Guard immediately before any automated provider send or workflow resume. */
 export function assertAutomationAllowed(value: PatientAutomationState | null | undefined): void {
   if (isHumanOnly(value)) throw new Error('automation_suppressed_human_only')
+  if (isStaffOptedOut(value)) throw new Error('automation_suppressed_staff_opt_out')
 }
 
 export type InboxLayoutSettings = { showContextRail: boolean; calendarExpanded: boolean; internalNotesVisible: boolean }

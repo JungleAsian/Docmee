@@ -38,7 +38,7 @@ export function AutomationModeToggle({
   if (!canChangeMode) {
     return (
       <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isSecretaryMode ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'}`}>
-        {isSecretaryMode ? 'Secretary mode' : 'AI mode'}
+        {isSecretaryMode ? 'Secretary' : 'AI'}
       </span>
     )
   }
@@ -54,11 +54,11 @@ export function AutomationModeToggle({
         onClick={() => mutation.mutate(isSecretaryMode ? 'bot' : 'human')}
         className="inline-flex items-center gap-2 rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-2.5 py-1.5 text-[10px] font-bold shadow-sm transition disabled:cursor-wait disabled:opacity-60"
       >
-        <span className={!isSecretaryMode ? 'text-violet-600 dark:text-violet-300' : 'text-[var(--crm-text-muted)]'}>AI mode</span>
+        <span className={!isSecretaryMode ? 'text-violet-600 dark:text-violet-300' : 'text-[var(--crm-text-muted)]'}>AI</span>
         <span className={`relative h-5 w-9 rounded-full transition ${isSecretaryMode ? 'bg-emerald-500' : 'bg-violet-500'}`} aria-hidden>
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${isSecretaryMode ? 'left-[18px]' : 'left-0.5'}`} />
         </span>
-        <span className={isSecretaryMode ? 'text-emerald-600 dark:text-emerald-300' : 'text-[var(--crm-text-muted)]'}>Secretary mode</span>
+        <span className={isSecretaryMode ? 'text-emerald-600 dark:text-emerald-300' : 'text-[var(--crm-text-muted)]'}>Secretary</span>
       </button>
       {mutation.isError && (
         <span role="alert" className="text-[10px] font-semibold text-red-600">Mode change failed. Try again.</span>

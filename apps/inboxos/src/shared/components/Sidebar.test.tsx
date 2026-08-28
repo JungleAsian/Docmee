@@ -35,5 +35,6 @@ describe('Sidebar', () => {
 
     expect(markup).toContain('src="/pets/docmee-pet-happy.png"')
     expect(markup).toContain('alt="Docmee"')
+    expect(markup).toContain('h-[38.4px] w-[38.4px] object-contain')
   })
 })

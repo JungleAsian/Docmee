@@ -77,7 +77,7 @@ export function Sidebar({
       <div className="crm-sidebar-header">
         {collapsed ? (
           <div className="flex items-center justify-center px-2 py-3">
-            <img src="/pets/docmee-robotito.png?v=20260828" alt={t('app.name')} className="h-[38.4px] w-[38.4px] object-contain" />
+            <img src="/pets/docmee-robotito.png?v=20260828" alt={t('app.name')} className="h-[49.92px] w-[49.92px] object-contain" />
           </div>
         ) : (
           <div className="crm-logo">

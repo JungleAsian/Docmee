@@ -153,39 +153,69 @@ export default function AlertsPage() {
         </td>
         <td className="px-3 py-3 align-top">
           <div className="flex min-w-28 flex-wrap gap-1.5">
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${PRIORITY_BADGE[priority]}`}>{t(PRIORITY_LABEL[priority])}</span>
-              {safety && (
-                <span className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
-                  ⚠ {t('alerts.safety')}
-                </span>
-              )}
-              {handoff && (
-                <span className="rounded border border-dashed border-orange-400 bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-orange-700 dark:bg-orange-950 dark:text-orange-300">
-                  {t('alerts.handoff')}
-                </span>
-              )}
-              {handling === 'human' && (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                  {t('alerts.mode.human')}
-                </span>
-              )}
-              {handling === 'bot' && (
-                <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
-                  {t('alerts.mode.bot')}
-                </span>
-              )}
-              {!unreadRow && (
-                <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-400 dark:bg-gray-800">
-                  {t('alerts.acknowledged')}
-                </span>
-              )}
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${PRIORITY_BADGE[priority]}`}>
+              {t(PRIORITY_LABEL[priority])}
+            </span>
+            {safety && (
+              <span className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
+                ⚠ {t('alerts.safety')}
+              </span>
+            )}
+            {handoff && (
+              <span className="rounded border border-dashed border-orange-400 bg-orange-50 px-1.5 py-0.5 text-[10px] font-medium uppercase text-orange-700 dark:bg-orange-950 dark:text-orange-300">
+                {t('alerts.handoff')}
+              </span>
+            )}
+            {handling === 'human' && (
+              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                {t('alerts.mode.human')}
+              </span>
+            )}
+            {handling === 'bot' && (
+              <span className="rounded bg-cyan-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
+                {t('alerts.mode.bot')}
+              </span>
+            )}
+            {!unreadRow && (
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-400 dark:bg-gray-800">
+                {t('alerts.acknowledged')}
+              </span>
+            )}
           </div>
         </td>
-        <td className="px-3 py-3 align-top"><div className="flex min-w-48 items-start gap-2"><span aria-hidden className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg ${PRIORITY_TILE[priority]}`}>{alertIcon(n.alertType)}</span><span className="text-sm font-semibold">{title}</span></div></td>
-        <td className="max-w-sm px-3 py-3 align-top text-xs leading-5 text-gray-600 dark:text-gray-300">{detail || '—'}</td>
-        <td className="px-3 py-3 align-top"><div className="flex min-w-28 flex-wrap gap-1"><span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">{channel || '—'}</span><span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-500 dark:bg-gray-800 dark:text-gray-400">{handling}</span></div></td>
-        <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-gray-400">{formatDateTime(n.createdAt, language)}</td>
-        <td className="px-3 py-3 align-top">{n.conversationId ? <Link href={`/inbox?c=${n.conversationId}`} className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400">{t('alerts.openConversation')}</Link> : <span className="text-xs text-gray-400">—</span>}</td>
+        <td className="px-3 py-3 align-top">
+          <div className="flex min-w-48 items-start gap-2">
+            <span aria-hidden className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg ${PRIORITY_TILE[priority]}`}>
+              {alertIcon(n.alertType)}
+            </span>
+            <span className="text-sm font-semibold">{title}</span>
+          </div>
+        </td>
+        <td className="max-w-sm px-3 py-3 align-top text-xs leading-5 text-gray-600 dark:text-gray-300">
+          {detail || '—'}
+        </td>
+        <td className="px-3 py-3 align-top">
+          <div className="flex min-w-28 flex-wrap gap-1">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              {channel || '—'}
+            </span>
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              {handling}
+            </span>
+          </div>
+        </td>
+        <td className="whitespace-nowrap px-3 py-3 align-top text-xs text-gray-400">
+          {formatDateTime(n.createdAt, language)}
+        </td>
+        <td className="px-3 py-3 align-top">
+          {n.conversationId ? (
+            <Link href={`/inbox?c=${n.conversationId}`} className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400">
+              {t('alerts.openConversation')}
+            </Link>
+          ) : (
+            <span className="text-xs text-gray-400">—</span>
+          )}
+        </td>
         <td className="px-3 py-3 align-top">
           {unreadRow ? (
             <button
@@ -196,7 +226,9 @@ export default function AlertsPage() {
             >
               {t('notif.acknowledge')}
             </button>
-          ) : <span className="text-xs text-gray-400">—</span>}
+          ) : (
+            <span className="text-xs text-gray-400">—</span>
+          )}
         </td>
       </tr>
     )
@@ -297,23 +329,29 @@ export default function AlertsPage() {
           {focusedAlerts.length > 0 ? (
             <table
               className="min-w-[960px] w-full text-left text-sm"
-              aria-label={language === 'es' ? 'Tabla de alertas' : 'Alerts table'}
+              aria-label={t('alerts.table.label')}
             >
               <thead className="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900">
                 <tr>
-                  <th scope="col" className="px-3 py-3">Read status</th>
-                  <th scope="col" className="px-3 py-3">Priority</th>
-                  <th scope="col" className="px-3 py-3">Alert</th>
-                  <th scope="col" className="px-3 py-3">Details</th>
-                  <th scope="col" className="px-3 py-3">Channel/mode</th>
-                  <th scope="col" className="px-3 py-3">Date/time</th>
-                  <th scope="col" className="px-3 py-3">Conversation</th>
-                  <th scope="col" className="px-3 py-3">Actions</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.readStatus')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.priority')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.alert')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.details')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.channelMode')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.dateTime')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.conversation')}</th>
+                  <th scope="col" className="px-3 py-3">{t('alerts.table.actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {focusedAlerts.map((n) => renderAlert(n))}
-                {backgroundAlerts.length > 0 && <tr><td colSpan={8} className="bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:bg-gray-900">{language === 'es' ? 'Alertas en segundo plano' : 'Background alerts'}</td></tr>}
+                {backgroundAlerts.length > 0 && (
+                  <tr>
+                    <td colSpan={8} className="bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:bg-gray-900">
+                      {t('alerts.table.background')}
+                    </td>
+                  </tr>
+                )}
                 {backgroundAlerts.map((n) => renderAlert(n, true))}
               </tbody>
             </table>

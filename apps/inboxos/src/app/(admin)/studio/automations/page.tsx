@@ -317,8 +317,8 @@ function ReviewSection({
 
   return (
     <section id="review">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">{t('automations.section.review')}</h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{t('automations.section.review')}</h2>
         <div className="flex items-center gap-2">
           <PillToggle checked={on} disabled={saving} label={t('automations.section.review')} onChange={onToggle} />
           <DisclosureToggle revealed={revealed} contentId="review-request-settings" onToggle={() => setRevealed((value) => !value)} />
@@ -328,64 +328,64 @@ function ReviewSection({
         <div id="review-request-settings" className="space-y-3">
           <p className="text-xs text-gray-500">{t('automations.section.review.desc')}</p>
           <div
-        className={`space-y-3 rounded-lg border p-3 ${
-          on ? 'border-gray-200 dark:border-gray-800' : 'border-gray-200 opacity-70 dark:border-gray-800'
-        }`}
-      >
-        <p className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-          🕑 {t('automations.review.trigger')}
-        </p>
+            className={`space-y-3 rounded-lg border p-3 ${
+              on ? 'border-gray-200 dark:border-gray-800' : 'border-gray-200 opacity-70 dark:border-gray-800'
+            }`}
+          >
+            <p className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              🕑 {t('automations.review.trigger')}
+            </p>
 
-        {/* No-link warning mirrors the worker, which skips when reviewLink is unset. */}
-        {!savedLink && (
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            ⚠ {t('automations.review.noLink')}
-          </p>
-        )}
+            {/* No-link warning mirrors the worker, which skips when reviewLink is unset. */}
+            {!savedLink && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                ⚠ {t('automations.review.noLink')}
+              </p>
+            )}
 
-        <label className="block text-xs font-medium text-gray-500">
-          {t('automations.review.linkLabel')}
-          <div className="mt-1 flex gap-2">
-            <input
-              type="url"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-              placeholder={t('automations.review.linkPlaceholder')}
-              className={field}
-            />
-            <button
-              type="button"
-              disabled={!dirty || saving}
-              onClick={() => onSaveLink(link.trim())}
-              className="shrink-0 rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-50"
-            >
-              {t('common.save')}
-            </button>
-          </div>
-        </label>
-        <p className="text-[11px] text-gray-400">{t('automations.review.linkHint')}</p>
-
-        {/* Patient-friendly preview (the message the patient receives) — ES + EN. */}
-        <div className="rounded-md bg-gray-50 p-2.5 dark:bg-gray-800/50">
-          <p className="mb-1.5 text-[11px] font-medium text-gray-500">
-            {t('automations.review.previewTitle')}
-          </p>
-          <div className="space-y-1.5">
-            {(['es', 'en'] as const).map((lang) => (
-              <div
-                key={lang}
-                className="rounded-lg rounded-bl-sm bg-emerald-100 px-2.5 py-1.5 text-xs text-gray-800 dark:bg-emerald-900/40 dark:text-gray-100"
-              >
-                <span className="mr-1 text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">
-                  {lang}
-                </span>
-                {lang === 'en'
-                  ? `How was your experience with ${doctor}? Leave us your feedback: ${shown}`
-                  : `¿Cómo fue tu experiencia con ${doctor}? Déjanos tu opinión: ${shown}`}
+            <label className="block text-xs font-medium text-gray-500">
+              {t('automations.review.linkLabel')}
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="url"
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  placeholder={t('automations.review.linkPlaceholder')}
+                  className={field}
+                />
+                <button
+                  type="button"
+                  disabled={!dirty || saving}
+                  onClick={() => onSaveLink(link.trim())}
+                  className="shrink-0 rounded-md bg-cyan-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:opacity-50"
+                >
+                  {t('common.save')}
+                </button>
               </div>
-            ))}
-          </div>
-        </div>
+            </label>
+            <p className="text-[11px] text-gray-400">{t('automations.review.linkHint')}</p>
+
+            {/* Patient-friendly preview (the message the patient receives) — ES + EN. */}
+            <div className="rounded-md bg-gray-50 p-2.5 dark:bg-gray-800/50">
+              <p className="mb-1.5 text-[11px] font-medium text-gray-500">
+                {t('automations.review.previewTitle')}
+              </p>
+              <div className="space-y-1.5">
+                {(['es', 'en'] as const).map((lang) => (
+                  <div
+                    key={lang}
+                    className="rounded-lg rounded-bl-sm bg-emerald-100 px-2.5 py-1.5 text-xs text-gray-800 dark:bg-emerald-900/40 dark:text-gray-100"
+                  >
+                    <span className="mr-1 text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">
+                      {lang}
+                    </span>
+                    {lang === 'en'
+                      ? `How was your experience with ${doctor}? Leave us your feedback: ${shown}`
+                      : `¿Cómo fue tu experiencia con ${doctor}? Déjanos tu opinión: ${shown}`}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -401,21 +401,15 @@ function CustomFlowsSummary({ clinicId }: { clinicId: string }) {
     queryFn: () => api.get<{ flows: CustomFlow[] }>(`/clinics/${clinicId}/custom-flows`),
   })
   const flows = query.data?.flows ?? []
-  const [revealed, setRevealed] = useState(false)
 
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('automations.section.flows')}</h2>
-        <div className="flex items-center gap-2">
-          <Link href="/studio/custom-flows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
-          <DisclosureToggle revealed={revealed} contentId="custom-flow-settings" onToggle={() => setRevealed((value) => !value)} />
-        </div>
+        <Link href="/studio/custom-flows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
       </div>
-      {revealed ? (
-        <div id="custom-flow-settings" className="space-y-3">
-          <p className="text-xs text-gray-500">{t('automations.section.flows.desc')}</p>
-          {query.isLoading ? (
+      <p className="text-xs text-gray-500">{t('automations.section.flows.desc')}</p>
+      {query.isLoading ? (
         <p className="text-sm text-gray-400">{t('common.loading')}</p>
       ) : query.isError ? (
         <button
@@ -451,9 +445,7 @@ function CustomFlowsSummary({ clinicId }: { clinicId: string }) {
             </li>
           ))}
         </ul>
-          )}
-        </div>
-      ) : null}
+      )}
     </section>
   )
 }
@@ -532,6 +524,8 @@ function DisclosureToggle({
   contentId: string
   onToggle: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <button
       type="button"
@@ -540,7 +534,7 @@ function DisclosureToggle({
       aria-controls={contentId}
       className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
     >
-      {revealed ? 'Hide details' : 'Show details'}
+      {revealed ? t('automations.disclosure.hideDetails') : t('automations.disclosure.showDetails')}
     </button>
   )
 }

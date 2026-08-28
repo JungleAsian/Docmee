@@ -32,14 +32,22 @@ describe('CreateAutomationGallery', () => {
 })
 
 describe('Automation Center disclosures', () => {
-  it('declares collapsed accessible disclosures for each management section', () => {
+  it('declares collapsed accessible disclosures for requested management sections', () => {
     const source = readFileSync(resolve(import.meta.dirname, 'page.tsx'), 'utf8')
+    const customFlowsSource = source.slice(
+      source.indexOf('function CustomFlowsSummary'),
+      source.indexOf('function WorkflowsSummary'),
+    )
 
     expect(source).toContain('contentId="follow-up-settings"')
     expect(source).toContain('contentId="review-request-settings"')
-    expect(source).toContain('contentId="custom-flow-settings"')
     expect(source).toContain('contentId="automation-workflow-settings"')
     expect(source).toContain('aria-expanded={revealed}')
-    expect(source).toContain("{revealed ? 'Hide details' : 'Show details'}")
+    expect(source).toContain("t('automations.disclosure.showDetails')")
+    expect(source).toContain("t('automations.disclosure.hideDetails')")
+    expect(customFlowsSource).not.toContain('custom-flow-settings')
+    expect(customFlowsSource).not.toContain('DisclosureToggle')
+    expect(customFlowsSource).not.toContain('useState')
+    expect(customFlowsSource).toContain("{t('automations.section.flows.desc')}")
   })
 })

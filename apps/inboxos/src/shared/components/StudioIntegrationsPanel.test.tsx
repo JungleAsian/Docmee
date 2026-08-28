@@ -14,6 +14,7 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('@/shared/api/client', () => ({ api: { del: vi.fn(), get: vi.fn(), patch: vi.fn(), post: vi.fn() } }))
 vi.mock('@/shared/store/auth', () => ({ useAuthStore: (selector: (state: { user: { jzelEnabled: boolean } }) => unknown) => selector({ user: { jzelEnabled: true } }) }))
 vi.mock('@/shared/components/GoogleOAuthButton', () => ({ GoogleOAuthButton: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button> }))
+vi.mock('@/shared/hooks/useI18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 describe('Studio integration disclosures', () => {
   const clinic = { id: 'clinic-1', settings: {} } as Clinic
@@ -26,9 +27,12 @@ describe('Studio integration disclosures', () => {
 
     expect(markup).toContain('Google workspace sync')
     expect(markup).toContain('aria-expanded="false"')
-    expect(markup).toContain('Show integrations')
+    expect(markup).toContain('studio.integrations.show')
     expect(markup).not.toContain('Google Calendar')
-    expect(readFileSync(resolve(import.meta.dirname, 'StudioIntegrationsPanel.tsx'), 'utf8')).toContain('id="google-workspace-integrations" className="space-y-4"')
+    const source = readFileSync(resolve(import.meta.dirname, 'StudioIntegrationsPanel.tsx'), 'utf8')
+    expect(source).toContain("t('studio.integrations.show')")
+    expect(source).toContain("t('studio.integrations.hide')")
+    expect(source).toContain('id="google-workspace-integrations" className="space-y-4"')
   })
 
   it('starts Docmee AI provider cards collapsed behind an accessible disclosure', async () => {
@@ -39,8 +43,11 @@ describe('Studio integration disclosures', () => {
 
     expect(markup).toContain('Docmee AI providers')
     expect(markup).toContain('aria-expanded="false"')
-    expect(markup).toContain('Show providers')
+    expect(markup).toContain('studio.aiProviders.show')
     expect(markup).not.toContain('Claude (Anthropic)')
-    expect(readFileSync(resolve(import.meta.dirname, 'StudioIntegrationsPanel.tsx'), 'utf8')).toContain('id="docmee-ai-provider-integrations" className="space-y-4"')
+    const source = readFileSync(resolve(import.meta.dirname, 'StudioIntegrationsPanel.tsx'), 'utf8')
+    expect(source).toContain("t('studio.aiProviders.show')")
+    expect(source).toContain("t('studio.aiProviders.hide')")
+    expect(source).toContain('id="docmee-ai-provider-integrations" className="space-y-4"')
   })
 })

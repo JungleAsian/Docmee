@@ -6,6 +6,7 @@ import { api } from '@/shared/api/client'
 import { BrandIcon, type BrandIconName } from '@/shared/components/BrandIcon'
 import { GoogleOAuthButton } from '@/shared/components/GoogleOAuthButton'
 import { PillToggle } from '@/shared/components/PillToggle'
+import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'
 import type { Clinic } from '@/shared/types'
 
@@ -272,6 +273,7 @@ function connectedEmbeddingProvider(statuses: AiProviderStatus[], current?: stri
 }
 
 export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
+  const { t } = useI18n()
   const settings = (clinic.settings ?? {}) as IntegrationSettings
   const calendarConnected = Boolean(settings.googleCalendar)
   const sheets = settings.googleSheets ?? {}
@@ -298,7 +300,7 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
             aria-controls="google-workspace-integrations"
             className="shrink-0 rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100 dark:hover:bg-sky-900"
           >
-            {googleOpen ? 'Hide integrations' : 'Show integrations'}
+            {googleOpen ? t('studio.integrations.hide') : t('studio.integrations.show')}
           </button>
         }
       />
@@ -333,6 +335,7 @@ export function StudioIntegrationsPanel({ clinic }: { clinic: Clinic }) {
 // plumbing and the ProviderLoginCard below, so it stays colocated here rather
 // than duplicating that machinery in a second file.
 export function AiProvidersPanel({ clinic }: { clinic: Clinic }) {
+  const { t } = useI18n()
   const jzelConfigLocked = useAuthStore((s) => s.user?.jzelEnabled === false)
   const aiStatus = useQuery({
     queryKey: ['ai-status', clinic.id],
@@ -357,7 +360,7 @@ export function AiProvidersPanel({ clinic }: { clinic: Clinic }) {
             aria-controls="docmee-ai-provider-integrations"
             className="shrink-0 rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100 dark:hover:bg-sky-900"
           >
-            {providersOpen ? 'Hide providers' : 'Show providers'}
+            {providersOpen ? t('studio.aiProviders.hide') : t('studio.aiProviders.show')}
           </button>
         }
       />

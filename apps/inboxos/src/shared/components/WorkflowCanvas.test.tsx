@@ -2,11 +2,16 @@ import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { ReactFlowProvider } from '@xyflow/react'
+import {
+  roundedOrthogonalPath,
+  WorkflowLayoutControls,
+  WorkflowNodeView,
+  workflowPathAppearance,
+} from './WorkflowCanvas'
 
 describe('WorkflowLayoutControls', () => {
-  it('exposes selected-branch layout accessibly and disables it without a selection', async () => {
+  it('exposes selected-branch layout accessibly and disables it without a selection', () => {
     vi.stubGlobal('React', React)
-    const { WorkflowLayoutControls } = await import('./WorkflowCanvas')
     const markup = renderToStaticMarkup(
       <WorkflowLayoutControls
         selectedId={null}
@@ -23,9 +28,8 @@ describe('WorkflowLayoutControls', () => {
     expect(markup).not.toContain('role="status"')
   })
 
-  it('shows a localized, non-blocking warning with a one-click crossing reduction action', async () => {
+  it('shows a localized, non-blocking warning with a one-click crossing reduction action', () => {
     vi.stubGlobal('React', React)
-    const { WorkflowLayoutControls } = await import('./WorkflowCanvas')
     const markup = renderToStaticMarkup(
       <WorkflowLayoutControls
         selectedId="condition-1"
@@ -43,8 +47,7 @@ describe('WorkflowLayoutControls', () => {
     expect(markup).toContain('Organizar rama seleccionada')
   })
 
-  it('keeps a straight orthogonal route finite when adjacent corridor points coincide', async () => {
-    const { roundedOrthogonalPath } = await import('./WorkflowCanvas')
+  it('keeps a straight orthogonal route finite when adjacent corridor points coincide', () => {
     const path = roundedOrthogonalPath([
       { x: 0, y: 20 },
       { x: 60, y: 20 },
@@ -56,16 +59,13 @@ describe('WorkflowLayoutControls', () => {
     expect(path).not.toContain('NaN')
   })
 
-  it('keeps unrelated path elements visible while emphasizing the selected path', async () => {
-    const { workflowPathAppearance } = await import('./WorkflowCanvas')
-
+  it('keeps unrelated path elements visible while emphasizing the selected path', () => {
     expect(workflowPathAppearance(false, false)).toEqual({ nodeOpacity: 1, edgeOpacity: 1, edgeWidth: 2 })
     expect(workflowPathAppearance(true, true)).toEqual({ nodeOpacity: 1, edgeOpacity: 1, edgeWidth: 3.5 })
     expect(workflowPathAppearance(true, false)).toEqual({ nodeOpacity: 0.38, edgeOpacity: 0.28, edgeWidth: 2 })
   })
 
-  it('renders the primary input on the left and branch outputs on their logical rows at the right', async () => {
-    const { WorkflowNodeView } = await import('./WorkflowCanvas')
+  it('renders the primary input on the left and branch outputs on their logical rows at the right', () => {
     const noop = vi.fn()
     const markup = renderToStaticMarkup(
       <ReactFlowProvider>

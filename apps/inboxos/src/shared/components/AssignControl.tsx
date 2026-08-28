@@ -1,10 +1,11 @@
 'use client'
 
-// Gap #24 — compact assignment dropdown shown in the ConversationView header.
-// Mirrors the right-rail AssignPanel but inline; both invalidate the same queries
-// so they stay in sync. Assigning is role-gated (secretary, doctor, clinic_admin —
-// matching the assign API and the rest of the clinic-inbox actions); any other role
-// sees the current assignee as read-only text.
+// Gap #24 — compact "Assign to me" control shown in the ConversationView header.
+// The current assignee remains available in the optional right-rail AssignPanel;
+// the header space beside the channel is reserved for the AI/Secretary mode pill.
+// Assigning is role-gated (secretary, doctor, clinic_admin — matching the assign API
+// and the rest of the clinic-inbox actions); any other role sees the current assignee
+// as read-only text.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/auth'
@@ -56,9 +57,6 @@ export function AssignControl({ conversationId }: { conversationId: string }) {
 
   return (
     <div className="flex items-center gap-1.5 text-xs" aria-label="Conversation handling">
-      <span className="rounded-full bg-emerald-100 px-2 py-1 font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-        {`● ${assigneeLabel}`}
-      </span>
       <button
         type="button"
         onClick={() => user?.id && assignMutation.mutate(user.id)}

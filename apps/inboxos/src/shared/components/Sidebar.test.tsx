@@ -26,14 +26,14 @@ vi.mock('./ThemeToggle', () => ({
 }))
 
 describe('Sidebar', () => {
-  it('shows the happy Docmee avatar when the sidebar is collapsed', async () => {
+  it('shows the supplied Robotito avatar when the sidebar is collapsed', async () => {
     vi.stubGlobal('React', React)
     const { Sidebar } = await import('./Sidebar')
     const markup = renderToStaticMarkup(
       React.createElement(Sidebar, { title: 'Inbox', links: [], collapsed: true }),
     )
 
-    expect(markup).toContain('src="/pets/docmee-pet-happy.png"')
+    expect(markup).toContain('src="/pets/docmee-robotito.png?v=20260828"')
     expect(markup).toContain('alt="Docmee"')
     expect(markup).toContain('h-[38.4px] w-[38.4px] object-contain')
   })

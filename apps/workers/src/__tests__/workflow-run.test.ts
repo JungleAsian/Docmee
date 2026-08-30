@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const h = vi.hoisted(() => ({
   queueAdd: vi.fn().mockResolvedValue(undefined),
+  conversationFindById: vi.fn(),
+  conversationUpdate: vi.fn(),
   listActiveByTrigger: vi.fn().mockResolvedValue([]),
   findWorkflowById: vi.fn().mockResolvedValue(null),
 }))
@@ -11,7 +13,7 @@ vi.mock('@docmee/queue', () => ({
 }))
 
 vi.mock('@docmee/db', () => ({
-  createConversationsRepository: () => ({ findById: vi.fn(), update: vi.fn() }),
+  createConversationsRepository: () => ({ findById: h.conversationFindById, update: h.conversationUpdate }),
   createWorkflowsRepository: () => ({ listActiveByTrigger: h.listActiveByTrigger, findById: h.findWorkflowById }),
 }))
 
@@ -20,6 +22,7 @@ import {
   enqueueInboundWorkflowRuns,
   enqueueWorkflowRunByTarget,
   readPendingWorkflowRuns,
+  resumePendingWorkflowRuns,
   workflowIsConversational,
   workflowKeywordMatches,
   workflowRunKey,
@@ -92,6 +95,37 @@ describe('pending conversational workflow state', () => {
     const [pending] = readPendingWorkflowRuns(afterSimulatedJsonbRoundTrip)
     expect(pending?.context['available_slots']).toEqual([{ start: '2026-08-08T09:00:00', end: '2026-08-08T09:30:00' }])
     expect(pending?.context['doctor_preference']).toBe('Dr. Contreras')
+  })
+
+  it('uses the current inbound WhatsApp message ID when resuming a pending run', async () => {
+    const sql = {} as never
+    const metadata = writePendingWorkflowRun(
+      {},
+      {
+        workflowId: '22222222-2222-4222-8222-222222222222',
+        sourceEventId: 'wamid.menu-click',
+        resumeNodeId: 'ask_question',
+        context: { patientId: 'patient-1' },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    )
+    h.conversationFindById.mockResolvedValue({ id: 'conversation-1', metadata })
+
+    await resumePendingWorkflowRuns(sql, '11111111-1111-4111-8111-111111111111', 'conversation-1', {
+      patientId: 'patient-1',
+      message: 'What services do you offer?',
+      waMessageId: 'wamid.patient-reply',
+    })
+
+    expect(h.queueAdd).toHaveBeenCalledWith(
+      'run',
+      expect.objectContaining({
+        trigger: expect.objectContaining({ sourceEventId: 'wamid.patient-reply', message: 'What services do you offer?' }),
+      }),
+      expect.objectContaining({
+        jobId: workflowResumeJobKey('22222222-2222-4222-8222-222222222222', 'wamid.patient-reply', 'ask_question'),
+      }),
+    )
   })
 })
 

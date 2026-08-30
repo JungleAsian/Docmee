@@ -161,16 +161,17 @@ export async function resumePendingWorkflowRuns(
   }
 
   for (const pending of active) {
+    const resumeSourceEventId = ctx.sourceEventId ?? ctx.waMessageId ?? pending.sourceEventId
     await workflowQueue().add(
       'run',
       {
         clinicId,
         workflowId: pending.workflowId,
-        trigger: { type: 'trigger.conversation_reply', sourceEventId: pending.sourceEventId, ...ctx, conversationId },
+        trigger: { ...ctx, type: 'trigger.conversation_reply', sourceEventId: resumeSourceEventId, conversationId },
         startNodeId: pending.resumeNodeId,
         context: pending.context,
       } satisfies WorkflowRunJobData,
-      { jobId: workflowResumeJobKey(pending.workflowId, pending.sourceEventId, pending.resumeNodeId) },
+      { jobId: workflowResumeJobKey(pending.workflowId, resumeSourceEventId, pending.resumeNodeId) },
     )
   }
   const metadata = { ...conversation.metadata }

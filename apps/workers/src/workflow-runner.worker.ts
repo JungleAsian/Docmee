@@ -1535,7 +1535,11 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         String(node.config?.['serviceId'] ?? '').trim() ||
         contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
       const date = contextString(ctx, configField(node, 'dateField', 'preferred_date'))
-      const time = contextString(ctx, configField(node, 'timeField', 'preferred_time')).slice(0, 5)
+      const configuredTimeField = configField(node, 'timeField', 'preferred_time')
+      const configuredTime = contextString(ctx, configuredTimeField)
+      const slotMenuTimeFallback = contextString(ctx, 'selected_booking_key')
+      const timeSource = configuredTime || (/^\d{2}:\d{2}/.test(slotMenuTimeFallback) ? slotMenuTimeFallback : '')
+      const time = timeSource.slice(0, 5)
       const hour = Number(time.slice(0, 2))
       const minute = Number(time.slice(3, 5))
       if (

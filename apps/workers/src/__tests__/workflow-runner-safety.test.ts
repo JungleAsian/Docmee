@@ -277,6 +277,41 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it('books with the slot menu time fallback when the booking node time field is misconfigured', async () => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const bookingCtx = {
+        ...ctx,
+        selected_date: '2026-09-15',
+        selected_booking_key: '09:00',
+      }
+      await exec.createOrRescheduleBooking({
+        id: 'booking-1',
+        type: 'create_booking',
+        config: {
+          doctorId: '44444444-4444-4444-8444-444444444444',
+          dateField: 'selected_date',
+          timeField: 'selected_time',
+        },
+      }, bookingCtx)
+      await exec.sendMessage('Appointment booked successfully.', bookingCtx)
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'create',
+      startTime: '2026-09-15T09:00:00.000Z',
+      endTime: '2026-09-15T09:30:00.000Z',
+    }))
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(
+      'phone-1',
+      'token',
+      '15551234567',
+      'Appointment booked successfully.',
+    )
+  })
+
   it('reschedules workflow bookings through the atomic capacity operation', async () => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.createOrRescheduleBooking({

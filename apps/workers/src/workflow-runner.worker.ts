@@ -296,6 +296,7 @@ async function workflowCalendarConfig(
 // Sunday-first to match JS Date#getUTCDay().
 const WEEKDAY_BY_INDEX = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 const WORKFLOW_CALENDAR_WRITE_TIMEOUT_MS = 8_000
+const WORKFLOW_AI_AGENT_REPLY_TIMEOUT_MS = 15_000
 
 async function withWorkflowCalendarWriteTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -306,6 +307,23 @@ async function withWorkflowCalendarWriteTimeout<T>(operation: Promise<T>, label:
         timeout = setTimeout(
           () => reject(new Error(`${label} timed out after ${WORKFLOW_CALENDAR_WRITE_TIMEOUT_MS}ms`)),
           WORKFLOW_CALENDAR_WRITE_TIMEOUT_MS,
+        )
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
+async function withWorkflowAiAgentReplyTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} timed out after ${WORKFLOW_AI_AGENT_REPLY_TIMEOUT_MS}ms`)),
+          WORKFLOW_AI_AGENT_REPLY_TIMEOUT_MS,
         )
       }),
     ])
@@ -1076,16 +1094,19 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
       let raw: string
       try {
-        raw = await chatComplete({
-          provider,
-          model: ai.model?.trim() || defaultChatModel(provider),
-          baseURL: ai.baseURL?.trim() || undefined,
-          apiKey: resolveClinicAiKey(clinic.settings, provider),
-          history: [],
-          maxTokens: 512,
-          system,
-          message,
-        })
+        raw = await withWorkflowAiAgentReplyTimeout(
+          chatComplete({
+            provider,
+            model: ai.model?.trim() || defaultChatModel(provider),
+            baseURL: ai.baseURL?.trim() || undefined,
+            apiKey: resolveClinicAiKey(clinic.settings, provider),
+            history: [],
+            maxTokens: 512,
+            system,
+            message,
+          }),
+          'Workflow AI agent reply',
+        )
       } catch (err) {
         console.error('[workflow] ai_agent LLM call failed:', err)
         return 'error'

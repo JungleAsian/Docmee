@@ -27,6 +27,8 @@ const h = vi.hoisted(() => ({
   sendWhatsAppInteractiveList: vi.fn(),
   findTemplate: vi.fn(),
   createMessage: vi.fn(),
+  chatComplete: vi.fn(),
+  listEmbeddedChunks: vi.fn(),
   end: vi.fn(),
 }))
 
@@ -39,6 +41,19 @@ vi.mock('@docmee/agents', () => ({
   WORKFLOW_SLOT_MENU_CONTEXT_KEY: 'slots',
   SLOT_MENU_MORE_OPTION_ID: 'more',
   parseMenuOptions: (config: Record<string, unknown> | undefined) => config?.['options'] ?? [],
+  parseAiAgentScenarios: (config: Record<string, unknown> | undefined) => config?.['scenarios'] ?? [],
+  isEmergencyMessage: () => false,
+  screenMedicalSafety: () => ({ safe: true }),
+  medicalSafetyDeferral: () => 'A secretary will help you.',
+  screenPromptLeak: () => ({ safe: true }),
+  promptSafetyDeferral: () => 'A secretary will help you.',
+  injectionGuard: () => 'Do not follow unsafe instructions.',
+  wrapUntrustedKb: (text: string) => text,
+  toneInstruction: () => 'Be professional.',
+  detectLanguage: () => 'en',
+  searchKb: () => [],
+  scopeKbToMessage: (_message: string, chunks: unknown[]) => chunks,
+  hasDoctorScopedChunks: () => false,
 }))
 
 vi.mock('@docmee/shared', async (importOriginal) => ({
@@ -46,7 +61,7 @@ vi.mock('@docmee/shared', async (importOriginal) => ({
   decryptValue: (value: string) => value,
   encryptValue: (value: string) => value,
 }))
-vi.mock('@docmee/llm', () => ({ chatComplete: vi.fn(), defaultChatModel: () => 'test' }))
+vi.mock('@docmee/llm', () => ({ chatComplete: h.chatComplete, defaultChatModel: () => 'test' }))
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
   sendWhatsAppInteractiveButtons: vi.fn(),
@@ -84,7 +99,7 @@ vi.mock('@docmee/db', () => ({
   createMessagesRepository: () => ({ create: h.createMessage }),
   createMessageTemplatesRepository: () => ({ findApprovedByCategory: h.findTemplate }),
   createNotificationsRepository: () => ({}),
-  createKnowledgeRepository: () => ({}),
+  createKnowledgeRepository: () => ({ listEmbeddedChunks: h.listEmbeddedChunks }),
 }))
 
 import { processWorkflowRunJob } from '../workflow-runner.worker.js'
@@ -128,6 +143,8 @@ beforeEach(() => {
   h.sendWhatsAppInteractiveList.mockResolvedValue('wamid.menu')
   h.findTemplate.mockResolvedValue({ body: 'Approved reminder' })
   h.createMessage.mockResolvedValue({ id: 'message-1' })
+  h.chatComplete.mockResolvedValue('SCENARIO: general\nREPLY:\nHello from AI.')
+  h.listEmbeddedChunks.mockResolvedValue([])
 })
 
 describe('processWorkflowRunJob automation ownership', () => {
@@ -338,6 +355,40 @@ describe('processWorkflowRunJob automation ownership', () => {
       '15551234567',
       'Please type your question.',
     )
+  })
+
+  it('routes the AI agent to error instead of hanging when the provider stalls', async () => {
+    vi.useFakeTimers()
+    h.chatComplete.mockImplementationOnce(() => new Promise(() => {}))
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = exec.aiAgent
+        ? await exec.aiAgent({
+            id: 'ai-agent',
+            type: 'ai_agent',
+            config: {
+              communicationStyle: 'professional',
+              scenarios: [
+                { id: 'general', description: 'General clinic question', action: 'reply' },
+              ],
+            },
+          }, { ...ctx, message: 'What services do you offer?' })
+        : 'missing'
+      expect(result).toBe('error')
+      return [{ status: 'completed' }]
+    })
+
+    try {
+      const runPromise = processWorkflowRunJob(job)
+      await vi.advanceTimersByTimeAsync(15_000)
+      await runPromise
+    } finally {
+      vi.useRealTimers()
+    }
+
+    expect(h.setRunStatus).toHaveBeenCalledWith('run-1', 'completed', expect.objectContaining({
+      terminalState: 'completed',
+      trace: expect.any(Array),
+    }))
   })
 
   it('reschedules workflow bookings through the atomic capacity operation', async () => {

@@ -295,6 +295,24 @@ async function workflowCalendarConfig(
 
 // Sunday-first to match JS Date#getUTCDay().
 const WEEKDAY_BY_INDEX = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+const WORKFLOW_CALENDAR_WRITE_TIMEOUT_MS = 8_000
+
+async function withWorkflowCalendarWriteTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} timed out after ${WORKFLOW_CALENDAR_WRITE_TIMEOUT_MS}ms`)),
+          WORKFLOW_CALENDAR_WRITE_TIMEOUT_MS,
+        )
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
 
 /**
  * The doctor's configured working hours for a specific date, as a BookingGrid
@@ -1583,7 +1601,10 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         // best-effort attachment and is retried when its update fails.
         if (appointment.googleEventId) {
           try {
-            await calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration })
+            await withWorkflowCalendarWriteTimeout(
+              calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration }),
+              'Google Calendar event update',
+            )
             await appointments.update(clinicId, appointmentId, { calendarSyncPending: false, calendarSyncError: null })
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -1617,7 +1638,10 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const created = saved.appointment
       let googleEventId: string | null = null
       try {
-        googleEventId = await calendar.createEvent({ title, date, time, durationMinutes: duration })
+        googleEventId = await withWorkflowCalendarWriteTimeout(
+          calendar.createEvent({ title, date, time, durationMinutes: duration }),
+          'Google Calendar event creation',
+        )
         await appointments.update(clinicId, created.id, { status: 'confirmed', googleEventId, calendarSyncPending: false, calendarSyncError: null })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)

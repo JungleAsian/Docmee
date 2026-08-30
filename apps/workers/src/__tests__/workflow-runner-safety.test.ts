@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
   updateAppointment: vi.fn(),
   listSlots: vi.fn(),
   createCalendarEvent: vi.fn(),
+  updateCalendarEvent: vi.fn(),
   listAccounts: vi.fn(),
   listContacts: vi.fn(),
   sendWhatsAppText: vi.fn(),
@@ -32,7 +33,7 @@ const h = vi.hoisted(() => ({
 vi.mock('@docmee/agents', () => ({
   validateWorkflowDefinition: () => [],
   runWorkflow: h.runWorkflow,
-  createGoogleCalendarOps: () => ({ listSlots: h.listSlots, createEvent: h.createCalendarEvent }),
+  createGoogleCalendarOps: () => ({ listSlots: h.listSlots, createEvent: h.createCalendarEvent, updateEvent: h.updateCalendarEvent }),
   WORKFLOW_CAPTURE_CONTEXT_KEY: 'capture',
   WORKFLOW_MENU_CONTEXT_KEY: 'menu',
   WORKFLOW_SLOT_MENU_CONTEXT_KEY: 'slots',
@@ -120,6 +121,7 @@ beforeEach(() => {
   h.saveWithinCapacity.mockResolvedValue({ ok: true, appointment: { id: 'appt-1' }, clashCount: 0 })
   h.updateAppointment.mockResolvedValue({ id: 'appt-1' })
   h.createCalendarEvent.mockResolvedValue('event-1')
+  h.updateCalendarEvent.mockResolvedValue(undefined)
   h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'phone-1', accessTokenEnc: 'token' }])
   h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '15551234567', isPrimary: true }])
   h.sendWhatsAppText.mockResolvedValue('wamid.sent')
@@ -229,6 +231,50 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'create', capacity: 1, allowOverbooking: false,
     }))
+  })
+
+  it('still sends the workflow confirmation when Google Calendar create stalls after saving the booking', async () => {
+    vi.useFakeTimers()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    h.createCalendarEvent.mockImplementation(() => new Promise(() => undefined))
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const bookingCtx = { ...ctx, preferred_date: '2026-09-15', preferred_time: '09:00' }
+      await exec.createOrRescheduleBooking({
+        id: 'booking-1',
+        type: 'create_booking',
+        config: {
+          doctorId: '44444444-4444-4444-8444-444444444444',
+          dateField: 'preferred_date',
+          timeField: 'preferred_time',
+        },
+      }, bookingCtx)
+      await exec.sendMessage('Appointment booked successfully.', bookingCtx)
+      return [{ status: 'completed' }]
+    })
+
+    try {
+      const run = processWorkflowRunJob(job)
+      await vi.advanceTimersByTimeAsync(8_000)
+      await run
+    } finally {
+      errorSpy.mockRestore()
+      vi.useRealTimers()
+    }
+
+    expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'create', capacity: 1, allowOverbooking: false,
+    }))
+    expect(h.updateAppointment).toHaveBeenCalledWith(CLINIC, 'appt-1', expect.objectContaining({
+      status: 'confirmed',
+      calendarSyncPending: true,
+      calendarSyncError: 'Google Calendar event creation timed out after 8000ms',
+    }))
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(
+      'phone-1',
+      'token',
+      '15551234567',
+      'Appointment booked successfully.',
+    )
   })
 
   it('reschedules workflow bookings through the atomic capacity operation', async () => {

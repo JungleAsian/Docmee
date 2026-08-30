@@ -1203,7 +1203,8 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
       const currentValue = contextString(ctx, field)
       const validation = String(node.config?.['validation'] ?? 'required')
-      if (currentValue && validCapturedReply(validation, currentValue)) {
+      const freshInteractiveSelection = typeof ctx['interactiveReplyId'] === 'string' && ctx['interactiveReplyId'].trim().length > 0
+      if (currentValue && !freshInteractiveSelection && validCapturedReply(validation, currentValue)) {
         ctx['capture_status'] = 'captured'
         ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = {
           nodeId: node.id,

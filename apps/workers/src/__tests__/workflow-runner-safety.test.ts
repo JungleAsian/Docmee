@@ -312,6 +312,34 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it('asks the capture question instead of treating an interactive menu label as the answer', async () => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.askAndCapture({
+        id: 'capture-question',
+        type: 'ask_capture',
+        config: {
+          field: 'message',
+          question: 'Please type your question.',
+          validation: 'required',
+        },
+      }, {
+        ...ctx,
+        message: 'English',
+        interactiveReplyId: 'english',
+      })
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(
+      'phone-1',
+      'token',
+      '15551234567',
+      'Please type your question.',
+    )
+  })
+
   it('reschedules workflow bookings through the atomic capacity operation', async () => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.createOrRescheduleBooking({

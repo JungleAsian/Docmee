@@ -150,7 +150,16 @@ export async function runWorkflow(
         if (exec.offerSlots) await sideEffect(node, () => Promise.resolve(exec.offerSlots!(node, ctx)))
         break
       case 'action.interactive_menu':
-        if (exec.interactiveMenu) await sideEffect(node, () => Promise.resolve(exec.interactiveMenu!(node, ctx)))
+        if (exec.interactiveMenu) {
+          await sideEffect(node, () => Promise.resolve(exec.interactiveMenu!(node, ctx)))
+          const selectionField = typeof cfg['selectionField'] === 'string' && cfg['selectionField'].trim()
+            ? cfg['selectionField'].trim()
+            : 'workflow_selection_id'
+          const selectedOption = ctx[selectionField]
+          if (typeof selectedOption === 'string' && selectedOption.trim()) {
+            handle = selectedOption.trim()
+          }
+        }
         break
       case 'action.revalidate_slot':
         if (exec.revalidateSlot) await sideEffect(node, () => Promise.resolve(exec.revalidateSlot!(node, ctx)))

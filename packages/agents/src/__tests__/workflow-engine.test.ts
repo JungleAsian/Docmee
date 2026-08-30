@@ -219,6 +219,36 @@ describe('runWorkflow', () => {
     }))
   })
 
+  it('routes an interactive menu reply through the selected option handle', async () => {
+    const wf = {
+      nodes: [
+        node('t', 'trigger', 'trigger.message_keyword'),
+        node('menu', 'action', 'action.interactive_menu', { selectionField: 'workflow_selection_id' }),
+        node('hours', 'action', 'action.send_message', { text: 'Clinic hours' }),
+        node('booking', 'action', 'action.send_message', { text: 'Booking flow' }),
+        node('secretary', 'action', 'action.notify_secretary'),
+      ],
+      edges: [
+        edge('t', 'menu'),
+        edge('menu', 'hours', 'clinic_hours'),
+        edge('menu', 'booking', 'book_appointment'),
+        edge('menu', 'secretary', 'secretary'),
+      ],
+    }
+    const ctx = { workflow_selection_id: '' }
+    const exec = makeExec({
+      interactiveMenu: vi.fn(async (_node, shared) => {
+        shared['workflow_selection_id'] = 'book_appointment'
+      }),
+    })
+
+    await runWorkflow(wf, ctx, exec)
+
+    expect(exec.sendMessage).toHaveBeenCalledWith('Booking flow', expect.objectContaining({ workflow_selection_id: 'book_appointment' }))
+    expect(exec.sendMessage).not.toHaveBeenCalledWith('Clinic hours', expect.any(Object))
+    expect(exec.notifySecretary).not.toHaveBeenCalled()
+  })
+
   it('asks, persists at wait, then resumes after a captured reply', async () => {
     const wf = {
       nodes: [

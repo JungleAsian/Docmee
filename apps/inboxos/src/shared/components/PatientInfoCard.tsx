@@ -125,7 +125,7 @@ export function PatientInfoCard({
       )}
 
       {patientId && (
-        <div className="mt-3 grid gap-2 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-2">
+        <div className="crm-patient-status-controls mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-2">
           <AutomationModeToggle conversationId={conversationId} patientId={patientId} mode={mode} />
           <InteractionModeToggle patientId={patientId} metadata={patientMetadata} />
         </div>

@@ -21,6 +21,7 @@ export function NotesPanel({ conversationId }: { conversationId: string }) {
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const [open, setOpen] = useState(true)
 
   const query = useQuery({
     queryKey: key,
@@ -82,7 +83,7 @@ export function NotesPanel({ conversationId }: { conversationId: string }) {
 
   return (
     <section className="border-b border-gray-200 p-3 dark:border-gray-800">
-      <details>
+      <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-gray-500 marker:text-gray-400">
           {t('notes.title')}
         </summary>

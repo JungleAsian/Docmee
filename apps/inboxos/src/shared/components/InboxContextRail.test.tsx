@@ -8,6 +8,17 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('../hooks/useFeatures', () => ({ useFeatures: () => ({ features: { inboxLayoutV2: true, calendarPolicyV2: true } }) }))
 vi.mock('../store/auth', () => ({ useAuthStore: () => ({ user: { clinicId: 'clinic-1', role: 'clinic_admin' } }) }))
 vi.mock('../hooks/useI18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('../hooks/useUserUiPreferences', () => ({
+  useUserUiPreferences: () => ({
+    preferences: {
+      sideRailItemOrder: {
+        main: ['patient', 'calendar', 'notes', 'others'],
+        others: ['customTags'],
+      },
+      hiddenSideRailItems: [],
+    },
+  }),
+}))
 vi.mock('../permissions', () => ({ can: () => true }))
 vi.mock('./PatientInfoCard', () => ({ PatientInfoCard: () => <div>Patient information</div> }))
 vi.mock('./AppointmentBookingCard', () => ({ AppointmentBookingCard: () => <div>Booking calendar</div> }))
@@ -20,12 +31,12 @@ vi.mock('./TagsPanel', () => ({ TagsPanel: () => <div /> }))
 vi.mock('./AssistantPanel', () => ({ AssistantPanel: () => <div /> }))
 
 describe('InboxContextRail', () => {
-  it('places the clinic tag manager directly below the booking calendar', async () => {
+  it('keeps internal notes above the booking calendar even with older saved ordering', async () => {
     vi.stubGlobal('React', React)
     const { InboxContextRail } = await import('./InboxContextRail')
     const markup = renderToStaticMarkup(React.createElement(InboxContextRail, { conversationId: 'conversation-1' }))
 
-    expect(markup.indexOf('Booking calendar')).toBeLessThan(markup.indexOf('Custom conversation tags'))
-    expect(markup.indexOf('Custom conversation tags')).toBeLessThan(markup.indexOf('Internal notes'))
+    expect(markup.indexOf('Internal notes')).toBeLessThan(markup.indexOf('Booking calendar'))
+    expect(markup.indexOf('Booking calendar')).toBeLessThan(markup.indexOf('inbox.others'))
   })
 })

@@ -428,7 +428,7 @@ export function ConversationList({
 
         {/* Operational lens tabs (Active / Bot / Assigned / Closed) with live counts —
             the secretary's primary triage control, narrowing the queue client-side. */}
-        <div role="tablist" aria-label={t('conv.lens.label')} className="flex flex-wrap gap-1.5">
+        <div role="tablist" aria-label={t('conv.lens.label')} className="crm-conversation-lens-tabs flex flex-nowrap gap-1">
           {visibleConversationLenses(showInactiveChannels).map((l) => (
             <LensTab
               key={l}
@@ -835,7 +835,7 @@ function LensTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-[11.5px] font-semibold transition ${
+      className={`inline-flex min-w-0 items-center gap-1 border-b-2 px-1.5 py-1 text-[9.2px] font-semibold transition ${
         active
           ? 'border-[var(--crm-primary-color)] text-[var(--crm-primary-color)]'
           : 'border-transparent text-[var(--crm-text-muted)] hover:border-[var(--crm-border-color)]'
@@ -843,7 +843,7 @@ function LensTab({
     >
       {label}
       <span
-        className={`min-w-[1.1rem] rounded px-1 text-center text-[10px] font-bold tabular-nums ${
+        className={`min-w-[0.9rem] rounded px-0.5 text-center text-[8px] font-bold tabular-nums ${
           active
             ? 'bg-[var(--crm-hover-bg)] text-[var(--crm-primary-color)]'
             : 'bg-[var(--crm-elevated-bg)] text-[var(--crm-text-muted)]'

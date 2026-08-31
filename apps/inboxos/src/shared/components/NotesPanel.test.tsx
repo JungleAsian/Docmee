@@ -25,7 +25,7 @@ vi.mock('../hooks/useTeam', () => ({ useTeam: () => [] }))
 vi.mock('../store/auth', () => ({ useAuthStore: () => 'user-1' }))
 
 describe('NotesPanel', () => {
-  it('renders internal notes as a collapsed native disclosure', async () => {
+  it('renders internal notes as a revealed native disclosure by default', async () => {
     vi.stubGlobal('React', React)
     const { NotesPanel } = await import('./NotesPanel')
     const markup = renderToStaticMarkup(
@@ -33,7 +33,7 @@ describe('NotesPanel', () => {
     )
 
     expect(markup).toContain('<details')
-    expect(markup).not.toContain('<details open=""')
+    expect(markup).toContain('<details open=""')
     expect(markup).toContain('<summary')
     expect(markup).toContain('Internal notes')
   })

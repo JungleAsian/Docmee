@@ -26,7 +26,7 @@ export function InteractionModeToggle({ patientId, metadata }: { patientId: stri
   })
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="crm-status-toggle flex min-w-0 flex-col gap-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
           Automation
@@ -38,7 +38,7 @@ export function InteractionModeToggle({ patientId, metadata }: { patientId: stri
         )}
       </div>
       <div
-        className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
+        className="crm-status-toggle-options grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
         aria-label="Opt-in or Opt-out automation status"
       >
         <button

@@ -8,9 +8,9 @@ export interface UserUiPreferences {
 }
 
 export const DEFAULT_USER_UI_PREFERENCES: UserUiPreferences = {
-  sideRailSectionOrder: ['patient', 'calendar', 'notes', 'others'],
+  sideRailSectionOrder: ['patient', 'notes', 'calendar', 'others'],
   sideRailItemOrder: {
-    main: ['patient', 'calendar', 'notes', 'others'],
+    main: ['patient', 'notes', 'calendar', 'others'],
     others: ['customTags', 'safetyHandoff', 'assign', 'lifecycle', 'tags', 'aiAssistance'],
   },
   hiddenSideRailItems: [],

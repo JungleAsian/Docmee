@@ -1197,6 +1197,106 @@ body {
     box-shadow: var(--crm-shadow-card) !important;
   }
 
+  .crm-inboxos-desktop-shell .crm-patient-status-controls {
+    align-items: start;
+  }
+
+  .crm-inboxos-desktop-shell .crm-status-toggle {
+    font-size: 80%;
+  }
+
+  .crm-inboxos-desktop-shell .crm-status-toggle > div:first-child {
+    gap: 4px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-status-toggle > div:first-child span:first-child {
+    font-size: 8px;
+    letter-spacing: .04em;
+  }
+
+  .crm-inboxos-desktop-shell .crm-status-toggle > div:first-child span:last-child {
+    font-size: 7px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-status-toggle-options {
+    gap: 2px;
+    border-radius: 12px;
+    padding: 3px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-status-toggle-options button {
+    border-radius: 9px;
+    padding: 4px 5px;
+    font-size: 8px;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card > div:first-child {
+    padding: 10px 12px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card > div:last-child {
+    gap: 0;
+    padding: 10px 12px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card select,
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card input,
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card textarea {
+    font-size: 10px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card .crm-calendar-grid {
+    gap: 3px;
+    font-size: 8px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card .crm-calendar-day {
+    min-height: 26px;
+    border-radius: 7px;
+    font-size: 10px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-booking-calendar-card .h-40 {
+    height: 8rem;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-lens-tabs {
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-lens-tabs [role="tab"] {
+    white-space: nowrap;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item {
+    font-size: 80%;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .crm-conv-avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[14px\] {
+    font-size: 11.2px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[13px\] {
+    font-size: 10.4px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[11px\] {
+    font-size: 8.8px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[10px\] {
+    font-size: 8px;
+  }
+
   .crm-inboxos-desktop-shell .crm-inbox-container [role="separator"] {
     width: 16px;
     justify-self: center;

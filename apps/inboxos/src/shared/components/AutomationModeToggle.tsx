@@ -36,7 +36,7 @@ export function AutomationModeToggle({
   })
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="crm-status-toggle flex min-w-0 flex-col gap-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
           Mode
@@ -48,7 +48,7 @@ export function AutomationModeToggle({
         )}
       </div>
       <div
-        className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
+        className="crm-status-toggle-options grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
         aria-label="AI or Secretary handling mode"
       >
         <button

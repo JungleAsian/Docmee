@@ -987,6 +987,10 @@ body {
     box-shadow: 0 14px 26px rgba(2, 132, 151, .34);
   }
 
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
+    top: 86px;
+  }
+
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
     min-height: 118px;
     padding: 16px 10px 11px;

@@ -82,6 +82,7 @@ function AdminClinicSwitcher() {
           onChange={(e) => switchClinic(e.target.value)}
           disabled={isLoading}
           aria-label={t('tenant.switch')}
+          style={{ fontSize: '12px' }}
           className={`min-w-0 max-w-full truncate rounded-md border px-2 py-1 text-sm font-medium outline-none focus:border-teal-500 sm:max-w-[14rem] dark:bg-gray-800 ${
             isHome
               ? 'border-gray-300 text-gray-700 dark:border-gray-700 dark:text-gray-200'

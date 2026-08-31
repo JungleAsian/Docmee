@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
+const validation = vi.hoisted(() => ({
+  errors: [] as string[],
+  issues: [] as Array<Record<string, unknown>>,
+}))
+
 vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
@@ -7,7 +12,8 @@ vi.mock('@docmee/queue', () => ({
 }))
 vi.mock('@docmee/agents', () => ({
   getOAuth2Client: () => ({}),
-  validateWorkflowDefinition: () => [],
+  validateWorkflowDefinition: () => validation.errors,
+  validateWorkflowDefinitionDetailed: () => validation.issues,
 }))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (value: string) => `enc:${value}`,
@@ -65,6 +71,8 @@ describe('workflow delete contract (CRE-534)', () => {
   })
 
   it('returns the documented success result for an existing scoped workflow', async () => {
+    validation.errors = []
+    validation.issues = []
     seed('wf-existing')
     const response = await app.inject({ method: 'DELETE', url: '/clinics/c-1/workflows/wf-existing', headers: adminAuth })
 
@@ -74,6 +82,8 @@ describe('workflow delete contract (CRE-534)', () => {
   })
 
   it('returns the same non-leaking 404 for missing, already absent, and malformed ids', async () => {
+    validation.errors = []
+    validation.issues = []
     for (const id of ['missing', 'not-a-workflow-id']) {
       const response = await app.inject({ method: 'DELETE', url: `/clinics/c-1/workflows/${id}`, headers: adminAuth })
       expect(response.statusCode).toBe(404)
@@ -88,6 +98,8 @@ describe('workflow delete contract (CRE-534)', () => {
   })
 
   it('does not reveal a workflow in another clinic and rejects unprivileged callers', async () => {
+    validation.errors = []
+    validation.issues = []
     seed('wf-c2', 'c-2')
     const crossClinic = await app.inject({ method: 'DELETE', url: '/clinics/c-1/workflows/wf-c2', headers: adminAuth })
     expect(crossClinic.statusCode).toBe(404)
@@ -102,6 +114,8 @@ describe('workflow delete contract (CRE-534)', () => {
   })
 
   it('makes concurrent deletes deterministic: exactly one success and one truthful absence', async () => {
+    validation.errors = []
+    validation.issues = []
     seed('wf-race')
     const [first, second] = await Promise.all([
       app.inject({ method: 'DELETE', url: '/clinics/c-1/workflows/wf-race', headers: adminAuth }),
@@ -109,5 +123,35 @@ describe('workflow delete contract (CRE-534)', () => {
     ])
     const statuses = [first.statusCode, second.statusCode].sort()
     expect(statuses).toEqual([200, 404])
+  })
+
+  it('keeps raw workflow validation details and adds friendly issue cards', async () => {
+    validation.errors = [
+      'Interactive menu edge e_send_message_3_send_message_23_seq is connected to option "", which doesn\'t exist on node send_message_3 (unknown handle "") — it was likely renamed or deleted. Reconnect this edge to one of the menu\'s current options, or delete the edge.',
+    ]
+    validation.issues = [{
+      code: 'interactive_menu_unknown_handle',
+      title: 'One menu connection needs attention',
+      where: 'Send message 3',
+      nodeId: 'send_message_3',
+      edgeId: 'e_send_message_3_send_message_23_seq',
+      whatHappened: 'A connection from this menu is not attached to a valid choice. The choice may have been renamed or removed.',
+      howToFix: 'Open the menu, remove the broken connection, then reconnect the correct choice.',
+      technicalDetails: validation.errors[0],
+    }]
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/workflows',
+      headers: adminAuth,
+      payload: { name: 'Appointment', status: 'active', nodes: [], edges: [] },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toEqual({
+      error: 'Invalid workflow graph',
+      details: validation.errors,
+      issues: validation.issues,
+    })
   })
 })

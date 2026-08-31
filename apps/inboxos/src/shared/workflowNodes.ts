@@ -48,7 +48,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.interactiveMenu',
     descKey: 'wf.desc.interactiveMenu',
-    fields: ['variant', 'optionSource', 'sourceField', 'pageSize', 'header', 'message', 'footer', 'options', 'field'],
+    fields: ['variant', 'optionSource', 'sourceField', 'pageSize', 'header', 'message', 'websiteMessage', 'faqMessage', 'contactUsMessage', 'footer', 'options', 'field'],
     icon: 'list',
   },
   { type: 'action.approval', kind: 'action', labelKey: 'wf.node.approval', descKey: 'wf.desc.approval', fields: [], icon: 'check' },

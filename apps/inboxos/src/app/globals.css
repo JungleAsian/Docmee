@@ -368,6 +368,8 @@ body {
     align-items: center;
     min-width: 220px;
     max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-sm);
     background: var(--crm-input-bg);
@@ -737,7 +739,8 @@ body {
 
   .crm-chat-input-area {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     gap: 14px;
     border-top: 1px solid var(--crm-border-color);
     background: var(--crm-card-bg);

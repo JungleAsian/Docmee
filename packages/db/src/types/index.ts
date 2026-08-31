@@ -11,6 +11,7 @@ export type {
   ClinicUserAuth,
   PanelLanguage,
   NotificationPrefsRow,
+  UiPreferencesRow,
   PanelRole,
   PermissionKey,
   MembershipStatus,

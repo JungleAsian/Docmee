@@ -108,7 +108,6 @@ export function ConversationList({
 }) {
   const { t } = useI18n()
   const userId = useAuthStore((s) => s.user?.id)
-  const role = useAuthStore((s) => s.user?.role)
   const members = useTeam()
   const { clinicId } = useActiveClinic()
   const clinicSettings = useQuery({
@@ -132,9 +131,9 @@ export function ConversationList({
   // is instant. Defaults to 'active' (what needs a person now); safety-flagged threads
   // are exempt from the lens and always surface (see below).
   const [lens, setLens] = useState<ConversationLens>('active')
-  // Req 2 — role-specific default view: a doctor lands on the threads assigned to
-  // them (their own escalations), while secretaries/admins see the full queue.
-  const [assignee, setAssignee] = useState<AssigneeFilter>(role === 'doctor' ? 'mine' : 'all')
+  // Assignment stays available through the assignment panel and bulk actions; the
+  // main queue no longer pins a permanent Assignee/Anyone filter.
+  const [assignee] = useState<AssigneeFilter>('all')
   // Find-a-thread affordances (client-side over the loaded set — the list isn't
   // server-paginated): free-text search on the contact handle + a channel filter.
   const [search, setSearch] = useState('')
@@ -359,19 +358,30 @@ export function ConversationList({
       <div className="border-b border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-bold">{t('conv.title')}</h2>
-          {!query.isLoading && (
-            <span className="text-[11px] text-gray-400">
-              {t('conv.countOpen', { n: String(visibleCount) })}
-              {safetyRows.length > 0 && (
-                <>
-                  {' · '}
-                  <span className="font-bold text-red-600 dark:text-red-400">
-                    {t('conv.countUrgent', { n: String(safetyRows.length) })}
-                  </span>
-                </>
-              )}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {!query.isLoading && (
+              <span className="text-[11px] text-gray-400">
+                {t('conv.countOpen', { n: String(visibleCount) })}
+                {safetyRows.length > 0 && (
+                  <>
+                    {' · '}
+                    <span className="font-bold text-red-600 dark:text-red-400">
+                      {t('conv.countUrgent', { n: String(safetyRows.length) })}
+                    </span>
+                  </>
+                )}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('docmee:collapse-conversation-list'))}
+              className="hidden rounded-md border border-[var(--crm-border-color)] px-2 py-1 text-[11px] font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)] md:inline-flex"
+              aria-label="Collapse conversation list"
+              title="Collapse conversation list"
+            >
+              ⇤
+            </button>
+          </div>
         </div>
         {hiddenCount > 0 && (
           <button
@@ -429,25 +439,6 @@ export function ConversationList({
             />
           ))}
         </div>
-        <label className="mt-2 flex items-center gap-1.5 text-xs">
-          <span className="text-gray-500">{t('conv.filter.assignee')}:</span>
-          <select
-            value={assignee}
-            onChange={(e) => setAssignee(e.target.value as AssigneeFilter)}
-            className="min-w-0 flex-1 truncate rounded-lg border border-gray-300 px-2 py-1 text-xs outline-none focus:border-teal-500 dark:border-gray-700 dark:bg-gray-800"
-          >
-            <option value="all">{t('conv.filter.allAssignees')}</option>
-            <option value="mine">{t('conv.filter.mine')}</option>
-            <option value="unassigned">{t('conv.unassigned')}</option>
-            {members
-              .filter((m) => m.id !== userId)
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.fullName ?? m.email}
-                </option>
-              ))}
-          </select>
-        </label>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">

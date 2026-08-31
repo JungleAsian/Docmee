@@ -15,6 +15,7 @@ import { ConversationView } from '@/shared/components/ConversationView'
 import { InboxContextRail } from '@/shared/components/InboxContextRail'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useOnline } from '@/shared/hooks/useOnline'
+import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
 
 // v2 — bumped so the wider conversation-list default takes effect for everyone
 // (a saved v1 width would otherwise keep the old narrow list).
@@ -40,6 +41,8 @@ export default function InboxPage() {
   const [isLarge, setIsLarge] = useState(false)
   const [dragging, setDragging] = useState<'list' | 'right' | null>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
+  const { preferences, setPreferences } = useUserUiPreferences()
+  const listExpanded = preferences.conversationListExpanded
 
   // Selecting (or clearing) a thread always closes the mobile detail drawer so the
   // small-screen flow stays predictable when switching conversations.
@@ -123,6 +126,12 @@ export default function InboxPage() {
     }
   }, [dragging, isLarge, listWidth, rightWidth])
 
+  useEffect(() => {
+    const collapse = () => setPreferences({ conversationListExpanded: false })
+    window.addEventListener('docmee:collapse-conversation-list', collapse)
+    return () => window.removeEventListener('docmee:collapse-conversation-list', collapse)
+  }, [setPreferences])
+
   // Key every conversation-scoped panel by the thread id so React remounts them
   // on switch — otherwise local state (the reply draft, AI summary/suggestions,
   // a half-typed note) bleeds into the next patient's thread and can be sent to
@@ -158,24 +167,36 @@ export default function InboxPage() {
         className="crm-inbox-container grid grid-cols-1 md:grid-cols-[24rem_minmax(0,1fr)] lg:grid-cols-[24rem_minmax(0,1fr)_18rem]"
         style={
           isLarge
-            ? { gridTemplateColumns: `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
+            ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` : `44px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
             : isMedium
-              ? { gridTemplateColumns: `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` }
+              ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` : `44px minmax(${MAIN_MIN}px,1fr)` }
               : undefined
         }
       >
       {/* Conversation list — full width on mobile until a thread is opened. */}
-      <div
-        className={`${selectedId ? 'hidden md:block' : 'block'} crm-inbox-list overflow-hidden`}
-      >
-        <ConversationList selectedId={selectedId} onSelect={select} />
+      <div className={`${selectedId ? 'hidden md:block' : 'block'} crm-inbox-list overflow-hidden`}>
+        {listExpanded || !isMedium ? (
+          <ConversationList selectedId={selectedId} onSelect={select} />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPreferences({ conversationListExpanded: true })}
+            className="flex h-full w-full items-start justify-center pt-4 text-lg text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+            aria-label="Reopen conversation list"
+            title="Reopen conversation list"
+          >
+            ☰
+          </button>
+        )}
       </div>
 
-      <ResizeHandle
-        className="hidden md:block"
-        label="Resize conversation list"
-        onPointerDown={() => setDragging('list')}
-      />
+      {listExpanded && (
+        <ResizeHandle
+          className="hidden md:block"
+          label="Resize conversation list"
+          onPointerDown={() => setDragging('list')}
+        />
+      )}
 
       {/* Active conversation — takes over the screen on mobile once a thread is open. */}
       <div

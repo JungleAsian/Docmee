@@ -48,6 +48,41 @@ export interface WorkflowValidationOptions {
   requireTrigger?: boolean
 }
 
+export type WorkflowValidationIssueCode =
+  | 'interactive_menu_unknown_handle'
+  | 'unknown_handle'
+  | 'missing_branch'
+  | 'ambiguous_branch'
+  | 'missing_successor'
+  | 'duplicate_connection'
+  | 'invalid_setting'
+  | 'incomplete_node'
+  | 'invalid_connection'
+  | 'invalid_node'
+  | 'unreachable_node'
+  | 'cycle'
+  | 'invalid_graph'
+
+export interface WorkflowValidationIssue {
+  code: WorkflowValidationIssueCode
+  severity: 'error'
+  title: string
+  where: string
+  whatHappened: string
+  howToFix: string
+  translations?: {
+    es?: {
+      title?: string
+      whatHappened?: string
+      howToFix?: string
+    }
+  }
+  nodeId?: string
+  edgeId?: string
+  branch?: string
+  technicalDetails: string
+}
+
 /**
  * Validate the persisted workflow contract before it can reach a worker. The engine
  * deliberately remains a small executor; this is the single structural gate for
@@ -351,4 +386,278 @@ export function validateWorkflowDefinition(
     }
   }
   return errors
+}
+
+function prettifyWorkflowId(id: string): string {
+  const words = id
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return words ? words[0]!.toUpperCase() + words.slice(1) : 'Workflow'
+}
+
+function nodeLabel(node: WorkflowNode | undefined, fallbackId?: string): string {
+  const customLabel = node?.config?.['customLabel']
+  if (typeof customLabel === 'string' && customLabel.trim()) return customLabel.trim()
+  return prettifyWorkflowId(node?.id ?? fallbackId ?? 'workflow')
+}
+
+function issueFromTechnicalDetail(
+  technicalDetails: string,
+  nodesById: Map<string, WorkflowNode>,
+  edgesById: Map<string, WorkflowEdge>,
+): WorkflowValidationIssue {
+  const base = (overrides: Partial<WorkflowValidationIssue>): WorkflowValidationIssue => {
+    const nodeId = overrides.nodeId
+    const edgeId = overrides.edgeId
+    const inferredEdge = edgeId ? edgesById.get(edgeId) : undefined
+    const inferredNodeId = nodeId ?? inferredEdge?.source
+    return {
+      code: overrides.code ?? 'invalid_graph',
+      severity: 'error',
+      title: overrides.title ?? 'One workflow item needs attention',
+      where: overrides.where ?? nodeLabel(inferredNodeId ? nodesById.get(inferredNodeId) : undefined, inferredNodeId),
+      whatHappened: overrides.whatHappened ?? 'Something in this workflow is incomplete or no longer matches the saved graph.',
+      howToFix: overrides.howToFix ?? 'Open the highlighted item, check its settings and connections, then reconnect or remove anything that no longer applies.',
+      translations: overrides.translations ?? {
+        es: {
+          title: 'Un elemento del flujo necesita atención',
+          whatHappened: 'Algo en este flujo está incompleto o ya no coincide con el gráfico guardado.',
+          howToFix: 'Abre el elemento resaltado, revisa su configuración y conexiones, y vuelve a conectar o elimina lo que ya no corresponde.',
+        },
+      },
+      technicalDetails,
+      ...overrides,
+    }
+  }
+
+  let match = technicalDetails.match(/^Interactive menu edge ([^\s]+) is connected to option "([^"]*)", which doesn't exist on node ([^\s]+) \(unknown handle "([^"]*)"\)/)
+  if (match) {
+    const [, edgeId, branch, nodeId] = match
+    return base({
+      code: 'interactive_menu_unknown_handle',
+      title: 'One menu connection needs attention',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      edgeId,
+      branch,
+      whatHappened: 'A connection from this menu is not attached to a valid choice. The choice may have been renamed or removed.',
+      howToFix: 'Open the menu, remove the broken connection, then reconnect the correct choice.',
+      translations: {
+        es: {
+          title: 'Una conexión del menú necesita atención',
+          whatHappened: 'Una conexión de este menú no está unida a una opción válida. Es posible que la opción se haya renombrado o eliminado.',
+          howToFix: 'Abre el menú, elimina la conexión rota y vuelve a conectar la opción correcta.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^(?:Slot menu|AI Agent) edge ([^\s]+) is connected to (?:a branch|branch) "([^"]*)" that node ([^\s]+) doesn't produce \(unknown handle/)
+  if (match) {
+    const [, edgeId, branch, nodeId] = match
+    return base({
+      code: 'unknown_handle',
+      title: 'One branch connection needs attention',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      edgeId,
+      branch,
+      whatHappened: 'This connection is attached to an output that the node no longer provides.',
+      howToFix: 'Reconnect this branch to one of the node’s current outputs, or delete the stale connection.',
+      translations: {
+        es: {
+          title: 'Una conexión de rama necesita atención',
+          whatHappened: 'Esta conexión está unida a una salida que el nodo ya no tiene.',
+          howToFix: 'Vuelve a conectar esta rama a una de las salidas actuales del nodo, o elimina la conexión anterior.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^(Condition node|Intent classifier|Interactive menu|Slot menu|AI Agent) ([^\s]+).*missing|^Slot menu ([^\s]+) has no "([^"]+)" branch connected/)
+  if (match && /missing|has no ".+" branch/.test(technicalDetails)) {
+    const nodeId = match[2] ?? match[3]
+    return base({
+      code: 'missing_branch',
+      title: 'One required branch is not connected',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This node has an outcome that patients or the workflow can reach, but that outcome has nowhere to go.',
+      howToFix: 'Drag a connection from the missing output to the next safe step, such as a message, secretary handoff, restart menu, or end node.',
+      translations: {
+        es: {
+          title: 'Falta conectar una rama requerida',
+          whatHappened: 'Este nodo tiene una salida que el paciente o el flujo puede alcanzar, pero esa salida no lleva a ninguna parte.',
+          howToFix: 'Arrastra una conexión desde la salida faltante hacia el siguiente paso seguro, como un mensaje, traspaso a secretaria, menú de reinicio o fin.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^(Condition node|Interactive menu|Slot menu|AI Agent) ([^\s]+) has more than one edge leaving its "([^"]+)"/)
+  if (match) {
+    const [, , nodeId, branch] = match
+    return base({
+      code: 'ambiguous_branch',
+      title: 'One option goes to more than one place',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      branch,
+      whatHappened: 'The workflow has multiple connections from the same option, so it cannot know which path to follow.',
+      howToFix: 'Keep one connection for this option and delete the extra connection.',
+      translations: {
+        es: {
+          title: 'Una opción va a más de un lugar',
+          whatHappened: 'El flujo tiene varias conexiones desde la misma opción, así que no puede saber qué camino seguir.',
+          howToFix: 'Deja una sola conexión para esta opción y elimina la conexión extra.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Node ([^\s]+) has (?:no outgoing edge|[0-9]+ outgoing edges)/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'missing_successor',
+      title: 'One step does not have a clear next step',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This step must continue to exactly one next step, but its next step is missing or unclear.',
+      howToFix: 'Connect this step to the next node, or remove extra outgoing connections until only one remains.',
+      translations: {
+        es: {
+          title: 'Un paso no tiene un siguiente paso claro',
+          whatHappened: 'Este paso debe continuar exactamente a un siguiente paso, pero falta o no está claro.',
+          howToFix: 'Conecta este paso al siguiente nodo, o elimina conexiones de salida extra hasta que quede solo una.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Edge ([^\s]+) (?:starts from|points to|connects)/)
+  if (match) {
+    const [, edgeId] = match
+    const edge = edgesById.get(edgeId)
+    return base({
+      code: 'invalid_connection',
+      title: 'One connection is invalid',
+      where: nodeLabel(edge?.source ? nodesById.get(edge.source) : undefined, edge?.source),
+      nodeId: edge?.source,
+      edgeId,
+      whatHappened: 'A connection points to something invalid, missing, or unsafe.',
+      howToFix: 'Delete this connection and draw a new one between valid nodes.',
+      translations: {
+        es: {
+          title: 'Una conexión no es válida',
+          whatHappened: 'Una conexión apunta a algo no válido, faltante o inseguro.',
+          howToFix: 'Elimina esta conexión y dibuja una nueva entre nodos válidos.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^(Interactive menu|Slot menu|AI Agent|Delay node) ([^\s]+) .*invalid|^Interactive menu ([^\s]+) has invalid/)
+  if (match) {
+    const nodeId = match[2] ?? match[3]
+    return base({
+      code: 'invalid_setting',
+      title: 'One setting needs to be corrected',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This node has a setting that is not supported by the workflow runner.',
+      howToFix: 'Open the node settings and choose a valid value from the available options.',
+      translations: {
+        es: {
+          title: 'Hay que corregir una configuración',
+          whatHappened: 'Este nodo tiene una configuración que el ejecutor del flujo no soporta.',
+          howToFix: 'Abre la configuración del nodo y elige un valor válido entre las opciones disponibles.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^(Interactive menu|AI Agent|Delay node|Message node) ([^\s]+) .*requires|^Interactive menu ([^\s]+)'s option/)
+  if (match) {
+    const nodeId = match[2] ?? match[3]
+    return base({
+      code: 'incomplete_node',
+      title: 'One node is incomplete',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This node is missing required content, options, or setup.',
+      howToFix: 'Open the node, fill in the required fields, then save again.',
+      translations: {
+        es: {
+          title: 'Un nodo está incompleto',
+          whatHappened: 'A este nodo le falta contenido, opciones o configuración requerida.',
+          howToFix: 'Abre el nodo, completa los campos requeridos y vuelve a guardar.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Node ([^\s]+) has no path from the trigger/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'unreachable_node',
+      title: 'One node is disconnected from the workflow',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This node is on the canvas, but the workflow can never reach it from the trigger.',
+      howToFix: 'Connect it into the workflow path, or delete it if it is no longer needed.',
+      translations: {
+        es: {
+          title: 'Un nodo está desconectado del flujo',
+          whatHappened: 'Este nodo está en el lienzo, pero el flujo nunca puede llegar a él desde el disparador.',
+          howToFix: 'Conéctalo dentro del camino del flujo, o elimínalo si ya no hace falta.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Node ([^\s]+) is part of a loop/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'cycle',
+      title: 'One loop needs a pause or ending',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This loop can run without waiting for the patient, which could make the workflow spin forever.',
+      howToFix: 'Break the loop, route it to End, or make it pass through a menu, wait-for-reply, delay, or approval step.',
+      translations: {
+        es: {
+          title: 'Un ciclo necesita una pausa o final',
+          whatHappened: 'Este ciclo puede ejecutarse sin esperar al paciente, lo que podría hacer que el flujo se repita sin parar.',
+          howToFix: 'Rompe el ciclo, envíalo a Fin, o haz que pase por un menú, espera de respuesta, demora o aprobación.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Node ([^\s]+) /)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'invalid_node',
+      title: 'One node needs attention',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+    })
+  }
+
+  return base({})
+}
+
+export function validateWorkflowDefinitionDetailed(
+  nodes: WorkflowNode[],
+  edges: WorkflowEdge[],
+  options: WorkflowValidationOptions = {},
+): WorkflowValidationIssue[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const edgesById = new Map(edges.map((edge) => [edge.id, edge]))
+  return validateWorkflowDefinition(nodes, edges, options).map((detail) => issueFromTechnicalDetail(detail, nodesById, edgesById))
 }

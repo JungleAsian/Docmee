@@ -23,4 +23,11 @@ export {
   type AiAgentScenarioAction,
   type AiAgentOutcome,
 } from './workflow-engine.js'
-export { validateWorkflowDefinition, SUPPORTED_WORKFLOW_TRIGGER_TYPES, type WorkflowValidationOptions } from './workflow-validator.js'
+export {
+  validateWorkflowDefinition,
+  validateWorkflowDefinitionDetailed,
+  SUPPORTED_WORKFLOW_TRIGGER_TYPES,
+  type WorkflowValidationOptions,
+  type WorkflowValidationIssue,
+  type WorkflowValidationIssueCode,
+} from './workflow-validator.js'

@@ -12,7 +12,7 @@ import { createAuditRepository, createClinicsRepository, createWorkflowApprovals
 import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
-import { validateWorkflowDefinition } from '@docmee/agents'
+import { validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
 import { readAiAssistant, resolveChat } from '../lib/ai-assistant.js'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
@@ -50,7 +50,11 @@ const patchSchema = z.object({
 function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[], active: boolean, reply: FastifyReply): boolean {
   const errors = validateWorkflowDefinition(nodes, edges, { requireTrigger: active })
   if (errors.length === 0) return true
-  reply.code(400).send({ error: 'Invalid workflow graph', details: errors })
+  reply.code(400).send({
+    error: 'Invalid workflow graph',
+    details: errors,
+    issues: validateWorkflowDefinitionDetailed(nodes, edges, { requireTrigger: active }),
+  })
   return false
 }
 

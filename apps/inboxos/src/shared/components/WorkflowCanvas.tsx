@@ -676,6 +676,11 @@ interface PendingWire {
   at: { x: number; y: number }
 }
 
+interface WorkflowCanvasFocusIssue {
+  nodeId?: string
+  edgeId?: string
+}
+
 function WorkflowCanvasInner({
   nodes,
   edges,
@@ -683,6 +688,7 @@ function WorkflowCanvasInner({
   clinicId,
   workflowId,
   mode,
+  focusIssue,
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
@@ -694,9 +700,10 @@ function WorkflowCanvasInner({
   workflowId?: string
   /** Builder mode — lifted to the editor toolbar (item 16), passed in here. */
   mode: CanvasMode
+  focusIssue?: WorkflowCanvasFocusIssue | null
 }) {
   const { t, language } = useI18n()
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, fitView } = useReactFlow()
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -770,6 +777,15 @@ function WorkflowCanvasInner({
   )
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
+
+  useEffect(() => {
+    const nodeId = focusIssue?.nodeId ?? (focusIssue?.edgeId ? edges.find((edge) => edge.id === focusIssue.edgeId)?.source : undefined)
+    if (!nodeId || !nodes.some((node) => node.id === nodeId)) return
+    setSelectedId(nodeId)
+    window.setTimeout(() => {
+      void fitView({ nodes: [{ id: nodeId }], duration: 240, padding: 0.35 })
+    }, 0)
+  }, [focusIssue, edges, nodes, fitView])
 
   const graph = useMemo(() => {
     const nodeById = new Map(nodes.map((n) => [n.id, n]))
@@ -1206,6 +1222,8 @@ export function WorkflowCanvas(props: {
   workflowId?: string
   /** Builder mode, owned by the editor toolbar (item 16). */
   mode: CanvasMode
+  /** Save-error focus target — selects the node, opens config, and centers it. */
+  focusIssue?: WorkflowCanvasFocusIssue | null
 }) {
   return (
     <ReactFlowProvider>

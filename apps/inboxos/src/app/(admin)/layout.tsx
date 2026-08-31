@@ -3,7 +3,7 @@
 // Admin Studio shell — admin only (ia_studio_admin). Guards the role and frames the
 // admin pages with a persistent sidebar (desktop) / slide-in drawer (mobile),
 // a top bar with breadcrumbs, and a hamburger toggle.
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { CaretLeft, CaretRight, List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
@@ -20,66 +20,33 @@ import { AppFooter } from '@/shared/components/AppFooter'
 import { OperatorBadge } from '@/shared/components/OperatorBadge'
 import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
+import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
+import { visibleOrderedItems } from '@/shared/userUiPreferences'
+
+type OrderedNavGroup = NavGroup & { id: string }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { ready, user } = useAuthGuard(['ia_studio_admin', 'clinic_admin'])
   const { t, language } = useI18n()
+  const { preferences, setPreferences } = useUserUiPreferences()
   const [drawerOpen, setDrawerOpen] = useState(false)
-  // Persist the rail's expanded/collapsed state so navigating/reloading keeps it
-  // as the user left it — clicking a nav icon in the collapsed rail must not
-  // re-expand it; only the toggle reveals it.
-  const [railOpen, setRailOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true
-    try {
-      return window.localStorage.getItem('docmee.rail.open') !== 'false'
-    } catch {
-      return true
-    }
-  })
-  const toggleRail = () =>
-    setRailOpen((value) => {
-      const next = !value
-      try {
-        window.localStorage.setItem('docmee.rail.open', String(next))
-      } catch {
-        /* private mode — preference just won't persist */
-      }
-      return next
-    })
+  const railOpen = preferences.railExpanded
+  const toggleRail = () => setPreferences({ railExpanded: !railOpen })
   useHeartbeat()
   const isSuperuser = user?.role === 'ia_studio_admin'
 
-  // Item 20 of the 25-item batch: let the user hide/show individual side-rail
-  // items. A personal display preference, not clinic data, so it's kept as a
-  // per-browser localStorage preference rather than new backend/user-record
-  // surface.
-  const [hiddenItems, setHiddenItems] = useState<Set<string>>(() => new Set())
+  const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   const [customizeOpen, setCustomizeOpen] = useState(false)
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('docmee-hidden-sidebar-items')
-      if (raw) setHiddenItems(new Set(JSON.parse(raw) as string[]))
-    } catch {
-      // localStorage unavailable — menu just shows everything
-    }
-  }, [])
   function toggleHidden(href: string) {
-    setHiddenItems((current) => {
-      const next = new Set(current)
-      if (next.has(href)) next.delete(href)
-      else next.add(href)
-      try {
-        window.localStorage.setItem('docmee-hidden-sidebar-items', JSON.stringify([...next]))
-      } catch {
-        // ignore — preference just won't persist across reloads
-      }
-      return next
-    })
+    const next = new Set(hiddenItems)
+    if (next.has(href)) next.delete(href)
+    else next.add(href)
+    setPreferences({ hiddenSideRailItems: [...next] })
   }
 
   // Grouped Admin Studio rail — labelled sections + a glyph per item so all admin
   // features stay scannable. "Back to inbox" is pinned below a divider.
-  const groups = useMemo<NavGroup[]>(
+  const groups = useMemo<OrderedNavGroup[]>(
     () => {
       const clinicItems = [
         ...(isSuperuser
@@ -139,15 +106,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         ...(isSuperuser
           ? [
               {
+                id: 'admin.clinics',
                 label: t('nav.group.clinics'),
                 items: [{ href: '/studio', label: t('studio.title'), icon: <NavIcon name="studio" /> }, ...clinicItems],
               },
             ]
-          : [{ label: t('nav.group.clinics'), items: clinicItems }]),
-        { label: t('nav.group.messaging'), items: messagingItems },
-        { label: t('nav.group.operations'), items: operationsItems },
-        ...(complianceItems.length ? [{ label: t('nav.group.compliance'), items: complianceItems }] : []),
+          : [{ id: 'admin.clinics', label: t('nav.group.clinics'), items: clinicItems }]),
+        { id: 'admin.messaging', label: t('nav.group.messaging'), items: messagingItems },
+        { id: 'admin.operations', label: t('nav.group.operations'), items: operationsItems },
+        ...(complianceItems.length ? [{ id: 'admin.compliance', label: t('nav.group.compliance'), items: complianceItems }] : []),
         {
+          id: 'admin.shortcuts',
           items: [
             { href: '/inbox', label: t('nav.backToInbox'), icon: <NavIcon name="inbox" /> },
             { href: '/help', label: L(HELP_UI.navHelp, language), icon: <NavIcon name="help" /> },
@@ -158,11 +127,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     [t, language, isSuperuser],
   )
   const visibleGroups = useMemo<NavGroup[]>(
-    () =>
-      groups
-        .map((group) => ({ ...group, items: group.items.filter((item) => !hiddenItems.has(item.href)) }))
-        .filter((group) => group.items.length > 0),
-    [groups, hiddenItems],
+    () => {
+      const byId = new Map(groups.map((group) => [group.id, group]))
+      return visibleOrderedItems(preferences.sideRailSectionOrder, groups.map((group) => group.id), [])
+        .map((id) => byId.get(id))
+        .filter((group): group is OrderedNavGroup => Boolean(group))
+        .map((group) => ({
+          ...group,
+          items: visibleOrderedItems(preferences.sideRailItemOrder[group.id], group.items.map((item) => item.href), preferences.hiddenSideRailItems)
+            .map((href) => group.items.find((item) => item.href === href))
+            .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        }))
+        .filter((group) => group.items.length > 0)
+    },
+    [groups, preferences.hiddenSideRailItems, preferences.sideRailItemOrder, preferences.sideRailSectionOrder],
   )
 
   if (!ready) return <DocmeeLoader label={t('common.loading')} fullScreen />
@@ -268,7 +246,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
         <main className="crm-dashboard-content">
-          <PageMascotBanner />
+          {preferences.imageBannersVisible && <PageMascotBanner />}
           {children}
           <AppFooter />
         </main>

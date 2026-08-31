@@ -16,6 +16,15 @@ import { requireAuth } from '../middleware/auth.js'
 const preferencesSchema = z.object({ panel_language: z.enum(['es', 'en']) })
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+const uiPreferencesSchema = z.object({
+  sideRailSectionOrder: z.array(z.string().min(1)).optional(),
+  sideRailItemOrder: z.record(z.array(z.string().min(1))).optional(),
+  hiddenSideRailItems: z.array(z.string().min(1)).optional(),
+  railExpanded: z.boolean().optional(),
+  conversationListExpanded: z.boolean().optional(),
+  imageBannersVisible: z.boolean().optional(),
+}).strict()
+
 const alertCategoriesSchema = z.object(
   Object.fromEntries(ALERT_CATEGORY_KEYS.map((key) => [key, z.boolean()])) as Record<(typeof ALERT_CATEGORY_KEYS)[number], z.ZodBoolean>,
 )
@@ -72,6 +81,31 @@ const userRoute: FastifyPluginAsync = async (app) => {
     )
     if (!ok) return reply.code(404).send({ error: 'User not found' })
     return { ok: true, panel_language: parsed.data.panel_language }
+  })
+
+  app.get('/ui-preferences', async (request, reply) => {
+    const { userId, clinicId } = request.user!
+    const raw = await withDb(async (sql) =>
+      createUsersRepository(sql).getUiPreferences(clinicId, userId),
+    )
+    if (raw === null) return reply.code(404).send({ error: 'User not found' })
+    return { preferences: raw }
+  })
+
+  app.put('/ui-preferences', async (request, reply) => {
+    const parsed = validate(uiPreferencesSchema, request.body, reply)
+    if (!parsed.ok) return
+    const { userId, clinicId } = request.user!
+    let saved: Record<string, unknown> = {}
+    const ok = await withDb(async (sql) => {
+      const repo = createUsersRepository(sql)
+      const current = await repo.getUiPreferences(clinicId, userId)
+      if (current === null) return false
+      saved = { ...current, ...parsed.data }
+      return repo.setUiPreferences(userId, saved)
+    })
+    if (!ok) return reply.code(404).send({ error: 'User not found' })
+    return { ok: true, preferences: saved }
   })
 
   app.get('/notification-preferences', async (request, reply) => {

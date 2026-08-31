@@ -51,6 +51,7 @@ export interface ClinicUser {
   panelLanguage: PanelLanguage
   inactivityTimeoutMinutes: number
   notificationPrefs: NotificationPrefsRow
+  uiPreferences: UiPreferencesRow
   createdAt: string
   updatedAt: string
 }
@@ -69,6 +70,7 @@ export type PanelLanguage = 'es' | 'en'
  * only — the bell feed always records every alert, and p1 alerts always email.
  */
 export type NotificationPrefsRow = Record<string, unknown>
+export type UiPreferencesRow = Record<string, unknown>
 
 /** The four panel roles, derived from the user's highest-privilege role name. */
 export type PanelRole = 'secretary' | 'doctor' | 'clinic_admin' | 'ia_studio_admin'

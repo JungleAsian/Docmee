@@ -26,10 +26,31 @@ export class ApiError extends Error {
     /** Field/validator-level detail strings, when the server sent them
      *  (e.g. workflow graph validation: one entry per rule violated). */
     public details?: string[],
+    public issues?: ApiIssue[],
   ) {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+export interface ApiIssue {
+  code?: string
+  severity?: string
+  title?: string
+  where?: string
+  whatHappened?: string
+  howToFix?: string
+  translations?: {
+    es?: {
+      title?: string
+      whatHappened?: string
+      howToFix?: string
+    }
+  }
+  nodeId?: string
+  edgeId?: string
+  branch?: string
+  technicalDetails?: string
 }
 
 function redirectToLogin() {
@@ -136,14 +157,18 @@ async function request<T>(path: string, opts: ApiOptions = {}, isRetry = false):
   if (!res.ok) {
     let message = res.statusText
     let details: string[] | undefined
+    let issues: ApiIssue[] | undefined
     try {
-      const data = (await res.json()) as { error?: string; details?: unknown }
+      const data = (await res.json()) as { error?: string; details?: unknown; issues?: unknown }
       if (data?.error) message = data.error
       if (Array.isArray(data?.details) && data.details.every((d) => typeof d === 'string')) details = data.details
+      if (Array.isArray(data?.issues)) {
+        issues = data.issues.filter((issue): issue is ApiIssue => Boolean(issue) && typeof issue === 'object')
+      }
     } catch {
       // non-JSON error body — keep the status text
     }
-    throw new ApiError(res.status, message, details)
+    throw new ApiError(res.status, message, details, issues)
   }
 
   if (res.status === 204) return undefined as T

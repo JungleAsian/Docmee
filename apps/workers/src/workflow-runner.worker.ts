@@ -180,11 +180,21 @@ export type WorkflowSlot = { start: string; end: string }
 // logo appears there; every menu gets the branded text header, links, and a
 // plain-text options listing baked into what's persisted for the Inbox.
 const DOCMEE_LOGO_URL = 'https://app.docmeedevelopment.dev/icon-512.png'
-const DOCMEE_LINKS_TEXT = [
-  '🌐 Website: https://docmee.ai/',
-  '❓ FAQ: https://docmee.ai/#faq',
-  '💬 Contact Us: https://docmee.ai/#contact',
-].join('\n')
+const DEFAULT_MENU_LINK_FIELDS = [
+  ['websiteMessage', '🌐 Website: https://docmee.ai/'],
+  ['faqMessage', '❓ FAQ: https://docmee.ai/#faq'],
+  ['contactUsMessage', '💬 Contact Us: https://docmee.ai/#contact'],
+] as const
+
+export function menuMessageWithConfiguredLinks(config: Record<string, unknown>): string {
+  const message = typeof config['message'] === 'string' ? config['message'].trim() : ''
+  const linkLines = DEFAULT_MENU_LINK_FIELDS.flatMap(([key, fallback]) => {
+    if (!Object.prototype.hasOwnProperty.call(config, key)) return [fallback]
+    const configured = typeof config[key] === 'string' ? config[key].trim() : ''
+    return configured ? [configured] : []
+  })
+  return [message, ...linkLines].filter(Boolean).join('\n\n')
+}
 
 function brandedMenuHeader(rawHeader: string): string {
   return rawHeader ? `Docmee | ${rawHeader}` : 'Docmee'
@@ -1376,7 +1386,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const isButton = variant === 'button' && options.length <= 3
 
       const brandedHeader = brandedMenuHeader(rawHeader)
-      const message = [rawMessage, DOCMEE_LINKS_TEXT].filter(Boolean).join('\n\n')
+      const message = menuMessageWithConfiguredLinks({ ...node.config, message: rawMessage })
       // What actually reaches conversation_messages (and the plain-text
       // fallback when no interactive sender is available) — always includes
       // the option list so the Inbox shows exactly what the patient was
@@ -1479,7 +1489,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       ]
 
       const brandedHeader = brandedMenuHeader(rawHeader)
-      const message = [rawMessage, DOCMEE_LINKS_TEXT].filter(Boolean).join('\n\n')
+      const message = menuMessageWithConfiguredLinks({ ...node.config, message: rawMessage })
       const fullText = [brandedHeader, message, menuOptionsListText(options), ...(footer ? [footer] : [])].join('\n\n')
 
       const target = await resolveTarget(sql, clinicId, ctx.patientId)

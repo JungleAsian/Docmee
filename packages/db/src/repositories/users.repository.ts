@@ -9,6 +9,7 @@ import type {
   PanelLanguage,
   PanelRole,
   PermissionKey,
+  UiPreferencesRow,
 } from '../types/index.js'
 
 /** Fields for creating a clinic user (Req 1 — Admin Studio user management). */
@@ -83,6 +84,10 @@ export interface UsersRepository {
   findNotificationPrefsByEmail(clinicId: string, email: string): Promise<NotificationPrefsRow>
   /** Persist notification preferences for a user. Returns false if unknown. */
   setNotificationPrefs(id: string, prefs: NotificationPrefsRow): Promise<boolean>
+  /** Raw per-user UI preferences JSON for a user by id (clinic-scoped). Null if unknown. */
+  getUiPreferences(clinicId: string, id: string): Promise<UiPreferencesRow | null>
+  /** Persist per-user UI preferences. Returns false if unknown. */
+  setUiPreferences(id: string, prefs: UiPreferencesRow): Promise<boolean>
 }
 
 // Highest privilege wins when a user holds several roles. Unknown role names
@@ -390,6 +395,25 @@ export function createUsersRepository(sql: Sql): UsersRepository {
       const rows = await sql<[{ id: string }]>`
         UPDATE clinic_users
         SET notification_prefs = ${sql.json(toJson(prefs))}
+        WHERE id = ${id}
+        RETURNING id
+      `
+      return rows.length > 0
+    },
+
+    async getUiPreferences(clinicId, id) {
+      const rows = await sql<[{ prefs: UiPreferencesRow }]>`
+        SELECT ui_preferences AS prefs FROM clinic_users
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+        LIMIT 1
+      `
+      return rows[0]?.prefs ?? null
+    },
+
+    async setUiPreferences(id, prefs) {
+      const rows = await sql<[{ id: string }]>`
+        UPDATE clinic_users
+        SET ui_preferences = ${sql.json(toJson(prefs))}
         WHERE id = ${id}
         RETURNING id
       `

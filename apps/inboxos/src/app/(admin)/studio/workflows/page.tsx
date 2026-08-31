@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import dynamic from 'next/dynamic'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '@/shared/api/client'
+import { api, ApiError, type ApiIssue } from '@/shared/api/client'
 import { ClinicSelect, useClinics } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
@@ -48,6 +48,40 @@ function readCanvasMode(): CanvasMode {
   if (typeof window === 'undefined') return 'enhanced'
   const stored = window.localStorage.getItem(CANVAS_MODE_KEY)
   return stored === 'classic' || stored === 'bp' ? 'classic' : 'enhanced'
+}
+
+function workflowIssueText(issue: ApiIssue, field: 'title' | 'whatHappened' | 'howToFix', language: 'es' | 'en'): string {
+  if (language === 'es') return issue.translations?.es?.[field] ?? issue[field] ?? ''
+  return issue[field] ?? ''
+}
+
+function workflowIssueCopy(language: 'es' | 'en', issueCount: number) {
+  if (language === 'es') {
+    return {
+      summary:
+        issueCount === 1
+          ? '1 cosa necesita atención antes de guardar este flujo.'
+          : `${issueCount} cosas necesitan atención antes de guardar este flujo.`,
+      defaultTitle: 'Un elemento del flujo necesita atención',
+      where: 'Dónde',
+      whatHappened: 'Qué pasó',
+      howToFix: 'Cómo arreglarlo',
+      goToProblem: 'Ir al problema',
+      showTechnicalDetails: 'Mostrar detalles técnicos',
+    }
+  }
+  return {
+    summary:
+      issueCount === 1
+        ? '1 thing needs attention before this workflow can be saved.'
+        : `${issueCount} things need attention before this workflow can be saved.`,
+    defaultTitle: 'One workflow item needs attention',
+    where: 'Where',
+    whatHappened: 'What happened',
+    howToFix: 'How to fix it',
+    goToProblem: 'Go to problem',
+    showTechnicalDetails: 'Show technical details',
+  }
 }
 
 export default function WorkflowsPage() {
@@ -482,7 +516,7 @@ function WorkflowEditor({
   workflow?: Workflow
   onClose: () => void
 }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
   const [status, setStatus] = useState<WorkflowStatus>(workflow?.status ?? 'draft')
@@ -508,6 +542,7 @@ function WorkflowEditor({
   const nodes = hist.present.nodes
   const edges = hist.present.edges
   const [importError, setImportError] = useState<string | null>(null)
+  const [focusedIssue, setFocusedIssue] = useState<ApiIssue | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const applyCanvasChange = useCallback((next: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => {
@@ -623,9 +658,13 @@ function WorkflowEditor({
     },
     onSuccess: () => {
       setDirty(false)
+      setFocusedIssue(null)
       onClose()
     },
   })
+
+  const saveIssues = save.error instanceof ApiError ? save.error.issues ?? [] : []
+  const issueCopy = workflowIssueCopy(language, saveIssues.length)
 
   return (
     <>
@@ -722,12 +761,57 @@ function WorkflowEditor({
           <p className="font-medium">
             {t('wf.saveFailed')}: {save.error instanceof ApiError ? save.error.message : t('common.error')}
           </p>
-          {save.error instanceof ApiError && save.error.details && save.error.details.length > 0 && (
-            <ul className="mt-1 list-disc space-y-0.5 pl-5">
-              {save.error.details.map((d, i) => (
-                <li key={i}>{d}</li>
-              ))}
-            </ul>
+          {saveIssues.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-500 dark:text-red-300">
+                {issueCopy.summary}
+              </p>
+              {saveIssues.map((issue, i) => {
+                const title = workflowIssueText(issue, 'title', language) || issueCopy.defaultTitle
+                const whatHappened = workflowIssueText(issue, 'whatHappened', language)
+                const howToFix = workflowIssueText(issue, 'howToFix', language)
+                return (
+                  <div key={`${issue.edgeId ?? issue.nodeId ?? issue.code ?? 'issue'}-${i}`} className="rounded-md border border-red-200 bg-white p-3 text-gray-800 shadow-sm dark:border-red-900 dark:bg-gray-950 dark:text-gray-100">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-red-700 dark:text-red-300">{title}</p>
+                        {issue.where && <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{issueCopy.where}: {issue.where}</p>}
+                      </div>
+                      {(issue.nodeId || issue.edgeId) && (
+                        <button
+                          type="button"
+                          onClick={() => setFocusedIssue(issue)}
+                          className="rounded border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-950"
+                        >
+                          {issueCopy.goToProblem}
+                        </button>
+                      )}
+                    </div>
+                    {whatHappened && (
+                      <p className="mt-2 text-sm"><span className="font-medium">{issueCopy.whatHappened}:</span> {whatHappened}</p>
+                    )}
+                    {howToFix && (
+                      <p className="mt-1 text-sm"><span className="font-medium">{issueCopy.howToFix}:</span> {howToFix}</p>
+                    )}
+                    {issue.technicalDetails && (
+                      <details className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        <summary className="cursor-pointer font-medium">{issueCopy.showTechnicalDetails}</summary>
+                        <p className="mt-1 break-words font-mono">{issue.technicalDetails}</p>
+                      </details>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : save.error instanceof ApiError && save.error.details && save.error.details.length > 0 && (
+            <details className="mt-2 text-xs">
+              <summary className="cursor-pointer font-medium">{issueCopy.showTechnicalDetails}</summary>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {save.error.details.map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}
@@ -740,6 +824,7 @@ function WorkflowEditor({
           clinicId={clinicId}
           workflowId={workflow?.id}
           mode={mode}
+          focusIssue={focusedIssue}
         />
       </div>
     </>

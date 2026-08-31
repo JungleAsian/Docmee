@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateWorkflowDefinition } from '../workflows/workflow-validator.js'
+import { validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '../workflows/workflow-validator.js'
 import type { WorkflowEdge, WorkflowNode } from '@docmee/db'
 
 const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Record<string, unknown> = {}): WorkflowNode => ({ id, kind, type, config, x: 0, y: 0 })
@@ -127,6 +127,57 @@ describe('validateWorkflowDefinition', () => {
     expect(errors.join('\n')).toMatch(/requires at least one option/)
     expect(errors.join('\n')).toMatch(/option "b" isn't connected to anything/)
     expect(errors.join('\n')).toMatch(/unknown handle "nonexistent"/)
+  })
+
+  it('explains a deleted interactive-menu connection as a user-fixable issue with technical details preserved', () => {
+    const issues = validateWorkflowDefinitionDetailed([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('send_message_3', 'action', 'action.interactive_menu', {
+        options: menuOptions([{ optionId: 'book', title: 'Book' }]),
+      }),
+      node('send_message_23', 'action', 'action.end'),
+    ], [
+      edge('e_trigger_send_message_3_seq', 'trigger', 'send_message_3'),
+      edge('e_send_message_3_send_message_23_seq', 'send_message_3', 'send_message_23', ''),
+    ], { requireTrigger: true })
+
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'interactive_menu_unknown_handle',
+        title: 'One menu connection needs attention',
+        where: 'Send message 3',
+        nodeId: 'send_message_3',
+        edgeId: 'e_send_message_3_send_message_23_seq',
+        whatHappened: 'A connection from this menu is not attached to a valid choice. The choice may have been renamed or removed.',
+        howToFix: 'Open the menu, remove the broken connection, then reconnect the correct choice.',
+      }),
+    ]))
+    expect(issues[0]?.technicalDetails).toContain('unknown handle ""')
+  })
+
+  it('summarizes missing and duplicate workflow branches without losing raw validator compatibility', () => {
+    const issues = validateWorkflowDefinitionDetailed([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'weekday' }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('bad', 'slots', 'end', 'maybe'),
+    ], { requireTrigger: true })
+
+    expect(validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('slots', 'action', 'action.offer_slot_menu', { pickerMode: 'weekday' }),
+      node('end', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'slots'),
+      edge('bad', 'slots', 'end', 'maybe'),
+    ], { requireTrigger: true })).toEqual(issues.map((issue) => issue.technicalDetails))
+    expect(issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      'invalid_setting',
+      'unknown_handle',
+      'missing_branch',
+    ]))
   })
 
   it('enforces the option-count limit per variant', () => {

@@ -26,57 +26,29 @@ import { AppFooter } from '@/shared/components/AppFooter'
 import { OperatorBadge } from '@/shared/components/OperatorBadge'
 import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
+import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
+import { visibleOrderedItems } from '@/shared/userUiPreferences'
+
+type OrderedNavGroup = NavGroup & { id: string }
 
 export default function ClinicLayout({ children }: { children: React.ReactNode }) {
   const { ready, user } = useAuthGuard()
   const { t } = useI18n()
   const { features } = useFeatures()
+  const { preferences, setPreferences } = useUserUiPreferences()
   const [drawerOpen, setDrawerOpen] = useState(false)
-  // Persist the rail's expanded/collapsed state so navigating (or reloading, or
-  // crossing into Studio) keeps it as the user left it — clicking a nav icon in
-  // the collapsed rail must not re-expand it; only the toggle reveals it.
-  const [railOpen, setRailOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true
-    try {
-      return window.localStorage.getItem('docmee.rail.open') !== 'false'
-    } catch {
-      return true
-    }
-  })
-  const toggleRail = () =>
-    setRailOpen((value) => {
-      const next = !value
-      try {
-        window.localStorage.setItem('docmee.rail.open', String(next))
-      } catch {
-        /* private mode — preference just won't persist */
-      }
-      return next
-    })
-  // Customize menu (mirrors Admin Studio): hide/show individual side-rail items,
-  // persisted per-browser in localStorage.
+  const railOpen = preferences.railExpanded
+  const toggleRail = () => setPreferences({ railExpanded: !railOpen })
+  // Customize menu (mirrors Admin Studio): hide/show individual side-rail items
+  // through the authenticated user preference row. RBAC filters unavailable
+  // routes before this preference is applied.
   const [customizeOpen, setCustomizeOpen] = useState(false)
-  const [hiddenItems, setHiddenItems] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set()
-    try {
-      const raw = window.localStorage.getItem('docmee-hidden-clinic-nav')
-      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
-    } catch {
-      return new Set()
-    }
-  })
+  const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   function toggleHidden(href: string) {
-    setHiddenItems((current) => {
-      const next = new Set(current)
-      if (next.has(href)) next.delete(href)
-      else next.add(href)
-      try {
-        window.localStorage.setItem('docmee-hidden-clinic-nav', JSON.stringify([...next]))
-      } catch {
-        // localStorage unavailable — preference just won't persist
-      }
-      return next
-    })
+    const next = new Set(hiddenItems)
+    if (next.has(href)) next.delete(href)
+    else next.add(href)
+    setPreferences({ hiddenSideRailItems: [...next] })
   }
   const pathname = usePathname()
   // The Inbox is a fixed-height workspace: it must fill the viewport exactly and
@@ -99,7 +71,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   // requireRole gating) so a role only ever sees surfaces it can actually use.
   // Req 2: nav derives from the RBAC matrix; grouped + iconified to match the IA
   // Studio rail. Each section only appears if the role has items in it.
-  const groups = useMemo<NavGroup[]>(() => {
+  const groups = useMemo<OrderedNavGroup[]>(() => {
     const role = user?.role
     const show = (item: RoleMenuItemKey) => roleCanSeeMenuItem(role, item, settings)
 
@@ -123,20 +95,29 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
     const admin: NavLink[] = []
     if (can(role, 'studio') && show('studio')) admin.push({ href: role === 'clinic_admin' ? '/studio/users' : '/studio/clinics', label: t('nav.studio'), icon: <NavIcon name="studio" /> })
 
-    const result: NavGroup[] = []
-    if (workspace.length) result.push({ label: t('nav.group.workspace'), items: workspace })
-    if (insights.length) result.push({ label: t('nav.group.insights'), items: insights })
-    if (admin.length) result.push({ items: admin }) // unlabeled — pinned below a divider
+    const result: OrderedNavGroup[] = []
+    if (workspace.length) result.push({ id: 'clinic.workspace', label: t('nav.group.workspace'), items: workspace })
+    if (insights.length) result.push({ id: 'clinic.insights', label: t('nav.group.insights'), items: insights })
+    if (admin.length) result.push({ id: 'clinic.admin', items: admin }) // unlabeled — pinned below a divider
     return result
   }, [t, user?.role, features.advancedAnalytics, settings])
 
   // The sidebar shows only items the operator hasn't hidden via the customize menu.
   const visibleGroups = useMemo<NavGroup[]>(
-    () =>
-      groups
-        .map((group) => ({ ...group, items: group.items.filter((item) => !hiddenItems.has(item.href)) }))
-        .filter((group) => group.items.length > 0),
-    [groups, hiddenItems],
+    () => {
+      const byId = new Map(groups.map((group) => [group.id, group]))
+      return visibleOrderedItems(preferences.sideRailSectionOrder, groups.map((group) => group.id), [])
+        .map((id) => byId.get(id))
+        .filter((group): group is OrderedNavGroup => Boolean(group))
+        .map((group) => ({
+          ...group,
+          items: visibleOrderedItems(preferences.sideRailItemOrder[group.id], group.items.map((item) => item.href), preferences.hiddenSideRailItems)
+            .map((href) => group.items.find((item) => item.href === href))
+            .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        }))
+        .filter((group) => group.items.length > 0)
+    },
+    [groups, preferences.hiddenSideRailItems, preferences.sideRailItemOrder, preferences.sideRailSectionOrder],
   )
 
   if (!ready) return <DocmeeLoader label={t('common.loading')} fullScreen />
@@ -241,7 +222,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           </div>
         </header>
         <main className="crm-dashboard-content">
-          <PageMascotBanner />
+          {preferences.imageBannersVisible && <PageMascotBanner />}
           {/* The content wrapper GROWS to fill the scroll column so the footer is
               always pushed to the bottom of the screen (sticky-footer) and never
               overlaps the page's own elements: on a short page it fills the gap; on

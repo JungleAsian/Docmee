@@ -11,7 +11,6 @@ import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDay, formatTime, relativeTime } from '../format'
 import { AutomationModeToggle } from './AutomationModeToggle'
-import { InteractionModeToggle } from './InteractionModeToggle'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
@@ -29,11 +28,13 @@ import { conversationMode } from '../conversationMode'
 import type { Tag } from '../types'
 import type {
   Channel,
+  Clinic,
   Conversation,
   ConversationStatus,
   Message,
   MessageRole,
   Patient,
+  Service,
 } from '../types'
 
 // Req 4 — channel brand colours for the thread header (the small coloured dot +
@@ -68,6 +69,30 @@ const EMOJI_SET = [
   '💙', '💜', '🔥', '⭐', '✨', '🎉', '🎈', '💯',
   '✅', '❌', '⚠️', '⏰', '📅', '📌', '📎', '💬',
 ]
+
+function clinicLocationText(clinic?: Clinic): string {
+  const lines = [
+    clinic?.name ? `Location for ${clinic.name}:` : 'Clinic location:',
+    clinic?.address?.trim() ? clinic.address.trim() : 'Please add the clinic address here.',
+    clinic?.phone?.trim() ? `Phone: ${clinic.phone.trim()}` : '',
+  ].filter(Boolean)
+  return lines.join('\n')
+}
+
+function clinicServiceText(services: Service[]): string {
+  const active = services.filter((service) => service.isActive).slice(0, 8)
+  if (active.length === 0) {
+    return 'Service information:\nPlease add the clinic service details here.'
+  }
+  return [
+    'Service information:',
+    ...active.map((service) => {
+      const duration = service.durationMinutes ? ` · ${service.durationMinutes} min` : ''
+      const description = service.description ? ` — ${service.description}` : ''
+      return `• ${service.name}${duration}${description}`
+    }),
+  ].join('\n')
+}
 
 // A conversation is "closed" (composer disabled, reopen offered) when resolved or
 // archived — both are terminal; reopening either creates a fresh conversation.
@@ -119,7 +144,12 @@ export function ConversationView({
   const clinicQuery = useQuery({
     queryKey: ['clinic', clinicId],
     enabled: Boolean(clinicId),
-    queryFn: () => api.get<{ clinic: { settings?: Record<string, unknown> | null } }>(`/clinics/${clinicId}`),
+    queryFn: () => api.get<{ clinic: Clinic }>(`/clinics/${clinicId}`),
+  })
+  const servicesQuery = useQuery({
+    queryKey: ['services', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ services: Service[] }>(`/clinics/${clinicId}/services`),
   })
   const conversation = conversationQuery.data?.conversation
   const patientQuery = useQuery({
@@ -250,14 +280,6 @@ export function ConversationView({
       setMediaUncertain(false)
       setDraft('')
       qc.invalidateQueries({ queryKey: ['messages', conversationId] })
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-    },
-  })
-
-  const closeMutation = useMutation({
-    mutationFn: () => api.post(`/conversations/${conversationId}/close`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
       qc.invalidateQueries({ queryKey: ['conversations'] })
     },
   })
@@ -397,12 +419,6 @@ export function ConversationView({
                 mode={mode}
               />
             )}
-            {features.humanOnlyMode && conversation?.patientId && patientQuery.data?.patient && (
-              <InteractionModeToggle
-                patientId={conversation.patientId}
-                metadata={patientQuery.data.patient.metadata}
-              />
-            )}
             {visibility.headerPatientHistory && conversation?.patientId && (
               <Link
                 href={`/inbox/${conversationId}/patient`}
@@ -428,16 +444,6 @@ export function ConversationView({
                   </option>
                 ))}
               </select>
-            )}
-            {visibility.headerResolveAction && conversation && !closed && (
-              <button
-                type="button"
-                onClick={() => closeMutation.mutate()}
-                disabled={closeMutation.isPending}
-                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] disabled:opacity-60"
-              >
-                {t('view.close')}
-              </button>
             )}
           </div>
         </div>
@@ -531,6 +537,29 @@ export function ConversationView({
               row stays clean — ＋ · 😀 · input · send. Each picker's own popover is
               fixed-positioned, so it opens centred above the composer, never
               clipped by the ＋ menu. */}
+          <div className="flex w-full flex-wrap gap-1.5 px-1">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('docmee:focus-scheduling'))}
+              className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-[11px] font-bold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+            >
+              Confirm Appointment
+            </button>
+            <button
+              type="button"
+              onClick={() => setDraft((d) => (d.trim() ? `${d}\n${clinicLocationText(clinicQuery.data?.clinic)}` : clinicLocationText(clinicQuery.data?.clinic)))}
+              className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-[11px] font-bold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+            >
+              Location
+            </button>
+            <button
+              type="button"
+              onClick={() => setDraft((d) => (d.trim() ? `${d}\n${clinicServiceText(servicesQuery.data?.services ?? [])}` : clinicServiceText(servicesQuery.data?.services ?? [])))}
+              className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-[11px] font-bold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+            >
+              Service Info
+            </button>
+          </div>
           <form onSubmit={onSend} className="flex min-w-0 flex-1 items-end gap-2">
             {/* ＋ tools menu */}
             <div className="relative shrink-0">

@@ -290,7 +290,7 @@ body {
   .crm-sidebar-leaf-toggle {
     position: absolute;
     top: 86px;
-    right: -10px;
+    right: 8px;
     z-index: 80;
     width: 24px;
     height: 24px;
@@ -435,7 +435,7 @@ body {
      icons instead of hiding the whole side rail. */
   .crm-sidebar-collapsed {
     width: 90px;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header {
@@ -1104,7 +1104,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed {
     width: 90px;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label,

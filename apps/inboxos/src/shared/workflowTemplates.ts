@@ -2,7 +2,7 @@
 // ready-made node graph (positioned for the canvas); instantiating one POSTs a draft
 // copy the clinic then tweaks + activates. Frontend-static (no API needed) - the same
 // node types the canvas + engine use.
-import type { WorkflowNode, WorkflowEdge } from './types'
+import type { Clinic, WorkflowNode, WorkflowEdge } from './types'
 
 export interface WorkflowTemplate {
   key: string
@@ -32,6 +32,238 @@ const bookingAiScenarios = JSON.stringify([
   { id: 'clinic_question', description: 'The patient asks a question about the clinic, doctors, services, location, hours, policies, or booking process.', action: 'reply' },
   { id: 'human_request', description: 'The patient asks for a person, secretary, agent, or human help, or the answer is uncertain or safety-sensitive.', action: 'handoff' },
 ])
+
+type ClinicTemplateContext = Pick<Clinic, 'name' | 'address' | 'phone' | 'settings'>
+
+const weekdayLabels: Array<[string, string]> = [
+  ['monday', 'Monday'],
+  ['tuesday', 'Tuesday'],
+  ['wednesday', 'Wednesday'],
+  ['thursday', 'Thursday'],
+  ['friday', 'Friday'],
+  ['saturday', 'Saturday'],
+  ['sunday', 'Sunday'],
+]
+
+function formatTime12h(value: string): string {
+  const match = value.match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return value
+  const hour24 = Number(match[1])
+  const minutes = match[2]
+  if (!Number.isFinite(hour24)) return value
+  const suffix = hour24 >= 12 ? 'PM' : 'AM'
+  const hour12 = hour24 % 12 || 12
+  return `${hour12}:${minutes} ${suffix}`
+}
+
+function businessHoursText(settings: Record<string, unknown>): string {
+  const raw = settings['businessHours']
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '{{clinic_hours}}'
+  const hours = raw as Record<string, unknown>
+  const lines = weekdayLabels.flatMap(([key, label]) => {
+    const day = hours[key]
+    if (!day || typeof day !== 'object' || Array.isArray(day)) return []
+    const rec = day as Record<string, unknown>
+    if (rec['closed'] === true) return [`${label}: Closed`]
+    const open = typeof rec['open'] === 'string' ? rec['open'] : ''
+    const close = typeof rec['close'] === 'string' ? rec['close'] : ''
+    if (!open || !close) return []
+    return [`${label}: ${formatTime12h(open)}–${formatTime12h(close)}`]
+  })
+  return lines.length > 0 ? lines.join('\n') : '{{clinic_hours}}'
+}
+
+function clinicHoursMessage(clinic?: ClinicTemplateContext): string {
+  const name = clinic?.name?.trim() || '{{clinic_name}}'
+  const address = clinic?.address?.trim() || '{{clinic_address}}'
+  const phone = clinic?.phone?.trim() || '{{clinic_phone}}'
+  const hours = businessHoursText(clinic?.settings ?? {})
+  return `${name} is located at ${address}.\n\nBusiness hours:\n${hours}\n\nPhone: ${phone}.`
+}
+
+function safeAppointmentAssistantTemplate(): WorkflowTemplate {
+  const nodes: WorkflowNode[] = [
+    n('trigger', 'trigger', 'trigger.message_keyword', { keywords: 'appointment,book,cita,agendar,menu,consulta' }, 40, 360),
+    n('main_menu', 'action', 'action.interactive_menu', {
+      variant: 'list', optionSource: 'static', header: 'Clinic assistant',
+      message: 'How can we help you today?', footer: 'Choose one option.',
+      options: JSON.stringify([
+        { optionId: 'clinic_hours', title: 'Clinic Hours' },
+        { optionId: 'book_appointment', title: 'Book Appointment' },
+        { optionId: 'secretary', title: 'Secretary' },
+        { optionId: 'ai', title: 'AI' },
+        { optionId: 'end_chat', title: 'End chat' },
+      ]),
+    }, 280, 360),
+    n('clinic_hours_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'Clinic Hours',
+      message: clinicHoursMessage(), footer: 'Choose what to do next.',
+      options: JSON.stringify([
+        { optionId: 'previous_menu', title: 'Previous menu' },
+        { optionId: 'end_conversation', title: 'End chat' },
+      ]),
+    }, 520, 120),
+    n('service_menu', 'action', 'action.interactive_menu', {
+      variant: 'list', optionSource: 'doctor_services', sourceField: '',
+      pageSize: '8', field: 'service_id', header: 'Choose service',
+      message: 'Select the service you want to book.',
+      footer: "Press '0' to restart and '1' for a secretary.",
+    }, 520, 360),
+    n('check_dates', 'action', 'action.check_availability', {
+      doctorIdField: 'doctor_id', days: '7', slotsField: 'available_slots',
+    }, 760, 360),
+    n('date_menu', 'action', 'action.offer_slot_menu', {
+      pickerMode: 'date', slotsField: 'available_slots', selectField: 'preferred_date', pageSize: '8',
+      header: 'Available dates', message: 'Choose an available date.',
+      footer: "Press '0' to restart and '1' for a secretary.",
+    }, 1000, 360),
+    n('check_times', 'action', 'action.check_availability', {
+      doctorIdField: 'doctor_id', dateField: 'preferred_date', days: '1', slotsField: 'available_slots',
+    }, 1240, 360),
+    n('time_menu', 'action', 'action.offer_slot_menu', {
+      pickerMode: 'time', slotsField: 'available_slots', dateField: 'preferred_date',
+      selectField: 'preferred_time', pageSize: '8', header: 'Available times',
+      message: 'Choose an available time.',
+      footer: "Press '0' to restart and '1' for a secretary.",
+    }, 1480, 360),
+    n('revalidate_slot', 'action', 'action.check_availability', {
+      doctorIdField: 'doctor_id', dateField: 'preferred_date', days: '1', slotsField: 'available_slots',
+    }, 1720, 360),
+    n('confirm_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'Confirm booking',
+      message: 'Please confirm this appointment date and time.',
+      options: JSON.stringify([
+        { optionId: 'confirm', title: 'Confirm' },
+        { optionId: 'change', title: 'Change' },
+        { optionId: 'secretary', title: 'Secretary' },
+      ]),
+    }, 1960, 360),
+    n('create_booking', 'action', 'action.create_or_reschedule_booking', {
+      mode: 'create', doctorIdField: 'doctor_id', serviceIdField: 'service_id',
+      dateField: 'preferred_date', timeField: 'preferred_time',
+    }, 2200, 360),
+    n('booking_success', 'action', 'action.send_message', {
+      text: '✅ Appointment booked successfully. Your appointment has been saved in the clinic calendar and is confirmed on our side. If you need help or changes, please contact the clinic.',
+    }, 2440, 360),
+    n('no_slots_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'No slots',
+      message: 'No available appointment times were found for that choice.',
+      options: JSON.stringify([
+        { optionId: 'try_again', title: 'Try again' },
+        { optionId: 'secretary', title: 'Secretary' },
+        { optionId: 'end_chat', title: 'End chat' },
+      ]),
+    }, 1240, 620),
+    n('notify_secretary', 'action', 'action.notify_secretary', {}, 760, 80),
+    n('secretary_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'Secretary notified',
+      message: 'A clinic secretary has been notified and will continue this conversation. You can also call the clinic.',
+      footer: 'Choose what to do next.',
+      options: JSON.stringify([
+        { optionId: 'previous_menu', title: 'Previous menu' },
+        { optionId: 'end_conversation', title: 'End chat' },
+      ]),
+    }, 1000, 80),
+    n('handoff_secretary', 'action', 'action.handoff_to_secretary', {}, 1240, 80),
+    n('language_menu', 'action', 'action.interactive_menu', {
+      variant: 'button', optionSource: 'static', header: 'AI assistant',
+      message: 'Would you like to communicate via English or Spanish?',
+      options: JSON.stringify([
+        { optionId: 'english', title: 'English' },
+        { optionId: 'spanish', title: 'Spanish' },
+      ]),
+    }, 520, -160),
+    n('ask_ai_question', 'action', 'action.ask_capture', {
+      field: 'ai_question', validation: 'required', maxAttempts: '3',
+      question: 'Please send your question and I will help.',
+      retryQuestion: 'Please send your question so I can help.',
+    }, 760, -160),
+    n('wait_ai_reply', 'logic', 'logic.wait_for_reply', { timeoutMinutes: '1440' }, 1000, -160),
+    n('ai_agent', 'action', 'action.ai_agent', {
+      personality: 'Helpful clinic assistant', communicationStyle: 'friendly',
+      customInstructions: 'Respond kindly to the patient with precise clinic information. Do not diagnose or provide medical advice. If unsure, route to the secretary.',
+      scenarios: bookingAiScenarios,
+    }, 1240, -160),
+    n('end_message', 'action', 'action.send_message', { text: 'Thank you for contacting us. Have a great day.' }, 520, 640),
+    n('end', 'action', 'action.end', {}, 760, 640),
+  ]
+  const edges: WorkflowEdge[] = [
+    e('trigger', 'main_menu'),
+    e('main_menu', 'clinic_hours_menu', 'clinic_hours'),
+    e('main_menu', 'service_menu', 'book_appointment'),
+    e('main_menu', 'notify_secretary', 'secretary'),
+    e('main_menu', 'language_menu', 'ai'),
+    e('main_menu', 'end_message', 'end_chat'),
+    e('main_menu', 'main_menu', 'restart'),
+    e('main_menu', 'notify_secretary', 'livechat'),
+    e('main_menu', 'main_menu', 'default'),
+    e('clinic_hours_menu', 'main_menu', 'previous_menu'),
+    e('clinic_hours_menu', 'end_message', 'end_conversation'),
+    e('service_menu', 'check_dates', 'selected'),
+    e('service_menu', 'no_slots_menu', 'empty'),
+    e('service_menu', 'main_menu', 'restart'),
+    e('service_menu', 'notify_secretary', 'livechat'),
+    e('check_dates', 'date_menu'),
+    e('date_menu', 'check_times', 'selected'),
+    e('date_menu', 'no_slots_menu', 'empty'),
+    e('date_menu', 'main_menu', 'restart'),
+    e('date_menu', 'notify_secretary', 'livechat'),
+    e('check_times', 'time_menu'),
+    e('time_menu', 'revalidate_slot', 'selected'),
+    e('time_menu', 'no_slots_menu', 'empty'),
+    e('time_menu', 'date_menu', 'restart'),
+    e('time_menu', 'notify_secretary', 'livechat'),
+    e('revalidate_slot', 'confirm_menu'),
+    e('confirm_menu', 'create_booking', 'confirm'),
+    e('confirm_menu', 'date_menu', 'change'),
+    e('confirm_menu', 'notify_secretary', 'secretary'),
+    e('confirm_menu', 'main_menu', 'restart'),
+    e('confirm_menu', 'notify_secretary', 'livechat'),
+    e('confirm_menu', 'confirm_menu', 'default'),
+    e('create_booking', 'booking_success'),
+    e('booking_success', 'end'),
+    e('no_slots_menu', 'date_menu', 'try_again'),
+    e('no_slots_menu', 'notify_secretary', 'secretary'),
+    e('no_slots_menu', 'end_message', 'end_chat'),
+    e('notify_secretary', 'secretary_menu'),
+    e('secretary_menu', 'main_menu', 'previous_menu'),
+    e('secretary_menu', 'handoff_secretary', 'end_conversation'),
+    e('handoff_secretary', 'end'),
+    e('language_menu', 'ask_ai_question', 'english'),
+    e('language_menu', 'ask_ai_question', 'spanish'),
+    e('ask_ai_question', 'wait_ai_reply'),
+    e('wait_ai_reply', 'ai_agent'),
+    e('ai_agent', 'ask_ai_question', 'replied'),
+    e('ai_agent', 'notify_secretary', 'handoff'),
+    e('ai_agent', 'main_menu', 'no_match'),
+    e('ai_agent', 'notify_secretary', 'error'),
+    e('end_message', 'end'),
+  ]
+  return {
+    key: 'safe_appointment_assistant',
+    nameKey: 'wf.tpl.safeAppointmentAssistantName',
+    descKey: 'wf.tpl.safeAppointmentAssistantDesc',
+    nodes,
+    edges,
+  }
+}
+
+export function personalizeWorkflowTemplate(template: WorkflowTemplate, clinic?: ClinicTemplateContext): WorkflowNode[] {
+  if (template.key !== 'safe_appointment_assistant') return template.nodes
+  return template.nodes.map((node) => {
+    if (node.id === 'clinic_hours_menu') {
+      return { ...node, config: { ...node.config, message: clinicHoursMessage(clinic) } }
+    }
+    if (node.id === 'secretary_menu') {
+      const phone = clinic?.phone?.trim()
+      const text = phone
+        ? `A ${clinic?.name?.trim() || 'clinic'} secretary has been notified and will continue this conversation. You can also call the clinic at ${phone}.`
+        : 'A clinic secretary has been notified and will continue this conversation. You can also call the clinic.'
+      return { ...node, config: { ...node.config, message: text } }
+    }
+    return node
+  })
+}
 
 function dynamicBookingTemplate(multipleDoctors: boolean): WorkflowTemplate {
   const key = multipleDoctors ? 'booking_multiple_doctors_ai' : 'booking_single_doctor_ai'
@@ -152,6 +384,7 @@ function dynamicBookingTemplate(multipleDoctors: boolean): WorkflowTemplate {
 }
 
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  safeAppointmentAssistantTemplate(),
   dynamicBookingTemplate(false),
   dynamicBookingTemplate(true),
   {

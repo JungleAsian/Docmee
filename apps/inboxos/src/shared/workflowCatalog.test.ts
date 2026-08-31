@@ -3,7 +3,7 @@ import { validateWorkflowDefinition } from '@docmee/agents'
 import { WORKFLOW_NODE_TYPES, collectWorkflowFields, collectWorkflowTags, collectFieldValueOptions, slugifyOptionId, uniqueOptionId, ENUM_FIELD_OPTIONS, ALLOWED_BOOKING_FIELDS, branchRows, parseBranchColors, resolveBranchColor, changeableNodeTypes, nodeHasStructuredData, changeNodeType, parseBulkMenuOptionLines, nodeHasIssue, type MenuOption } from './workflowNodes'
 import { isBranchingNode, resequenceLinearEdges } from './workflowLinearEdges'
 import { TAG_TYPES } from './tagTypes'
-import { WORKFLOW_TEMPLATES } from './workflowTemplates'
+import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate } from './workflowTemplates'
 import type { WorkflowNode } from './types'
 
 const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Record<string, unknown> = {}): WorkflowNode => ({
@@ -69,6 +69,114 @@ describe('workflow template validation', () => {
     ]))
     expect(template.nodes).toContainEqual(expect.objectContaining({ id: 'post_inquiry_menu', type: 'action.interactive_menu' }))
     expect(template.edges).toContainEqual(expect.objectContaining({ source: 'ai_inquiry', target: 'post_inquiry_menu', sourceHandle: 'replied' }))
+  })
+
+  it('validates the safe appointment assistant template as a no-code end-to-end workflow', () => {
+    const template = WORKFLOW_TEMPLATES.find((item) => item.key === 'safe_appointment_assistant')
+    expect(template).toBeDefined()
+    if (!template) return
+
+    expect(validateWorkflowDefinition(template.nodes, template.edges, { requireTrigger: true })).toEqual([])
+
+    const byId = new Map(template.nodes.map((item) => [item.id, item]))
+    expect(byId.get('main_menu')).toMatchObject({
+      type: 'action.interactive_menu',
+      config: expect.objectContaining({ variant: 'list' }),
+    })
+    expect(JSON.parse(String(byId.get('main_menu')?.config.options))).toEqual([
+      { optionId: 'clinic_hours', title: 'Clinic Hours' },
+      { optionId: 'book_appointment', title: 'Book Appointment' },
+      { optionId: 'secretary', title: 'Secretary' },
+      { optionId: 'ai', title: 'AI' },
+      { optionId: 'end_chat', title: 'End chat' },
+    ])
+
+    expect(byId.get('clinic_hours_menu')).toMatchObject({
+      type: 'action.interactive_menu',
+      config: expect.objectContaining({
+        header: 'Clinic Hours',
+        message: expect.stringContaining('{{clinic_address}}'),
+      }),
+    })
+    expect(byId.get('secretary_menu')).toMatchObject({
+      type: 'action.interactive_menu',
+      config: expect.objectContaining({
+        message: expect.stringContaining('secretary has been notified'),
+      }),
+    })
+    expect(byId.get('language_menu')).toMatchObject({
+      type: 'action.interactive_menu',
+      config: expect.objectContaining({
+        message: expect.stringContaining('English or Spanish'),
+      }),
+    })
+
+    expect(template.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: 'main_menu', target: 'clinic_hours_menu', sourceHandle: 'clinic_hours' }),
+      expect.objectContaining({ source: 'main_menu', target: 'service_menu', sourceHandle: 'book_appointment' }),
+      expect.objectContaining({ source: 'main_menu', target: 'notify_secretary', sourceHandle: 'secretary' }),
+      expect.objectContaining({ source: 'main_menu', target: 'language_menu', sourceHandle: 'ai' }),
+      expect.objectContaining({ source: 'main_menu', target: 'end_message', sourceHandle: 'end_chat' }),
+      expect.objectContaining({ source: 'service_menu', target: 'check_dates', sourceHandle: 'selected' }),
+      expect.objectContaining({ source: 'check_dates', target: 'date_menu' }),
+      expect.objectContaining({ source: 'date_menu', target: 'check_times', sourceHandle: 'selected' }),
+      expect.objectContaining({ source: 'check_times', target: 'time_menu' }),
+      expect.objectContaining({ source: 'time_menu', target: 'revalidate_slot', sourceHandle: 'selected' }),
+      expect.objectContaining({ source: 'revalidate_slot', target: 'confirm_menu' }),
+      expect.objectContaining({ source: 'confirm_menu', target: 'create_booking', sourceHandle: 'confirm' }),
+      expect.objectContaining({ source: 'confirm_menu', target: 'date_menu', sourceHandle: 'change' }),
+      expect.objectContaining({ source: 'confirm_menu', target: 'notify_secretary', sourceHandle: 'secretary' }),
+      expect.objectContaining({ source: 'create_booking', target: 'booking_success' }),
+      expect.objectContaining({ source: 'booking_success', target: 'end' }),
+      expect.objectContaining({ source: 'language_menu', target: 'ask_ai_question', sourceHandle: 'english' }),
+      expect.objectContaining({ source: 'language_menu', target: 'ask_ai_question', sourceHandle: 'spanish' }),
+      expect.objectContaining({ source: 'ai_agent', target: 'ask_ai_question', sourceHandle: 'replied' }),
+      expect.objectContaining({ source: 'ai_agent', target: 'notify_secretary', sourceHandle: 'handoff' }),
+      expect.objectContaining({ source: 'ai_agent', target: 'main_menu', sourceHandle: 'no_match' }),
+      expect.objectContaining({ source: 'ai_agent', target: 'notify_secretary', sourceHandle: 'error' }),
+    ]))
+
+    expect(byId.get('revalidate_slot')).toMatchObject({
+      type: 'action.check_availability',
+      config: expect.objectContaining({ days: '1', dateField: 'preferred_date' }),
+    })
+    expect(byId.get('create_booking')).toMatchObject({
+      type: 'action.create_or_reschedule_booking',
+      config: expect.objectContaining({
+        mode: 'create',
+        doctorIdField: 'doctor_id',
+        serviceIdField: 'service_id',
+        dateField: 'preferred_date',
+        timeField: 'preferred_time',
+      }),
+    })
+    expect(byId.get('booking_success')?.config.text).toContain('confirmed on our side')
+  })
+
+  it('personalizes the safe appointment assistant clinic-hours copy from clinic settings', () => {
+    const template = WORKFLOW_TEMPLATES.find((item) => item.key === 'safe_appointment_assistant')
+    expect(template).toBeDefined()
+    if (!template) return
+
+    const nodes = personalizeWorkflowTemplate(template, {
+      name: 'Derma Paz',
+      address: '20 Avenida 1-16 Zona 3',
+      phone: '46082715',
+      settings: {
+        businessHours: {
+          monday: { open: '09:00', close: '22:00' },
+          saturday: { open: '09:00', close: '22:00' },
+          sunday: { open: '11:00', close: '17:00' },
+        },
+      },
+    })
+
+    const hours = nodes.find((item) => item.id === 'clinic_hours_menu')
+    expect(hours?.config.message).toContain('Derma Paz is located at 20 Avenida 1-16 Zona 3.')
+    expect(hours?.config.message).toContain('Monday: 9:00 AM–10:00 PM')
+    expect(hours?.config.message).toContain('Saturday: 9:00 AM–10:00 PM')
+    expect(hours?.config.message).toContain('Sunday: 11:00 AM–5:00 PM')
+    expect(hours?.config.message).toContain('Phone: 46082715.')
   })
 })
 

@@ -8,14 +8,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import dynamic from 'next/dynamic'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
-import { ClinicSelect } from '@/shared/components/ClinicSelect'
+import { ClinicSelect, useClinics } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
 import { PillToggle } from '@/shared/components/PillToggle'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
-import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from '@/shared/workflowTemplates'
+import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate, type WorkflowTemplate } from '@/shared/workflowTemplates'
 import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
 import { layoutWorkflow } from '@/shared/workflowLayout'
 import { serializeWorkflowExport, parseWorkflowExport } from '@/shared/workflowImport'
@@ -67,6 +67,8 @@ export default function WorkflowsPage() {
     enabled: Boolean(clinicId),
     queryFn: () => api.get<{ workflows: Workflow[] }>(`/clinics/${clinicId}/workflows`),
   })
+  const clinicsQuery = useClinics()
+  const activeClinic = clinicsQuery.data?.clinics.find((clinic) => clinic.id === clinicId)
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.del(`/clinics/${clinicId}/workflows/${id}`),
     onMutate: () => setDeleteError(null),
@@ -89,10 +91,10 @@ export default function WorkflowsPage() {
     // greeting is written into the first send_message node's text (best-effort —
     // if the template has none, it's simply ignored, keeping the graph valid).
     mutationFn: ({ tpl, name, greeting }: { tpl: WorkflowTemplate; name?: string; greeting?: string }) => {
-      let nodes = tpl.nodes
+      let nodes = personalizeWorkflowTemplate(tpl, activeClinic)
       if (greeting && greeting.trim()) {
         let applied = false
-        nodes = tpl.nodes.map((nd) => {
+        nodes = nodes.map((nd) => {
           if (!applied && nd.type === 'action.send_message') {
             applied = true
             return { ...nd, config: { ...nd.config, text: greeting.trim() } }

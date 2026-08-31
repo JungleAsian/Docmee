@@ -14,10 +14,10 @@
   --crm-text-main: #11244a;
   --crm-text-muted: #536483;
   --crm-text-soft: #8da0bd;
-  --crm-primary-color: #07a9b6;
-  --crm-primary-hover: #06929e;
-  --crm-primary-strong: #00bfcc;
-  --crm-active-bg: linear-gradient(135deg, #09b8c9, #04a6b8);
+  --crm-primary-color: #247ea3;
+  --crm-primary-hover: #1f6f91;
+  --crm-primary-strong: #22c7dc;
+  --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
   --crm-accent-purple: #07a9b6;
   --crm-accent-blue: #3b82f6;
   --crm-accent-orange: #f97316;
@@ -61,10 +61,10 @@
   --crm-text-main: #eef6ff;
   --crm-text-muted: #b6c3d6;
   --crm-text-soft: #7f8da5;
-  --crm-primary-color: #22d3ee;
-  --crm-primary-hover: #38e0f2;
+  --crm-primary-color: #34c6e5;
+  --crm-primary-hover: #22d3ee;
   --crm-primary-strong: #67e8f9;
-  --crm-active-bg: linear-gradient(135deg, #0891b2, #0e7490);
+  --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
   --crm-accent-purple: #22d3ee;
   --crm-accent-blue: #5da7ff;
   --crm-accent-cyan: #22d3ee;
@@ -960,10 +960,10 @@ body {
     --crm-text-main: #11244a;
     --crm-text-muted: #536483;
     --crm-text-soft: #8da0bd;
-    --crm-primary-color: #07a9b6;
-    --crm-primary-hover: #06929e;
-    --crm-primary-strong: #00bfcc;
-    --crm-active-bg: linear-gradient(135deg, #09b8c9, #04a6b8);
+    --crm-primary-color: #247ea3;
+    --crm-primary-hover: #1f6f91;
+    --crm-primary-strong: #22c7dc;
+    --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
     --crm-border-color: #dfe7f2;
     --crm-hover-bg: #eaf9fb;
     --crm-notification: #25d366;
@@ -979,7 +979,7 @@ body {
     --crm-panel-bg: rgba(255, 255, 255, .94);
     --crm-panel-bg-strong: rgba(255, 255, 255, .95);
     --crm-chat-surface: #ffffff;
-    --crm-chat-glow: rgba(7, 169, 182, .05);
+    --crm-chat-glow: rgba(36, 126, 163, .05);
     font-family: var(--crm-font-sans);
   }
 
@@ -994,10 +994,10 @@ body {
     --crm-text-main: #eef6ff;
     --crm-text-muted: #b6c3d6;
     --crm-text-soft: #7f8da5;
-    --crm-primary-color: #22d3ee;
-    --crm-primary-hover: #38e0f2;
+    --crm-primary-color: #34c6e5;
+    --crm-primary-hover: #22d3ee;
     --crm-primary-strong: #67e8f9;
-    --crm-active-bg: linear-gradient(135deg, #0891b2, #0e7490);
+    --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
     --crm-border-color: rgba(148, 163, 184, .24);
     --crm-hover-bg: rgba(34, 211, 238, .12);
     --crm-notification: #25d366;

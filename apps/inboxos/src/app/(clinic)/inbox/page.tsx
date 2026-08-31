@@ -17,16 +17,16 @@ import { useI18n } from '@/shared/hooks/useI18n'
 import { useOnline } from '@/shared/hooks/useOnline'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
 
-// v2 — bumped so the wider conversation-list default takes effect for everyone
-// (a saved v1 width would otherwise keep the old narrow list).
-const INBOX_LAYOUT_KEY = 'docmee.inbox.layout.v2'
-const LIST_DEFAULT = 384
-const RIGHT_DEFAULT = 352
-const LIST_MIN = 300
+// v3 — bumped so the light InboxOS workspace proportions take effect for
+// everyone instead of preserving older dark-admin-shell column widths.
+const INBOX_LAYOUT_KEY = 'docmee.inbox.layout.v3'
+const LIST_DEFAULT = 346
+const RIGHT_DEFAULT = 376
+const LIST_MIN = 320
 const LIST_MAX = 560
-const RIGHT_MIN = 280
+const RIGHT_MIN = 320
 const RIGHT_MAX = 560
-const MAIN_MIN = 420
+const MAIN_MIN = 560
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 

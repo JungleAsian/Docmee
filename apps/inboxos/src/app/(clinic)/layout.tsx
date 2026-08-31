@@ -57,7 +57,8 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   // flex column that fills the available height (flex-1 + min-h-0), giving its
   // child a definite height to bound its scroll areas against. Every other page
   // keeps the natural min-h-full/flex-none flow (grows with content, page scrolls).
-  const fullHeightRoute = pathname === '/inbox'
+  const inboxRoute = pathname === '/inbox'
+  const fullHeightRoute = inboxRoute
   const clinicId = user?.clinicId
   const clinicQuery = useQuery({
     queryKey: ['clinic', clinicId],
@@ -123,11 +124,11 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   if (!ready) return <DocmeeLoader label={t('common.loading')} fullScreen />
 
   return (
-    <div className="crm-app-container" data-docmee-app-shell>
+    <div className={`crm-app-container ${inboxRoute ? 'crm-inboxos-desktop-shell' : ''}`} data-docmee-app-shell>
       {/* Desktop sidebar — collapses to an icon-only rail when toggled off
           instead of hiding entirely. */}
       <div className="hidden md:flex">
-        <Sidebar groups={visibleGroups} title={t('nav.inbox')} collapsed={!railOpen} />
+        <Sidebar groups={visibleGroups} title={t('nav.inbox')} collapsed={inboxRoute ? true : !railOpen} />
       </div>
 
       {/* Mobile drawer */}
@@ -147,15 +148,17 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
 
       <div className="crm-main-content">
         <header className="crm-top-header shrink-0">
-          <button
-            type="button"
-            aria-label={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-            title={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-            onClick={toggleRail}
-            className="crm-icon-btn hidden md:inline-flex"
-          >
-            {railOpen ? <CaretLeft size={20} /> : <CaretRight size={20} />}
-          </button>
+          {!inboxRoute && (
+            <button
+              type="button"
+              aria-label={railOpen ? t('nav.hideRail') : t('nav.showRail')}
+              title={railOpen ? t('nav.hideRail') : t('nav.showRail')}
+              onClick={toggleRail}
+              className="crm-icon-btn hidden md:inline-flex"
+            >
+              {railOpen ? <CaretLeft size={20} /> : <CaretRight size={20} />}
+            </button>
+          )}
           <button
             type="button"
             aria-label={t('common.openMenu')}
@@ -165,49 +168,57 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <List size={22} />
           </button>
           <ClinicBackButton />
-          <div className="relative">
-            <button
-              type="button"
-              aria-label={t('nav.customizeMenu')}
-              title={t('nav.customizeMenu')}
-              onClick={() => setCustomizeOpen((v) => !v)}
-              className="crm-icon-btn hidden md:inline-flex"
-            >
-              <SlidersHorizontal size={18} />
-            </button>
-            {customizeOpen && (
-              <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-                <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                  {t('nav.customizeMenu')}
-                </p>
-                {groups.map((group, gi) => (
-                  <div key={group.label ?? gi} className="mb-1">
-                    {group.label && (
-                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
-                    )}
-                    {group.items.map((item) => (
-                      <label
-                        key={item.href}
-                        className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!hiddenItems.has(item.href)}
-                          onChange={() => toggleHidden(item.href)}
-                        />
-                        <span className="truncate">{item.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {!inboxRoute && (
+            <div className="relative">
+              <button
+                type="button"
+                aria-label={t('nav.customizeMenu')}
+                title={t('nav.customizeMenu')}
+                onClick={() => setCustomizeOpen((v) => !v)}
+                className="crm-icon-btn hidden md:inline-flex"
+              >
+                <SlidersHorizontal size={18} />
+              </button>
+              {customizeOpen && (
+                <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                  <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    {t('nav.customizeMenu')}
+                  </p>
+                  {groups.map((group, gi) => (
+                    <div key={group.label ?? gi} className="mb-1">
+                      {group.label && (
+                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
+                      )}
+                      {group.items.map((item) => (
+                        <label
+                          key={item.href}
+                          className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!hiddenItems.has(item.href)}
+                            onChange={() => toggleHidden(item.href)}
+                          />
+                          <span className="truncate">{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {inboxRoute && (
+            <div className="crm-inboxos-brand hidden lg:block" aria-label={t('app.name')}>
+              <img src="/brand/docmee-logo.png?v=20260821" alt={t('app.name')} />
+              <span>Chatbot de IA para médicos</span>
+            </div>
+          )}
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" placeholder="Search patients, messages, or appointments..." />
           </div>
-          <div className="min-w-0 flex-1 basis-56">
+          <div className={inboxRoute ? 'crm-inboxos-clinic-switcher min-w-0 flex-1 basis-56' : 'min-w-0 flex-1 basis-56'}>
             <ClinicSwitcher />
           </div>
           <div className="crm-header-actions">
@@ -222,7 +233,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           </div>
         </header>
         <main className="crm-dashboard-content">
-          {preferences.imageBannersVisible && <PageMascotBanner />}
+          {preferences.imageBannersVisible && !inboxRoute && <PageMascotBanner />}
           {/* The content wrapper GROWS to fill the scroll column so the footer is
               always pushed to the bottom of the screen (sticky-footer) and never
               overlaps the page's own elements: on a short page it fills the gap; on

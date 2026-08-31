@@ -1140,7 +1140,7 @@ body {
     background: transparent;
     padding: 0;
     color: #102044;
-    font-size: 15px;
+    font-size: 12px;
     font-weight: 800;
     box-shadow: none;
   }
@@ -1148,7 +1148,7 @@ body {
   .crm-inboxos-desktop-shell .crm-inboxos-clinic-switcher label::after {
     content: "Secretaria";
     color: #647391;
-    font-size: 13px;
+    font-size: 10.4px;
     font-weight: 600;
   }
 

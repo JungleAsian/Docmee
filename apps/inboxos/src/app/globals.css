@@ -938,14 +938,16 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar {
     width: 220px;
+    z-index: 50;
     border-right: 0;
     background: linear-gradient(180deg, #05374e 0%, #063c52 54%, #062f42 100%);
     box-shadow: 16px 0 36px rgba(3, 36, 54, .16);
+    isolation: isolate;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed {
     width: 90px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label,
@@ -967,7 +969,7 @@ body {
     position: absolute;
     top: 116px;
     right: -10px;
-    z-index: 12;
+    z-index: 80;
     width: 24px;
     height: 24px;
     align-items: center;

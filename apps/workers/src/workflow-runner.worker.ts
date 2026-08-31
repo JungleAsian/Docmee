@@ -42,7 +42,7 @@ import {
 } from '@docmee/agents'
 import { patientAllowsAutomation } from './automation-boundary.js'
 import { clinicInstantRange, decryptValue, encryptValue } from '@docmee/shared'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
 import { activeWhatsAppAccount, resolveWhatsAppInteractiveSender, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
@@ -732,10 +732,22 @@ function validCapturedReply(validation: string, raw: string): boolean {
   }
 }
 
-function workflowExecutionKey(data: WorkflowRunJobData, nodeId: string): string {
+function hashKeyPart(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 24)
+}
+
+function workflowExecutionKey(data: WorkflowRunJobData, node: Pick<import('@docmee/db').WorkflowNode, 'id' | 'type'>): string {
   // The database unique constraint is the authority. This human-readable key is
   // retained in trace records to connect source event, queue job, run and node.
-  return `${data.workflowId}/${data.trigger.sourceEventId}/${nodeId}`
+  const base = `${data.workflowId}/${data.trigger.sourceEventId}/${node.id}`
+  if (node.type === 'action.ask_capture' && data.startNodeId) {
+    const trigger = data.trigger as Record<string, unknown>
+    const resumeEventId = trigger['waMessageId'] ?? trigger['message']
+    if (typeof resumeEventId === 'string' && resumeEventId.trim()) {
+      return `${base}/${hashKeyPart(resumeEventId)}`
+    }
+  }
+  return base
 }
 
 function providerIdFromResult(value: unknown): string | null {
@@ -961,7 +973,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
     async runSideEffect(node, _ctx, invoke) {
       await assertWorkflowAutomationAllowed(sql, clinicId, _ctx.patientId)
       const executions = createWorkflowExecutionsRepository(sql)
-      const executionKey = workflowExecutionKey(data, node.id)
+      const executionKey = workflowExecutionKey(data, node)
       const claimed = await executions.claimEffect({
         workflowRunId,
         nodeId: node.id,

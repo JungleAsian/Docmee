@@ -357,6 +357,52 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it('uses the resume inbound message id for repeated ask-capture side-effect keys', async () => {
+    h.findRun.mockResolvedValue({ id: 'run-1' })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const node = {
+        id: 'capture-question',
+        type: 'action.ask_capture',
+        config: {
+          field: 'message',
+          question: 'Please type your question.',
+          validation: 'required',
+        },
+      }
+      await exec.runSideEffect?.(node, ctx, () => exec.askAndCapture?.(node, ctx))
+      return [{ status: 'completed' }]
+    })
+
+    const resumedJob = {
+      id: 'job-resume-1',
+      data: {
+        clinicId: CLINIC,
+        workflowId: WORKFLOW,
+        startNodeId: 'interactive_menu_24',
+        trigger: {
+          type: 'trigger.conversation_reply',
+          patientId: PATIENT,
+          sourceEventId: 'wamid.original',
+          waMessageId: 'wamid.language-selection',
+          message: 'English',
+          interactiveReplyId: 'english',
+        },
+      },
+    } as never
+
+    await processWorkflowRunJob(resumedJob)
+
+    expect(h.claimEffect).toHaveBeenCalledWith(expect.objectContaining({
+      executionKey: expect.stringMatching(/^22222222-2222-2222-2222-222222222222\/wamid\.original\/capture-question\/[a-f0-9]{24}$/),
+    }))
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(
+      'phone-1',
+      'token',
+      '15551234567',
+      'Please type your question.',
+    )
+  })
+
   it('routes the AI agent to error instead of hanging when the provider stalls', async () => {
     vi.useFakeTimers()
     h.chatComplete.mockImplementationOnce(() => new Promise(() => {}))

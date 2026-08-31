@@ -956,8 +956,8 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header img {
-    height: 77px;
-    width: 54px;
+    height: 62px;
+    width: 43px;
     object-fit: contain;
     filter: drop-shadow(0 14px 18px rgba(2, 23, 35, .24));
   }

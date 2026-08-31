@@ -515,20 +515,38 @@ body {
   .crm-top-header {
     min-height: 72px;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 12px;
     padding: 14px 24px;
   }
 
+  .crm-header-context {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 180px;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .crm-header-breadcrumb {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--crm-text-main);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
   .crm-header-search {
     display: flex;
-    flex: 1 1 280px;
+    flex: 0 1 520px;
     align-items: center;
     min-width: 220px;
-    max-width: 440px;
+    max-width: 520px;
     margin-left: auto;
-    margin-right: auto;
+    margin-right: 0;
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-sm);
     background: var(--crm-input-bg);
@@ -558,8 +576,37 @@ body {
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
-    margin-left: auto;
+    margin-left: 0;
     max-width: 100%;
+  }
+
+  .crm-header-clinic-switcher {
+    display: flex;
+    min-width: 0;
+    max-width: 18rem;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .crm-header-clinic-switcher > div {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+
+  .crm-header-clinic-switcher label {
+    font-size: 12px;
+  }
+
+  .crm-header-clinic-switcher select,
+  .crm-header-clinic-switcher button,
+  .crm-header-clinic-switcher span {
+    font-size: 12px;
+  }
+
+  .crm-push-opt-in {
+    background: var(--crm-card-bg);
+    box-shadow: var(--crm-shadow-sm);
+    white-space: nowrap;
   }
 
   .crm-icon-btn {
@@ -1264,10 +1311,10 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-top-header {
-    min-height: 116px;
+    min-height: 72px;
     flex-wrap: nowrap;
-    gap: 24px;
-    padding: 26px 48px 18px 34px;
+    gap: 12px;
+    padding: 14px 24px;
   }
 
   .crm-inboxos-brand {
@@ -1293,13 +1340,11 @@ body {
   .crm-inboxos-desktop-shell .crm-header-search {
     flex: 0 1 570px;
     max-width: 570px;
-    min-height: 62px;
-    /* Align the search box with the main conversation pane rather than centering
-       it in the header after the rail toggle and right-side controls. */
-    margin-left: 242px;
-    margin-right: auto;
+    min-height: 54px;
+    margin-left: auto;
+    margin-right: 0;
     border-radius: 16px;
-    padding: 0 24px;
+    padding: 0 20px;
     box-shadow: 0 12px 32px rgba(25, 50, 92, .08);
   }
 
@@ -1345,7 +1390,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-header-actions {
     margin-left: 0;
-    gap: 18px;
+    gap: 8px;
   }
 
   .crm-inboxos-desktop-shell .crm-user-profile {

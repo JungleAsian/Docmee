@@ -28,8 +28,24 @@ import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
 import { visibleOrderedItems } from '@/shared/userUiPreferences'
+import type { TranslationKey } from '@/shared/i18n'
 
 type OrderedNavGroup = NavGroup & { id: string }
+
+const CLINIC_PAGE_LABELS: Array<[string, TranslationKey]> = [
+  ['/inbox', 'nav.inbox'],
+  ['/alerts', 'nav.alerts'],
+  ['/calendar', 'nav.calendar'],
+  ['/waitlist', 'nav.waitlist'],
+  ['/help', 'nav.help'],
+  ['/analytics', 'nav.analytics'],
+  ['/qos', 'nav.qos'],
+  ['/reports', 'nav.reports'],
+]
+
+function clinicHeaderTitleKey(pathname: string): TranslationKey {
+  return CLINIC_PAGE_LABELS.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1] ?? 'nav.inbox'
+}
 
 export default function ClinicLayout({ children }: { children: React.ReactNode }) {
   const { ready, user } = useAuthGuard()
@@ -51,6 +67,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
     setPreferences({ hiddenSideRailItems: [...next] })
   }
   const pathname = usePathname()
+  const headerTitleKey = useMemo(() => clinicHeaderTitleKey(pathname), [pathname])
   // The Inbox is a fixed-height workspace: it must fill the viewport exactly and
   // scroll only its own inner columns (message list, conversation list, context
   // rail), never the whole page. So on /inbox the content wrapper becomes a
@@ -166,6 +183,47 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <List size={22} />
           </button>
           <ClinicBackButton />
+          <div className="relative">
+            <button
+              type="button"
+              aria-label={t('nav.customizeMenu')}
+              title={t('nav.customizeMenu')}
+              onClick={() => setCustomizeOpen((v) => !v)}
+              className="crm-icon-btn hidden md:inline-flex"
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            {customizeOpen && (
+              <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  {t('nav.customizeMenu')}
+                </p>
+                {groups.map((group, gi) => (
+                  <div key={group.label ?? gi} className="mb-1">
+                    {group.label && (
+                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
+                    )}
+                    {group.items.map((item) => (
+                      <label
+                        key={item.href}
+                        className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!hiddenItems.has(item.href)}
+                          onChange={() => toggleHidden(item.href)}
+                        />
+                        <span className="truncate">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="crm-header-context">
+            <span className="crm-header-breadcrumb">{t(headerTitleKey)}</span>
+          </div>
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" placeholder="Search patients, messages, or appointments..." />
@@ -173,53 +231,15 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           <div className="crm-header-actions">
             <PushOptIn />
             <NotificationBell />
-            <div className="relative">
-              <button
-                type="button"
-                aria-label={t('nav.customizeMenu')}
-                title={t('nav.customizeMenu')}
-                onClick={() => setCustomizeOpen((v) => !v)}
-                className="crm-icon-btn hidden md:inline-flex"
-              >
-                <SlidersHorizontal size={18} />
-              </button>
-              {customizeOpen && (
-                <div className="absolute right-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-                  <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                    {t('nav.customizeMenu')}
-                  </p>
-                  {groups.map((group, gi) => (
-                    <div key={group.label ?? gi} className="mb-1">
-                      {group.label && (
-                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
-                      )}
-                      {group.items.map((item) => (
-                        <label
-                          key={item.href}
-                          className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={!hiddenItems.has(item.href)}
-                            onChange={() => toggleHidden(item.href)}
-                          />
-                          <span className="truncate">{item.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
             {user && (
               <div className="crm-user-profile">
                 <span className="crm-avatar">{(user.fullName || user.email || 'U').slice(0, 2).toUpperCase()}</span>
                 <OperatorBadge email={user.email} fullName={user.fullName} role={user.role} />
               </div>
             )}
-          </div>
-          <div className={inboxRoute ? 'crm-inboxos-clinic-switcher min-w-0' : 'min-w-0 flex-1 basis-56'}>
-            <ClinicSwitcher />
+            <div className="crm-header-clinic-switcher">
+              <ClinicSwitcher />
+            </div>
           </div>
         </header>
         <main className="crm-dashboard-content">

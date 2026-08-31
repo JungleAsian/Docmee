@@ -83,6 +83,55 @@ describe('runWorkflow', () => {
     expect(checkAvailability).toHaveBeenCalledTimes(1)
     expect(guarded).not.toHaveBeenCalled()
   })
+
+  it('bypasses the durable side-effect boundary when resuming a pending ask_capture reply', async () => {
+    const guarded = vi.fn(async (_node, _ctx, invoke) => invoke())
+    const askAndCapture = vi.fn(async (_node, ctx) => {
+      ctx['capture_status'] = 'captured'
+      ctx['__workflowCapture'] = {
+        nodeId: 'ask',
+        field: 'message',
+        question: '',
+        retryQuestion: '',
+        validation: 'required',
+        attempts: 0,
+        maxAttempts: 3,
+        status: 'captured',
+      }
+    })
+    const exec = makeExec({
+      runSideEffect: guarded,
+      askAndCapture,
+      waitForReply: vi.fn(async () => false),
+    })
+
+    await runWorkflow({
+      nodes: [
+        node('ask', 'action', 'action.ask_capture', { field: 'message' }),
+        node('wait', 'logic', 'logic.wait_for_reply'),
+        node('done', 'action', 'action.send_message', { text: 'Thanks' }),
+      ],
+      edges: [edge('ask', 'wait'), edge('wait', 'done')],
+    }, {
+      message: 'What services do you offer?',
+      __workflowCapture: {
+        nodeId: 'ask',
+        field: 'message',
+        question: 'Question?',
+        retryQuestion: 'Question?',
+        validation: 'required',
+        attempts: 0,
+        maxAttempts: 3,
+        status: 'pending',
+      },
+    }, exec, { startNodeId: 'ask' })
+
+    expect(askAndCapture).toHaveBeenCalledTimes(1)
+    expect(guarded).toHaveBeenCalledTimes(1)
+    expect(guarded.mock.calls[0]?.[0]).toMatchObject({ id: 'done', type: 'action.send_message' })
+    expect(exec.sendMessage).toHaveBeenCalledWith('Thanks', expect.objectContaining({ capture_status: 'captured' }))
+  })
+
   it('walks a linear trigger → action → end and runs the action', async () => {
     const wf = {
       nodes: [

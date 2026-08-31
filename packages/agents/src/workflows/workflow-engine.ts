@@ -256,6 +256,10 @@ export async function runWorkflow(
   const visited = new Set<string>()
   const sideEffect = async <T>(node: WorkflowNode, invoke: () => Promise<T>): Promise<T> =>
     exec.runSideEffect ? exec.runSideEffect(node, ctx, invoke) : invoke()
+  const isPendingCaptureResume = (node: WorkflowNode): boolean => {
+    const capture = ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] as WorkflowCaptureState | undefined
+    return capture?.nodeId === node.id && capture.status === 'pending'
+  }
 
   while (current && trace.length < MAX_STEPS) {
     if (visited.has(current.id)) break // cycle guard
@@ -425,7 +429,10 @@ export async function runWorkflow(
         if (exec.createOrRescheduleBooking) await sideEffect(node, () => Promise.resolve(exec.createOrRescheduleBooking!(node, ctx)))
         break
       case 'action.ask_capture':
-        if (exec.askAndCapture) await sideEffect(node, () => Promise.resolve(exec.askAndCapture!(node, ctx)))
+        if (exec.askAndCapture) {
+          if (isPendingCaptureResume(node)) await exec.askAndCapture(node, ctx)
+          else await sideEffect(node, () => Promise.resolve(exec.askAndCapture!(node, ctx)))
+        }
         break
       case 'action.extract_booking_details':
         if (exec.extractBookingDetails) await sideEffect(node, () => Promise.resolve(exec.extractBookingDetails!(node, ctx)))

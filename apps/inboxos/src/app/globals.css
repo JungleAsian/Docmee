@@ -916,26 +916,42 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-nav {
-    gap: 18px;
+    align-items: center;
+    gap: 12px;
     padding: 0 14px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item {
-    min-height: 62px;
-    border-radius: 16px;
+    width: 48px;
+    height: 48px;
+    min-height: 48px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .08);
+    border-radius: 14px;
     color: rgba(255, 255, 255, .82);
-    background: transparent;
+    background: rgba(255, 255, 255, .04);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item > span,
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item:hover,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item-active {
     color: #ffffff;
+    border-color: rgba(255, 255, 255, .16);
     background: linear-gradient(135deg, #10c5d5, #05a8ba);
-    box-shadow: 0 16px 26px rgba(2, 132, 151, .34);
+    box-shadow: 0 16px 26px rgba(2, 132, 151, .34), inset 0 1px 0 rgba(255, 255, 255, .18);
+    transform: translateY(-1px);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-footer {
+    align-items: center;
     border-top: 0;
     padding-bottom: 22px;
   }

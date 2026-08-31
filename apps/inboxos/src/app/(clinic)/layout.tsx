@@ -215,12 +215,6 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
               </div>
             )}
           </div>
-          {inboxRoute && (
-            <div className="crm-inboxos-brand hidden lg:block" aria-label={t('app.name')}>
-              <img src="/brand/docmee-logo.png?v=20260821" alt={t('app.name')} />
-              <span>Chatbot de IA para médicos</span>
-            </div>
-          )}
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" placeholder="Search patients, messages, or appointments..." />

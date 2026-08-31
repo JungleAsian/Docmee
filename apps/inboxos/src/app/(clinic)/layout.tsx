@@ -128,7 +128,16 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
       {/* Desktop sidebar — collapses to an icon-only rail when toggled off
           instead of hiding entirely. */}
       <div className="hidden md:flex">
-        <Sidebar groups={visibleGroups} title={t('nav.inbox')} collapsed={inboxRoute ? true : !railOpen} />
+        <Sidebar
+          groups={visibleGroups}
+          title={t('nav.inbox')}
+          collapsed={!railOpen}
+          railToggle={{
+            expanded: railOpen,
+            onToggle: toggleRail,
+            label: railOpen ? t('nav.hideRail') : t('nav.showRail'),
+          }}
+        />
       </div>
 
       {/* Mobile drawer */}
@@ -168,46 +177,44 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <List size={22} />
           </button>
           <ClinicBackButton />
-          {!inboxRoute && (
-            <div className="relative">
-              <button
-                type="button"
-                aria-label={t('nav.customizeMenu')}
-                title={t('nav.customizeMenu')}
-                onClick={() => setCustomizeOpen((v) => !v)}
-                className="crm-icon-btn hidden md:inline-flex"
-              >
-                <SlidersHorizontal size={18} />
-              </button>
-              {customizeOpen && (
-                <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-                  <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                    {t('nav.customizeMenu')}
-                  </p>
-                  {groups.map((group, gi) => (
-                    <div key={group.label ?? gi} className="mb-1">
-                      {group.label && (
-                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
-                      )}
-                      {group.items.map((item) => (
-                        <label
-                          key={item.href}
-                          className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={!hiddenItems.has(item.href)}
-                            onChange={() => toggleHidden(item.href)}
-                          />
-                          <span className="truncate">{item.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <div className="relative">
+            <button
+              type="button"
+              aria-label={t('nav.customizeMenu')}
+              title={t('nav.customizeMenu')}
+              onClick={() => setCustomizeOpen((v) => !v)}
+              className="crm-icon-btn hidden md:inline-flex"
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            {customizeOpen && (
+              <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  {t('nav.customizeMenu')}
+                </p>
+                {groups.map((group, gi) => (
+                  <div key={group.label ?? gi} className="mb-1">
+                    {group.label && (
+                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
+                    )}
+                    {group.items.map((item) => (
+                      <label
+                        key={item.href}
+                        className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!hiddenItems.has(item.href)}
+                          onChange={() => toggleHidden(item.href)}
+                        />
+                        <span className="truncate">{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           {inboxRoute && (
             <div className="crm-inboxos-brand hidden lg:block" aria-label={t('app.name')}>
               <img src="/brand/docmee-logo.png?v=20260821" alt={t('app.name')} />

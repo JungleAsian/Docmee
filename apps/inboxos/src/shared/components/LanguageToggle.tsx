@@ -5,8 +5,23 @@
 import { useI18n } from '../hooks/useI18n'
 import { LANGUAGES } from '../i18n'
 
-export function LanguageToggle() {
+export function LanguageToggle({ compact = false }: { compact?: boolean }) {
   const { language, changeLanguage } = useI18n()
+  if (compact) {
+    const nextLanguage = language === 'en' ? 'es' : 'en'
+    return (
+      <button
+        type="button"
+        onClick={() => changeLanguage(nextLanguage)}
+        aria-label={language === 'en' ? 'Cambiar a español' : 'Switch to English'}
+        title={language === 'en' ? 'Cambiar a español' : 'Switch to English'}
+        className="crm-nav-item crm-language-toggle-compact"
+      >
+        <span>{language.toUpperCase()}</span>
+      </button>
+    )
+  }
+
   return (
     <div className="inline-flex w-fit self-start overflow-hidden rounded-md border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] text-xs">
       {LANGUAGES.map((lang) => (

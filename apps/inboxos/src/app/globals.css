@@ -222,6 +222,7 @@ body {
   }
 
   .crm-sidebar {
+    position: relative;
     width: 220px;
     background: var(--crm-sidebar-bg);
     border-right: 1px solid var(--crm-border-color);
@@ -511,6 +512,14 @@ body {
     transform: translateX(20px);
     background: var(--crm-primary-color);
     box-shadow: 0 4px 12px rgba(52, 198, 229, 0.34);
+  }
+
+  .crm-theme-toggle-compact,
+  .crm-language-toggle-compact {
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
   }
 
   .crm-stats-row {
@@ -893,7 +902,7 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar {
-    width: 90px;
+    width: 220px;
     border-right: 0;
     background: linear-gradient(180deg, #05374e 0%, #063c52 54%, #062f42 100%);
     box-shadow: 16px 0 36px rgba(3, 36, 54, .16);
@@ -901,6 +910,43 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed {
     width: 90px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label,
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-logo p {
+    color: rgba(255, 255, 255, .62);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-item {
+    color: rgba(255, 255, 255, .78);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-item:hover,
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-item-active {
+    color: #ffffff;
+    background: rgba(255, 255, 255, .10);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-leaf-toggle {
+    position: absolute;
+    top: 116px;
+    right: -10px;
+    z-index: 12;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, .26);
+    border-radius: 999px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #10c5d5, #05a8ba);
+    box-shadow: 0 10px 20px rgba(2, 56, 78, .28);
+    transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-leaf-toggle:hover {
+    transform: translateY(-1px) scale(1.04);
+    box-shadow: 0 14px 26px rgba(2, 132, 151, .34);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
@@ -939,6 +985,18 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item svg,
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item svg,
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-theme-toggle-compact,
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-language-toggle-compact {
+    font-size: 12px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item:hover,

@@ -14,7 +14,7 @@ export const DEFAULT_USER_UI_PREFERENCES: UserUiPreferences = {
     others: ['customTags', 'safetyHandoff', 'assign', 'lifecycle', 'tags', 'aiAssistance'],
   },
   hiddenSideRailItems: [],
-  railExpanded: true,
+  railExpanded: false,
   conversationListExpanded: true,
   imageBannersVisible: true,
 }
@@ -72,4 +72,3 @@ export function visibleOrderedItems(
   const ordered = appendMissing([...(savedOrder ?? [])], allowedItems)
   return ordered.filter((item) => !hidden.has(item))
 }
-

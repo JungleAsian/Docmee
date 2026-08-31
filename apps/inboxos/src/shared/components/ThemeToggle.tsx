@@ -19,7 +19,7 @@ function applyTheme(theme: Theme) {
   document.documentElement.style.colorScheme = theme
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   const [theme, setTheme] = useState<Theme>('light')
 
@@ -36,6 +36,20 @@ export function ThemeToggle() {
       applyTheme(nextTheme)
       return nextTheme
     })
+  }
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        aria-label={theme === 'dark' ? t('theme.useLight') : t('theme.useDark')}
+        title={theme === 'dark' ? t('theme.useLight') : t('theme.useDark')}
+        onClick={toggleTheme}
+        className="crm-nav-item crm-theme-toggle-compact"
+      >
+        <span aria-hidden="true">{theme === 'dark' ? '☼' : '☾'}</span>
+      </button>
+    )
   }
 
   return (

@@ -6,7 +6,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
-import { Lifebuoy, SignOut } from '@phosphor-icons/react'
+import { Leaf, Lifebuoy, SignOut } from '@phosphor-icons/react'
 import { useI18n } from '../hooks/useI18n'
 import { useLogout } from '../hooks/useLogout'
 import { LanguageToggle } from './LanguageToggle'
@@ -32,12 +32,18 @@ export function Sidebar({
   groups,
   title,
   collapsed = false,
+  railToggle,
 }: {
   links?: NavLink[]
   groups?: NavGroup[]
   title: string
   /** Icon-only mini rail (the "hidden" state shows page icons instead of nothing). */
   collapsed?: boolean
+  railToggle?: {
+    expanded: boolean
+    onToggle: () => void
+    label: string
+  }
 }) {
   const pathname = usePathname()
   const { t, language } = useI18n()
@@ -54,7 +60,7 @@ export function Sidebar({
           title={link.disabledReason ?? labelTitle}
           className="crm-nav-item pointer-events-none cursor-not-allowed opacity-40 grayscale"
         >
-          {link.icon ? <span className="shrink-0 text-[20px] opacity-70">{link.icon as never}</span> : null}
+          {link.icon ? <span className="crm-nav-item-icon shrink-0 text-[20px] opacity-70">{link.icon as never}</span> : null}
           {!collapsed && <span className="truncate">{link.label}</span>}
         </span>
       )
@@ -66,7 +72,7 @@ export function Sidebar({
         title={labelTitle}
         className={`crm-nav-item ${active ? 'crm-nav-item-active' : ''}`}
       >
-        {link.icon ? <span className="shrink-0 text-[20px] opacity-90">{link.icon as never}</span> : null}
+        {link.icon ? <span className="crm-nav-item-icon shrink-0 text-[20px] opacity-90">{link.icon as never}</span> : null}
         {!collapsed && <span className="truncate">{link.label}</span>}
       </Link>
     )
@@ -74,6 +80,18 @@ export function Sidebar({
 
   return (
     <aside className={`crm-sidebar flex shrink-0 flex-col ${collapsed ? 'crm-sidebar-collapsed' : ''}`}>
+      {railToggle ? (
+        <button
+          type="button"
+          aria-label={railToggle.label}
+          title={railToggle.label}
+          aria-expanded={railToggle.expanded}
+          onClick={railToggle.onToggle}
+          className="crm-sidebar-leaf-toggle hidden md:inline-flex"
+        >
+          <Leaf size={14} weight="fill" />
+        </button>
+      ) : null}
       <div className="crm-sidebar-header">
         {collapsed ? (
           <div className="flex items-center justify-center px-0 py-3">
@@ -112,7 +130,7 @@ export function Sidebar({
       </nav>
 
       <div className="crm-sidebar-footer">
-        {!collapsed && <LanguageToggle />}
+        <LanguageToggle compact={collapsed} />
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event('docmee:tutorial-open'))}
@@ -131,7 +149,7 @@ export function Sidebar({
           <SignOut size={20} />
           {!collapsed && <span>{t('nav.logout')}</span>}
         </button>
-        {!collapsed && <ThemeToggle />}
+        <ThemeToggle compact={collapsed} />
       </div>
     </aside>
   )

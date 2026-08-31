@@ -5,20 +5,20 @@
 :root {
   --crm-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   --crm-font-manrope: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  --crm-bg-color: #ebeaf7;
-  --crm-sidebar-bg: #f8f7ff;
+  --crm-bg-color: #f7f8fc;
+  --crm-sidebar-bg: #063c52;
   --crm-card-bg: #ffffff;
-  --crm-elevated-bg: #ffffff;
-  --crm-chat-bg: #f2f1fb;
-  --crm-input-bg: #f8f7fc;
-  --crm-text-main: #171725;
-  --crm-text-muted: #72748e;
-  --crm-text-soft: #a4a6bd;
-  --crm-primary-color: #247ea3;
-  --crm-primary-hover: #1f6f91;
-  --crm-primary-strong: #22c7dc;
-  --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
-  --crm-accent-purple: #247ea3;
+  --crm-elevated-bg: #f4f8fb;
+  --crm-chat-bg: #f8fbfe;
+  --crm-input-bg: #ffffff;
+  --crm-text-main: #11244a;
+  --crm-text-muted: #536483;
+  --crm-text-soft: #8da0bd;
+  --crm-primary-color: #07a9b6;
+  --crm-primary-hover: #06929e;
+  --crm-primary-strong: #00bfcc;
+  --crm-active-bg: linear-gradient(135deg, #09b8c9, #04a6b8);
+  --crm-accent-purple: #07a9b6;
   --crm-accent-blue: #3b82f6;
   --crm-accent-orange: #f97316;
   --crm-accent-red: #ef4444;
@@ -26,46 +26,61 @@
   --crm-accent-cyan: #06b6d4;
   --crm-danger: #ef4444;
   --crm-success: #10b981;
-  --crm-notification: #ef4444;
-  --crm-border-color: #deddf0;
-  --crm-hover-bg: #e7f7fb;
+  --crm-notification: #25d366;
+  --crm-border-color: #dfe7f2;
+  --crm-hover-bg: #eaf9fb;
   --crm-chart-orange: #f97316;
   --crm-chart-red: #ef4444;
   --crm-chart-blue: #3b82f6;
-  --crm-chart-purple: #247ea3;
+  --crm-chart-purple: #07a9b6;
   --crm-chart-cyan: #06b6d4;
-  --crm-shadow-sm: 0 5px 16px rgba(45, 45, 86, 0.07);
-  --crm-shadow-md: 0 10px 28px rgba(45, 45, 86, 0.1);
-  --crm-shadow-card: 0 14px 34px rgba(45, 45, 86, 0.09);
-  --crm-border-radius-sm: 10px;
-  --crm-border-radius-md: 14px;
-  --crm-border-radius-lg: 16px;
+  --crm-shadow-sm: 0 8px 22px rgba(18, 37, 75, .06);
+  --crm-shadow-md: 0 16px 34px rgba(18, 37, 75, .08);
+  --crm-shadow-card: 0 18px 44px rgba(25, 50, 92, .10);
+  --crm-border-radius-sm: 16px;
+  --crm-border-radius-md: 20px;
+  --crm-border-radius-lg: 22px;
   --crm-card-padding: 20px;
   --crm-transition: all 0.22s ease;
+  --crm-shell-bg: #f7f8fc;
+  --crm-shell-glow-primary: rgba(255, 255, 255, .92);
+  --crm-shell-glow-secondary: rgba(214, 241, 247, .38);
+  --crm-panel-bg: rgba(255, 255, 255, .94);
+  --crm-panel-bg-strong: rgba(255, 255, 255, .95);
+  --crm-chat-surface: #ffffff;
+  --crm-chat-glow: rgba(7, 169, 182, .05);
 }
 
 .dark {
-  --crm-bg-color: #303656;
-  --crm-sidebar-bg: #33395d;
-  --crm-card-bg: #3b4168;
-  --crm-elevated-bg: #465075;
-  --crm-chat-bg: #343a60;
-  --crm-input-bg: #41486f;
-  --crm-text-main: #f7f9ff;
-  --crm-text-muted: #c7cce0;
-  --crm-text-soft: #8d95b5;
-  --crm-primary-color: #34c6e5;
-  --crm-primary-hover: #22b7d6;
-  --crm-primary-strong: #79e7f6;
-  --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
-  --crm-accent-purple: #34c6e5;
+  --crm-bg-color: #101725;
+  --crm-sidebar-bg: #052f42;
+  --crm-card-bg: #1a2437;
+  --crm-elevated-bg: #172033;
+  --crm-chat-bg: #101725;
+  --crm-input-bg: #121b2b;
+  --crm-text-main: #eef6ff;
+  --crm-text-muted: #b6c3d6;
+  --crm-text-soft: #7f8da5;
+  --crm-primary-color: #22d3ee;
+  --crm-primary-hover: #38e0f2;
+  --crm-primary-strong: #67e8f9;
+  --crm-active-bg: linear-gradient(135deg, #0891b2, #0e7490);
+  --crm-accent-purple: #22d3ee;
   --crm-accent-blue: #5da7ff;
-  --crm-accent-cyan: #34c6e5;
-  --crm-border-color: rgba(218, 225, 255, 0.18);
-  --crm-hover-bg: rgba(52, 198, 229, 0.12);
-  --crm-shadow-sm: 0 8px 18px rgba(16, 22, 44, 0.18);
-  --crm-shadow-md: 0 14px 34px rgba(16, 22, 44, 0.26);
-  --crm-shadow-card: 0 16px 38px rgba(16, 22, 44, 0.26);
+  --crm-accent-cyan: #22d3ee;
+  --crm-notification: #25d366;
+  --crm-border-color: rgba(148, 163, 184, .24);
+  --crm-hover-bg: rgba(34, 211, 238, .12);
+  --crm-shadow-sm: 0 8px 22px rgba(0, 0, 0, .24);
+  --crm-shadow-md: 0 16px 34px rgba(0, 0, 0, .30);
+  --crm-shadow-card: 0 18px 44px rgba(0, 0, 0, .34);
+  --crm-shell-bg: #0c1422;
+  --crm-shell-glow-primary: rgba(34, 211, 238, .08);
+  --crm-shell-glow-secondary: rgba(99, 102, 241, .10);
+  --crm-panel-bg: rgba(18, 27, 43, .94);
+  --crm-panel-bg-strong: rgba(26, 36, 55, .96);
+  --crm-chat-surface: #0f1726;
+  --crm-chat-glow: rgba(34, 211, 238, .07);
 }
 
 body {
@@ -217,16 +232,59 @@ body {
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    background: var(--crm-bg-color);
+    background:
+      radial-gradient(circle at 20% 0%, var(--crm-shell-glow-primary), transparent 24rem),
+      radial-gradient(circle at 82% 6%, var(--crm-shell-glow-secondary), transparent 20rem),
+      var(--crm-shell-bg);
     color: var(--crm-text-main);
+    font-family: var(--crm-font-sans);
   }
 
   .crm-sidebar {
     position: relative;
     width: 220px;
-    background: var(--crm-sidebar-bg);
-    border-right: 1px solid var(--crm-border-color);
-    box-shadow: none;
+    background: linear-gradient(180deg, #05374e 0%, var(--crm-sidebar-bg) 54%, #062f42 100%);
+    border-right: 0;
+    box-shadow: 16px 0 36px rgba(3, 36, 54, .16);
+    isolation: isolate;
+  }
+
+  .crm-sidebar .crm-logo p,
+  .crm-sidebar .crm-nav-group-label {
+    color: rgba(223, 247, 251, .72);
+  }
+
+  .crm-sidebar .crm-nav-group-unlabelled {
+    border-color: rgba(223, 247, 251, .22);
+  }
+
+  .crm-sidebar .crm-nav-item {
+    color: rgba(223, 247, 251, .74);
+  }
+
+  .crm-sidebar .crm-nav-item:hover,
+  .crm-sidebar .crm-nav-item-active {
+    color: #ffffff;
+    background: rgba(255, 255, 255, .12);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .10);
+  }
+
+  .crm-sidebar .crm-nav-item-active {
+    background: linear-gradient(135deg, #09b8c9, #04a6b8);
+    box-shadow: 0 12px 24px rgba(2, 28, 42, .22);
+  }
+
+  .crm-sidebar .crm-sidebar-footer {
+    border-color: rgba(223, 247, 251, .22);
+  }
+
+  .crm-sidebar .crm-theme-toggle {
+    color: rgba(223, 247, 251, .74);
+  }
+
+  .crm-sidebar .crm-theme-toggle:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, .12);
   }
 
   .crm-sidebar-header {

@@ -219,9 +219,6 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" placeholder="Search patients, messages, or appointments..." />
           </div>
-          <div className={inboxRoute ? 'crm-inboxos-clinic-switcher min-w-0 flex-1 basis-56' : 'min-w-0 flex-1 basis-56'}>
-            <ClinicSwitcher />
-          </div>
           <div className="crm-header-actions">
             <PushOptIn />
             <NotificationBell />
@@ -231,6 +228,9 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
                 <OperatorBadge email={user.email} fullName={user.fullName} role={user.role} />
               </div>
             )}
+          </div>
+          <div className={inboxRoute ? 'crm-inboxos-clinic-switcher min-w-0' : 'min-w-0 flex-1 basis-56'}>
+            <ClinicSwitcher />
           </div>
         </header>
         <main className="crm-dashboard-content">

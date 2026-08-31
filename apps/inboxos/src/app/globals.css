@@ -287,6 +287,32 @@ body {
     background: rgba(255, 255, 255, .12);
   }
 
+  .crm-sidebar-leaf-toggle {
+    position: absolute;
+    top: 86px;
+    right: -10px;
+    z-index: 80;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, .26);
+    border-radius: 999px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #10c5d5, #05a8ba);
+    box-shadow: 0 10px 20px rgba(2, 56, 78, .28);
+    transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease;
+  }
+
+  .crm-sidebar-leaf-toggle:hover {
+    transform: translateY(-1px) scale(1.04);
+    box-shadow: 0 14px 26px rgba(2, 132, 151, .34);
+  }
+
+  .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle {
+    top: 32px;
+  }
+
   .crm-sidebar-header {
     padding: 24px 16px 18px;
   }
@@ -1023,28 +1049,7 @@ body {
     background: rgba(255, 255, 255, .10);
   }
 
-  .crm-inboxos-desktop-shell .crm-sidebar-leaf-toggle {
-    position: absolute;
-    top: 116px;
-    right: -10px;
-    z-index: 80;
-    width: 24px;
-    height: 24px;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(255, 255, 255, .26);
-    border-radius: 999px;
-    color: #ffffff;
-    background: linear-gradient(135deg, #10c5d5, #05a8ba);
-    box-shadow: 0 10px 20px rgba(2, 56, 78, .28);
-    transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease;
-  }
-
-  .crm-inboxos-desktop-shell .crm-sidebar-leaf-toggle:hover {
-    transform: translateY(-1px) scale(1.04);
-    box-shadow: 0 14px 26px rgba(2, 132, 151, .34);
-  }
-
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
     top: 86px;
   }

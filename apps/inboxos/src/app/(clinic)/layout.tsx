@@ -6,7 +6,7 @@
 import { useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { CaretLeft, CaretRight, List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
+import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { api } from '@/shared/api/client'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
@@ -157,17 +157,6 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
 
       <div className="crm-main-content">
         <header className="crm-top-header shrink-0">
-          {!inboxRoute && (
-            <button
-              type="button"
-              aria-label={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-              title={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-              onClick={toggleRail}
-              className="crm-icon-btn hidden md:inline-flex"
-            >
-              {railOpen ? <CaretLeft size={20} /> : <CaretRight size={20} />}
-            </button>
-          )}
           <button
             type="button"
             aria-label={t('common.openMenu')}

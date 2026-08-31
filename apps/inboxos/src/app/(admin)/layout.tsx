@@ -4,7 +4,7 @@
 // admin pages with a persistent sidebar (desktop) / slide-in drawer (mobile),
 // a top bar with breadcrumbs, and a hamburger toggle.
 import { useMemo, useState } from 'react'
-import { CaretLeft, CaretRight, List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
+import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
 import { useI18n } from '@/shared/hooks/useI18n'
@@ -150,7 +150,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Desktop sidebar — collapses to an icon-only rail when toggled off
           instead of hiding entirely. */}
       <div className="hidden md:flex">
-        <Sidebar groups={visibleGroups} title={t('studio.title')} collapsed={!railOpen} />
+        <Sidebar
+          groups={visibleGroups}
+          title={t('studio.title')}
+          collapsed={!railOpen}
+          railToggle={{
+            expanded: railOpen,
+            onToggle: toggleRail,
+            label: railOpen ? t('nav.hideRail') : t('nav.showRail'),
+          }}
+        />
       </div>
 
       {/* Mobile drawer */}
@@ -170,15 +179,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       <div className="crm-main-content">
         <header className="crm-top-header shrink-0">
-          <button
-            type="button"
-            aria-label={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-            title={railOpen ? t('nav.hideRail') : t('nav.showRail')}
-            onClick={toggleRail}
-            className="crm-icon-btn hidden md:inline-flex"
-          >
-            {railOpen ? <CaretLeft size={20} /> : <CaretRight size={20} />}
-          </button>
           <button
             type="button"
             aria-label={t('common.openMenu')}

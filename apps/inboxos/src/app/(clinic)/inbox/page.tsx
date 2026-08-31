@@ -239,7 +239,7 @@ export default function InboxPage() {
       />
 
       {/* Contextual panels — static third column on desktop. */}
-      <div className="crm-inbox-details hidden overflow-y-auto lg:block">
+      <div className="crm-inbox-details crm-inbox-side-scroll hidden min-h-0 overflow-y-auto overscroll-contain lg:block">
         {panels}
       </div>
       </div>

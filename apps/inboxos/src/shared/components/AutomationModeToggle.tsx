@@ -35,31 +35,41 @@ export function AutomationModeToggle({
     },
   })
 
-  if (!canChangeMode) {
-    return (
-      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isSecretaryMode ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'}`}>
-        {isSecretaryMode ? 'Secretary' : 'AI'}
-      </span>
-    )
-  }
-
   return (
-    <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={isSecretaryMode}
-        aria-label="Switch between AI mode and Secretary mode"
-        disabled={mutation.isPending}
-        onClick={() => mutation.mutate(isSecretaryMode ? 'bot' : 'human')}
-        className="inline-flex items-center gap-2 rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-2.5 py-1.5 text-[10px] font-bold shadow-sm transition disabled:cursor-wait disabled:opacity-60"
-      >
-        <span className={!isSecretaryMode ? 'text-violet-600 dark:text-violet-300' : 'text-[var(--crm-text-muted)]'}>AI</span>
-        <span className={`relative h-5 w-9 rounded-full transition ${isSecretaryMode ? 'bg-emerald-500' : 'bg-violet-500'}`} aria-hidden>
-          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${isSecretaryMode ? 'left-[18px]' : 'left-0.5'}`} />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
+          Mode
         </span>
-        <span className={isSecretaryMode ? 'text-emerald-600 dark:text-emerald-300' : 'text-[var(--crm-text-muted)]'}>Secretary</span>
-      </button>
+        {!canChangeMode && (
+          <span className="text-[9px] font-semibold text-[var(--crm-text-muted)]">
+            View only
+          </span>
+        )}
+      </div>
+      <div
+        className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
+        aria-label="AI or Secretary handling mode"
+      >
+        <button
+          type="button"
+          aria-pressed={!isSecretaryMode}
+          disabled={!canChangeMode || mutation.isPending || !isSecretaryMode}
+          onClick={() => mutation.mutate('bot')}
+          className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${!isSecretaryMode ? 'bg-violet-100 text-violet-700 shadow-sm dark:bg-violet-950/60 dark:text-violet-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-violet-700'}`}
+        >
+          AI
+        </button>
+        <button
+          type="button"
+          aria-pressed={isSecretaryMode}
+          disabled={!canChangeMode || mutation.isPending || isSecretaryMode}
+          onClick={() => mutation.mutate('human')}
+          className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${isSecretaryMode ? 'bg-emerald-100 text-emerald-700 shadow-sm dark:bg-emerald-950/60 dark:text-emerald-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-emerald-700'}`}
+        >
+          Secretary
+        </button>
+      </div>
       {mutation.isError && (
         <span role="alert" className="text-[10px] font-semibold text-red-600">Mode change failed. Try again.</span>
       )}

@@ -25,31 +25,41 @@ export function InteractionModeToggle({ patientId, metadata }: { patientId: stri
     },
   })
 
-  if (!canChangeMode) {
-    return (
-      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isOptedOut ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
-        {isOptedOut ? 'Opt-out' : 'Active'}
-      </span>
-    )
-  }
-
   return (
-    <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={isOptedOut}
-        aria-label="Switch between Active and Opt-out"
-        disabled={mutation.isPending}
-        onClick={() => mutation.mutate(isOptedOut ? 'active' : 'opted_out')}
-        className="inline-flex items-center gap-2 rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-2.5 py-1.5 text-[10px] font-bold shadow-sm transition disabled:cursor-wait disabled:opacity-60"
-      >
-        <span className={!isOptedOut ? 'text-sky-600 dark:text-sky-300' : 'text-[var(--crm-text-muted)]'}>Active</span>
-        <span className={`relative h-5 w-9 rounded-full transition ${isOptedOut ? 'bg-rose-500' : 'bg-sky-500'}`} aria-hidden>
-          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${isOptedOut ? 'left-[18px]' : 'left-0.5'}`} />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
+          Automation
         </span>
-        <span className={isOptedOut ? 'text-rose-600 dark:text-rose-300' : 'text-[var(--crm-text-muted)]'}>Opt-out</span>
-      </button>
+        {!canChangeMode && (
+          <span className="text-[9px] font-semibold text-[var(--crm-text-muted)]">
+            View only
+          </span>
+        )}
+      </div>
+      <div
+        className="grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
+        aria-label="Opt-in or Opt-out automation status"
+      >
+        <button
+          type="button"
+          aria-pressed={!isOptedOut}
+          disabled={!canChangeMode || mutation.isPending || !isOptedOut}
+          onClick={() => mutation.mutate('active')}
+          className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${!isOptedOut ? 'bg-sky-100 text-sky-700 shadow-sm dark:bg-sky-950/60 dark:text-sky-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-sky-700'}`}
+        >
+          Opt-in
+        </button>
+        <button
+          type="button"
+          aria-pressed={isOptedOut}
+          disabled={!canChangeMode || mutation.isPending || isOptedOut}
+          onClick={() => mutation.mutate('opted_out')}
+          className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${isOptedOut ? 'bg-rose-100 text-rose-700 shadow-sm dark:bg-rose-950/60 dark:text-rose-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-rose-700'}`}
+        >
+          Opt-out
+        </button>
+      </div>
       {mutation.isError && (
         <span role="alert" className="text-[10px] font-semibold text-red-600">Interaction change failed. Try again.</span>
       )}

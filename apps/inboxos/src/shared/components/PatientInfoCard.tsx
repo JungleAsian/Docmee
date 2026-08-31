@@ -9,11 +9,13 @@
 // ['patient-appointments', id] queries (TanStack dedupes them) so it adds no
 // fetch beyond what the thread already loads.
 import Link from 'next/link'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDateTime } from '../format'
-import { automationTransitionSteps } from '../conversationMode'
+import { conversationMode } from '../conversationMode'
+import { AutomationModeToggle } from './AutomationModeToggle'
+import { InteractionModeToggle } from './InteractionModeToggle'
 import type { Appointment, Channel, Conversation, Patient, PatientStatus } from '../types'
 
 const CHANNEL_LABEL: Record<Channel, string> = {
@@ -44,7 +46,6 @@ export function PatientInfoCard({
   showChatStatus?: boolean
 }) {
   const { t, language } = useI18n()
-  const qc = useQueryClient()
 
   const conversationQuery = useQuery({
     queryKey: ['conversation', conversationId],
@@ -60,6 +61,8 @@ export function PatientInfoCard({
   })
   const patient = patientQuery.data?.patient
   const personalConversation = patient?.automationMode === 'human_only'
+  const mode = conversationMode(conversation?.status, patient?.automationMode)
+  const patientMetadata = patient?.metadata && typeof patient.metadata === 'object' ? patient.metadata : undefined
   const appointmentsQuery = useQuery({
     queryKey: ['patient-appointments', patientId],
     enabled: Boolean(patientId),
@@ -70,21 +73,6 @@ export function PatientInfoCard({
   const displayName = patient?.fullName ?? conversation?.patientName ?? handle
   const badge = patient ? STATUS_BADGE[patient.status] : null
   const channel = conversation?.channel
-  const personalMutation = useMutation({
-    mutationFn: async () => {
-      if (!patientId) return
-      const target = personalConversation ? 'bot' : 'human'
-      for (const step of automationTransitionSteps(target, conversationId, patientId)) {
-        if (step.method === 'patch') await api.patch(step.path, step.body)
-        else await api.post(step.path, step.body)
-      }
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['conversation', conversationId] })
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-      if (patientId) qc.invalidateQueries({ queryKey: ['patient', patientId] })
-    },
-  })
 
   // Next = soonest upcoming non-cancelled appointment; last = most recent past one.
   // (listByPatient returns newest-first, so `find(past)` is already the latest.)
@@ -108,17 +96,10 @@ export function PatientInfoCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <p className="truncate text-xs font-extrabold text-[var(--crm-text-main)]">{displayName}</p>
-            {patientId && (
-              <button
-                type="button"
-                onClick={() => personalMutation.mutate()}
-                disabled={personalMutation.isPending}
-                aria-pressed={personalConversation}
-                className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold transition disabled:opacity-60 ${personalConversation ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'border-[var(--crm-border-color)] text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]'}`}
-                title={personalConversation ? 'Return this patient to automated handling' : 'Make this a personal conversation and suppress automation'}
-              >
+            {personalConversation && (
+              <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
                 Personal
-              </button>
+              </span>
             )}
           </div>
           <p className="truncate text-[10px] text-[var(--crm-text-muted)]">
@@ -140,6 +121,13 @@ export function PatientInfoCard({
               Personal Conversation
             </span>
           )}
+        </div>
+      )}
+
+      {patientId && (
+        <div className="mt-3 grid gap-2 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-2">
+          <AutomationModeToggle conversationId={conversationId} patientId={patientId} mode={mode} />
+          <InteractionModeToggle patientId={patientId} metadata={patientMetadata} />
         </div>
       )}
 

@@ -94,7 +94,7 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
   )
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="crm-inbox-panel-stack flex min-h-0 flex-col gap-3 p-3">
       {mainPanels.map(([id, panel]) => id === 'others' ? (
         <OthersPanel
           key={id}

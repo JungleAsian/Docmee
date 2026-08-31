@@ -10,7 +10,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDay, formatTime, relativeTime } from '../format'
-import { AutomationModeToggle } from './AutomationModeToggle'
 import { QuickReplyPicker } from './QuickReplyPicker'
 import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
@@ -25,6 +24,7 @@ import { useActiveClinic } from '../hooks/useActiveClinic'
 import { useFeatures } from '../hooks/useFeatures'
 import { readInboxSettings } from '../inboxSettings'
 import { conversationMode } from '../conversationMode'
+import { interactionMode } from '../patientInteraction'
 import type { Tag } from '../types'
 import type {
   Channel,
@@ -160,6 +160,8 @@ export function ConversationView({
   const messages = messagesQuery.data?.messages ?? []
   const visibility = readInboxSettings(features.inboxLayoutV2 ? clinicQuery.data?.clinic.settings : undefined).patientChatVisibility
   const mode = conversationMode(conversation?.status, patientQuery.data?.patient.automationMode)
+  const patientMetadata = patientQuery.data?.patient.metadata && typeof patientQuery.data.patient.metadata === 'object' ? patientQuery.data.patient.metadata : undefined
+  const interaction = interactionMode(patientMetadata)
   const classificationTabs = useMemo(() => {
     const intents = new Set<string>()
     let hasUnclassified = false
@@ -413,11 +415,14 @@ export function ConversationView({
 
           <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {features.humanOnlyMode && conversation?.patientId && (
-              <AutomationModeToggle
-                conversationId={conversationId}
-                patientId={conversation.patientId}
-                mode={mode}
-              />
+              <>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${mode === 'human' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'}`}>
+                  {mode === 'human' ? 'Secretary' : 'AI'}
+                </span>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${interaction === 'opted_out' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
+                  {interaction === 'opted_out' ? 'Opt-out' : 'Opt-in'}
+                </span>
+              </>
             )}
             {visibility.headerPatientHistory && conversation?.patientId && (
               <Link

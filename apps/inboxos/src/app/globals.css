@@ -865,9 +865,7 @@ body {
   }
 
   .crm-inboxos-desktop-shell,
-  .dark .crm-inboxos-desktop-shell,
-  .crm-inboxos-desktop-shell .docmee-inbox-reskin,
-  .dark .crm-inboxos-desktop-shell .docmee-inbox-reskin {
+  .crm-inboxos-desktop-shell .docmee-inbox-reskin {
     --crm-font-sans: var(--crm-font-manrope);
     --crm-bg-color: #f7f8fc;
     --crm-sidebar-bg: #063c52;
@@ -891,14 +889,51 @@ body {
     --crm-border-radius-sm: 16px;
     --crm-border-radius-md: 20px;
     --crm-border-radius-lg: 22px;
+    --crm-shell-bg: #f7f8fc;
+    --crm-shell-glow-primary: rgba(255, 255, 255, .92);
+    --crm-shell-glow-secondary: rgba(214, 241, 247, .38);
+    --crm-panel-bg: rgba(255, 255, 255, .94);
+    --crm-panel-bg-strong: rgba(255, 255, 255, .95);
+    --crm-chat-surface: #ffffff;
+    --crm-chat-glow: rgba(7, 169, 182, .05);
     font-family: var(--crm-font-sans);
+  }
+
+  .dark .crm-inboxos-desktop-shell,
+  .dark .crm-inboxos-desktop-shell .docmee-inbox-reskin {
+    --crm-bg-color: #101725;
+    --crm-sidebar-bg: #052f42;
+    --crm-elevated-bg: #172033;
+    --crm-card-bg: #1a2437;
+    --crm-chat-bg: #101725;
+    --crm-input-bg: #121b2b;
+    --crm-text-main: #eef6ff;
+    --crm-text-muted: #b6c3d6;
+    --crm-text-soft: #7f8da5;
+    --crm-primary-color: #22d3ee;
+    --crm-primary-hover: #38e0f2;
+    --crm-primary-strong: #67e8f9;
+    --crm-active-bg: linear-gradient(135deg, #0891b2, #0e7490);
+    --crm-border-color: rgba(148, 163, 184, .24);
+    --crm-hover-bg: rgba(34, 211, 238, .12);
+    --crm-notification: #25d366;
+    --crm-shadow-sm: 0 8px 22px rgba(0, 0, 0, .24);
+    --crm-shadow-md: 0 16px 34px rgba(0, 0, 0, .30);
+    --crm-shadow-card: 0 18px 44px rgba(0, 0, 0, .34);
+    --crm-shell-bg: #0c1422;
+    --crm-shell-glow-primary: rgba(34, 211, 238, .08);
+    --crm-shell-glow-secondary: rgba(99, 102, 241, .10);
+    --crm-panel-bg: rgba(18, 27, 43, .94);
+    --crm-panel-bg-strong: rgba(26, 36, 55, .96);
+    --crm-chat-surface: #0f1726;
+    --crm-chat-glow: rgba(34, 211, 238, .07);
   }
 
   .crm-inboxos-desktop-shell {
     background:
-      radial-gradient(circle at 20% 0%, rgba(255, 255, 255, .92), transparent 24rem),
-      radial-gradient(circle at 82% 6%, rgba(214, 241, 247, .38), transparent 20rem),
-      #f7f8fc;
+      radial-gradient(circle at 20% 0%, var(--crm-shell-glow-primary), transparent 24rem),
+      radial-gradient(circle at 82% 6%, var(--crm-shell-glow-secondary), transparent 20rem),
+      var(--crm-shell-bg);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar {
@@ -1147,7 +1182,7 @@ body {
     border: 0;
     background: transparent;
     padding: 0;
-    color: #102044;
+    color: var(--crm-text-main);
     font-size: 12px;
     font-weight: 800;
     box-shadow: none;
@@ -1155,7 +1190,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-inboxos-clinic-switcher label::after {
     content: "Secretaria";
-    color: #647391;
+    color: var(--crm-text-muted);
     font-size: 10.4px;
     font-weight: 600;
   }
@@ -1204,7 +1239,7 @@ body {
   .crm-inboxos-desktop-shell .crm-inbox-details {
     border: 1px solid var(--crm-border-color);
     border-radius: 20px;
-    background: rgba(255, 255, 255, .94);
+    background: var(--crm-panel-bg);
     box-shadow: var(--crm-shadow-card);
     overflow: hidden;
   }
@@ -1215,8 +1250,8 @@ body {
 
   .crm-inboxos-desktop-shell .crm-inbox-chat {
     background:
-      radial-gradient(circle at 25% 24%, rgba(7, 169, 182, .05), transparent 16rem),
-      #ffffff;
+      radial-gradient(circle at 25% 24%, var(--crm-chat-glow), transparent 16rem),
+      var(--crm-chat-surface);
   }
 
   .crm-inboxos-desktop-shell .crm-inbox-details {
@@ -1257,7 +1292,7 @@ body {
   .crm-inboxos-desktop-shell .crm-inbox-panel-stack > * {
     border: 1px solid var(--crm-border-color) !important;
     border-radius: 20px !important;
-    background: rgba(255, 255, 255, .95) !important;
+    background: var(--crm-panel-bg-strong) !important;
     box-shadow: var(--crm-shadow-card) !important;
   }
 

@@ -1078,17 +1078,23 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const kbMatches: KbMatch[] = await searchKb(message, kbChunks, resolveEmbedder(clinic.settings))
       ctx['ai_agent_kb_hit'] = kbMatches.length > 0
 
-      const system = buildAiAgentSystemPrompt({
-        clinicName: clinic.name,
-        personality,
-        customInstructions,
-        style,
-        scenarios,
-        kbMatches,
-        clinicAddress: clinic.address,
-        clinicPhone: clinic.phone,
-        clinicType: clinic.clinicType,
-      })
+      const preferredLanguage = contextString(ctx, 'preferred_language')
+      const system = [
+        buildAiAgentSystemPrompt({
+          clinicName: clinic.name,
+          personality,
+          customInstructions,
+          style,
+          scenarios,
+          kbMatches,
+          clinicAddress: clinic.address,
+          clinicPhone: clinic.phone,
+          clinicType: clinic.clinicType,
+        }),
+        preferredLanguage
+          ? `The patient selected ${preferredLanguage} for this workflow. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
+          : '',
+      ].filter(Boolean).join('\n\n')
       const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
       const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
 

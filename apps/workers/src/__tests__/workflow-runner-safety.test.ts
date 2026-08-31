@@ -391,6 +391,37 @@ describe('processWorkflowRunJob automation ownership', () => {
     }))
   })
 
+  it('instructs the AI agent to honor the workflow-selected patient language', async () => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = exec.aiAgent
+        ? await exec.aiAgent({
+            id: 'ai-agent',
+            type: 'ai_agent',
+            config: {
+              communicationStyle: 'professional',
+              scenarios: [
+                { id: 'general', description: 'General clinic question', action: 'reply' },
+              ],
+            },
+          }, { ...ctx, message: 'What services do you offer?', preferred_language: 'English' })
+        : 'missing'
+      expect(result).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.chatComplete).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.stringContaining('The patient selected English for this workflow. Reply in English'),
+    }))
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(
+      'phone-1',
+      'token',
+      '15551234567',
+      'Hello from AI.',
+    )
+  })
+
   it('reschedules workflow bookings through the atomic capacity operation', async () => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.createOrRescheduleBooking({

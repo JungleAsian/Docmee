@@ -289,7 +289,7 @@ body {
 
   .crm-sidebar-leaf-toggle {
     position: absolute;
-    top: 86px;
+    top: 78px;
     right: 8px;
     z-index: 80;
     width: 24px;
@@ -310,7 +310,7 @@ body {
   }
 
   .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle {
-    top: 86px;
+    top: 78px;
   }
 
   .crm-sidebar-header {
@@ -439,19 +439,19 @@ body {
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header {
-    min-height: 118px;
-    padding: 16px 10px 11px;
+    min-height: 96px;
+    padding: 12px 10px 8px;
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header img {
-    height: 62px;
-    width: 43px;
+    height: 54px;
+    width: 38px;
     object-fit: contain;
     filter: drop-shadow(0 14px 18px rgba(2, 23, 35, .24));
   }
 
   .crm-sidebar-collapsed .crm-sidebar-nav {
-    gap: 8px;
+    gap: 6px;
     overflow-y: hidden;
   }
 
@@ -472,7 +472,8 @@ body {
 
   .crm-sidebar-collapsed .crm-sidebar-footer {
     align-items: center;
-    padding: 9px 18px 16px;
+    gap: 6px;
+    padding: 8px 18px 10px;
   }
 
   .crm-sidebar-collapsed .crm-nav-item > span,
@@ -1124,17 +1125,17 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
-    top: 86px;
+    top: 78px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
-    min-height: 118px;
-    padding: 16px 10px 11px;
+    min-height: 96px;
+    padding: 12px 10px 8px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header img {
-    height: 62px;
-    width: 43px;
+    height: 54px;
+    width: 38px;
     object-fit: contain;
     filter: drop-shadow(0 14px 18px rgba(2, 23, 35, .24));
   }
@@ -1146,7 +1147,7 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-nav {
-    gap: 8px;
+    gap: 6px;
     overflow-y: hidden;
   }
 
@@ -1217,6 +1218,11 @@ body {
     color: rgba(255, 255, 255, .82);
     background: rgba(255, 255, 255, .04);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer {
+    gap: 6px;
+    padding: 8px 18px 10px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item > span,

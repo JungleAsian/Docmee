@@ -667,6 +667,15 @@ export function parseAiAgentCompletion(raw: string): { scenarioId: string | null
   return { scenarioId, reply }
 }
 
+function catchAllReplyScenario(scenarios: ReturnType<typeof parseAiAgentScenarios>) {
+  const replyScenarios = scenarios.filter((s) => s.action === 'reply')
+  if (replyScenarios.length !== 1) return undefined
+  const description = replyScenarios[0]!.description.toLowerCase()
+  return /\b(any|all|general|question|inquiry|consulta|pregunta)\b/.test(description)
+    ? replyScenarios[0]
+    : undefined
+}
+
 function addMinutes(localStart: string, minutes: number): string {
   const value = new Date(`${localStart}Z`)
   value.setUTCMinutes(value.getUTCMinutes() + minutes)
@@ -1077,6 +1086,9 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       }
       const kbMatches: KbMatch[] = await searchKb(message, kbChunks, resolveEmbedder(clinic.settings))
       ctx['ai_agent_kb_hit'] = kbMatches.length > 0
+      const fallbackKbContext = kbMatches.length
+        ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
+        : ''
 
       const preferredLanguage = contextString(ctx, 'preferred_language')
       const system = [
@@ -1118,8 +1130,9 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
         return 'error'
       }
 
-      const { scenarioId, reply } = parseAiAgentCompletion(raw)
-      const matched = scenarios.find((s) => s.id === scenarioId)
+      const { scenarioId, reply: parsedReply } = parseAiAgentCompletion(raw)
+      let reply = parsedReply
+      const matched = scenarios.find((s) => s.id === scenarioId) ?? catchAllReplyScenario(scenarios)
       ctx['ai_agent_matched_scenario'] = matched?.id ?? ''
       if (!matched) {
         ctx['ai_agent_action'] = 'none'
@@ -1149,6 +1162,36 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       // action === 'reply': run the same output-side safety screens the main
       // clinic bot applies before any auto-send — this node can now speak
       // for real, so it inherits the same defense-in-depth.
+      if (!reply) {
+        try {
+          reply = await withWorkflowAiAgentReplyTimeout(
+            chatComplete({
+              provider,
+              model: ai.model?.trim() || defaultChatModel(provider),
+              baseURL: ai.baseURL?.trim() || undefined,
+              apiKey: resolveClinicAiKey(clinic.settings, provider),
+              history: [],
+              maxTokens: 512,
+              system: [
+                `You are the AI assistant for ${clinic.name}.`,
+                clinic.address ? `Clinic address: ${clinic.address}` : '',
+                clinic.phone ? `Clinic phone: ${clinic.phone}` : '',
+                customInstructions || 'Answer the patient kindly and accurately.',
+                preferredLanguage
+                  ? `The patient selected ${preferredLanguage}. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
+                  : '',
+                'Use only the clinic information and knowledge base context available to you. If exact details are unknown, say a secretary can help and share the clinic phone when available.',
+                fallbackKbContext ? wrapUntrustedKb(fallbackKbContext) : '',
+              ].filter(Boolean).join('\n\n'),
+              message,
+            }),
+            'Workflow AI agent fallback reply',
+          )
+        } catch (err) {
+          console.error('[workflow] ai_agent fallback LLM call failed:', err)
+          return 'error'
+        }
+      }
       const safety = screenMedicalSafety(reply)
       if (!safety.safe) {
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')

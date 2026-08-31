@@ -422,6 +422,38 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it('uses a catch-all AI reply scenario when the provider classifier returns none', async () => {
+    h.chatComplete
+      .mockResolvedValueOnce('SCENARIO: NONE\nREPLY:\n')
+      .mockResolvedValueOnce('We offer general dermatology support. Please call the clinic for exact service details.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = exec.aiAgent
+        ? await exec.aiAgent({
+            id: 'ai-agent',
+            type: 'ai_agent',
+            config: {
+              communicationStyle: 'friendly',
+              scenarios: [
+                { id: 'scenario_1', description: 'Answers any question', action: 'reply' },
+              ],
+            },
+          }, { ...ctx, message: 'What services do you offer?', preferred_language: 'English' })
+        : 'missing'
+      expect(result).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.chatComplete).toHaveBeenCalledTimes(2)
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(
+      'phone-1',
+      'token',
+      '15551234567',
+      'We offer general dermatology support. Please call the clinic for exact service details.',
+    )
+  })
+
   it('reschedules workflow bookings through the atomic capacity operation', async () => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.createOrRescheduleBooking({

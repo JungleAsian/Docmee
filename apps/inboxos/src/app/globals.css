@@ -910,6 +910,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed {
     width: 90px;
+    overflow: hidden;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label,
@@ -950,13 +951,13 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
-    min-height: 148px;
-    padding: 20px 10px 14px;
+    min-height: 118px;
+    padding: 16px 10px 11px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header img {
-    height: 96px;
-    width: 68px;
+    height: 77px;
+    width: 54px;
     object-fit: contain;
     filter: drop-shadow(0 14px 18px rgba(2, 23, 35, .24));
   }
@@ -965,6 +966,11 @@ body {
     align-items: stretch;
     gap: 10px;
     padding: 0 18px 0 14px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-nav {
+    gap: 8px;
+    overflow-y: hidden;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group {
@@ -1025,9 +1031,9 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item {
-    width: 48px;
-    height: 48px;
-    min-height: 48px;
+    width: 38px;
+    height: 38px;
+    min-height: 38px;
     padding: 0;
     border: 1px solid rgba(255, 255, 255, .08);
     border-radius: 14px;
@@ -1046,13 +1052,13 @@ body {
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item svg,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item svg,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item-icon svg {
-    width: 16px;
-    height: 16px;
+    width: 13px;
+    height: 13px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-theme-toggle-compact,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-language-toggle-compact {
-    font-size: 12px;
+    font-size: 10px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item:hover,
@@ -1067,7 +1073,7 @@ body {
   .crm-inboxos-desktop-shell .crm-sidebar-footer {
     align-items: center;
     border-top: 0;
-    padding-bottom: 22px;
+    padding-bottom: 16px;
   }
 
   .crm-inboxos-desktop-shell .crm-main-content {

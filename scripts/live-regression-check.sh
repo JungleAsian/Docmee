@@ -186,9 +186,17 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 if command -v pm2 >/dev/null 2>&1; then
-  pm2 list | grep -q 'docmee-inboxos.*online' || fail "docmee-inboxos is not online in PM2"
-  pm2 list | grep -q 'docmee-api.*online' || fail "docmee-api is not online in PM2"
-  pm2 list | grep -q 'docmee-workers.*online' || fail "docmee-workers is not online in PM2"
+  pm2_output="$(pm2 list --no-color || true)"
+  if echo "$pm2_output" | grep -q 'docmee-'; then
+    echo "$pm2_output" | grep -q 'docmee-inboxos.*online' || fail "docmee-inboxos is not online in PM2"
+    echo "$pm2_output" | grep -q 'docmee-api.*online' || fail "docmee-api is not online in PM2"
+    echo "$pm2_output" | grep -q 'docmee-workers.*online' || fail "docmee-workers is not online in PM2"
+  else
+    pgrep -f 'pm2-runtime start ecosystem\.config\.cjs' >/dev/null || fail "pm2-runtime is not running docmee.service"
+    pgrep -f 'apps/api/dist/apps/api/src/server\.js' >/dev/null || fail "docmee-api process is not running"
+    pgrep -f 'apps/workers/dist/apps/workers/src/index\.js' >/dev/null || fail "docmee-workers process is not running"
+    pgrep -f 'next-server' >/dev/null || fail "docmee-inboxos process is not running"
+  fi
 fi
 
 echo "Live regression checks passed for $APP_URL."

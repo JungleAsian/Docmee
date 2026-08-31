@@ -1089,6 +1089,8 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-inbox-side-scroll {
+    overflow-x: hidden;
+    overflow-y: auto;
     scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: rgba(8, 145, 178, .46) transparent;

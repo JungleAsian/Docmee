@@ -116,14 +116,14 @@ export function Sidebar({
           ? groups.map((group, i) => (
               <div
                 key={group.label ?? `group-${i}`}
-                className={group.label ? '' : 'mt-2 border-t border-[var(--crm-border-color)] pt-3'}
+                className={`crm-nav-group ${group.label ? 'crm-nav-group-labelled' : 'crm-nav-group-unlabelled mt-2 border-t border-[var(--crm-border-color)] pt-3'}`}
               >
                 {group.label && !collapsed ? (
                   <p className="crm-nav-group-label">
                     {group.label}
                   </p>
                 ) : null}
-                <div className="space-y-0.5">{group.items.map(renderLink)}</div>
+                <div className="crm-nav-group-items space-y-0.5">{group.items.map(renderLink)}</div>
               </div>
             ))
           : (links ?? []).map(renderLink)}

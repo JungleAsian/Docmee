@@ -962,9 +962,65 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-nav {
-    align-items: center;
-    gap: 12px;
-    padding: 0 14px;
+    align-items: stretch;
+    gap: 10px;
+    padding: 0 18px 0 14px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group {
+    width: 100%;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label {
+    padding: 10px 0 5px;
+    text-align: left;
+    font-size: 6.4px;
+    line-height: 1.25;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-items {
+    padding-left: 16px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-unlabelled {
+    margin-left: 16px;
+    width: calc(100% - 16px);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-item {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 9px;
+    min-height: 32px;
+    padding: 7px 10px;
+    text-align: left;
+    font-size: 9px;
+    line-height: 1.2;
+    border-radius: 14px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-item-icon {
+    display: inline-flex;
+    width: 15px;
+    min-width: 15px;
+    justify-content: center;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-item svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-footer {
+    align-items: stretch;
+    gap: 7px;
+    padding: 9px 18px 16px 30px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-footer .crm-nav-item {
+    min-height: 30px;
+    padding: 7px 10px;
+    font-size: 8.3px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item,

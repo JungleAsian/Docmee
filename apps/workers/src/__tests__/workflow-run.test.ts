@@ -97,7 +97,7 @@ describe('pending conversational workflow state', () => {
     expect(pending?.context['doctor_preference']).toBe('Dr. Contreras')
   })
 
-  it('uses the current inbound WhatsApp message ID when resuming a pending run', async () => {
+  it('keeps the original run source ID while using the current WhatsApp reply ID for resume dedupe', async () => {
     const sql = {} as never
     const metadata = writePendingWorkflowRun(
       {},
@@ -120,7 +120,7 @@ describe('pending conversational workflow state', () => {
     expect(h.queueAdd).toHaveBeenCalledWith(
       'run',
       expect.objectContaining({
-        trigger: expect.objectContaining({ sourceEventId: 'wamid.patient-reply', message: 'What services do you offer?' }),
+        trigger: expect.objectContaining({ sourceEventId: 'wamid.menu-click', message: 'What services do you offer?' }),
       }),
       expect.objectContaining({
         jobId: workflowResumeJobKey('22222222-2222-4222-8222-222222222222', 'wamid.patient-reply', 'ask_question'),

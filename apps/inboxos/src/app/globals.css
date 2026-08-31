@@ -1111,7 +1111,9 @@ body {
     flex: 0 1 570px;
     max-width: 570px;
     min-height: 62px;
-    margin-left: auto;
+    /* Align the search box with the main conversation pane rather than centering
+       it in the header after the rail toggle and right-side controls. */
+    margin-left: 242px;
     margin-right: auto;
     border-radius: 16px;
     padding: 0 24px;

@@ -41,6 +41,9 @@
   --crm-border-radius-md: 20px;
   --crm-border-radius-lg: 22px;
   --crm-card-padding: 16px;
+  --crm-page-header-min-height: 64px;
+  --crm-page-header-padding-block: 0.65rem;
+  --crm-page-header-padding-inline: 1rem;
   --crm-transition: all 0.22s ease;
   --crm-shell-bg: #f7f8fc;
   --crm-shell-glow-primary: rgba(255, 255, 255, .92);
@@ -92,7 +95,7 @@ body {
 .docmee-page-hero {
   position: relative;
   isolation: isolate;
-  min-height: 54px;
+  min-height: var(--crm-page-header-min-height);
   overflow: hidden;
   border: 1px solid var(--crm-border-color);
   border-radius: var(--crm-border-radius-md);
@@ -115,11 +118,11 @@ body {
 
 .docmee-page-hero-copy {
   display: flex;
-  min-height: 54px;
+  min-height: var(--crm-page-header-min-height);
   max-width: 100%;
   flex-direction: column;
   justify-content: center;
-  padding: 0.55rem 1rem;
+  padding: var(--crm-page-header-padding-block) var(--crm-page-header-padding-inline);
   color: var(--crm-text-main);
 }
 
@@ -142,25 +145,29 @@ body {
 
 .docmee-page-hero h1 {
   margin: 0;
+  min-width: 0;
   color: var(--crm-text-main);
   font-size: clamp(1.05rem, 1.5vw, 1.2rem);
   font-weight: 800;
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .docmee-page-hero p {
   margin: 0.15rem 0 0 2.3rem;
-  max-width: 52rem;
+  max-width: min(52rem, calc(100% - 2.3rem));
   color: var(--crm-text-muted);
   font-size: 0.8rem;
   line-height: 1.25;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
 }
 
 .docmee-page-hero.docmee-page-hero--compact {
-  min-height: 54px;
+  min-height: var(--crm-page-header-min-height);
 }
 
 .dark .docmee-page-hero {
@@ -169,7 +176,7 @@ body {
 
 @media (max-width: 900px) {
   .docmee-page-hero {
-    min-height: 54px;
+    min-height: var(--crm-page-header-min-height);
   }
 
   .docmee-page-hero-copy {
@@ -179,15 +186,15 @@ body {
 
 @media (max-width: 640px) {
   .docmee-page-hero {
-    min-height: 54px;
+    min-height: auto;
   }
 
   .docmee-page-hero p {
-    white-space: normal;
+    -webkit-line-clamp: 2;
   }
 
   .docmee-page-hero-copy {
-    padding: 0.55rem 0.85rem;
+    padding: var(--crm-page-header-padding-block) 0.85rem;
   }
 }
 

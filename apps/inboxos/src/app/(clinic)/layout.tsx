@@ -23,6 +23,7 @@ import { ClinicSwitcher } from '@/shared/components/ClinicSwitcher'
 import { DocmeeLoader } from '@/shared/components/DocmeeLoader'
 import { AppFooter } from '@/shared/components/AppFooter'
 import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
+import { PageHeroActionsProvider } from '@/shared/components/PageHeroActionsContext'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
 import { visibleOrderedItems } from '@/shared/userUiPreferences'
@@ -171,6 +172,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
       )}
 
       <div className="crm-main-content">
+        <PageHeroActionsProvider>
         <header className="crm-top-header shrink-0">
           <button
             type="button"
@@ -254,6 +256,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
               the sticky footer. */}
           {!fullHeightRoute && <AppFooter />}
         </main>
+        </PageHeroActionsProvider>
       </div>
 
       {/* Req 23 — PWA install sheet (Add to Home Screen); renders only when the

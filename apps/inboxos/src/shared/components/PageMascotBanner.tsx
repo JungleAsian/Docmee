@@ -20,6 +20,7 @@ import {
   UsersThree,
   WarningCircle,
 } from '@phosphor-icons/react'
+import { useCurrentPageHeroActions } from './PageHeroActionsContext'
 
 type HeaderIcon = ComponentType<{ size?: number; className?: string }>
 
@@ -174,6 +175,7 @@ function copyForPath(pathname: string): BannerCopy | null {
 export function PageMascotBanner() {
   const pathname = usePathname()
   const copy = copyForPath(pathname)
+  const actions = useCurrentPageHeroActions()
   if (!copy) return null
 
   const Icon = copy.icon
@@ -189,6 +191,7 @@ export function PageMascotBanner() {
         </div>
         {copy.subtitle ? <p>{copy.subtitle}</p> : null}
       </div>
+      {actions ? <div className="docmee-page-hero-actions">{actions}</div> : null}
     </section>
   )
 }

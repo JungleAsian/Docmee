@@ -10,7 +10,7 @@
 // LIST view (and the mobile reflow), and a slot-picking booking slide-over. Explicit
 // loading / error / empty / day-off / no-doctors / disconnected-calendar / success /
 // permission-denied states throughout.
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
@@ -20,6 +20,7 @@ import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'
 import { SlideOver } from '@/shared/components/SlideOver'
 import { TodayCommandCenter } from '@/shared/components/TodayCommandCenter'
+import { usePageHeroActions } from '@/shared/components/PageHeroActionsContext'
 import {
   formatRanges,
   isSplitShift,
@@ -360,10 +361,25 @@ export default function CalendarPage() {
     [selectedDoctor, date],
   )
 
-  const openBooking = (opts?: { doctorId?: string; start?: string; parallel?: boolean }) => {
+  const openBooking = useCallback((opts?: { doctorId?: string; start?: string; parallel?: boolean }) => {
     setPrefill(opts ?? {})
     setBooking(true)
-  }
+  }, [])
+
+  const pageHeroActions = useMemo(
+    () => (
+      <button
+        type="button"
+        onClick={() => openBooking(doctorId ? { doctorId } : undefined)}
+        disabled={!clinicId || doctors.length === 0}
+        className="docmee-page-hero-action-btn docmee-page-hero-action-btn-primary"
+      >
+        + {t('cal.newBooking')}
+      </button>
+    ),
+    [clinicId, doctorId, doctors.length, openBooking, t],
+  )
+  usePageHeroActions(pageHeroActions)
 
   if (!ready) {
     return (
@@ -377,21 +393,8 @@ export default function CalendarPage() {
     <div className="clinic-surface relative flex h-full flex-col overflow-hidden">
       {/* Title + controls */}
       <div className="shrink-0 border-b border-gray-200 bg-white/90 px-4 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/80">
-        {/* Header hero removed — the New Booking action moves to a slim toolbar so
-            the schedule fills the reclaimed space. */}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => openBooking(doctorId ? { doctorId } : undefined)}
-            disabled={!clinicId || doctors.length === 0}
-            className="rounded-md bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
-          >
-            + {t('cal.newBooking')}
-          </button>
-        </div>
-
         {/* Controls row: day-nav · view toggle · doctor filter */}
-        <div className="clinic-toolbar mt-3">
+        <div className="clinic-toolbar calendar-toolbar">
           <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-[auto_minmax(11rem,auto)_auto_auto_auto] sm:items-center">
             <button
               type="button"
@@ -452,7 +455,7 @@ export default function CalendarPage() {
             ))}
           </div>
 
-          <div className="flex w-full flex-col gap-1 sm:ml-auto sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+          <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
             <label htmlFor="doc" className="text-[11px] uppercase tracking-wide text-gray-400">
               {t('cal.doctor')}
             </label>

@@ -42,10 +42,28 @@
   --crm-border-radius-sm: 16px;
   --crm-border-radius-md: 20px;
   --crm-border-radius-lg: 22px;
-  --crm-card-padding: 16px;
-  --crm-page-header-min-height: 64px;
-  --crm-page-header-padding-block: 0.65rem;
-  --crm-page-header-padding-inline: 1rem;
+  --crm-space-1: 4px;
+  --crm-space-2: 8px;
+  --crm-space-3: 12px;
+  --crm-space-4: 16px;
+  --crm-space-6: 24px;
+  --crm-space-8: 32px;
+  --crm-type-display-size: 28px;
+  --crm-type-display-line-height: 34px;
+  --crm-type-h1-size: 20px;
+  --crm-type-h1-line-height: 26px;
+  --crm-type-h2-size: 16px;
+  --crm-type-h2-line-height: 22px;
+  --crm-type-body-size: 14px;
+  --crm-type-body-line-height: 20px;
+  --crm-type-label-size: 12px;
+  --crm-type-label-line-height: 16px;
+  --crm-type-micro-size: 11px;
+  --crm-type-micro-line-height: 14px;
+  --crm-card-padding: var(--crm-space-4);
+  --crm-page-header-min-height: 56px;
+  --crm-page-header-padding-block: var(--crm-space-2);
+  --crm-page-header-padding-inline: var(--crm-space-4);
   --crm-transition: all 0.22s ease;
   --crm-shell-bg: #f5f6f8;
   --crm-shell-glow-primary: rgba(255, 255, 255, .92);
@@ -102,11 +120,17 @@ body {
   background: var(--crm-bg-color);
   color: var(--crm-text-main);
   font-family: var(--crm-font-sans);
+  font-size: var(--crm-type-body-size);
+  line-height: var(--crm-type-body-line-height);
 }
 
 .docmee-page-hero {
   position: relative;
   isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--crm-space-4);
   min-height: var(--crm-page-header-min-height);
   overflow: hidden;
   border: 1px solid var(--crm-border-color);
@@ -131,6 +155,7 @@ body {
 .docmee-page-hero-copy {
   display: flex;
   min-height: var(--crm-page-header-min-height);
+  flex: 1 1 auto;
   max-width: 100%;
   flex-direction: column;
   justify-content: center;
@@ -141,7 +166,7 @@ body {
 .docmee-page-hero-title-row {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: var(--crm-space-2);
 }
 
 .docmee-page-hero-icon {
@@ -159,23 +184,64 @@ body {
   margin: 0;
   min-width: 0;
   color: var(--crm-text-main);
-  font-size: clamp(1.05rem, 1.5vw, 1.2rem);
-  font-weight: 800;
-  line-height: 1.15;
+  font-size: var(--crm-type-h1-size);
+  font-weight: 700;
+  line-height: var(--crm-type-h1-line-height);
   overflow-wrap: anywhere;
 }
 
 .docmee-page-hero p {
-  margin: 0.15rem 0 0 2.3rem;
+  margin: 0 0 0 2.25rem;
   max-width: min(52rem, calc(100% - 2.3rem));
   color: var(--crm-text-muted);
-  font-size: 0.8rem;
-  line-height: 1.25;
+  font-size: var(--crm-type-label-size);
+  line-height: var(--crm-type-label-line-height);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+}
+
+.docmee-page-hero-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--crm-space-2);
+  padding: var(--crm-page-header-padding-block) var(--crm-page-header-padding-inline);
+}
+
+.docmee-page-hero-action-btn {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--crm-border-color);
+  background: var(--crm-input-bg);
+  padding: 0 var(--crm-space-3);
+  color: var(--crm-text-main);
+  font-size: var(--crm-type-label-size);
+  font-weight: 600;
+  line-height: var(--crm-type-label-line-height);
+  transition: var(--crm-transition);
+}
+
+.docmee-page-hero-action-btn:hover {
+  background: var(--crm-hover-bg);
+  color: var(--crm-primary-color);
+}
+
+.docmee-page-hero-action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.docmee-page-hero-action-btn-primary {
+  border-color: transparent;
+  background: var(--crm-primary-color);
+  color: #ffffff;
 }
 
 .docmee-page-hero.docmee-page-hero--compact {
@@ -199,6 +265,9 @@ body {
 @media (max-width: 640px) {
   .docmee-page-hero {
     min-height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
   }
 
   .docmee-page-hero p {
@@ -207,6 +276,11 @@ body {
 
   .docmee-page-hero-copy {
     padding: var(--crm-page-header-padding-block) 0.85rem;
+  }
+
+  .docmee-page-hero-actions {
+    justify-content: flex-start;
+    padding-top: 0;
   }
 }
 
@@ -273,7 +347,7 @@ body {
 
   .crm-sidebar-leaf-toggle {
     position: absolute;
-    top: 76px;
+    top: 28px;
     right: -9px;
     z-index: 80;
     width: 24px;
@@ -295,7 +369,7 @@ body {
   }
 
   .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle {
-    top: 76px;
+    top: 28px;
   }
 
   .crm-sidebar-header {
@@ -340,10 +414,10 @@ body {
   .crm-nav-group-label {
     padding: 10px 0 5px;
     text-align: left;
-    font-size: 6.4px; /* 80% of 8px (InboxOS side-rail section text) */
+    font-size: var(--crm-type-micro-size);
     font-weight: 800;
     letter-spacing: 0.08em;
-    line-height: 1.25;
+    line-height: var(--crm-type-micro-line-height);
     text-transform: uppercase;
     color: var(--crm-text-muted);
   }
@@ -370,9 +444,9 @@ body {
     min-height: 30px;
     padding: 6px 10px;
     color: var(--crm-text-muted);
-    font-size: 9px; /* InboxOS side-rail item size */
+    font-size: var(--crm-type-label-size);
     font-weight: 600;
-    line-height: 1.2;
+    line-height: var(--crm-type-label-line-height);
     text-align: left;
     border-radius: 14px;
     transition: var(--crm-transition);
@@ -421,7 +495,7 @@ body {
     justify-content: flex-start;
     min-height: 30px;
     padding: 6px 10px;
-    font-size: 8.3px;
+    font-size: var(--crm-type-label-size);
   }
 
   /* Collapsed (icon-only) rail — the "hidden" toggle state shows just the page
@@ -487,7 +561,7 @@ body {
 
   .crm-sidebar-collapsed .crm-theme-toggle-compact,
   .crm-sidebar-collapsed .crm-language-toggle-compact {
-    font-size: 10px;
+    font-size: var(--crm-type-micro-size);
   }
 
   .crm-sidebar-collapsed .crm-nav-item:hover,
@@ -534,7 +608,7 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--crm-text-main);
-    font-size: 12px;
+    font-size: var(--crm-type-label-size);
     font-weight: 800;
   }
 
@@ -561,7 +635,7 @@ body {
     outline: 0;
     background: transparent;
     color: var(--crm-text-main);
-    font-size: 14px;
+    font-size: var(--crm-type-body-size);
   }
 
   .crm-header-search input::placeholder {
@@ -593,13 +667,13 @@ body {
   }
 
   .crm-header-clinic-switcher label {
-    font-size: 12px;
+    font-size: var(--crm-type-label-size);
   }
 
   .crm-header-clinic-switcher select,
   .crm-header-clinic-switcher button,
   .crm-header-clinic-switcher span {
-    font-size: 12px;
+    font-size: var(--crm-type-label-size);
   }
 
   .crm-push-opt-in {
@@ -649,7 +723,7 @@ body {
     border-radius: 999px;
     background: linear-gradient(135deg, var(--crm-accent-orange), var(--crm-accent-red) 48%, var(--crm-primary-color));
     color: white;
-    font-size: 13px;
+    font-size: var(--crm-type-label-size);
     font-weight: 800;
   }
 
@@ -691,7 +765,7 @@ body {
   .crm-theme-icon {
     width: 18px;
     text-align: center;
-    font-size: 13px;
+    font-size: var(--crm-type-label-size);
     line-height: 1;
   }
 
@@ -729,7 +803,7 @@ body {
   .crm-theme-toggle-compact,
   .crm-language-toggle-compact {
     justify-content: center;
-    font-size: 13px;
+    font-size: var(--crm-type-label-size);
     font-weight: 800;
     letter-spacing: 0.03em;
   }
@@ -737,14 +811,14 @@ body {
   .crm-stats-row {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: var(--crm-space-3);
   }
 
   .crm-stat-card {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 86px;
+    gap: var(--crm-space-3);
+    min-height: 76px;
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-md);
     background: var(--crm-card-bg);
@@ -760,19 +834,19 @@ body {
 
   .crm-stat-icon {
     display: grid;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     place-items: center;
     border-radius: 999px;
-    font-size: 21px;
+    font-size: 20px;
   }
 
   .crm-stat-icon-purple { background: rgba(52, 198, 229, 0.12); color: var(--crm-primary-color); }
   .crm-stat-icon-blue { background: rgba(59, 130, 246, 0.12); color: var(--crm-accent-blue); }
   .crm-stat-icon-orange { background: rgba(249, 115, 22, 0.14); color: var(--crm-accent-orange); }
-  .crm-stat-title { color: var(--crm-text-muted); font-size: 12px; font-weight: 600; }
-  .crm-stat-value { color: var(--crm-text-main); font-size: 24px; font-weight: 800; line-height: 1.1; }
-  .crm-stat-trend { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; }
+  .crm-stat-title { color: var(--crm-text-muted); font-size: var(--crm-type-label-size); font-weight: 600; line-height: var(--crm-type-label-line-height); }
+  .crm-stat-value { color: var(--crm-text-main); font-size: var(--crm-type-display-size); font-weight: 700; line-height: var(--crm-type-display-line-height); }
+  .crm-stat-trend { display: inline-flex; align-items: center; gap: 4px; font-size: var(--crm-type-micro-size); font-weight: 700; line-height: var(--crm-type-micro-line-height); }
   .crm-stat-trend-positive { color: var(--crm-accent-green); }
   .crm-stat-trend-negative { color: var(--crm-danger); }
 
@@ -1215,7 +1289,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
-    top: 76px;
+    top: 28px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
@@ -1251,8 +1325,8 @@ body {
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label {
     padding: 10px 0 5px;
     text-align: left;
-    font-size: 6.4px;
-    line-height: 1.25;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-items {
@@ -1271,8 +1345,8 @@ body {
     min-height: 30px;
     padding: 6px 10px;
     text-align: left;
-    font-size: 9px;
-    line-height: 1.2;
+    font-size: var(--crm-type-label-size);
+    line-height: var(--crm-type-label-line-height);
     border-radius: 14px;
   }
 
@@ -1298,7 +1372,7 @@ body {
     justify-content: flex-start;
     min-height: 30px;
     padding: 6px 10px;
-    font-size: 8.3px;
+    font-size: var(--crm-type-label-size);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item,
@@ -1335,7 +1409,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-theme-toggle-compact,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-language-toggle-compact {
-    font-size: 10px;
+    font-size: var(--crm-type-micro-size);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item:hover,
@@ -1396,7 +1470,7 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-header-search input {
-    font-size: 15px;
+    font-size: var(--crm-type-body-size);
   }
 
   .crm-inboxos-desktop-shell .crm-inboxos-clinic-switcher {
@@ -1423,7 +1497,7 @@ body {
     background: transparent;
     padding: 0;
     color: var(--crm-text-main);
-    font-size: 12px;
+    font-size: var(--crm-type-label-size);
     font-weight: 800;
     box-shadow: none;
   }
@@ -1431,7 +1505,7 @@ body {
   .crm-inboxos-desktop-shell .crm-inboxos-clinic-switcher label::after {
     content: "Secretaria";
     color: var(--crm-text-muted);
-    font-size: 10.4px;
+    font-size: var(--crm-type-micro-size);
     font-weight: 600;
   }
 
@@ -1451,7 +1525,7 @@ body {
     width: 50px;
     height: 50px;
     background: linear-gradient(135deg, #06a4b3, #0794a7);
-    font-size: 17px;
+    font-size: var(--crm-type-h2-size);
     box-shadow: 0 10px 22px rgba(6, 148, 167, .25);
   }
 
@@ -1549,7 +1623,8 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-status-toggle {
-    font-size: 88%;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-status-toggle > div:first-child {
@@ -1557,12 +1632,12 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-status-toggle > div:first-child span:first-child {
-    font-size: 9px;
+    font-size: var(--crm-type-micro-size);
     letter-spacing: .04em;
   }
 
   .crm-inboxos-desktop-shell .crm-status-toggle > div:first-child span:last-child {
-    font-size: 8px;
+    font-size: var(--crm-type-micro-size);
   }
 
   .crm-inboxos-desktop-shell .crm-status-toggle-options {
@@ -1574,8 +1649,8 @@ body {
   .crm-inboxos-desktop-shell .crm-status-toggle-options button {
     border-radius: 9px;
     padding: 5px 7px;
-    font-size: 9px;
-    line-height: 1.1;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
     white-space: nowrap;
   }
 
@@ -1596,7 +1671,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-booking-calendar-card .crm-calendar-grid {
     gap: 4px;
-    font-size: 9px;
+    font-size: var(--crm-type-micro-size);
   }
 
   .crm-inboxos-desktop-shell .crm-booking-calendar-card .crm-calendar-day {
@@ -1619,7 +1694,8 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item {
-    font-size: 80%;
+    font-size: var(--crm-type-label-size);
+    line-height: var(--crm-type-label-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .crm-conv-avatar {
@@ -1629,19 +1705,23 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[14px\] {
-    font-size: 11.2px;
+    font-size: var(--crm-type-label-size);
+    line-height: var(--crm-type-label-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[13px\] {
-    font-size: 10.4px;
+    font-size: var(--crm-type-label-size);
+    line-height: var(--crm-type-label-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[11px\] {
-    font-size: 8.8px;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-conversation-list-rows .crm-conversation-item .text-\[10px\] {
-    font-size: 8px;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
   }
 
   .crm-inboxos-desktop-shell .crm-inbox-container [role="separator"] {
@@ -1707,7 +1787,7 @@ body {
     place-items: center;
     border-radius: 999px;
     color: #fff;
-    font-size: 9px;
+    font-size: var(--crm-type-micro-size);
     font-weight: 700;
   }
 
@@ -1717,7 +1797,8 @@ body {
     gap: 4px;
     border-radius: 999px;
     padding: 2px 8px;
-    font-size: 10.5px;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
     font-weight: 700;
     background: #E7F7EC;
     color: #25A55A;
@@ -1765,7 +1846,7 @@ body {
   .crm-bubble-mode-switch button {
     border-radius: 999px;
     padding: 4px 12px;
-    font-size: 11.5px;
+    font-size: var(--crm-type-micro-size);
     font-weight: 700;
     color: var(--crm-text-muted);
     transition: var(--crm-transition);
@@ -1876,15 +1957,15 @@ body {
   [data-docmee-app-shell] .clinic-page.space-y-8 > :not([hidden]) ~ :not([hidden]),
   [data-docmee-app-shell] .clinic-page.space-y-6 > :not([hidden]) ~ :not([hidden]),
   [data-docmee-app-shell] .clinic-page.space-y-5 > :not([hidden]) ~ :not([hidden]) {
-    margin-top: 1.25rem !important;
+    margin-top: var(--crm-space-6) !important;
   }
 
   .clinic-page-header {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: var(--crm-space-3);
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-lg);
     background: var(--crm-card-bg);
@@ -1906,7 +1987,8 @@ body {
 
   .clinic-eyebrow {
     margin-bottom: 0.25rem;
-    font-size: 0.68rem;
+    font-size: var(--crm-type-label-size);
+    line-height: var(--crm-type-label-line-height);
     font-weight: 700;
     letter-spacing: 0;
     text-transform: uppercase;
@@ -1918,17 +2000,17 @@ body {
   }
 
   .clinic-title {
-    font-size: 1.75rem;
-    line-height: 2.125rem;
-    font-weight: 800;
+    font-size: var(--crm-type-h1-size);
+    line-height: var(--crm-type-h1-line-height);
+    font-weight: 700;
     letter-spacing: 0;
     color: var(--crm-text-main);
   }
 
   @media (min-width: 1024px) {
     .clinic-title {
-      font-size: 2rem;
-      line-height: 2.375rem;
+      font-size: var(--crm-type-h1-size);
+      line-height: var(--crm-type-h1-line-height);
     }
   }
 
@@ -1937,10 +2019,10 @@ body {
   }
 
   .clinic-subtitle {
-    margin-top: 0.35rem;
+    margin-top: var(--crm-space-1);
     max-width: 50rem;
-    font-size: 0.875rem;
-    line-height: 1.5rem;
+    font-size: var(--crm-type-label-size);
+    line-height: var(--crm-type-label-line-height);
     color: var(--crm-text-muted);
   }
 
@@ -1952,12 +2034,32 @@ body {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: space-between;
+    gap: var(--crm-space-3);
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-md);
     background: var(--crm-card-bg);
-    padding: 0.75rem;
+    padding: var(--crm-space-3);
     box-shadow: var(--crm-shadow-sm);
+  }
+
+  .clinic-toolbar-label {
+    color: var(--crm-text-muted);
+    font-size: var(--crm-type-label-size);
+    font-weight: 600;
+    line-height: var(--crm-type-label-line-height);
+  }
+
+  .calendar-toolbar {
+    align-items: center;
+  }
+
+  .calendar-toolbar > :first-child {
+    flex: 1 1 auto;
+  }
+
+  .calendar-toolbar > :last-child {
+    margin-left: auto;
   }
 
   @media (max-width: 639px) {
@@ -1996,7 +2098,7 @@ body {
   }
 
   .clinic-density-card {
-    min-height: 92px;
+    min-height: 76px;
   }
 
   .clinic-card:hover {
@@ -2007,26 +2109,26 @@ body {
   .clinic-kpi-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.75rem;
+    gap: var(--crm-space-3);
   }
 
   @media (min-width: 640px) {
     .clinic-kpi-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 1rem;
+      gap: var(--crm-space-3);
     }
   }
 
   @media (min-width: 1180px) {
     .clinic-kpi-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 1rem;
+      gap: var(--crm-space-3);
     }
   }
 
   .clinic-chart-grid {
     display: grid;
-    gap: 1.25rem;
+    gap: var(--crm-space-4);
   }
 
   @media (min-width: 1180px) {
@@ -2036,7 +2138,7 @@ body {
   }
 
   .clinic-chart-card {
-    padding: 1rem;
+    padding: var(--crm-card-padding);
   }
 
   @media (min-width: 768px) {
@@ -2053,15 +2155,15 @@ body {
 
   .clinic-empty-state {
     display: flex;
-    min-height: 12rem;
+    min-height: 10rem;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--crm-space-2);
     border: 1px dashed var(--crm-border-color);
     border-radius: var(--crm-border-radius-lg);
     background: color-mix(in srgb, var(--crm-card-bg) 78%, transparent);
-    padding: 2rem;
+    padding: var(--crm-space-6);
     text-align: center;
     color: var(--crm-text-muted);
   }
@@ -2074,7 +2176,7 @@ body {
 
   .clinic-page button,
   .clinic-surface button {
-    min-height: 2.5rem;
+    min-height: 36px;
   }
 
   .clinic-page input,
@@ -2083,7 +2185,7 @@ body {
   .clinic-surface input,
   .clinic-surface select,
   .clinic-surface textarea {
-    min-height: 2.5rem;
+    min-height: 36px;
   }
 
   .clinic-page input[type="checkbox"],
@@ -2896,6 +2998,82 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
   background-color: var(--crm-hover-bg) !important;
 }
 
+/* App-wide type normalization: keep functional UI text on the fixed token scale
+   from a 16px root and prevent tiny fractional sizes from scaled containers. */
+[data-docmee-app-shell] {
+  font-size: var(--crm-type-body-size);
+  line-height: var(--crm-type-body-line-height);
+}
+
+[data-docmee-app-shell] h1,
+[data-docmee-app-shell] .clinic-title,
+[data-docmee-app-shell] .docmee-page-hero h1 {
+  font-size: var(--crm-type-h1-size) !important;
+  font-weight: 700 !important;
+  line-height: var(--crm-type-h1-line-height) !important;
+}
+
+[data-docmee-app-shell] h2,
+[data-docmee-app-shell] h3,
+[data-docmee-app-shell] .text-lg,
+[data-docmee-app-shell] .text-base {
+  font-size: var(--crm-type-h2-size) !important;
+  line-height: var(--crm-type-h2-line-height) !important;
+}
+
+[data-docmee-app-shell] .text-xl {
+  font-size: var(--crm-type-h1-size) !important;
+  line-height: var(--crm-type-h1-line-height) !important;
+}
+
+[data-docmee-app-shell] .text-sm,
+[data-docmee-app-shell] .text-\[13px\],
+[data-docmee-app-shell] .text-\[13\.5px\],
+[data-docmee-app-shell] .text-\[14px\],
+[data-docmee-app-shell] input,
+[data-docmee-app-shell] select,
+[data-docmee-app-shell] textarea,
+[data-docmee-app-shell] table td {
+  font-size: var(--crm-type-body-size) !important;
+  line-height: var(--crm-type-body-line-height) !important;
+}
+
+[data-docmee-app-shell] .text-xs,
+[data-docmee-app-shell] .text-\[12px\],
+[data-docmee-app-shell] .text-\[12\.5px\],
+[data-docmee-app-shell] .text-\[12\.8px\],
+[data-docmee-app-shell] table th,
+[data-docmee-app-shell] .clinic-subtitle,
+[data-docmee-app-shell] .clinic-eyebrow {
+  font-size: var(--crm-type-label-size) !important;
+  line-height: var(--crm-type-label-line-height) !important;
+}
+
+[data-docmee-app-shell] .text-\[8px\],
+[data-docmee-app-shell] .text-\[9px\],
+[data-docmee-app-shell] .text-\[9\.2px\],
+[data-docmee-app-shell] .text-\[10px\],
+[data-docmee-app-shell] .text-\[10\.4px\],
+[data-docmee-app-shell] .text-\[10\.5px\],
+[data-docmee-app-shell] .text-\[11px\],
+[data-docmee-app-shell] .text-\[11\.5px\],
+[data-docmee-app-shell] .crm-sender-row,
+[data-docmee-app-shell] .crm-stat-trend {
+  font-size: var(--crm-type-micro-size) !important;
+  line-height: var(--crm-type-micro-line-height) !important;
+}
+
+[data-docmee-app-shell] .crm-stat-value,
+[data-docmee-app-shell] .crm-brief-metric-value,
+[data-docmee-app-shell] .clinic-kpi-value,
+[data-docmee-app-shell] .analytics-metric-value,
+[data-docmee-app-shell] .text-2xl.tabular-nums,
+[data-docmee-app-shell] p.text-2xl {
+  font-size: var(--crm-type-display-size) !important;
+  font-weight: 700 !important;
+  line-height: var(--crm-type-display-line-height) !important;
+}
+
 .docmee-site-shell {
   min-height: 100vh;
   background:
@@ -3362,7 +3540,7 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 }
 .react-flow__edge-text {
   fill: #374151;
-  font-size: 10px;
+  font-size: var(--crm-type-micro-size);
   font-weight: 600;
 }
 .react-flow__edge-textbg {

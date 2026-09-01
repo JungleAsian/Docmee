@@ -136,11 +136,7 @@ export default function InboxPage() {
   // on switch — otherwise local state (the reply draft, AI summary/suggestions,
   // a half-typed note) bleeds into the next patient's thread and can be sent to
   // the wrong recipient.
-  const panels = selectedId ? (
-    <InboxContextRail key={`rail-${selectedId}`} conversationId={selectedId} />
-  ) : (
-    <div className="m-4 clinic-empty-state text-sm">{t('view.empty')}</div>
-  )
+  const panels = selectedId ? <InboxContextRail key={`rail-${selectedId}`} conversationId={selectedId} /> : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -167,7 +163,9 @@ export default function InboxPage() {
         className="crm-inbox-container grid grid-cols-1 md:grid-cols-[24rem_minmax(0,1fr)] lg:grid-cols-[24rem_minmax(0,1fr)_18rem]"
         style={
           isLarge
-            ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` : `44px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
+            ? selectedId
+              ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` : `44px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
+              : { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` : `44px minmax(${MAIN_MIN}px,1fr)` }
             : isMedium
               ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` : `44px minmax(${MAIN_MIN}px,1fr)` }
               : undefined
@@ -232,14 +230,16 @@ export default function InboxPage() {
         )}
       </div>
 
-      <ResizeHandle
-        className="hidden lg:block"
-        label="Resize WhatsApp panel"
-        onPointerDown={() => setDragging('right')}
-      />
+      {selectedId && (
+        <ResizeHandle
+          className="hidden lg:block"
+          label="Resize WhatsApp panel"
+          onPointerDown={() => setDragging('right')}
+        />
+      )}
 
       {/* Contextual panels — static third column on desktop. */}
-      <div className="crm-inbox-details crm-inbox-side-scroll hidden min-h-0 overflow-y-auto overscroll-contain lg:block">
+      <div className={`${selectedId ? 'lg:block' : 'lg:hidden'} crm-inbox-details crm-inbox-side-scroll hidden min-h-0 overflow-y-auto overscroll-contain`}>
         {panels}
       </div>
       </div>

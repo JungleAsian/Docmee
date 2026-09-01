@@ -3,7 +3,7 @@
 // Gap #39 — Advanced analytics. Available to clinic_admin and ia_studio_admin.
 // Date range picker, headline metrics, a peak-hours heatmap, patient retention,
 // bot effectiveness and a CSV export — no external charting library.
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/shared/api/client'
 import { useAuthStore } from '@/shared/store/auth'
@@ -11,6 +11,7 @@ import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { rolesWith } from '@/shared/permissions'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useFeatures } from '@/shared/hooks/useFeatures'
+import { usePageHeroActions } from '@/shared/components/PageHeroActionsContext'
 import type { Clinic, AdvancedAnalytics, ClinicMetrics, ClinicQos } from '@/shared/types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -76,7 +77,7 @@ export default function AnalyticsPage() {
   const metrics = metricsQuery.data?.metrics
   const qos = qosQuery.data?.qos
 
-  function exportCsv() {
+  const exportCsv = useCallback(() => {
     if (!a) return
     const lines = [
       ['Metric', 'Value'],
@@ -97,7 +98,22 @@ export default function AnalyticsPage() {
     link.download = `analytics-${clinicId}-${from}_${to}.csv`
     link.click()
     URL.revokeObjectURL(url)
-  }
+  }, [a, clinicId, from, to])
+
+  const pageHeroActions = useMemo(
+    () => (
+      <button
+        type="button"
+        onClick={exportCsv}
+        disabled={!a}
+        className="docmee-page-hero-action-btn"
+      >
+        {t('analytics.exportCsv')}
+      </button>
+    ),
+    [a, exportCsv, t],
+  )
+  usePageHeroActions(pageHeroActions)
 
   if (!ready) {
     return (
@@ -110,50 +126,45 @@ export default function AnalyticsPage() {
   return (
     <div className="clinic-surface">
       <div className="clinic-page clinic-page-md space-y-5">
-        <div className="clinic-toolbar justify-end">
-          {isAdmin && (
+        <div className="clinic-toolbar">
+          <span className="clinic-toolbar-label">Filters</span>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {isAdmin && (
+              <label className="flex flex-col text-xs text-gray-500">
+                {t('analytics.selectClinic')}
+                <select
+                  value={clinicId}
+                  onChange={(e) => setClinicId(e.target.value)}
+                  className="mt-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <option value="">—</option>
+                  {(clinicsQuery.data?.clinics ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="flex flex-col text-xs text-gray-500">
-              {t('analytics.selectClinic')}
-              <select
-                value={clinicId}
-                onChange={(e) => setClinicId(e.target.value)}
+              {t('analytics.from')}
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
                 className="mt-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-              >
-                <option value="">—</option>
-                {(clinicsQuery.data?.clinics ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
-          )}
-          <label className="flex flex-col text-xs text-gray-500">
-            {t('analytics.from')}
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="mt-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-            />
-          </label>
-          <label className="flex flex-col text-xs text-gray-500">
-            {t('analytics.to')}
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="mt-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={!a}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
-          >
-            {t('analytics.exportCsv')}
-          </button>
+            <label className="flex flex-col text-xs text-gray-500">
+              {t('analytics.to')}
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="mt-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+              />
+            </label>
+          </div>
         </div>
 
       {!clinicId ? (
@@ -326,6 +337,18 @@ function CrmCommandPanel({
   const returningShare = analytics && returningTotal > 0 ? analytics.returningPatients / returningTotal : undefined
   const cards = [
     {
+      label: 'Returning patients',
+      value: pct(returningShare),
+      detail: analytics ? `${analytics.returningPatients} of ${returningTotal} known patients` : 'Patient mix in selected range',
+      tone: 'emerald',
+    },
+    {
+      label: 'No response risk',
+      value: pct(metrics?.noResponseRate),
+      detail: 'Conversations without a timely staff reply',
+      tone: 'amber',
+    },
+    {
       label: 'Patient demand',
       value: analytics ? String(analytics.totalConversations) : '-',
       detail: 'Conversations in selected range',
@@ -352,43 +375,24 @@ function CrmCommandPanel({
   ] as const
 
   return (
-    <section className="clinic-card overflow-hidden">
-      <div className="grid gap-0 lg:grid-cols-[1.05fr_1.4fr]">
-        <div className="clinic-section-surface border-x-0 border-t-0 p-4 lg:border-b-0 lg:border-l-0 lg:border-r lg:border-t-0">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-gray-950 dark:text-gray-50">Performance snapshot</h2>
+    <section className="clinic-card clinic-chart-card">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-base font-bold text-gray-950 dark:text-gray-50">Performance snapshot</h2>
+        {loading ? <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs text-gray-500 dark:bg-slate-900/70">Syncing</span> : null}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => (
+          <div key={card.label} className="clinic-nested-surface rounded-xl p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium text-gray-500">{card.label}</p>
+              <span className={`h-2.5 w-2.5 rounded-full ${card.tone === 'teal' ? 'bg-cyan-500' : card.tone === 'emerald' ? 'bg-emerald-500' : card.tone === 'amber' ? 'bg-orange-500' : 'bg-blue-500'}`} />
             </div>
-            {loading ? <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs text-gray-500 dark:bg-slate-900/70">Syncing</span> : null}
+            <p className="analytics-metric-value mt-2 font-bold text-gray-950 dark:text-gray-50">{card.value}</p>
+            <p className="mt-1 text-xs text-gray-500">{card.detail}</p>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <SummaryStat label="Returning patients" value={pct(returningShare)} />
-            <SummaryStat label="No response risk" value={pct(metrics?.noResponseRate)} />
-          </div>
-        </div>
-        <div className="grid gap-3 p-4 sm:grid-cols-2">
-          {cards.map((card) => (
-            <div key={card.label} className="clinic-nested-surface rounded-xl p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-medium text-gray-500">{card.label}</p>
-                <span className={`h-2.5 w-2.5 rounded-full ${card.tone === 'teal' ? 'bg-cyan-500' : card.tone === 'emerald' ? 'bg-emerald-500' : card.tone === 'amber' ? 'bg-orange-500' : 'bg-blue-500'}`} />
-              </div>
-              <p className="mt-2 text-2xl font-bold text-gray-950 dark:text-gray-50">{card.value}</p>
-              <p className="mt-1 text-xs text-gray-500">{card.detail}</p>
-            </div>
-          ))}
-        </div>
+        ))}
       </div>
     </section>
-  )
-}
-
-function SummaryStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="clinic-nested-surface rounded-xl p-3">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="mt-1 text-lg font-bold text-gray-950 dark:text-gray-50">{value}</p>
-    </div>
   )
 }
 
@@ -490,7 +494,7 @@ function SnapshotGauge({
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xl font-bold">{display}</span>
+          <span className="analytics-metric-value font-bold">{display}</span>
           <span className="text-[10px] text-gray-500">{caption}</span>
         </div>
       </div>
@@ -534,7 +538,7 @@ function Card({ label, value, tone = 'indigo' }: { label: string; value: string;
         <p className="text-xs text-gray-500">{label}</p>
         <span className={`h-2.5 w-2.5 rounded-full ${CARD_TONE[tone]}`} />
       </div>
-      <p className="mt-2 text-2xl font-bold text-[var(--crm-text-main)]">{value}</p>
+      <p className="clinic-kpi-value mt-2 font-bold text-[var(--crm-text-main)]">{value}</p>
     </div>
   )
 }

@@ -136,7 +136,7 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
         </div>
       ) : (
         <>
-          <div className={`grid gap-2 ${compact ? 'p-3 sm:grid-cols-4' : 'p-4 sm:grid-cols-2 lg:grid-cols-4'}`}>
+          <div className={`grid gap-3 ${compact ? 'p-3 sm:grid-cols-4' : 'p-4 sm:grid-cols-2 lg:grid-cols-4'}`}>
             <BriefMetric label="Needs attention" value={summary.urgent.length} tone={summary.urgent.length ? 'red' : 'green'} />
             <BriefMetric label="Waiting on staff" value={summary.waiting.length} tone={summary.waiting.length ? 'amber' : 'green'} />
             <BriefMetric label="Unassigned" value={summary.unassigned.length} tone={summary.unassigned.length ? 'indigo' : 'green'} />
@@ -214,8 +214,8 @@ function BriefMetric({ label, value, tone }: { label: string; value: number; ton
   }[tone]
 
   return (
-    <div className={`rounded-lg px-3 py-3 ring-1 ${toneClass}`}>
-      <p className="text-2xl font-bold tabular-nums">{value}</p>
+    <div className={`rounded-lg px-3 py-2 ring-1 ${toneClass}`}>
+      <p className="crm-brief-metric-value font-bold tabular-nums">{value}</p>
       <p className="mt-1 text-xs font-semibold uppercase text-current opacity-80">{label}</p>
     </div>
   )

@@ -61,7 +61,7 @@ export function Sidebar({
           className="crm-nav-item pointer-events-none cursor-not-allowed opacity-40 grayscale"
         >
           {link.icon ? <span className="crm-nav-item-icon shrink-0 text-[20px] opacity-70">{link.icon as never}</span> : null}
-          {!collapsed && <span className="truncate">{link.label}</span>}
+          {!collapsed && <span className="crm-nav-item-label">{link.label}</span>}
         </span>
       )
     }
@@ -74,7 +74,7 @@ export function Sidebar({
         className={`crm-nav-item ${active ? 'crm-nav-item-active' : ''}`}
       >
         {link.icon ? <span className="crm-nav-item-icon shrink-0 text-[20px] opacity-90">{link.icon as never}</span> : null}
-        {!collapsed && <span className="truncate">{link.label}</span>}
+        {!collapsed && <span className="crm-nav-item-label">{link.label}</span>}
       </Link>
     )
   }

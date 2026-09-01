@@ -17,7 +17,6 @@ import { PushOptIn } from '@/shared/components/PushOptIn'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
 import { DocmeeLoader } from '@/shared/components/DocmeeLoader'
 import { AppFooter } from '@/shared/components/AppFooter'
-import { OperatorBadge } from '@/shared/components/OperatorBadge'
 import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
@@ -240,7 +239,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {user && (
               <div className="crm-user-profile">
                 <span className="crm-avatar">{(user.fullName || user.email || 'U').slice(0, 2).toUpperCase()}</span>
-                <OperatorBadge email={user.email} fullName={user.fullName} role={user.role} />
               </div>
             )}
           </div>

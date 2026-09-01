@@ -109,16 +109,8 @@ export default function AnalyticsPage() {
 
   return (
     <div className="clinic-surface">
-      <div className="clinic-page clinic-page-md space-y-8">
-      <div className="clinic-page-header">
-        <div>
-          <p className="clinic-eyebrow">Reporting source of truth</p>
-          <h1 className="clinic-title">{t('analytics.title')}</h1>
-          <p className="clinic-subtitle">
-            Compare patient demand, automation effectiveness, retention, and knowledge-base coverage across the selected reporting window.
-          </p>
-        </div>
-        <div className="clinic-toolbar">
+      <div className="clinic-page clinic-page-md space-y-5">
+        <div className="clinic-toolbar justify-end">
           {isAdmin && (
             <label className="flex flex-col text-xs text-gray-500">
               {t('analytics.selectClinic')}
@@ -163,7 +155,6 @@ export default function AnalyticsPage() {
             {t('analytics.exportCsv')}
           </button>
         </div>
-      </div>
 
       {!clinicId ? (
         <div className="clinic-empty-state text-sm">{t('analytics.empty')}</div>
@@ -366,14 +357,10 @@ function CrmCommandPanel({
         <div className="border-b border-gray-100 bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-5 dark:border-gray-800 dark:from-cyan-950/25 dark:via-[var(--crm-card-bg)] dark:to-blue-950/20 lg:border-b-0 lg:border-r">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-200">CRM command center</p>
-              <h2 className="mt-2 text-xl font-bold text-gray-950 dark:text-gray-50">Clinic performance at a glance</h2>
+              <h2 className="text-base font-bold text-gray-950 dark:text-gray-50">Performance snapshot</h2>
             </div>
             {loading ? <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs text-gray-500 dark:bg-slate-900/70">Syncing</span> : null}
           </div>
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            A single reporting cockpit for patient demand, booking conversion, service recovery, and automation quality.
-          </p>
           <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
             <SummaryStat label="Returning patients" value={pct(returningShare)} />
             <SummaryStat label="No response risk" value={pct(metrics?.noResponseRate)} />

@@ -103,6 +103,7 @@ export function createAnalyticsRepository(sql: Sql): AnalyticsRepository {
       return {
         totalConversations: total,
         resolutionRate: total > 0 ? num(conv[0]?.resolved) / total : 0,
+        // TODO: Verify avgConversationLength calculation; product review flagged this metric as suspicious.
         avgConversationLength: Math.round(num(length[0]?.avgLength) * 10) / 10,
         handoffRate: total > 0 ? num(conv[0]?.handoff) / total : 0,
         automationRate: total > 0 ? num(conv[0]?.automated) / total : 0,

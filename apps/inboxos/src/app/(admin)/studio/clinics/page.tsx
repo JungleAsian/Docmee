@@ -31,8 +31,6 @@ export default function ClinicsPage() {
 
   return (
     <div className="clinic-page clinic-page-md space-y-6">
-      <h1 className="mb-4 text-xl font-bold">{t('studio.clinics.title')}</h1>
-
       <SignupRequestsPanel />
 
       <NewClinicForm />

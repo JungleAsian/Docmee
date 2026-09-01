@@ -63,15 +63,9 @@ export default function QosPage() {
 
   return (
     <div className="clinic-surface">
-      <div className="clinic-page clinic-page-md space-y-8">
-        {/* Header: title + role / live pills */}
-        <div className="clinic-page-header">
-          <div>
-            <p className="clinic-eyebrow">Operational quality</p>
-            <h1 className="clinic-title">{t('qos.title')}</h1>
-            <p className="clinic-subtitle">{t('qos.desc')}</p>
-          </div>
-          <div className="flex items-center gap-2">
+      <div className="clinic-page clinic-page-md space-y-5">
+        <div className="clinic-toolbar">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-600 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-300">
               {roleLabel}
             </span>
@@ -88,10 +82,6 @@ export default function QosPage() {
               {online ? t('qos.live') : t('conn.offline.title')}
             </span>
           </div>
-        </div>
-
-        {/* Clinic scope is controlled by the shared header switcher. */}
-        <div className="clinic-toolbar">
           <label className="flex flex-col gap-1 text-xs">
             <span className="font-semibold uppercase tracking-wide text-gray-400">{t('qos.agingWindow')}</span>
             <select

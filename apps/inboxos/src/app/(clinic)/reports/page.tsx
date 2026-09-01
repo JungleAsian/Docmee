@@ -86,38 +86,30 @@ export default function ReportsPage() {
   return (
     <div className="clinic-surface">
       <div className="clinic-page space-y-5">
-        {/* Header */}
-        <div className="clinic-page-header">
-          <div>
-            <p className="clinic-eyebrow">Scheduled clinic summaries</p>
-            <h1 className="clinic-title">{t('reports.title')}</h1>
-            <p className="clinic-subtitle">{t('reports.desc')}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {isAdmin && (
-              <select
-                value={clinicId}
-                onChange={(e) => setClinicId(e.target.value)}
-                aria-label={t('reports.selectClinic')}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-800"
-              >
-                <option value="">{t('reports.selectClinic')}</option>
-                {(clinicsQuery.data?.clinics ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button
-              type="button"
-              onClick={() => exportReportsCsv(filtered, t)}
-              disabled={filtered.length === 0}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
+        <div className="clinic-toolbar justify-end">
+          {isAdmin && (
+            <select
+              value={clinicId}
+              onChange={(e) => setClinicId(e.target.value)}
+              aria-label={t('reports.selectClinic')}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium shadow-sm dark:border-gray-700 dark:bg-gray-800"
             >
-              <DownloadSimple className="h-4 w-4" aria-hidden /> {t('reports.export')}
-            </button>
-          </div>
+              <option value="">{t('reports.selectClinic')}</option>
+              {(clinicsQuery.data?.clinics ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => exportReportsCsv(filtered, t)}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
+          >
+            <DownloadSimple className="h-4 w-4" aria-hidden /> {t('reports.export')}
+          </button>
         </div>
 
         {/* Schedule summary banner */}

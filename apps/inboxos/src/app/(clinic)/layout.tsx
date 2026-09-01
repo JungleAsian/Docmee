@@ -18,12 +18,10 @@ import { ClinicBackButton } from '@/shared/components/ClinicBackButton'
 import { Sidebar, type NavGroup, type NavLink } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { NotificationBell } from '@/shared/components/NotificationBell'
-import { PushOptIn } from '@/shared/components/PushOptIn'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
 import { ClinicSwitcher } from '@/shared/components/ClinicSwitcher'
 import { DocmeeLoader } from '@/shared/components/DocmeeLoader'
 import { AppFooter } from '@/shared/components/AppFooter'
-import { OperatorBadge } from '@/shared/components/OperatorBadge'
 import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
@@ -229,12 +227,10 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <input type="search" placeholder="Search patients, messages, or appointments..." />
           </div>
           <div className="crm-header-actions">
-            <PushOptIn />
             <NotificationBell />
             {user && (
               <div className="crm-user-profile">
                 <span className="crm-avatar">{(user.fullName || user.email || 'U').slice(0, 2).toUpperCase()}</span>
-                <OperatorBadge email={user.email} fullName={user.fullName} role={user.role} />
               </div>
             )}
             <div className="crm-header-clinic-switcher">

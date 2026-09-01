@@ -113,10 +113,9 @@ export function PushOptIn() {
       title={label}
       aria-label={label}
       aria-pressed={enabled}
-      className="crm-push-opt-in inline-flex min-h-9 items-center gap-1 rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+      className="crm-push-opt-in inline-flex min-h-8 min-w-9 items-center justify-center rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
     >
       <span aria-hidden>{enabled ? '🔔' : '🔕'}</span>
-      <span className="hidden sm:inline">{enabled ? t('push.enabled') : t('push.enable')}</span>
     </button>
   )
 }

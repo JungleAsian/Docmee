@@ -31,12 +31,12 @@ vi.mock('./TagsPanel', () => ({ TagsPanel: () => <div /> }))
 vi.mock('./AssistantPanel', () => ({ AssistantPanel: () => <div /> }))
 
 describe('InboxContextRail', () => {
-  it('keeps internal notes above the booking calendar even with older saved ordering', async () => {
+  it('keeps internal notes below the booking calendar', async () => {
     vi.stubGlobal('React', React)
     const { InboxContextRail } = await import('./InboxContextRail')
     const markup = renderToStaticMarkup(React.createElement(InboxContextRail, { conversationId: 'conversation-1' }))
 
-    expect(markup.indexOf('Internal notes')).toBeLessThan(markup.indexOf('Booking calendar'))
-    expect(markup.indexOf('Booking calendar')).toBeLessThan(markup.indexOf('inbox.others'))
+    expect(markup.indexOf('Booking calendar')).toBeLessThan(markup.indexOf('Internal notes'))
+    expect(markup.indexOf('Internal notes')).toBeLessThan(markup.indexOf('inbox.others'))
   })
 })

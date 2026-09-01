@@ -83,12 +83,12 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
       ? ['patient', 'notes', 'calendar', 'others']
       : ['patient', 'notes', 'others']
     const ordered = visibleOrderedItems(preferences.sideRailItemOrder.main, allowed, preferences.hiddenSideRailItems)
-    // Notes are an operational scratchpad: keep them above the booking calendar
-    // even for users with older saved side-rail ordering from the previous layout.
+    // Keep internal notes immediately below the booking calendar, including for
+    // users with saved side-rail ordering from an older layout.
     if (features.calendarPolicyV2 && ordered.includes('notes') && ordered.includes('calendar')) {
       const withoutNotes = ordered.filter((id) => id !== 'notes')
       const calendarIndex = withoutNotes.indexOf('calendar')
-      withoutNotes.splice(Math.max(0, calendarIndex), 0, 'notes')
+      withoutNotes.splice(calendarIndex + 1, 0, 'notes')
       return withoutNotes
         .map((id) => [id, panels[id]] as const)
         .filter((entry): entry is readonly [string, ReactNode] => Boolean(entry[1]))

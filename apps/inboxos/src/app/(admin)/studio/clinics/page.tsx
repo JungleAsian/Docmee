@@ -281,7 +281,7 @@ function ClinicRow({ clinic, onRequestDelete }: { clinic: Clinic; onRequestDelet
   return (
     <tr className="border-t border-gray-100 dark:border-gray-800">
       <td className="px-3 py-2">
-        <Link
+        <Link prefetch={false}
           href={`/studio/clinics/${clinic.id}`}
           className="font-semibold text-teal-700 hover:text-teal-900 hover:underline dark:text-teal-300 dark:hover:text-teal-200"
         >

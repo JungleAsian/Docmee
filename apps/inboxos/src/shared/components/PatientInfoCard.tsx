@@ -150,7 +150,7 @@ export function PatientInfoCard({
       {/* Actions */}
       {patientId && showPatientHistory && (
         <div className="mt-2 flex flex-wrap gap-2">
-          <Link
+          <Link prefetch={false}
             href={`/inbox/${conversationId}/patient`}
             className="inline-flex items-center gap-1 rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-2.5 py-1 text-[10px] font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
           >

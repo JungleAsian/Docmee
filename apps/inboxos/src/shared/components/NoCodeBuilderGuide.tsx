@@ -27,7 +27,7 @@ export function NoCodeBuilderGuide({ active }: { active: NoCodeBuilderKind }) {
             {t('nocode.desc')}
           </p>
         </div>
-        <Link
+        <Link prefetch={false}
           href="/studio/workflows"
           className="rounded-md border border-emerald-300 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950"
         >
@@ -39,7 +39,7 @@ export function NoCodeBuilderGuide({ active }: { active: NoCodeBuilderKind }) {
         {NO_CODE_BUILDERS.map((builder) => {
           const selected = builder.kind === active
           return (
-            <Link
+            <Link prefetch={false}
               key={builder.kind}
               href={builder.href}
               aria-current={selected ? 'page' : undefined}
@@ -86,7 +86,7 @@ export function NoCodeBuilderGuide({ active }: { active: NoCodeBuilderKind }) {
                   {t(step.descKey as TranslateKey)}
                 </p>
                 {builder ? (
-                  <Link href={builder.href} className="mt-2 inline-block text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                  <Link prefetch={false} href={builder.href} className="mt-2 inline-block text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                     {t(builder.titleKey as TranslateKey)}
                   </Link>
                 ) : null}

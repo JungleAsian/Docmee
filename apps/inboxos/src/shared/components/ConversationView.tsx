@@ -425,7 +425,7 @@ export function ConversationView({
               </>
             )}
             {visibility.headerPatientHistory && conversation?.patientId && (
-              <Link
+              <Link prefetch={false}
                 href={`/inbox/${conversationId}/patient`}
                 className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
               >

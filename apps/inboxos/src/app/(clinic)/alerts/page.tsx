@@ -209,7 +209,7 @@ export default function AlertsPage() {
         </td>
         <td className="px-3 py-3 align-top">
           {n.conversationId ? (
-            <Link href={`/inbox?c=${n.conversationId}`} className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400">
+            <Link prefetch={false} href={`/inbox?c=${n.conversationId}`} className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400">
               {t('alerts.openConversation')}
             </Link>
           ) : (

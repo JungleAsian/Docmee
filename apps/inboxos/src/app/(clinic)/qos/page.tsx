@@ -479,7 +479,7 @@ function AttentionRow({ item }: { item: QosAttentionItem }) {
         </div>
 
         {/* Drill-down into the patient view */}
-        <Link
+        <Link prefetch={false}
           href={`/inbox/${item.conversationId}/patient`}
           className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-teal-600 shadow-sm hover:bg-gray-50 md:ml-0 md:justify-self-end dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
         >

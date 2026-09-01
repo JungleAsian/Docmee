@@ -252,7 +252,7 @@ export function InAppTutorial() {
 
           <div className="flex flex-wrap items-center gap-3">
             {active.href ? (
-              <Link
+              <Link prefetch={false}
                 href={active.href}
                 onClick={() => close(true)}
                 className="inline-flex min-h-11 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-500/12 px-4 text-sm font-bold text-cyan-300 hover:bg-cyan-500/18"

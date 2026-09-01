@@ -483,7 +483,7 @@ function PostureCard({
       <p className="flex-1 text-xs text-gray-500 dark:text-gray-400">{t(bodyKey)}</p>
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-dashed border-gray-200 pt-2.5 dark:border-gray-700">
         {linkHref && linkKey ? (
-          <Link
+          <Link prefetch={false}
             href={linkHref}
             className="inline-flex items-center gap-1 text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400"
           >

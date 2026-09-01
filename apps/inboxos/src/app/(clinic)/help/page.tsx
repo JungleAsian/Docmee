@@ -81,7 +81,7 @@ export default function HelpHomePage() {
               <ul className="space-y-2">
                 {results.map(({ category, article }) => (
                   <li key={`${category.slug}/${article.slug}`}>
-                    <Link
+                    <Link prefetch={false}
                       href={`/help/${category.slug}/${article.slug}`}
                     className="docmee-help-list-link block rounded-lg border p-4 transition"
                   >
@@ -110,7 +110,7 @@ export default function HelpHomePage() {
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                 {popular.map(({ category, article }) => (
-                  <Link
+                  <Link prefetch={false}
                     key={`${category.slug}/${article.slug}`}
                     href={`/help/${category.slug}/${article.slug}`}
                     className="docmee-help-list-link flex items-start gap-3 rounded-lg border p-4 transition"
@@ -136,7 +136,7 @@ export default function HelpHomePage() {
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                 {HELP_CATEGORIES.map((category) => (
-                  <Link
+                  <Link prefetch={false}
                     key={category.slug}
                     href={`/help/${category.slug}`}
                     className="docmee-help-category-card rounded-xl border p-5 transition"

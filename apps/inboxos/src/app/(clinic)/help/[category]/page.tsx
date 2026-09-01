@@ -21,7 +21,7 @@ export default function HelpCategoryPage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <nav className="mb-6 text-sm text-gray-500">
-          <Link href="/help" className="text-teal-600 hover:underline">
+          <Link prefetch={false} href="/help" className="text-teal-600 hover:underline">
             {L(HELP_UI.backToHelp, language)}
           </Link>
           <span className="mx-1.5">/</span>
@@ -44,7 +44,7 @@ export default function HelpCategoryPage() {
         <ul className="grid gap-3 lg:grid-cols-2">
           {category.articles.map((article) => (
             <li key={article.slug}>
-              <Link
+              <Link prefetch={false}
                 href={`/help/${category.slug}/${article.slug}`}
                 className="docmee-help-list-link flex items-center justify-between gap-3 rounded-lg border p-4 transition"
               >

@@ -20,7 +20,7 @@ export function StudioMessagingTabs() {
       {tabs.map((tab) => {
         const active = pathname === tab.href
         return (
-          <Link
+          <Link prefetch={false}
             key={tab.href}
             href={tab.href}
             aria-current={active ? 'page' : undefined}

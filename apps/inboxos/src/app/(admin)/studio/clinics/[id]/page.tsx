@@ -328,7 +328,7 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
       {/* Bot tone/language moved to Studio → AI Settings (items 3/9/16 of the 25-item
           batch) — edit them there; this link keeps the connection discoverable from
           the page an admin is used to looking at. */}
-      <Link
+      <Link prefetch={false}
         href="/studio/ai-settings"
         className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
       >
@@ -884,7 +884,7 @@ function ChannelsMovedNotice() {
   return (
     <Section title={t('clinic.channelsMoved.title')}>
       <p className="text-sm text-[var(--crm-text-muted)]">{t('clinic.channelsMoved.body')}</p>
-      <Link
+      <Link prefetch={false}
         href="/studio/channels"
         className="mt-3 inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200"
       >

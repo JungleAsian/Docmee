@@ -79,11 +79,11 @@ export default function HelpArticlePage() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <nav className="mb-6 text-sm text-gray-500">
-          <Link href="/help" className="text-teal-600 hover:underline">
+          <Link prefetch={false} href="/help" className="text-teal-600 hover:underline">
             {L(HELP_UI.backToHelp, language)}
           </Link>
           <span className="mx-1.5">/</span>
-          <Link href={`/help/${category.slug}`} className="text-teal-600 hover:underline">
+          <Link prefetch={false} href={`/help/${category.slug}`} className="text-teal-600 hover:underline">
             {L(category.title, language)}
           </Link>
         </nav>
@@ -95,7 +95,7 @@ export default function HelpArticlePage() {
               <p className="mt-2 text-gray-500 dark:text-gray-400">{L(article.excerpt, language)}</p>
             </div>
             {target ? (
-              <Link href={target.href} className="docmee-help-page-link">
+              <Link prefetch={false} href={target.href} className="docmee-help-page-link">
                 {L(target.label, language)}
               </Link>
             ) : null}
@@ -143,7 +143,7 @@ export default function HelpArticlePage() {
             <ul className="space-y-2">
               {related.map((a) => (
                 <li key={a.slug}>
-                  <Link
+                  <Link prefetch={false}
                     href={`/help/${category.slug}/${a.slug}`}
                     className="docmee-help-list-link block rounded-lg border p-3 text-sm transition"
                   >

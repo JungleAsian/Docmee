@@ -464,7 +464,7 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
 
       {revealed && (
       <>
-      <Link
+      <Link prefetch={false}
         href="/studio/ai-settings"
         className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
       >

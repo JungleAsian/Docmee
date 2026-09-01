@@ -108,14 +108,14 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
           </p>}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link
+          <Link prefetch={false}
             href="/inbox"
             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
           >
             Open inbox
           </Link>
           {canCalendar && (
-            <Link
+            <Link prefetch={false}
               href="/calendar"
               className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
             >
@@ -149,7 +149,7 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-bold">Next patient action</h3>
                 {next && (
-                  <Link href={`/inbox?c=${next.id}`} className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400">
+                  <Link prefetch={false} href={`/inbox?c=${next.id}`} className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400">
                     Open thread
                   </Link>
                 )}
@@ -179,7 +179,7 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-bold">Next visit</h3>
                 {canCalendar && (
-                  <Link href="/calendar" className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400">
+                  <Link prefetch={false} href="/calendar" className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400">
                     Schedule
                   </Link>
                 )}

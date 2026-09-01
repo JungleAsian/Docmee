@@ -136,7 +136,7 @@ export function BubbleThread({
             🗑
           </button>
         )}
-        <Link
+        <Link prefetch={false}
           href={`/inbox?c=${conversationId}`}
           className="shrink-0 text-[11px] font-semibold text-[var(--crm-primary-color)] hover:underline"
         >

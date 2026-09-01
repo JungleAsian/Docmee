@@ -159,11 +159,11 @@ export default function PatientHistoryPage({
     <div className="clinic-page clinic-page-md space-y-6">
       {/* Context strip / breadcrumb */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-        <Link href={backHref} className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400">
+        <Link prefetch={false} href={backHref} className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400">
           ← {t('patient.backToConversation')}
         </Link>
         <span className="text-gray-300 dark:text-gray-600">·</span>
-        <Link href="/inbox" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+        <Link prefetch={false} href="/inbox" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
           {t('nav.inbox')}
         </Link>
         <span className="text-gray-300 dark:text-gray-600">/</span>

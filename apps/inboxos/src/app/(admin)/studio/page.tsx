@@ -192,7 +192,7 @@ export default function StudioHomePage() {
                 ))}
               </select>
             </label>
-            <Link
+            <Link prefetch={false}
               href="/studio/clinics"
               className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
             >
@@ -233,7 +233,7 @@ export default function StudioHomePage() {
                     <p className="text-sm font-medium">{t(`setup.step.${step.key}.title` as Parameters<typeof t>[0])}</p>
                     <p className="text-xs text-gray-500">{t(`setup.step.${step.key}.desc` as Parameters<typeof t>[0])}</p>
                   </div>
-                  <Link
+                  <Link prefetch={false}
                     href={step.href}
                     className="shrink-0 rounded-md border border-gray-300 px-3 py-1 text-xs font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
                   >
@@ -257,7 +257,7 @@ export default function StudioHomePage() {
                 ['Governance', '/studio/governance', 'Consent, audit posture, policy checks'],
                 ['Activities', '/studio/activities', 'Change history, credentials, role and clinic edits'],
               ].map(([label, href, detail]) => (
-                <Link
+                <Link prefetch={false}
                   key={label}
                   href={href}
                   className="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
@@ -277,7 +277,7 @@ export default function StudioHomePage() {
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {SECTION_MAP.map((section) => (
-            <Link
+            <Link prefetch={false}
               key={section.title}
               href={section.href}
               className="clinic-card flex min-h-64 flex-col p-4 transition hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md dark:hover:border-teal-900"

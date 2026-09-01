@@ -177,7 +177,7 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
 
       {/* AI Assistant (J.zel) configuration moved to Studio → AI Settings
           (items 3/9/16 of the 25-item batch). */}
-      <Link
+      <Link prefetch={false}
         href="/studio/ai-settings"
         className="flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
       >
@@ -265,7 +265,7 @@ function AutomationSections({ clinic, clinicId }: { clinic: Clinic; clinicId: st
       <PendingApprovals clinicId={clinicId} />
 
       {/* Recent activity moved to /studio/activities (merged with the audit log). */}
-      <Link
+      <Link prefetch={false}
         href="/studio/activities"
         className="flex items-center justify-between gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200 dark:hover:bg-teal-950/70"
       >
@@ -406,7 +406,7 @@ function CustomFlowsSummary({ clinicId }: { clinicId: string }) {
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('automations.section.flows')}</h2>
-        <Link href="/studio/custom-flows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
+        <Link prefetch={false} href="/studio/custom-flows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
       </div>
       <p className="text-xs text-gray-500">{t('automations.section.flows.desc')}</p>
       {query.isLoading ? (
@@ -465,7 +465,7 @@ function WorkflowsSummary({ clinicId }: { clinicId: string }) {
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{t('wf.title')}</h2>
         <div className="flex items-center gap-2">
-          <Link href="/studio/workflows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
+          <Link prefetch={false} href="/studio/workflows" className="text-xs font-medium text-cyan-600 hover:underline dark:text-cyan-400">{t('automations.flows.manage')}</Link>
           <DisclosureToggle revealed={revealed} contentId="automation-workflow-settings" onToggle={() => setRevealed((value) => !value)} />
         </div>
       </div>

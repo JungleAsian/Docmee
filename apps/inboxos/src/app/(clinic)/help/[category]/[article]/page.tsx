@@ -77,7 +77,7 @@ export default function HelpArticlePage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="w-full max-w-none px-3 py-5 sm:px-4 lg:px-5">
         <nav className="mb-6 text-sm text-gray-500">
           <Link prefetch={false} href="/help" className="text-teal-600 hover:underline">
             {L(HELP_UI.backToHelp, language)}
@@ -88,7 +88,7 @@ export default function HelpArticlePage() {
           </Link>
         </nav>
 
-        <article className="max-w-5xl">
+        <article className="max-w-none">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{L(article.title, language)}</h1>

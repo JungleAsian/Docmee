@@ -172,9 +172,6 @@ export default function StudioHomePage() {
           <div>
             <p className="clinic-eyebrow">Admin Studio command center</p>
             <h1 className="clinic-title">{t('setup.title')}</h1>
-            <p className="clinic-subtitle">
-              A BotPenguin-style map for Docmee: set up the assistant, connect channels, manage staff, watch the inbox, and review analytics from one place.
-            </p>
           </div>
           <div className="clinic-toolbar">
             <label className="flex flex-col text-xs font-medium text-gray-500">

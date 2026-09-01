@@ -20,7 +20,7 @@ import type { ClinicQos, QosAttentionItem } from '@/shared/types'
 
 const STALE_OPTIONS = [6, 12, 24, 48, 72]
 
-type Tone = 'danger' | 'warn' | 'unclosed' | 'info' | 'teal'
+type Tone = 'danger' | 'warn' | 'unclosed' | 'info' | 'teal' | 'ok'
 
 // Per-channel brand dot colour (whatsapp green / messenger blue / instagram pink).
 const CHANNEL_DOT: Record<string, string> = {
@@ -127,7 +127,7 @@ export default function QosPage() {
                 tone="danger"
                 label={t('qos.card.upset')}
                 value={String(q.upsetPatients)}
-                chip={{ variant: 'danger', text: t('qos.chip.unresolved', { n: q.upsetUnresolved }) }}
+                chip={{ variant: q.upsetUnresolved > 0 ? 'danger' : 'ok', text: t('qos.chip.unresolved', { n: q.upsetUnresolved }) }}
                 hint={t('qos.card.upsetHint')}
               />
               <RiskCard
@@ -135,7 +135,7 @@ export default function QosPage() {
                 tone="warn"
                 label={t('qos.card.abandoned')}
                 value={String(q.abandonedConversations)}
-                chip={{ variant: 'warn', text: t('qos.chip.quiet') }}
+                chip={{ variant: q.abandonedConversations > 0 ? 'warn' : 'ok', text: t('qos.chip.quiet') }}
                 hint={t('qos.card.abandonedHint')}
               />
               <RiskCard
@@ -143,7 +143,7 @@ export default function QosPage() {
                 tone="unclosed"
                 label={t('qos.card.aged')}
                 value={String(q.unclosedAged)}
-                chip={{ variant: 'unclosed', text: t('qos.chip.pastWindow') }}
+                chip={{ variant: q.unclosedAged > 0 ? 'unclosed' : 'ok', text: t('qos.chip.pastWindow') }}
                 hint={t('qos.card.agedHint')}
               />
               <RiskCard
@@ -163,7 +163,7 @@ export default function QosPage() {
                 tone="teal"
                 label={t('qos.card.followups')}
                 value={String(q.followUpOpportunities)}
-                chip={{ variant: 'warn', text: t('qos.chip.pending', { n: q.pendingFollowUps }) }}
+                chip={{ variant: q.pendingFollowUps > 0 ? 'warn' : 'ok', text: t('qos.chip.pending', { n: q.pendingFollowUps }) }}
                 hint={t('qos.card.followupsHint')}
               />
             </div>
@@ -271,6 +271,7 @@ const TONE_BAR: Record<Tone, string> = {
   unclosed: 'border-l-4 border-l-gray-400',
   info: '',
   teal: '',
+  ok: 'border-l-4 border-l-emerald-500',
 }
 const TONE_ICON: Record<Tone, string> = {
   danger: 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300',
@@ -278,6 +279,7 @@ const TONE_ICON: Record<Tone, string> = {
   unclosed: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-300',
   info: 'bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300',
   teal: 'bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-300',
+  ok: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
 }
 
 type ChipVariant = 'danger' | 'warn' | 'unclosed' | 'ok'
@@ -320,19 +322,19 @@ function RiskCard({
   chip?: { variant: ChipVariant; text: string }
   hint: string
 }) {
+  const numericValue = Number(value.replace(/[^0-9.-]/g, ''))
+  const zeroRisk = Number.isFinite(numericValue) && numericValue === 0 && ['danger', 'warn', 'unclosed', 'teal'].includes(tone)
+  const semanticTone: Tone = zeroRisk ? 'ok' : tone
+
   return (
     <div
-      className={`clinic-card p-5 ${TONE_BAR[tone]}`}
+      className={`clinic-card p-4 ${TONE_BAR[semanticTone]}`}
     >
       <div className="mb-3 flex items-center gap-2.5">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-xl text-base ${TONE_ICON[tone]}`}>{icon}</div>
+        <div className={`flex h-9 w-9 items-center justify-center rounded-xl text-base ${TONE_ICON[semanticTone]}`}>{icon}</div>
         <p className="text-xs font-semibold leading-tight text-gray-500 dark:text-gray-400">{label}</p>
       </div>
-      <p
-        className={`text-4xl font-bold tracking-tight ${
-          tone === 'danger' ? 'text-red-600 dark:text-red-400' : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : ''
-        }`}
-      >
+      <p className="text-3xl font-bold tracking-tight text-[var(--crm-text-main)]">
         {value}
       </p>
       {chip && <div className="mt-2">{<Chip {...chip} />}</div>}

@@ -5,15 +5,17 @@
 :root {
   --crm-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   --crm-font-manrope: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  --crm-bg-color: #f7f8fc;
+  --crm-bg-color: #f5f6f8;
   --crm-sidebar-bg: #063c52;
   --crm-card-bg: #ffffff;
-  --crm-elevated-bg: #f4f8fb;
-  --crm-chat-bg: #f8fbfe;
+  --crm-elevated-bg: #f2f4f7;
+  --crm-surface-section: #f8fafc;
+  --crm-surface-nested: #f2f4f7;
+  --crm-chat-bg: #f5f6f8;
   --crm-input-bg: #ffffff;
   --crm-text-main: #11244a;
-  --crm-text-muted: #536483;
-  --crm-text-soft: #8da0bd;
+  --crm-text-muted: #475467;
+  --crm-text-soft: #667085;
   --crm-primary-color: #247ea3;
   --crm-primary-hover: #1f6f91;
   --crm-primary-strong: #22c7dc;
@@ -27,16 +29,16 @@
   --crm-danger: #ef4444;
   --crm-success: #10b981;
   --crm-notification: #25d366;
-  --crm-border-color: #dfe7f2;
+  --crm-border-color: #e4e7ec;
   --crm-hover-bg: #eaf9fb;
   --crm-chart-orange: #f97316;
   --crm-chart-red: #ef4444;
   --crm-chart-blue: #3b82f6;
   --crm-chart-purple: #07a9b6;
   --crm-chart-cyan: #06b6d4;
-  --crm-shadow-sm: 0 8px 22px rgba(18, 37, 75, .06);
-  --crm-shadow-md: 0 16px 34px rgba(18, 37, 75, .08);
-  --crm-shadow-card: 0 18px 44px rgba(25, 50, 92, .10);
+  --crm-shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
+  --crm-shadow-md: 0 8px 20px rgba(16, 24, 40, .10);
+  --crm-shadow-card: 0 1px 2px rgba(16, 24, 40, .06);
   --crm-border-radius-sm: 16px;
   --crm-border-radius-md: 20px;
   --crm-border-radius-lg: 22px;
@@ -45,13 +47,17 @@
   --crm-page-header-padding-block: 0.65rem;
   --crm-page-header-padding-inline: 1rem;
   --crm-transition: all 0.22s ease;
-  --crm-shell-bg: #f7f8fc;
+  --crm-shell-bg: #f5f6f8;
   --crm-shell-glow-primary: rgba(255, 255, 255, .92);
   --crm-shell-glow-secondary: rgba(214, 241, 247, .38);
   --crm-panel-bg: rgba(255, 255, 255, .94);
   --crm-panel-bg-strong: rgba(255, 255, 255, .95);
   --crm-chat-surface: #ffffff;
   --crm-chat-glow: rgba(7, 169, 182, .05);
+  --crm-message-inbound-bg: #f2f4f7;
+  --crm-message-inbound-border: #7a8392;
+  --crm-message-outbound-bg: color-mix(in srgb, var(--crm-primary-color) 12%, #ffffff);
+  --crm-message-outbound-border: color-mix(in srgb, var(--crm-primary-color) 72%, #344054);
 }
 
 .dark {
@@ -59,6 +65,8 @@
   --crm-sidebar-bg: #052f42;
   --crm-card-bg: #1a2437;
   --crm-elevated-bg: #172033;
+  --crm-surface-section: #172033;
+  --crm-surface-nested: rgba(15, 23, 42, .72);
   --crm-chat-bg: #101725;
   --crm-input-bg: #121b2b;
   --crm-text-main: #eef6ff;
@@ -84,6 +92,10 @@
   --crm-panel-bg-strong: rgba(26, 36, 55, .96);
   --crm-chat-surface: #0f1726;
   --crm-chat-glow: rgba(34, 211, 238, .07);
+  --crm-message-inbound-bg: rgba(15, 23, 42, .92);
+  --crm-message-inbound-border: rgba(148, 163, 184, .22);
+  --crm-message-outbound-bg: var(--crm-primary-color);
+  --crm-message-outbound-border: transparent;
 }
 
 body {
@@ -261,15 +273,16 @@ body {
 
   .crm-sidebar-leaf-toggle {
     position: absolute;
-    top: 78px;
-    right: 8px;
+    top: 76px;
+    right: -9px;
     z-index: 80;
     width: 24px;
-    height: 24px;
+    height: 30px;
     align-items: center;
     justify-content: center;
     border: 1px solid rgba(255, 255, 255, .26);
-    border-radius: 999px;
+    border-right: 0;
+    border-radius: 999px 0 0 999px;
     color: #ffffff;
     background: linear-gradient(135deg, #10c5d5, #05a8ba);
     box-shadow: 0 10px 20px rgba(2, 56, 78, .28);
@@ -282,11 +295,11 @@ body {
   }
 
   .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle {
-    top: 78px;
+    top: 76px;
   }
 
   .crm-sidebar-header {
-    padding: 24px 16px 18px;
+    padding: 22px 16px 14px;
   }
 
   .crm-logo {
@@ -319,7 +332,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 6px;
+    gap: 5px;
     padding: 0 18px 0 14px;
     overflow: hidden;
   }
@@ -399,8 +412,8 @@ body {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 6px;
-    padding: 8px 18px 14px 14px;
+    gap: 5px;
+    padding: 6px 18px 12px 14px;
     border-top: 0;
   }
 
@@ -419,8 +432,8 @@ body {
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header {
-    min-height: 88px;
-    padding: 10px 10px 6px;
+    min-height: 76px;
+    padding: 9px 10px 4px;
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header img {
@@ -431,7 +444,8 @@ body {
   }
 
   .crm-sidebar-collapsed .crm-sidebar-nav {
-    gap: 4px;
+    align-items: center;
+    gap: 5px;
     padding-inline: 12px;
     overflow: hidden;
   }
@@ -440,9 +454,9 @@ body {
   .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item {
     justify-content: center;
     gap: 0;
-    width: 34px;
-    height: 34px;
-    min-height: 34px;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
     padding: 0;
     border: 1px solid rgba(255, 255, 255, .08);
     border-radius: 14px;
@@ -453,8 +467,8 @@ body {
 
   .crm-sidebar-collapsed .crm-sidebar-footer {
     align-items: center;
-    gap: 4px;
-    padding: 6px 12px 10px;
+    gap: 5px;
+    padding: 5px 12px 9px;
   }
 
   .crm-sidebar-collapsed .crm-nav-item > span,
@@ -505,9 +519,13 @@ body {
   .crm-header-context {
     display: flex;
     min-width: 0;
-    flex: 1 1 180px;
+    flex: 1 1 220px;
     align-items: center;
     overflow: hidden;
+  }
+
+  .crm-header-customize {
+    flex: 0 0 auto;
   }
 
   .crm-header-breadcrumb {
@@ -526,7 +544,7 @@ body {
     align-items: center;
     min-width: 220px;
     max-width: 520px;
-    margin-left: auto;
+    margin-left: 0;
     margin-right: 0;
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-sm);
@@ -640,9 +658,17 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 20px;
     overflow: auto;
-    padding: 0 24px 28px;
+    width: 100%;
+    max-width: none;
+    padding: 0 16px 24px;
+  }
+
+  .crm-dashboard-content > * {
+    width: 100%;
+    max-width: none;
   }
 
   .crm-theme-toggle {
@@ -718,6 +744,8 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
+    min-height: 86px;
+    border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-md);
     background: var(--crm-card-bg);
     padding: var(--crm-card-padding);
@@ -906,26 +934,36 @@ body {
 
   .crm-message {
     max-width: min(62%, 680px);
+    border: 1px solid var(--crm-message-inbound-border);
     border-radius: 0 16px 16px 16px;
-    background: white;
+    background: var(--crm-message-inbound-bg);
+    color: var(--crm-text-main);
     padding: 13px 17px;
     box-shadow: var(--crm-shadow-sm);
   }
 
   .dark .crm-message {
-    background: rgba(15, 23, 42, 0.92);
+    border-color: var(--crm-message-inbound-border);
+    background: var(--crm-message-inbound-bg);
   }
 
   .crm-message-sent {
     margin-left: auto;
+    border-color: var(--crm-message-outbound-border);
     border-radius: 16px 0 16px 16px;
-    background: var(--crm-primary-color);
+    background: var(--crm-message-outbound-bg);
+    color: var(--crm-text-main);
+  }
+
+  .dark .crm-message-sent {
+    background: var(--crm-message-outbound-bg);
     color: white;
   }
 
   .crm-ai-suggested {
-    border: 1px solid rgba(52, 198, 229, 0.22);
-    background: linear-gradient(90deg, rgba(52, 198, 229, 0.08), color-mix(in srgb, var(--crm-card-bg) 84%, transparent));
+    border: 1px solid var(--crm-message-outbound-border);
+    background: var(--crm-message-outbound-bg);
+    color: var(--crm-text-main);
   }
 
   .dark .crm-ai-suggested {
@@ -949,8 +987,8 @@ body {
 
     .crm-top-header,
     .crm-dashboard-content {
-      padding-left: 20px;
-      padding-right: 20px;
+      padding-left: 14px;
+      padding-right: 14px;
     }
 
     .crm-stats-row {
@@ -969,7 +1007,7 @@ body {
 
     .crm-dashboard-content {
       gap: 14px;
-      padding: 0 12px 16px;
+      padding: 0 10px 16px;
     }
 
     .crm-user-profile {
@@ -1009,23 +1047,29 @@ body {
 
   .docmee-inbox-reskin {
     --crm-font-sans: var(--crm-font-manrope);
-    --crm-bg-color: #F5F4FA;
-    --crm-elevated-bg: #F1EFF8;
+    --crm-bg-color: #f5f6f8;
+    --crm-elevated-bg: #f2f4f7;
+    --crm-surface-section: #f8fafc;
+    --crm-surface-nested: #f2f4f7;
     --crm-card-bg: #ffffff;
-    --crm-chat-bg: #F5F4FA;
+    --crm-chat-bg: #f5f6f8;
     --crm-input-bg: #ffffff;
     --crm-text-main: #1E1B29;
-    --crm-text-muted: #8B8798;
-    --crm-text-soft: #A9A4BD;
+    --crm-text-muted: #475467;
+    --crm-text-soft: #667085;
     --crm-primary-color: #14B4C4;
     --crm-primary-hover: #0FA0AE;
     --crm-primary-strong: #1AC9D8;
-    --crm-border-color: #ECE9F5;
+    --crm-border-color: #e4e7ec;
     --crm-hover-bg: #E9F8FA;
     --crm-notification: #25D366;
-    --crm-shadow-sm: 0 1px 2px rgba(30, 27, 41, .05);
-    --crm-shadow-md: 0 6px 16px rgba(30, 27, 41, .07);
-    --crm-shadow-card: 0 10px 24px rgba(30, 27, 41, .06);
+    --crm-shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
+    --crm-shadow-md: 0 8px 20px rgba(16, 24, 40, .10);
+    --crm-shadow-card: 0 1px 2px rgba(16, 24, 40, .06);
+    --crm-message-inbound-bg: #f2f4f7;
+    --crm-message-inbound-border: #7a8392;
+    --crm-message-outbound-bg: color-mix(in srgb, var(--crm-primary-color) 12%, #ffffff);
+    --crm-message-outbound-border: color-mix(in srgb, var(--crm-primary-color) 72%, #344054);
     --crm-border-radius-lg: 24px;
     font-family: var(--crm-font-sans);
   }
@@ -1033,6 +1077,8 @@ body {
   .dark .docmee-inbox-reskin {
     --crm-bg-color: #15131C;
     --crm-elevated-bg: #1C1826;
+    --crm-surface-section: #1c1826;
+    --crm-surface-nested: rgba(15, 23, 42, .72);
     --crm-card-bg: #1E1B29;
     --crm-chat-bg: #15131C;
     --crm-input-bg: #241F32;
@@ -1048,40 +1094,50 @@ body {
     --crm-shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
     --crm-shadow-md: 0 6px 16px rgba(0, 0, 0, .35);
     --crm-shadow-card: 0 10px 24px rgba(0, 0, 0, .3);
+    --crm-message-inbound-bg: rgba(15, 23, 42, .92);
+    --crm-message-inbound-border: rgba(148, 163, 184, .22);
+    --crm-message-outbound-bg: var(--crm-primary-color);
+    --crm-message-outbound-border: transparent;
   }
 
   .crm-inboxos-desktop-shell,
   .crm-inboxos-desktop-shell .docmee-inbox-reskin {
     --crm-font-sans: var(--crm-font-manrope);
-    --crm-bg-color: #f7f8fc;
+    --crm-bg-color: #f5f6f8;
     --crm-sidebar-bg: #063c52;
-    --crm-elevated-bg: #f4f8fb;
+    --crm-elevated-bg: #f2f4f7;
+    --crm-surface-section: #f8fafc;
+    --crm-surface-nested: #f2f4f7;
     --crm-card-bg: #ffffff;
-    --crm-chat-bg: #f8fbfe;
+    --crm-chat-bg: #f5f6f8;
     --crm-input-bg: #ffffff;
     --crm-text-main: #11244a;
-    --crm-text-muted: #536483;
-    --crm-text-soft: #8da0bd;
+    --crm-text-muted: #475467;
+    --crm-text-soft: #667085;
     --crm-primary-color: #247ea3;
     --crm-primary-hover: #1f6f91;
     --crm-primary-strong: #22c7dc;
     --crm-active-bg: linear-gradient(90deg, #247ea3 0%, #22c7dc 100%);
-    --crm-border-color: #dfe7f2;
+    --crm-border-color: #e4e7ec;
     --crm-hover-bg: #eaf9fb;
     --crm-notification: #25d366;
-    --crm-shadow-sm: 0 8px 22px rgba(18, 37, 75, .06);
-    --crm-shadow-md: 0 16px 34px rgba(18, 37, 75, .08);
-    --crm-shadow-card: 0 18px 44px rgba(25, 50, 92, .10);
+    --crm-shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
+    --crm-shadow-md: 0 8px 20px rgba(16, 24, 40, .10);
+    --crm-shadow-card: 0 1px 2px rgba(16, 24, 40, .06);
     --crm-border-radius-sm: 16px;
     --crm-border-radius-md: 20px;
     --crm-border-radius-lg: 22px;
-    --crm-shell-bg: #f7f8fc;
+    --crm-shell-bg: #f5f6f8;
     --crm-shell-glow-primary: rgba(255, 255, 255, .92);
     --crm-shell-glow-secondary: rgba(214, 241, 247, .38);
     --crm-panel-bg: rgba(255, 255, 255, .94);
     --crm-panel-bg-strong: rgba(255, 255, 255, .95);
     --crm-chat-surface: #ffffff;
     --crm-chat-glow: rgba(36, 126, 163, .05);
+    --crm-message-inbound-bg: #f2f4f7;
+    --crm-message-inbound-border: #7a8392;
+    --crm-message-outbound-bg: color-mix(in srgb, var(--crm-primary-color) 12%, #ffffff);
+    --crm-message-outbound-border: color-mix(in srgb, var(--crm-primary-color) 72%, #344054);
     font-family: var(--crm-font-sans);
   }
 
@@ -1090,6 +1146,8 @@ body {
     --crm-bg-color: #101725;
     --crm-sidebar-bg: #052f42;
     --crm-elevated-bg: #172033;
+    --crm-surface-section: #172033;
+    --crm-surface-nested: rgba(15, 23, 42, .72);
     --crm-card-bg: #1a2437;
     --crm-chat-bg: #101725;
     --crm-input-bg: #121b2b;
@@ -1113,6 +1171,10 @@ body {
     --crm-panel-bg-strong: rgba(26, 36, 55, .96);
     --crm-chat-surface: #0f1726;
     --crm-chat-glow: rgba(34, 211, 238, .07);
+    --crm-message-inbound-bg: rgba(15, 23, 42, .92);
+    --crm-message-inbound-border: rgba(148, 163, 184, .22);
+    --crm-message-outbound-bg: var(--crm-primary-color);
+    --crm-message-outbound-border: transparent;
   }
 
   .crm-inboxos-desktop-shell {
@@ -1153,12 +1215,12 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
-    top: 78px;
+    top: 76px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
-    min-height: 88px;
-    padding: 10px 10px 6px;
+    min-height: 76px;
+    padding: 9px 10px 4px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header img {
@@ -1170,13 +1232,14 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-nav {
     align-items: stretch;
-    gap: 6px;
+    gap: 5px;
     padding: 0 18px 0 14px;
     overflow: hidden;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-nav {
-    gap: 4px;
+    align-items: center;
+    gap: 5px;
     padding-inline: 12px;
     overflow: hidden;
   }
@@ -1227,8 +1290,8 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-footer {
     align-items: stretch;
-    gap: 6px;
-    padding: 8px 18px 14px 14px;
+    gap: 5px;
+    padding: 6px 18px 12px 14px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-footer .crm-nav-item {
@@ -1240,9 +1303,9 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer .crm-nav-item {
-    width: 34px;
-    height: 34px;
-    min-height: 34px;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
     padding: 0;
     border: 1px solid rgba(255, 255, 255, .08);
     border-radius: 14px;
@@ -1252,8 +1315,8 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer {
-    gap: 4px;
-    padding: 6px 12px 10px;
+    gap: 5px;
+    padding: 5px 12px 9px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-item > span,
@@ -1395,17 +1458,19 @@ body {
   .crm-inboxos-desktop-shell .crm-dashboard-content {
     gap: 0;
     overflow: hidden;
-    padding: 0 48px 28px 12px;
+    padding: 0 12px 12px;
   }
 
   .crm-inboxos-desktop-shell .docmee-inbox-reskin {
     min-height: 0;
-    width: calc(100% + 36px);
-    margin-right: -36px;
+    width: 100%;
+    margin-right: 0;
   }
 
   .crm-inboxos-desktop-shell .crm-inbox-container {
     gap: 0;
+    width: 100%;
+    max-width: none;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1597,8 +1662,8 @@ body {
     }
 
     .crm-inboxos-desktop-shell .crm-dashboard-content {
-      padding-left: 20px;
-      padding-right: 20px;
+      padding-left: 10px;
+      padding-right: 10px;
     }
   }
 
@@ -1778,27 +1843,28 @@ body {
   }
 
   .clinic-page {
-    margin-inline: auto;
+    margin-inline: 0;
     width: 100%;
     max-width: none;
-    padding: 1rem;
+    padding: 0.75rem;
     padding-bottom: max(4.25rem, calc(1rem + env(safe-area-inset-bottom)));
   }
 
   @media (min-width: 640px) {
     .clinic-page {
-      padding: 1.5rem;
-      padding-bottom: max(5rem, calc(1.5rem + env(safe-area-inset-bottom)));
+      padding: 1rem;
+      padding-bottom: max(4.5rem, calc(1rem + env(safe-area-inset-bottom)));
     }
   }
 
   @media (min-width: 1280px) {
     .clinic-page {
-      padding: 2rem;
-      padding-bottom: max(5.75rem, calc(2rem + env(safe-area-inset-bottom)));
+      padding: 1.25rem;
+      padding-bottom: max(5rem, calc(1.25rem + env(safe-area-inset-bottom)));
     }
   }
 
+  .clinic-page-lg,
   .clinic-page-md {
     max-width: none;
   }
@@ -1916,6 +1982,21 @@ body {
     background: var(--crm-card-bg);
     box-shadow: var(--crm-shadow-card);
     transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+
+  .clinic-section-surface {
+    border: 1px solid var(--crm-border-color);
+    background: var(--crm-surface-section);
+    box-shadow: var(--crm-shadow-sm);
+  }
+
+  .clinic-nested-surface {
+    border: 1px solid var(--crm-border-color);
+    background: var(--crm-surface-nested);
+  }
+
+  .clinic-density-card {
+    min-height: 92px;
   }
 
   .clinic-card:hover {
@@ -2732,7 +2813,7 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 [data-docmee-app-shell] [class*="bg-gray-100"],
 [data-docmee-app-shell] [class*="dark:bg-gray-800"],
 [data-docmee-app-shell] [class*="dark:bg-slate-800"] {
-  background-color: var(--crm-elevated-bg) !important;
+  background-color: var(--crm-surface-nested) !important;
   border-color: var(--crm-border-color) !important;
 }
 
@@ -2807,7 +2888,7 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 }
 
 [data-docmee-app-shell] table thead {
-  background-color: var(--crm-elevated-bg) !important;
+  background-color: var(--crm-surface-section) !important;
   color: var(--crm-text-muted) !important;
 }
 

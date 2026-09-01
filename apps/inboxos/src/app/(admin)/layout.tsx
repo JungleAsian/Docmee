@@ -187,7 +187,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <List size={22} />
           </button>
           <PlatformBackButton />
-          <div className="relative">
+          <div className="crm-header-context">
+            <Breadcrumbs />
+          </div>
+          <div className="relative crm-header-customize">
             <button
               type="button"
               aria-label={t('nav.customizeMenu')}
@@ -224,9 +227,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 ))}
               </div>
             )}
-          </div>
-          <div className="min-w-0 flex-1 basis-48">
-            <Breadcrumbs />
           </div>
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />

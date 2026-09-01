@@ -99,10 +99,9 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
 
   return (
     <section className="clinic-card overflow-hidden">
-      <div className={`flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 ${compact ? 'p-3' : 'p-4'} dark:border-gray-800`}>
+      <div className={`clinic-section-surface flex flex-wrap items-start justify-between gap-3 border-x-0 border-t-0 ${compact ? 'p-3' : 'p-4'}`}>
         <div>
-          {!compact && <p className="clinic-eyebrow">Today</p>}
-          <h2 className={`${compact ? 'text-sm' : 'text-lg'} font-bold text-gray-950 dark:text-gray-50`}>Clinic command center</h2>
+          <h2 className={`${compact ? 'text-sm' : 'text-lg'} font-bold text-gray-950 dark:text-gray-50`}>Today</h2>
           {!compact && <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
             Urgent patient messages, waiting replies, unassigned work, and today's visits in one staff view.
           </p>}
@@ -145,7 +144,7 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
           </div>
 
           <div className={`grid gap-3 border-t border-gray-200 ${compact ? 'p-3 lg:grid-cols-2' : 'p-4 lg:grid-cols-[1.1fr_0.9fr]'} dark:border-gray-800`}>
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
+            <div className="clinic-nested-surface rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-bold">Next patient action</h3>
                 {next && (
@@ -175,7 +174,7 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
               )}
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/40">
+            <div className="clinic-nested-surface rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-bold">Next visit</h3>
                 {canCalendar && (

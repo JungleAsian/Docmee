@@ -19,13 +19,13 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 type CardTone = 'indigo' | 'cyan' | 'emerald' | 'teal' | 'amber' | 'rose' | 'violet'
 
 const CARD_TONE: Record<CardTone, string> = {
-  indigo: 'from-cyan-50 to-white text-cyan-700 dark:from-cyan-950/35 dark:to-[var(--crm-card-bg)] dark:text-cyan-200',
-  cyan: 'from-blue-50 to-white text-blue-700 dark:from-blue-950/35 dark:to-[var(--crm-card-bg)] dark:text-blue-200',
-  emerald: 'from-emerald-50 to-white text-emerald-700 dark:from-emerald-950/35 dark:to-[var(--crm-card-bg)] dark:text-emerald-200',
-  teal: 'from-cyan-50 to-white text-cyan-700 dark:from-cyan-950/35 dark:to-[var(--crm-card-bg)] dark:text-cyan-200',
-  amber: 'from-orange-50 to-white text-orange-700 dark:from-orange-950/35 dark:to-[var(--crm-card-bg)] dark:text-orange-200',
-  rose: 'from-red-50 to-white text-red-700 dark:from-red-950/35 dark:to-[var(--crm-card-bg)] dark:text-red-200',
-  violet: 'from-cyan-50 to-white text-cyan-700 dark:from-cyan-950/35 dark:to-[var(--crm-card-bg)] dark:text-cyan-200',
+  indigo: 'bg-[var(--crm-primary-color)]',
+  cyan: 'bg-cyan-500',
+  emerald: 'bg-emerald-500',
+  teal: 'bg-[var(--crm-primary-color)]',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  violet: 'bg-violet-500',
 }
 
 const CHART = {
@@ -354,21 +354,21 @@ function CrmCommandPanel({
   return (
     <section className="clinic-card overflow-hidden">
       <div className="grid gap-0 lg:grid-cols-[1.05fr_1.4fr]">
-        <div className="border-b border-gray-100 bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-5 dark:border-gray-800 dark:from-cyan-950/25 dark:via-[var(--crm-card-bg)] dark:to-blue-950/20 lg:border-b-0 lg:border-r">
+        <div className="clinic-section-surface border-x-0 border-t-0 p-4 lg:border-b-0 lg:border-l-0 lg:border-r lg:border-t-0">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-gray-950 dark:text-gray-50">Performance snapshot</h2>
             </div>
             {loading ? <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs text-gray-500 dark:bg-slate-900/70">Syncing</span> : null}
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <SummaryStat label="Returning patients" value={pct(returningShare)} />
             <SummaryStat label="No response risk" value={pct(metrics?.noResponseRate)} />
           </div>
         </div>
         <div className="grid gap-3 p-4 sm:grid-cols-2">
           {cards.map((card) => (
-            <div key={card.label} className="rounded-xl border border-gray-100 bg-white/70 p-4 dark:border-gray-800 dark:bg-slate-900/45">
+            <div key={card.label} className="clinic-nested-surface rounded-xl p-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-medium text-gray-500">{card.label}</p>
                 <span className={`h-2.5 w-2.5 rounded-full ${card.tone === 'teal' ? 'bg-cyan-500' : card.tone === 'emerald' ? 'bg-emerald-500' : card.tone === 'amber' ? 'bg-orange-500' : 'bg-blue-500'}`} />
@@ -385,7 +385,7 @@ function CrmCommandPanel({
 
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/70 bg-white/65 p-3 dark:border-white/10 dark:bg-slate-950/30">
+    <div className="clinic-nested-surface rounded-xl p-3">
       <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">{label}</p>
       <p className="mt-1 text-lg font-bold text-gray-950 dark:text-gray-50">{value}</p>
     </div>
@@ -411,15 +411,14 @@ function OperationalSnapshot({
 
   return (
     <section className="clinic-card clinic-chart-card">
-      <div className="mb-5 flex items-center justify-between gap-3">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{t('analytics.opsTitle')}</h2>
-          <p className="mt-1 text-xs text-gray-500">Visual snapshot of service speed, conversion, containment, and operational risk.</p>
         </div>
         {loading && <span className="text-xs text-gray-400">{t('common.loading')}</span>}
       </div>
-      <div className="grid gap-5 xl:grid-cols-[1.1fr_1fr]">
-        <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+        <div className="grid gap-3 sm:grid-cols-3">
           <SnapshotGauge
             label={t('analytics.ops.responseTime')}
             value={responseScore}
@@ -442,7 +441,7 @@ function OperationalSnapshot({
             caption="Resolved by AI"
           />
         </div>
-        <div className="rounded-xl border border-gray-100 bg-white/55 p-4 dark:border-gray-800 dark:bg-slate-900/35">
+        <div className="clinic-nested-surface rounded-xl p-3">
           <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-gray-500">Operational load</h3>
           <div className="space-y-4">
             <SnapshotBar label={t('analytics.ops.pendingReminders')} value={qos?.pendingFollowUps} max={workloadMax} color="bg-cyan-500" />
@@ -475,7 +474,7 @@ function SnapshotGauge({
   const circumference = 2 * Math.PI * radius
   const dash = normalized * circumference
   return (
-    <div className="rounded-xl border border-gray-100 bg-white/55 p-4 text-center dark:border-gray-800 dark:bg-slate-900/35">
+    <div className="clinic-nested-surface rounded-xl p-3 text-center">
       <div className="relative mx-auto h-[7.2rem] w-[7.2rem]">
         <svg viewBox="0 0 112 112" className="h-full w-full -rotate-90" role="img" aria-label={label}>
           <circle cx="56" cy="56" r={radius} fill="none" stroke="currentColor" strokeWidth="12" className="text-gray-100 dark:text-gray-800" />
@@ -530,9 +529,12 @@ function SnapshotBar({
 
 function Card({ label, value, tone = 'indigo' }: { label: string; value: string; tone?: CardTone }) {
   return (
-    <div className={`clinic-card bg-gradient-to-br p-5 ${CARD_TONE[tone]}`}>
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
+    <div className="clinic-card clinic-density-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">{label}</p>
+        <span className={`h-2.5 w-2.5 rounded-full ${CARD_TONE[tone]}`} />
+      </div>
+      <p className="mt-2 text-2xl font-bold text-[var(--crm-text-main)]">{value}</p>
     </div>
   )
 }

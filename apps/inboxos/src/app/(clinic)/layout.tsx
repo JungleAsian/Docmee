@@ -181,7 +181,10 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <List size={22} />
           </button>
           <ClinicBackButton />
-          <div className="relative">
+          <div className="crm-header-context">
+            <span className="crm-header-breadcrumb">{t(headerTitleKey)}</span>
+          </div>
+          <div className="relative crm-header-customize">
             <button
               type="button"
               aria-label={t('nav.customizeMenu')}
@@ -218,9 +221,6 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
                 ))}
               </div>
             )}
-          </div>
-          <div className="crm-header-context">
-            <span className="crm-header-breadcrumb">{t(headerTitleKey)}</span>
           </div>
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />

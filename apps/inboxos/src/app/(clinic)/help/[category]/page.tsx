@@ -19,7 +19,7 @@ export default function HelpCategoryPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="w-full max-w-none px-3 py-5 sm:px-4 lg:px-5">
         <nav className="mb-6 text-sm text-gray-500">
           <Link prefetch={false} href="/help" className="text-teal-600 hover:underline">
             {L(HELP_UI.backToHelp, language)}

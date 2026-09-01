@@ -69,6 +69,7 @@ export function Sidebar({
       <Link
         key={link.href}
         href={link.href}
+        prefetch={false}
         title={labelTitle}
         className={`crm-nav-item ${active ? 'crm-nav-item-active' : ''}`}
       >

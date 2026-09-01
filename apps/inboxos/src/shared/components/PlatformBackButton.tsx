@@ -32,7 +32,7 @@ export function PlatformBackButton() {
   const parentPath = '/' + segments.slice(0, segments.length - 1).join('/')
 
   return (
-    <Link href={parentPath} aria-label={t('nav.back')} title={t('nav.back')} className="crm-icon-btn">
+    <Link href={parentPath} prefetch={false} aria-label={t('nav.back')} title={t('nav.back')} className="crm-icon-btn">
       <ArrowLeft size={20} />
     </Link>
   )

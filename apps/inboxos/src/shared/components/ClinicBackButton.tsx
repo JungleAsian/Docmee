@@ -36,7 +36,7 @@ export function ClinicBackButton() {
   }
 
   return (
-    <Link href={parent} aria-label={t('nav.back')} title={t('nav.back')} className="crm-icon-btn">
+    <Link href={parent} prefetch={false} aria-label={t('nav.back')} title={t('nav.back')} className="crm-icon-btn">
       <ArrowLeft size={20} />
     </Link>
   )

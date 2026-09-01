@@ -57,16 +57,17 @@ require_grep '--crm-primary-color: #247ea3;' "$CSS_FILE" "Light primary token mu
 require_grep '--crm-primary-color: #34c6e5;' "$CSS_FILE" "Dark primary token must stay bright cyan (#34c6e5)"
 require_grep '--crm-active-bg: linear-gradient\(90deg, #247ea3 0%, #22c7dc 100%\);' "$CSS_FILE" "Active background must stay cyan/blue"
 require_grep '\.docmee-page-hero' "$CSS_FILE" "Shared Docmee page-banner styles are missing"
-require_grep 'background-image: var\(--docmee-page-hero-image\);' "$CSS_FILE" "Mascot banner image hook is missing"
-require_grep 'background-size: 264px 264px;' "$CSS_FILE" "Desktop page-banner mascot size is not normalized"
+require_grep '\.docmee-page-hero-icon' "$CSS_FILE" "Compact page-header icon styles are missing"
+require_grep '\.docmee-page-hero-title-row' "$CSS_FILE" "Compact page-header title row styles are missing"
+reject_grep 'background-image: var\(--docmee-page-hero-image\);' "$CSS_FILE" "Compact page headers must not reintroduce the mascot background hook"
 require_grep "background-image: url\\('/mascot-banners/hologram'\\);" "$CSS_FILE" "Help Center must use transparent mascot route, not a flat banner image"
 require_grep '\.docmee-help-hero::before' "$CSS_FILE" "Help Center transparent mascot layer is missing"
 reject_grep "url\\('/brand/docmee-help-banner\\.png'\\)" "$CSS_FILE" "Help Center regressed to flat JPG banner background"
-if [[ "$(grep -c 'background-size: 264px 264px;' "$CSS_FILE")" -lt 2 ]]; then
-  fail "Desktop Help and page banner mascot sizes must both be 264px"
+if [[ "$(grep -c 'background-size: 264px 264px;' "$CSS_FILE")" -lt 1 ]]; then
+  fail "Desktop Help mascot size must be 264px"
 fi
-if [[ "$(grep -c 'background-size: 184px 184px;' "$CSS_FILE")" -lt 2 ]]; then
-  fail "Mobile Help and page banner mascot sizes must both be 184px"
+if [[ "$(grep -c 'background-size: 184px 184px;' "$CSS_FILE")" -lt 1 ]]; then
+  fail "Mobile Help mascot size must be 184px"
 fi
 
 reject_grep '#9b22f4|#8b16f6|#bb22ff|#c026ff|#a31cff|#8518e7' "$CSS_FILE" "Violet regression tokens reappeared in globals.css"

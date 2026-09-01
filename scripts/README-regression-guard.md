@@ -9,7 +9,8 @@ The guard prevents the regressions that recently hit production:
 - Refuses overlapping InboxOS builds by using a build lock.
 - Fails if `.env.production` points the app, public API, or Google OAuth redirect back to the root domain.
 - Fails if the cyan/blue theme tokens are replaced by the previous violet tokens.
-- Fails if shared mascot page-banner styles are removed.
+- Fails if shared compact page-header styles are removed or the old mascot
+  page-header background hook is reintroduced.
 - Verifies the login page, API health endpoint, Caddy, `docmee.service`, and PM2 processes after deployment.
 
 Manual live check:

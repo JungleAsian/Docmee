@@ -10,6 +10,7 @@
 //   POST   /conversations/:id/reopen           → CREATES A NEW conversation (Decision 4)
 //   GET    /conversations/:id/messages
 //   POST   /conversations/:id/messages         (secretary, doctor, clinic_admin)
+//   DELETE /conversations/:id/messages/:messageId (secretary, doctor, clinic_admin)
 //   GET/POST/DELETE /conversations/:id/tags…   (Gap #13)
 //   GET/POST        /conversations/:id/notes        (Gap #14 — internal, never sent to patient)
 //   PATCH/DELETE    /conversations/:id/notes/:noteId (Req 13 — author-only edit/delete)
@@ -674,6 +675,32 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
         request.log.error(`[media] download failed: ${(err as Error).message}`)
         return reply.code(502).send({ error: 'Media download failed' })
       }
+    },
+  )
+
+  // ── Delete a single message ──
+  // Removes exactly one clinic-scoped message from a conversation. This is a
+  // front-desk cleanup tool, not a conversation hard delete, so it follows the
+  // same role gate as manual replies while still verifying the parent
+  // conversation before touching the row.
+  app.delete<{ Params: { id: string; messageId: string } }>(
+    '/:id/messages/:messageId',
+    { preHandler: requireRole('secretary', 'doctor', 'clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const deleted = await withDb(async (sql) => {
+        const conversations = createConversationsRepository(sql)
+        const existing = await conversations.findById(clinicId, request.params.id)
+        if (!existing) return null
+        const messages = createMessagesRepository(sql)
+        const message = await messages.findById(clinicId, request.params.messageId)
+        if (!message || message.conversationId !== request.params.id) return false
+        return messages.delete(clinicId, request.params.messageId)
+      })
+      if (deleted === null) return reply.code(404).send({ error: 'Conversation not found' })
+      if (!deleted) return reply.code(404).send({ error: 'Message not found' })
+      return reply.code(204).send()
     },
   )
 

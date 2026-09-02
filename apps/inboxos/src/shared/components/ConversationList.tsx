@@ -6,7 +6,7 @@
 // float to the top under a "Needs attention · Safety" header so they are
 // unmistakable while scanning a dense queue (Req 20). Supports a free-text search on
 // the contact handle, a channel filter, a status filter and an assignee filter.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
@@ -104,10 +104,12 @@ export function ConversationList({
   selectedId,
   onSelect,
   onOpenMediaRepository,
+  mediaRepositoryPanel,
 }: {
   selectedId: string | null
   onSelect: (id: string) => void
   onOpenMediaRepository?: () => void
+  mediaRepositoryPanel?: ReactNode
 }) {
   const { t } = useI18n()
   const user = useAuthStore((s) => s.user)
@@ -343,7 +345,8 @@ export function ConversationList({
   const urgentName = topSafety ? topSafety.patientName || topSafety.channelContactHandle : ''
 
   return (
-    <div className="flex h-full flex-col bg-[var(--crm-bg-color)]">
+    <div className="relative flex h-full flex-col bg-[var(--crm-bg-color)]">
+      {mediaRepositoryPanel}
       {safetyRows.length > 0 && (
         <button
           type="button"

@@ -33,6 +33,7 @@ export interface MessagesRepository {
   listByConversation(clinicId: string, conversationId: string): Promise<ConversationMessage[]>
   listByConversationSince(clinicId: string, conversationId: string, since: string): Promise<ConversationMessage[]>
   create(data: CreateMessageInput): Promise<ConversationMessage>
+  delete(clinicId: string, id: string): Promise<boolean>
   /** Persist the structured intent decision used to route an inbound message. */
   setClassification(clinicId: string, id: string, classification: NonNullable<ConversationMessage['classification']>): Promise<void>
   /** Persist synchronous provider acceptance without manufacturing an asynchronous receipt. */
@@ -175,6 +176,15 @@ export function createMessagesRepository(sql: Sql): MessagesRepository {
       `
 
       return msg
+    },
+
+    async delete(clinicId, id) {
+      const rows = await sql<{ id: string }[]>`
+        DELETE FROM conversation_messages
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+        RETURNING id
+      `
+      return rows.length === 1
     },
 
     async setClassification(clinicId, id, classification) {

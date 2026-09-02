@@ -20,6 +20,7 @@ import type { ClinicSettings, Conversation, PanelLanguage } from '../types'
 
 type Mode = 'messenger' | 'jzel'
 type PersistedUi = { open?: boolean; mode?: Mode }
+type LauncherPosition = { left: number; top: number }
 
 const UI_STORAGE_PREFIX = 'docmee.chatbubble.v1'
 
@@ -63,6 +64,9 @@ export function ChatBubble() {
   const uiLoadedFor = useRef<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const launcherRef = useRef<HTMLButtonElement>(null)
+  const launcherDragRef = useRef<{ pointerId: number; startX: number; startY: number; left: number; top: number; moved: boolean } | null>(null)
+  const suppressLauncherClickRef = useRef(false)
+  const [launcherPosition, setLauncherPosition] = useState<LauncherPosition | null>(null)
 
   const uiStorageKey =
     user && clinicId ? `${UI_STORAGE_PREFIX}:${user.id}:${clinicId}:${language}` : null
@@ -123,6 +127,25 @@ export function ChatBubble() {
     }
   }, [open])
 
+  useEffect(() => {
+    const clampLauncher = () => {
+      setLauncherPosition((current) => {
+        const fallback = {
+          left: Math.max(8, window.innerWidth - 72),
+          top: Math.max(8, window.innerHeight - 72),
+        }
+        const next = current ?? fallback
+        return {
+          left: Math.min(Math.max(8, next.left), window.innerWidth - 64),
+          top: Math.min(Math.max(8, next.top), window.innerHeight - 64),
+        }
+      })
+    }
+    clampLauncher()
+    window.addEventListener('resize', clampLauncher)
+    return () => window.removeEventListener('resize', clampLauncher)
+  }, [])
+
   if (pathname === '/login' || !user || !chatboxEnabled) return null
 
   return (
@@ -180,8 +203,46 @@ export function ChatBubble() {
         type="button"
         aria-expanded={open}
         aria-label={open ? t('bubble.close') : t('bubble.open')}
-        onClick={() => setOpen((v) => !v)}
-        className="pointer-events-auto fixed bottom-4 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--crm-primary-color)] text-white shadow-[var(--crm-shadow-card)] transition hover:bg-[var(--crm-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--crm-primary-color)] focus-visible:ring-offset-2"
+        onPointerDown={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          launcherDragRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            left: rect.left,
+            top: rect.top,
+            moved: false,
+          }
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const drag = launcherDragRef.current
+          if (!drag || drag.pointerId !== event.pointerId) return
+          const dx = event.clientX - drag.startX
+          const dy = event.clientY - drag.startY
+          if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true
+          setLauncherPosition({
+            left: Math.min(Math.max(8, drag.left + dx), window.innerWidth - 64),
+            top: Math.min(Math.max(8, drag.top + dy), window.innerHeight - 64),
+          })
+        }}
+        onPointerUp={(event) => {
+          const drag = launcherDragRef.current
+          launcherDragRef.current = null
+          suppressLauncherClickRef.current = Boolean(drag?.moved)
+          if (drag?.pointerId === event.pointerId) event.currentTarget.releasePointerCapture(event.pointerId)
+          if (suppressLauncherClickRef.current) {
+            window.setTimeout(() => {
+              suppressLauncherClickRef.current = false
+            }, 0)
+          }
+        }}
+        onClick={() => {
+          if (suppressLauncherClickRef.current) return
+          setOpen((v) => !v)
+        }}
+        style={launcherPosition ? { left: launcherPosition.left, top: launcherPosition.top } : { bottom: 16, right: 16 }}
+        className="pointer-events-auto fixed z-30 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-[var(--crm-primary-color)] text-white shadow-[var(--crm-shadow-card)] transition hover:bg-[var(--crm-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--crm-primary-color)] focus-visible:ring-offset-2"
       >
         <ChatCircleDots size={26} weight="fill" />
         {!open && unreadCount > 0 && (

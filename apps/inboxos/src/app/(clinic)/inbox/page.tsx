@@ -13,6 +13,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ConversationList } from '@/shared/components/ConversationList'
 import { ConversationView } from '@/shared/components/ConversationView'
 import { InboxContextRail } from '@/shared/components/InboxContextRail'
+import { MediaRepositoryRail } from '@/shared/components/MediaRepositoryRail'
+import { useFeatures } from '@/shared/hooks/useFeatures'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useOnline } from '@/shared/hooks/useOnline'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
@@ -36,6 +38,8 @@ export default function InboxPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panelsOpen, setPanelsOpen] = useState(false)
   const [detailsHidden, setDetailsHidden] = useState(false)
+  const [mediaRailOpen, setMediaRailOpen] = useState(false)
+  const [composerDraft, setComposerDraft] = useState('')
   const [listWidth, setListWidth] = useState(LIST_DEFAULT)
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT)
   const [isMedium, setIsMedium] = useState(false)
@@ -43,6 +47,7 @@ export default function InboxPage() {
   const [dragging, setDragging] = useState<'list' | 'right' | null>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const { preferences, setPreferences } = useUserUiPreferences()
+  const { features } = useFeatures()
   const listExpanded = preferences.conversationListExpanded
 
   // Selecting (or clearing) a thread always closes the mobile detail drawer so the
@@ -51,6 +56,8 @@ export default function InboxPage() {
     setSelectedId(id)
     setPanelsOpen(false)
     setDetailsHidden(false)
+    setMediaRailOpen(false)
+    setComposerDraft('')
   }
 
   // Deep-link from the Alerts center (Screen 11): /inbox?c=<conversationId> opens
@@ -146,6 +153,16 @@ export default function InboxPage() {
     />
   ) : null
 
+  const mediaRepositoryPanel =
+    features.mediaRepository && mediaRailOpen && selectedId ? (
+      <MediaRepositoryRail
+        conversationId={selectedId}
+        caption={composerDraft}
+        onSent={() => setComposerDraft('')}
+        onClose={() => setMediaRailOpen(false)}
+      />
+    ) : null
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
       {/* Offline / disconnected banner — a required operational state: when the
@@ -187,7 +204,8 @@ export default function InboxPage() {
           <ConversationList
             selectedId={selectedId}
             onSelect={select}
-            onOpenMediaRepository={() => window.dispatchEvent(new CustomEvent('docmee:open-media-repository'))}
+            onOpenMediaRepository={() => setMediaRailOpen(true)}
+            mediaRepositoryPanel={mediaRepositoryPanel}
           />
         ) : (
           <button
@@ -237,6 +255,8 @@ export default function InboxPage() {
               <ConversationView
                 key={selectedId}
                 conversationId={selectedId}
+                draft={composerDraft}
+                onDraftChange={setComposerDraft}
                 detailsHidden={detailsHidden}
                 onToggleDetails={() => setDetailsHidden((value) => !value)}
               />

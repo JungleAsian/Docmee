@@ -94,9 +94,9 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
 
     const workspace: NavLink[] = []
     if (can(role, 'inbox') && show('inbox')) workspace.push({ href: '/inbox', label: t('nav.inbox'), icon: <NavIcon name="inbox" /> })
+    if (can(role, 'calendar') && show('calendar')) workspace.push({ href: '/calendar', label: t('nav.calendar'), icon: <NavIcon name="calendar" /> })
     // Alerts center (Screen 11) — available to everyone who can see the inbox.
     if (can(role, 'inbox') && show('alerts')) workspace.push({ href: '/alerts', label: t('nav.alerts'), icon: <NavIcon name="alerts" /> })
-    if (can(role, 'calendar') && show('calendar')) workspace.push({ href: '/calendar', label: t('nav.calendar'), icon: <NavIcon name="calendar" /> })
     if (can(role, 'calendar') && show('waitlist')) workspace.push({ href: '/waitlist', label: t('nav.waitlist'), icon: <NavIcon name="clock" /> })
     workspace.push({ href: '/help', label: t('nav.help'), icon: <NavIcon name="help" /> })
 

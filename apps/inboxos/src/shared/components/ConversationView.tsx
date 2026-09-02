@@ -4,7 +4,7 @@
 // the AI bot or a human secretary is driving the thread, a send box, and
 // resolve/reopen actions. Reopen creates a NEW conversation (Decision 4) and the
 // view follows the caller to it via onConversationChange.
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
@@ -15,7 +15,6 @@ import { applyTemplateVars } from '../templateVars'
 import { TemplatePicker } from './TemplatePicker'
 import { InteractivePicker } from './InteractivePicker'
 import { ListPicker } from './ListPicker'
-import { MediaRepositoryRail } from './MediaRepositoryRail'
 import { AutomationModeToggle } from './AutomationModeToggle'
 import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
@@ -103,10 +102,14 @@ function isClosedStatus(status: ConversationStatus | undefined): boolean {
 
 export function ConversationView({
   conversationId,
+  draft: controlledDraft,
+  onDraftChange,
   detailsHidden = false,
   onToggleDetails,
 }: {
   conversationId: string
+  draft?: string
+  onDraftChange?: (draft: string) => void
   detailsHidden?: boolean
   onToggleDetails?: () => void
 }) {
@@ -114,13 +117,21 @@ export function ConversationView({
   const qc = useQueryClient()
   const { clinicId } = useActiveClinic()
   const { features } = useFeatures()
-  const [draft, setDraft] = useState('')
+  const [localDraft, setLocalDraft] = useState('')
+  const draft = controlledDraft ?? localDraft
+  const setDraft = useCallback((next: string | ((value: string) => string)) => {
+    if (onDraftChange) {
+      onDraftChange(typeof next === 'function' ? next(controlledDraft ?? '') : next)
+      return
+    }
+    setLocalDraft(next)
+  }, [controlledDraft, onDraftChange])
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [mediaRailOpen, setMediaRailOpen] = useState(false)
   const [mediaUncertain, setMediaUncertain] = useState(false)
+  const [patientHandleVisible, setPatientHandleVisible] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -169,16 +180,19 @@ export function ConversationView({
   const closed = isClosedStatus(conversation?.status)
 
   useEffect(() => {
-    if (!features.mediaRepository || conversation?.channel !== 'whatsapp') return
-
-    const openMediaRepository = () => setMediaRailOpen(true)
-    window.addEventListener('docmee:open-media-repository', openMediaRepository)
-    return () => window.removeEventListener('docmee:open-media-repository', openMediaRepository)
-  }, [conversation?.channel, features.mediaRepository])
-
-  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages.length])
+
+  useEffect(() => {
+    setPatientHandleVisible(false)
+  }, [conversationId])
+
+  useEffect(() => {
+    const input = textareaRef.current
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = `${Math.min(input.scrollHeight, Math.round(window.innerHeight * 0.35))}px`
+  }, [draft])
 
   useEffect(() => {
     if (
@@ -284,6 +298,15 @@ export function ConversationView({
     },
   })
 
+  const deleteMessageMutation = useMutation({
+    mutationFn: (messageId: string) =>
+      api.del(`/conversations/${conversationId}/messages/${messageId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+
   // Req 29: flag a bad bot reply → Admin Studio Error Review (bad_response).
   const flagMutation = useMutation({
     mutationFn: (message: Message) =>
@@ -348,14 +371,6 @@ export function ConversationView({
 
   return (
     <div className="relative flex h-full flex-col">
-      {features.mediaRepository && mediaRailOpen && conversation?.channel === 'whatsapp' && (
-        <MediaRepositoryRail
-          conversationId={conversationId}
-          caption={draft}
-          onSent={() => setDraft('')}
-          onClose={() => setMediaRailOpen(false)}
-        />
-      )}
       {/* Req 20: patient-safety banner — the loudest element in the thread when the
           workers have flagged a possible emergency or an urgent/upset patient, so a
           secretary can't miss it (the tag chips alone live in a side panel that's
@@ -372,18 +387,30 @@ export function ConversationView({
           <div className="min-w-[12rem] flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="truncate text-[18px] font-extrabold text-[var(--crm-text-main)]">
-                {conversation?.patientName || conversation?.channelContactHandle || '…'}
+                {conversation?.patientName || 'Patient'}
               </h3>
               {conversation?.channel === 'whatsapp' && (
                 <span className="crm-whatsapp-tag">WhatsApp</span>
               )}
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--crm-text-soft)]">
-              {/* When the title shows the patient's name, surface the raw handle
-                  (phone / IGSID) here so staff can still see/verify the number. */}
-              {conversation?.patientName && (
+              {/* The raw handle (phone / IGSID) is hidden by default for privacy,
+                  with an explicit reveal control for staff verification. */}
+              {conversation?.channelContactHandle && (
                 <>
-                  <span className="truncate">{conversation.channelContactHandle}</span>
+                  {patientHandleVisible && (
+                    <>
+                      <span className="truncate">{conversation.channelContactHandle}</span>
+                      <span aria-hidden>·</span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPatientHandleVisible((v) => !v)}
+                    className="rounded-full border border-[var(--crm-border-color)] px-2 py-0.5 text-[10px] font-bold text-[var(--crm-text-soft)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+                  >
+                    {patientHandleVisible ? 'Hide number' : 'Show number'}
+                  </button>
                   <span aria-hidden>·</span>
                 </>
               )}
@@ -485,6 +512,8 @@ export function ConversationView({
                     flagged={flaggedIds.has(m.id)}
                     flagging={flagMutation.isPending && flagMutation.variables?.id === m.id}
                     onFlag={() => flagMutation.mutate(m)}
+                    deleting={deleteMessageMutation.isPending && deleteMessageMutation.variables === m.id}
+                    onDelete={() => deleteMessageMutation.mutate(m.id)}
                     delivery={ind ? { glyph: ind.glyph, tone: ind.tone, label: t(ind.labelKey) } : null}
                     language={language}
                     conversationId={conversationId}
@@ -659,7 +688,7 @@ export function ConversationView({
                   {/* WhatsApp-style emoji panel: fixed-positioned (like the other
                       composer pickers) so it's never clipped by the composer's
                       overflow, a comfortable 8-column grid, and scrollable. */}
-                  <div className="fixed bottom-24 left-4 right-4 z-30 max-h-[300px] overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-3 shadow-[var(--crm-shadow-md)] sm:right-auto sm:w-[352px]">
+                  <div className="fixed bottom-24 left-[calc(72px+1rem)] right-4 z-30 max-h-[300px] overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-3 shadow-[var(--crm-shadow-md)] sm:right-auto sm:w-[352px] md:left-[calc(72px+1.25rem)]">
                     <div className="grid grid-cols-8 gap-1">
                       {EMOJI_SET.map((emoji) => (
                         <button
@@ -692,7 +721,7 @@ export function ConversationView({
               placeholder={t('view.placeholder')}
               enterKeyHint="send"
               autoCapitalize="sentences"
-              className="max-h-32 min-h-[44px] min-w-0 flex-1 resize-none rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[var(--crm-hover-bg)]"
+              className="max-h-[35vh] min-h-[44px] min-w-0 flex-1 resize-y overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[var(--crm-hover-bg)]"
             />
             <button
               type="submit"
@@ -817,6 +846,8 @@ function MessageBubble({
   flagged,
   flagging,
   onFlag,
+  deleting,
+  onDelete,
   delivery,
   language,
   conversationId,
@@ -831,6 +862,8 @@ function MessageBubble({
   flagged: boolean
   flagging: boolean
   onFlag: () => void
+  deleting: boolean
+  onDelete: () => void
   delivery: { glyph: string; tone: DeliveryTone; label: string } | null
   language: 'es' | 'en'
   conversationId: string
@@ -869,6 +902,16 @@ function MessageBubble({
   return (
     <div className={`group flex ${fromPatient ? 'justify-start' : 'justify-end'}`}>
       <div className={`relative text-[12px] ${skin} ${flagged ? 'outline outline-2 outline-red-500' : ''}`}>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          title="Delete message"
+          aria-label="Delete message"
+          className={`crm-message-delete-btn ${fromPatient ? '-right-2' : '-left-2'}`}
+        >
+          {deleting ? '…' : '−'}
+        </button>
         {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
             replies, matching the reskin's spec. */}
         <div className={`crm-sender-row ${isHuman ? '!text-teal-50/80' : ''} ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>

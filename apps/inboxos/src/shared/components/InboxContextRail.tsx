@@ -57,6 +57,7 @@ export function InboxContextRail({ conversationId, onHideDetails }: { conversati
         <PatientInfoCard
           key="patient"
           conversationId={conversationId}
+          onHideDetails={onHideDetails}
           showNextAppointment={visibility.nextAppointment}
           showAppointmentDateTime={visibility.appointmentDateTime}
           showPatientHistory={visibility.patientHistory}
@@ -75,7 +76,6 @@ export function InboxContextRail({ conversationId, onHideDetails }: { conversati
           key="calendar"
           ref={appointmentRef}
           conversationId={conversationId}
-          onHideDetails={onHideDetails}
         />
       )
     }

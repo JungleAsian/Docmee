@@ -401,10 +401,46 @@ body {
   }
 
   .crm-sidebar-logo-wordmark {
-    display: block;
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
     width: min(154px, 100%);
     height: auto;
+    color: #ffffff;
+    font-family: var(--crm-font-manrope);
+    font-size: 31px;
+    font-weight: 900;
+    letter-spacing: -0.08em;
+    line-height: 0.86;
     filter: drop-shadow(0 8px 14px rgba(12, 13, 30, 0.12));
+  }
+
+  .crm-sidebar-logo-doc {
+    color: #ffffff;
+  }
+
+  .crm-sidebar-logo-mee {
+    color: #19bfd2;
+  }
+
+  .crm-sidebar-logo-dot {
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    width: 5px;
+    height: 5px;
+    border: 1.5px solid #19bfd2;
+    border-radius: 999px;
+  }
+
+  .crm-sidebar-logo-tagline {
+    margin-top: 1px;
+    color: #ffffff;
+    font-size: 6.5px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    opacity: 0.92;
   }
 
   .dark .crm-sidebar-logo-wordmark {
@@ -1118,7 +1154,7 @@ body {
   .crm-message {
     max-width: min(62%, 680px);
     border: 1px solid var(--crm-message-inbound-border);
-    border-radius: 0 16px 16px 16px;
+    border-radius: 18px;
     background: var(--crm-message-inbound-bg);
     color: var(--crm-text-main);
     font-size: var(--crm-message-text-size);
@@ -1135,7 +1171,7 @@ body {
   .crm-message-sent {
     margin-left: auto;
     border-color: var(--crm-message-outbound-border);
-    border-radius: 16px 0 16px 16px;
+    border-radius: 18px;
     background: var(--crm-message-outbound-bg);
     color: var(--crm-text-main);
   }
@@ -1163,6 +1199,36 @@ body {
     border-top: 1px solid var(--crm-border-color);
     background: var(--crm-card-bg);
     padding: 18px 24px;
+  }
+
+  .crm-message-delete-btn {
+    position: absolute;
+    top: -8px;
+    z-index: 2;
+    display: grid;
+    width: 18px;
+    height: 18px;
+    place-items: center;
+    border: 1px solid rgba(244, 63, 94, .55);
+    border-radius: 999px;
+    background: #fff1f2;
+    color: #e11d48;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1;
+    opacity: 1;
+    box-shadow: var(--crm-shadow-sm);
+    transition: var(--crm-transition);
+  }
+
+  .crm-message-delete-btn:hover {
+    border-color: #e11d48;
+    background: #ffe4e6;
+    color: #be123c;
+  }
+
+  .crm-message-delete-btn:disabled {
+    opacity: .65;
   }
 
   @media (max-width: 1024px) {
@@ -1807,13 +1873,16 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle-options {
-    min-width: 90px;
+    min-width: 0;
     border-radius: 999px;
+    padding: 2px;
   }
 
   .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle-options button {
     border-radius: 999px;
-    padding: 3px 6px;
+    padding: 2px 8px;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
   }
 
   .crm-conversation-media-repository-btn {

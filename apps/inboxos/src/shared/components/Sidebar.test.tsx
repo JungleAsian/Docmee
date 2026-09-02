@@ -30,6 +30,18 @@ vi.mock('./ThemeToggle', () => ({
 }))
 
 describe('Sidebar', () => {
+  it('shows the registered trademark mark in the expanded wordmark', async () => {
+    vi.stubGlobal('React', React)
+    const { Sidebar } = await import('./Sidebar')
+    const markup = renderToStaticMarkup(
+      React.createElement(Sidebar, { title: 'Inbox', links: [], collapsed: false }),
+    )
+
+    expect(markup).toContain('aria-label="Docmee registered trademark"')
+    expect(markup).toContain('crm-sidebar-logo-registered')
+    expect(markup).toContain('®')
+  })
+
   it('shows the supplied Robotito avatar when the sidebar is collapsed', async () => {
     vi.stubGlobal('React', React)
     const { Sidebar } = await import('./Sidebar')

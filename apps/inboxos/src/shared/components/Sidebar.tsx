@@ -101,10 +101,10 @@ export function Sidebar({
         ) : (
           <div className="crm-logo">
             <div className="min-w-0 leading-tight">
-              <div className="crm-sidebar-logo-wordmark" aria-label={t('app.name')}>
+              <div className="crm-sidebar-logo-wordmark" aria-label={`${t('app.name')} registered trademark`}>
                 <span className="crm-sidebar-logo-doc">doc</span>
                 <span className="crm-sidebar-logo-mee">mee</span>
-                <span className="crm-sidebar-logo-dot" aria-hidden="true" />
+                <span className="crm-sidebar-logo-registered" aria-hidden="true">®</span>
               </div>
               <p className="crm-sidebar-logo-tagline">Chatbot de IA para médicos</p>
               <p className="mt-1.5 break-words text-[8px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">{title}</p>

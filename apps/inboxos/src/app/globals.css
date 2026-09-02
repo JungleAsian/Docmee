@@ -423,14 +423,14 @@ body {
     color: #19bfd2;
   }
 
-  .crm-sidebar-logo-dot {
-    position: absolute;
-    right: 2px;
-    top: 2px;
-    width: 5px;
-    height: 5px;
-    border: 1.5px solid #19bfd2;
-    border-radius: 999px;
+  .crm-sidebar-logo-registered {
+    margin-left: 3px;
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1;
+    transform: translateY(-0.95em);
   }
 
   .crm-sidebar-logo-tagline {

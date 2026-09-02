@@ -753,6 +753,7 @@ const es: Dict = {
   'nav.activities': 'Actividades',
 
   'studio.breadcrumb.root': 'Admin Studio',
+  'studio.breadcrumb.channels': 'Canal e integraciones',
   'studio.clinics.detail': 'Detalle',
   'studio.clinics.manage': 'Gestionar',
 
@@ -2870,6 +2871,7 @@ const en: Dict = {
   'nav.activities': 'Activities',
 
   'studio.breadcrumb.root': 'Admin Studio',
+  'studio.breadcrumb.channels': 'Channel & Integrations',
   'studio.clinics.detail': 'Detail',
   'studio.clinics.manage': 'Manage',
 

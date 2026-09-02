@@ -14,6 +14,7 @@ const SEGMENT_LABELS: Record<string, TranslationKey> = {
   doctors: 'nav.doctors',
   channels: 'studio.breadcrumb.channels',
   'quick-replies': 'nav.quickReplies',
+  templates: 'nav.templates',
   kb: 'nav.kb',
   errors: 'nav.errors',
   usage: 'nav.usage',

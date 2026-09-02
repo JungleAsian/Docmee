@@ -11,6 +11,7 @@ const SEGMENT_LABELS: Record<string, TranslationKey> = {
   studio: 'studio.breadcrumb.root',
   clinics: 'nav.clinics',
   users: 'nav.users',
+  doctors: 'nav.doctors',
   kb: 'nav.kb',
   errors: 'nav.errors',
   usage: 'nav.usage',

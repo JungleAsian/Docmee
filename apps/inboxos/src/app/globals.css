@@ -1145,6 +1145,16 @@ body {
     background-clip: padding-box;
   }
 
+  .crm-chat-message-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .crm-chat-message-entry + .crm-chat-message-entry {
+    margin-top: 12px;
+  }
+
   /* #3 — the collapsible "Others" section stacks the former rail panels; give
      each a hairline separator so they read as distinct groups. */
   .crm-inbox-others > * + * {
@@ -1161,6 +1171,15 @@ body {
     line-height: var(--crm-message-text-line-height);
     padding: 13px 17px;
     box-shadow: var(--crm-shadow-sm);
+  }
+
+  .crm-message-body {
+    margin-top: 6px;
+  }
+
+  .crm-sender-row + .crm-message-body,
+  .crm-message-body:first-child {
+    margin-top: 0;
   }
 
   .dark .crm-message {
@@ -1983,6 +2002,33 @@ body {
     justify-self: center;
     background: transparent !important;
     opacity: 1;
+  }
+
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .crm-inboxos-desktop-shell {
+      --crm-inbox-shell-gutter: 6px;
+    }
+
+    .crm-inboxos-desktop-shell .crm-inbox-container [role="separator"] {
+      width: 8px;
+    }
+
+    .crm-inboxos-desktop-shell .crm-inbox-details .crm-inbox-panel-stack {
+      gap: 8px;
+      padding-right: 6px;
+      padding-bottom: 6px;
+      padding-left: 6px;
+    }
+
+    .crm-inboxos-desktop-shell .crm-inbox-panel-stack > * {
+      border-radius: 16px !important;
+    }
+
+    .crm-inboxos-desktop-shell .crm-booking-calendar-card > div:first-child,
+    .crm-inboxos-desktop-shell .crm-booking-calendar-card > div:last-child {
+      padding-right: 10px;
+      padding-left: 10px;
+    }
   }
 
   @media (max-width: 1024px) {

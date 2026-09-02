@@ -570,7 +570,7 @@ export function ConversationView({
                 new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString()
               const ind = deliveryIndicator(m)
               return (
-                <div key={m.id} className="contents">
+                <div key={m.id} className="crm-chat-message-entry">
                   {newDay && <DaySeparator label={formatDay(m.createdAt, language, t('view.today'))} />}
                   {i === firstAgentIdx && <CenterMarker>↪ {t('view.handoff')}</CenterMarker>}
                   <MessageBubble
@@ -1026,7 +1026,7 @@ function MessageBubble({
         )}
         {/* Image messages show their caption (if any) below the image; non-image
             messages show their text/transcript. */}
-        {(!isImage || transcript) && <p className="whitespace-pre-wrap break-words">{transcript}</p>}
+        {(!isImage || transcript) && <p className="crm-message-body whitespace-pre-wrap break-words">{transcript}</p>}
 
         <div className={`mt-1 flex items-center gap-1.5 text-[11px] ${metaTone}`}>
           <span>{formatTime(message.createdAt, language)}</span>

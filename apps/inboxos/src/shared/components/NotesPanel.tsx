@@ -21,7 +21,7 @@ export function NotesPanel({ conversationId }: { conversationId: string }) {
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
 
   const query = useQuery({
     queryKey: key,

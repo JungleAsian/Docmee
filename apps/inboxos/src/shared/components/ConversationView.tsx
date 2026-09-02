@@ -169,6 +169,14 @@ export function ConversationView({
   const closed = isClosedStatus(conversation?.status)
 
   useEffect(() => {
+    if (!features.mediaRepository || conversation?.channel !== 'whatsapp') return
+
+    const openMediaRepository = () => setMediaRailOpen(true)
+    window.addEventListener('docmee:open-media-repository', openMediaRepository)
+    return () => window.removeEventListener('docmee:open-media-repository', openMediaRepository)
+  }, [conversation?.channel, features.mediaRepository])
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages.length])
 
@@ -431,15 +439,15 @@ export function ConversationView({
                 ))}
               </select>
             )}
-            {onToggleDetails && (
+            {onToggleDetails && detailsHidden && (
               <button
                 type="button"
                 onClick={onToggleDetails}
-                aria-label={detailsHidden ? 'Show patient details' : 'Hide patient details'}
-                title={detailsHidden ? 'Show patient details' : 'Hide patient details'}
+                aria-label="Show patient details"
+                title="Show patient details"
                 className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
               >
-                {detailsHidden ? 'Show details' : 'Hide details'}
+                Show details
               </button>
             )}
           </div>
@@ -626,18 +634,6 @@ export function ConversationView({
                   </>
                 )}
               </div>
-              {features.mediaRepository && conversation?.channel === 'whatsapp' && (
-                <button
-                  type="button"
-                  title="Open media repository"
-                  aria-label="Open media repository"
-                  aria-pressed={mediaRailOpen}
-                  onClick={() => setMediaRailOpen(true)}
-                  className="crm-composer-icon-btn text-sm"
-                >
-                  🗂️
-                </button>
-              )}
             </div>
 
             {/* Emoji */}

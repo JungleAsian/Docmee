@@ -26,7 +26,7 @@ import { useUserUiPreferences } from '../hooks/useUserUiPreferences'
 import { visibleOrderedItems } from '../userUiPreferences'
 import type { Clinic } from '../types'
 
-export function InboxContextRail({ conversationId }: { conversationId: string }) {
+export function InboxContextRail({ conversationId, onHideDetails }: { conversationId: string; onHideDetails?: () => void }) {
   const { t } = useI18n()
   const role = useAuthStore((s) => s.user?.role)
   const { features } = useFeatures()
@@ -75,6 +75,7 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
           key="calendar"
           ref={appointmentRef}
           conversationId={conversationId}
+          onHideDetails={onHideDetails}
         />
       )
     }
@@ -96,7 +97,7 @@ export function InboxContextRail({ conversationId }: { conversationId: string })
     return ordered
       .map((id) => [id, panels[id]] as const)
       .filter((entry): entry is readonly [string, ReactNode] => Boolean(entry[1]))
-  }, [conversationId, features.calendarPolicyV2, inboxSettings.inboxLayout.internalNotesVisible, preferences.hiddenSideRailItems, preferences.sideRailItemOrder.main, visibility.appointmentDateTime, visibility.chatStatus, visibility.nextAppointment, visibility.patientHistory])
+  }, [conversationId, features.calendarPolicyV2, inboxSettings.inboxLayout.internalNotesVisible, onHideDetails, preferences.hiddenSideRailItems, preferences.sideRailItemOrder.main, visibility.appointmentDateTime, visibility.chatStatus, visibility.nextAppointment, visibility.patientHistory])
 
   const othersItems = visibleOrderedItems(
     preferences.sideRailItemOrder.others,

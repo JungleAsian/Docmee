@@ -138,7 +138,13 @@ export default function InboxPage() {
   // on switch — otherwise local state (the reply draft, AI summary/suggestions,
   // a half-typed note) bleeds into the next patient's thread and can be sent to
   // the wrong recipient.
-  const panels = selectedId ? <InboxContextRail key={`rail-${selectedId}`} conversationId={selectedId} /> : null
+  const panels = selectedId ? (
+    <InboxContextRail
+      key={`rail-${selectedId}`}
+      conversationId={selectedId}
+      onHideDetails={() => setDetailsHidden(true)}
+    />
+  ) : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -178,7 +184,11 @@ export default function InboxPage() {
       {/* Conversation list — full width on mobile until a thread is opened. */}
       <div className={`${selectedId ? 'hidden md:block' : 'block'} crm-inbox-list overflow-hidden`}>
         {listExpanded || !isMedium ? (
-          <ConversationList selectedId={selectedId} onSelect={select} />
+          <ConversationList
+            selectedId={selectedId}
+            onSelect={select}
+            onOpenMediaRepository={() => window.dispatchEvent(new CustomEvent('docmee:open-media-repository'))}
+          />
         ) : (
           <button
             type="button"

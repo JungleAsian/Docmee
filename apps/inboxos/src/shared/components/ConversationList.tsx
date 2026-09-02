@@ -103,9 +103,11 @@ export function visibleConversationLenses(_showInactiveChannels: boolean): reado
 export function ConversationList({
   selectedId,
   onSelect,
+  onOpenMediaRepository,
 }: {
   selectedId: string | null
   onSelect: (id: string) => void
+  onOpenMediaRepository?: () => void
 }) {
   const { t } = useI18n()
   const user = useAuthStore((s) => s.user)
@@ -234,6 +236,9 @@ export function ConversationList({
   })
 
   const allRows = query.data?.conversations ?? []
+  const selectedConversation = allRows.find((c) => c.id === selectedId) ?? null
+  const canOpenSelectedMediaRepository =
+    Boolean(onOpenMediaRepository) && selectedConversation?.channel === 'whatsapp'
   const filtersActive = search.trim() !== '' || channel !== 'all'
   const projection = useMemo(
     () => projectConversationList(allRows, search, channel, activeChannels),
@@ -569,7 +574,23 @@ export function ConversationList({
             ))}
             {pageNormal.length > 0 && (
               <li>
-                <GroupLabel>{t('conv.group.open')}</GroupLabel>
+                <GroupLabel
+                  action={
+                    canOpenSelectedMediaRepository ? (
+                      <button
+                        type="button"
+                        onClick={onOpenMediaRepository}
+                        className="crm-conversation-media-repository-btn"
+                        aria-label="Open media repository"
+                        title="Open media repository"
+                      >
+                        🗂️
+                      </button>
+                    ) : null
+                  }
+                >
+                  {t('conv.group.open')}
+                </GroupLabel>
               </li>
             )}
             {pageNormal.map((c) => (
@@ -653,14 +674,23 @@ function previewText(
   return lastMessage.content || t('conv.preview.none')
 }
 
-function GroupLabel({ children, danger }: { children: React.ReactNode; danger?: boolean }) {
+function GroupLabel({
+  children,
+  danger,
+  action,
+}: {
+  children: React.ReactNode
+  danger?: boolean
+  action?: React.ReactNode
+}) {
   return (
     <div
-      className={`px-4 pb-2 pt-4 text-[10.5px] font-extrabold uppercase tracking-wider ${
+      className={`flex items-center justify-between gap-2 px-4 pb-2 pt-4 text-[10.5px] font-extrabold uppercase tracking-wider ${
         danger ? 'text-red-600 dark:text-red-400' : 'text-gray-400'
       }`}
     >
-      {children}
+      <span>{children}</span>
+      {action}
     </div>
   )
 }

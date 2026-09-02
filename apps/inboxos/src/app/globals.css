@@ -79,6 +79,10 @@
   --crm-message-inbound-border: #7a8392;
   --crm-message-outbound-bg: color-mix(in srgb, var(--crm-primary-color) 12%, #ffffff);
   --crm-message-outbound-border: color-mix(in srgb, var(--crm-primary-color) 72%, #344054);
+  --crm-message-text-size: var(--crm-type-micro-size);
+  --crm-message-text-line-height: var(--crm-type-label-line-height);
+  --crm-workflow-canvas-bg: #1f242b;
+  --crm-workflow-canvas-grid: #3a414c;
 }
 
 .dark {
@@ -117,6 +121,8 @@
   --crm-message-inbound-border: rgba(148, 163, 184, .22);
   --crm-message-outbound-bg: var(--crm-primary-color);
   --crm-message-outbound-border: transparent;
+  --crm-workflow-canvas-bg: #111827;
+  --crm-workflow-canvas-grid: #333d4a;
 }
 
 body {
@@ -351,8 +357,8 @@ body {
 
   .crm-sidebar-leaf-toggle {
     position: absolute;
-    top: 22px;
-    right: -14px;
+    top: 16px;
+    right: -12px;
     z-index: 120;
     width: 28px;
     height: 28px;
@@ -372,7 +378,8 @@ body {
   }
 
   .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle {
-    top: 22px;
+    top: 16px;
+    right: -12px;
   }
 
   .crm-sidebar-header {
@@ -515,7 +522,7 @@ body {
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header::after {
-    content: '';
+    content: none;
     position: absolute;
     right: 12px;
     bottom: 0;
@@ -1114,6 +1121,8 @@ body {
     border-radius: 0 16px 16px 16px;
     background: var(--crm-message-inbound-bg);
     color: var(--crm-text-main);
+    font-size: var(--crm-message-text-size);
+    line-height: var(--crm-message-text-line-height);
     padding: 13px 17px;
     box-shadow: var(--crm-shadow-sm);
   }
@@ -1371,7 +1380,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed {
     width: 80px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group-label,
@@ -1391,7 +1400,8 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
-    top: 22px;
+    top: 16px;
+    right: -12px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
@@ -1401,7 +1411,7 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header::after {
-    content: '';
+    content: none;
     position: absolute;
     right: 12px;
     bottom: 0;
@@ -1797,13 +1807,36 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle-options {
-    min-width: 128px;
+    min-width: 90px;
     border-radius: 999px;
   }
 
   .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle-options button {
     border-radius: 999px;
-    padding: 5px 9px;
+    padding: 3px 6px;
+  }
+
+  .crm-conversation-media-repository-btn {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--crm-border-color);
+    border-radius: 999px;
+    color: var(--crm-primary-color);
+    background: var(--crm-card-bg);
+    box-shadow: var(--crm-shadow-sm);
+    font-size: var(--crm-type-micro-size);
+    line-height: 1;
+    transition: var(--crm-transition);
+  }
+
+  .crm-conversation-media-repository-btn:hover {
+    background: var(--crm-hover-bg);
+    color: var(--crm-primary-hover);
+    transform: translateY(-1px);
   }
 
   .crm-inboxos-desktop-shell .crm-booking-calendar-card > div:first-child {
@@ -3714,7 +3747,7 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
   fill: rgb(3 7 18 / 0.6);
 }
 .dark .react-flow__minimap-node {
-  fill: #1f2937;
+  fill: var(--crm-workflow-canvas-grid);
 }
 .dark .react-flow__edge-text {
   fill: #e5e7eb;

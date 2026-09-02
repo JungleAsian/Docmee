@@ -1139,10 +1139,10 @@ function WorkflowCanvasInner({
           /* Item 18: snap dragged nodes to a 16px grid so they align cleanly. */
           snapToGrid
           snapGrid={[16, 16]}
-          /* Item 17: fixed #1e1e1e canvas background in both light and dark. */
-          style={{ background: '#1e1e1e' }}
+          /* Keep the builder canvas on the shared dark-gray workflow surface in both themes. */
+          style={{ background: 'var(--crm-workflow-canvas-bg)' }}
         >
-          <Background gap={16} color="#333333" />
+          <Background gap={16} color="var(--crm-workflow-canvas-grid)" />
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>

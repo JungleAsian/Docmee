@@ -4,7 +4,7 @@
 // the AI bot or a human secretary is driving the thread, a send box, and
 // resolve/reopen actions. Reopen creates a NEW conversation (Decision 4) and the
 // view follows the caller to it via onConversationChange.
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
@@ -70,6 +70,20 @@ const EMOJI_SET = [
   '✅', '❌', '⚠️', '⏰', '📅', '📌', '📎', '💬',
 ]
 
+const EMOJI_PANEL_WIDTH = 352
+const EMOJI_PANEL_GAP = 12
+const EMOJI_PANEL_MARGIN = 12
+
+function clampEmojiPanelPosition(x: number, y: number, width: number, height: number) {
+  if (typeof window === 'undefined') return { x, y }
+  const maxX = Math.max(EMOJI_PANEL_MARGIN, window.innerWidth - width - EMOJI_PANEL_MARGIN)
+  const maxY = Math.max(EMOJI_PANEL_MARGIN, window.innerHeight - height - EMOJI_PANEL_MARGIN)
+  return {
+    x: Math.min(Math.max(x, EMOJI_PANEL_MARGIN), maxX),
+    y: Math.min(Math.max(y, EMOJI_PANEL_MARGIN), maxY),
+  }
+}
+
 function clinicLocationText(clinic?: Clinic): string {
   const lines = [
     clinic?.name ? `Location for ${clinic.name}:` : 'Clinic location:',
@@ -129,6 +143,7 @@ export function ConversationView({
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set())
   const [attachError, setAttachError] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [emojiPanelPosition, setEmojiPanelPosition] = useState<{ x: number; y: number } | null>(null)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [mediaUncertain, setMediaUncertain] = useState(false)
   const [patientHandleVisible, setPatientHandleVisible] = useState(false)
@@ -136,6 +151,8 @@ export function ConversationView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const emojiButtonRef = useRef<HTMLButtonElement>(null)
+  const emojiPanelRef = useRef<HTMLDivElement>(null)
   const mediaAttemptRef = useRef<{ signature: string; key: string } | null>(null)
 
   // Screen 5: accept an AI draft from the AssistantPanel into the reply box. The
@@ -193,6 +210,59 @@ export function ConversationView({
     input.style.height = 'auto'
     input.style.height = `${Math.min(input.scrollHeight, Math.round(window.innerHeight * 0.35))}px`
   }, [draft])
+
+  useEffect(() => {
+    if (!emojiOpen) return
+
+    const placeAboveEmojiButton = () => {
+      const button = emojiButtonRef.current
+      if (!button) return
+      const buttonRect = button.getBoundingClientRect()
+      const panel = emojiPanelRef.current
+      const panelWidth = Math.min(EMOJI_PANEL_WIDTH, window.innerWidth - EMOJI_PANEL_MARGIN * 2)
+      const panelHeight = panel?.offsetHeight ?? 300
+      const centeredX = buttonRect.left + buttonRect.width / 2 - panelWidth / 2
+      const aboveY = buttonRect.top - panelHeight - EMOJI_PANEL_GAP
+      const fallbackY = buttonRect.bottom + EMOJI_PANEL_GAP
+      setEmojiPanelPosition(clampEmojiPanelPosition(centeredX, aboveY >= EMOJI_PANEL_MARGIN ? aboveY : fallbackY, panelWidth, panelHeight))
+    }
+
+    placeAboveEmojiButton()
+    window.addEventListener('resize', placeAboveEmojiButton)
+    return () => window.removeEventListener('resize', placeAboveEmojiButton)
+  }, [emojiOpen])
+
+  useEffect(() => {
+    if (emojiOpen) return
+    setEmojiPanelPosition(null)
+  }, [emojiOpen])
+
+  const startEmojiPanelDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('button')) return
+    const panel = emojiPanelRef.current
+    if (!panel) return
+
+    event.preventDefault()
+    const panelRect = panel.getBoundingClientRect()
+    const offsetX = event.clientX - panelRect.left
+    const offsetY = event.clientY - panelRect.top
+
+    const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
+      const nextX = moveEvent.clientX - offsetX
+      const nextY = moveEvent.clientY - offsetY
+      setEmojiPanelPosition(clampEmojiPanelPosition(nextX, nextY, panel.offsetWidth, panel.offsetHeight))
+    }
+
+    const stopDragging = () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', stopDragging)
+      window.removeEventListener('pointercancel', stopDragging)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', stopDragging)
+    window.addEventListener('pointercancel', stopDragging)
+  }, [])
 
   useEffect(() => {
     if (
@@ -668,6 +738,7 @@ export function ConversationView({
             {/* Emoji */}
             <div className="relative shrink-0">
               <button
+                ref={emojiButtonRef}
                 type="button"
                 onClick={() => setEmojiOpen((v) => !v)}
                 aria-label={t('view.emojiPicker')}
@@ -688,7 +759,19 @@ export function ConversationView({
                   {/* WhatsApp-style emoji panel: fixed-positioned (like the other
                       composer pickers) so it's never clipped by the composer's
                       overflow, a comfortable 8-column grid, and scrollable. */}
-                  <div className="fixed bottom-24 left-[calc(72px+1rem)] right-4 z-30 max-h-[300px] overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-3 shadow-[var(--crm-shadow-md)] sm:right-auto sm:w-[352px] md:left-[calc(72px+1.25rem)]">
+                  <div
+                    ref={emojiPanelRef}
+                    onPointerDown={startEmojiPanelDrag}
+                    className="fixed z-30 max-h-[300px] w-[min(352px,calc(100vw-24px))] cursor-grab touch-none overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-3 shadow-[var(--crm-shadow-md)] active:cursor-grabbing"
+                    style={{
+                      left: emojiPanelPosition ? `${emojiPanelPosition.x}px` : '50%',
+                      top: emojiPanelPosition ? `${emojiPanelPosition.y}px` : '50%',
+                      transform: emojiPanelPosition ? 'none' : 'translate(-50%, -50%)',
+                    }}
+                  >
+                    <div className="mb-2 flex items-center justify-center">
+                      <span className="h-1 w-10 rounded-full bg-[var(--crm-border-color)]" aria-hidden />
+                    </div>
                     <div className="grid grid-cols-8 gap-1">
                       {EMOJI_SET.map((emoji) => (
                         <button

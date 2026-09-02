@@ -23,14 +23,24 @@ export function ClinicBackButton() {
   if (pathname === CLINIC_HOME) return null
 
   let parent: string
+  let preferExplicitParent = false
   if (segments[0] === 'inbox') {
-    // /inbox/:id, /inbox/:id/patient, … → back to the inbox queue.
-    parent = CLINIC_HOME
+    // /inbox/:id/patient is opened from the active conversation. Send operators
+    // back to the inbox with the same thread selected instead of trusting browser
+    // history, which can point at a refresh, external page, or new-tab entry.
+    parent = segments[1] && segments[2] === 'patient'
+      ? `${CLINIC_HOME}?c=${encodeURIComponent(segments[1])}`
+      : CLINIC_HOME
+    preferExplicitParent = Boolean(segments[1] && segments[2] === 'patient')
   } else {
     const up = segments.slice(0, -1)
     parent = up.length ? '/' + up.join('/') : CLINIC_HOME
   }
   const goBack = () => {
+    if (preferExplicitParent) {
+      router.push(parent)
+      return
+    }
     if (window.history.length > 1) {
       router.back()
       return

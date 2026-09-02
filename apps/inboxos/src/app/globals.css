@@ -1101,6 +1101,20 @@ body {
     gap: 0;
   }
 
+  .crm-chat-header-actions {
+    line-height: var(--crm-type-micro-line-height);
+  }
+
+  .crm-chat-header-consent-tag {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: var(--crm-type-micro-size);
+    line-height: var(--crm-type-micro-line-height);
+    font-weight: 700;
+  }
+
   .crm-chat-header-mode .crm-status-toggle > div:first-child {
     display: none;
   }

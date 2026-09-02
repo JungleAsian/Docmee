@@ -499,13 +499,13 @@ export function ConversationView({
             </div>
           </div>
 
-          <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="crm-chat-header-actions ml-auto mt-1 flex w-full flex-wrap items-center gap-2 self-start sm:w-auto sm:justify-end">
             {features.humanOnlyMode && conversation?.patientId && (
               <>
                 <div className="crm-chat-header-mode">
                   <AutomationModeToggle conversationId={conversationId} patientId={conversation.patientId} mode={mode} />
                 </div>
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${interaction === 'opted_out' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
+                <span className={`crm-chat-header-consent-tag ${interaction === 'opted_out' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
                   {interaction === 'opted_out' ? 'Opt-out' : 'Opt-in'}
                 </span>
               </>

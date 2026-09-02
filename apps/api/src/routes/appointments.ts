@@ -541,29 +541,31 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
             }
           }
         }
-        // The Docmee-side status/time change above always applies. Google Calendar
-        // is a best-effort attachment: if it's not connected or the call fails, the
-        // row is flagged for the background calendar-sync-retry job instead of the
-        // whole request failing — the reschedule/cancel already happened in Docmee.
-        if ((date !== undefined && start !== undefined && updated.googleEventId) || (status === 'cancelled' && existing.googleEventId)) {
+        // Cancellation is a staff-facing lifecycle action and should feel instant
+        // in the Calendar UI. The Docmee row is the source of truth, so when a
+        // Google event exists we flag the owed delete for the background retry
+        // worker instead of making the PATCH wait on a slow external API call.
+        if (status === 'cancelled' && existing.googleEventId) {
+          return appts.update(clinicId, updated.id, { calendarSyncPending: true, calendarSyncError: null })
+        }
+        // The Docmee-side reschedule above always applies. Google Calendar is a
+        // best-effort attachment: if it's not connected or the call fails, the row
+        // is flagged for the background calendar-sync-retry job instead of the
+        // whole request failing — the reschedule already happened in Docmee.
+        if (date !== undefined && start !== undefined && updated.googleEventId) {
           const calendar = await clinicCalendar(sql, clinicId)
           if (!calendar) {
             return appts.update(clinicId, updated.id, { calendarSyncPending: true })
           }
           try {
-            if (status === 'cancelled' && existing.googleEventId) {
-              await calendar.deleteEvent(existing.googleEventId)
-              return appts.update(clinicId, updated.id, { googleEventId: null, calendarSyncPending: false, calendarSyncError: null })
-            } else if (date !== undefined && start !== undefined && updated.googleEventId) {
-              await calendar.updateEvent({
-                eventId: updated.googleEventId,
-                title: eventTitle(null),
-                date,
-                time: start,
-                durationMinutes: durationMinutes(updated.startTime, updated.endTime),
-              })
-              return appts.update(clinicId, updated.id, { calendarSyncPending: false, calendarSyncError: null })
-            }
+            await calendar.updateEvent({
+              eventId: updated.googleEventId,
+              title: eventTitle(null),
+              date,
+              time: start,
+              durationMinutes: durationMinutes(updated.startTime, updated.endTime),
+            })
+            return appts.update(clinicId, updated.id, { calendarSyncPending: false, calendarSyncError: null })
           } catch (error) {
             request.log.error({ err: error }, 'manual booking Google Calendar update failed')
             const message = error instanceof Error ? error.message : String(error)

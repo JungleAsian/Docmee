@@ -735,7 +735,7 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       expect(store.appts.get(appointment.id)).toBeDefined()
     })
 
-    it('PATCH cancel when Calendar.deleteEvent fails → still 200, Docmee status still applies', async () => {
+    it('PATCH cancel returns immediately and queues Google Calendar delete for retry', async () => {
       const created = await app.inject({
         method: 'POST',
         url: '/clinics/c-1/appointments',
@@ -744,7 +744,6 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       })
       const id = JSON.parse(created.body).appointment.id
 
-      calendarOps.deleteEvent.mockRejectedValueOnce(new Error('event already deleted'))
       const res = await app.inject({
         method: 'PATCH',
         url: `/clinics/c-1/appointments/${id}`,
@@ -755,7 +754,9 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       const appt = JSON.parse(res.body).appointment
       expect(appt.status).toBe('cancelled')
       expect(appt.calendarSyncPending).toBe(true)
-      expect(appt.calendarSyncError).toBe('event already deleted')
+      expect(appt.calendarSyncError).toBeNull()
+      expect(appt.googleEventId).toBe('google-event-1')
+      expect(calendarOps.deleteEvent).not.toHaveBeenCalled()
     })
   })
 })

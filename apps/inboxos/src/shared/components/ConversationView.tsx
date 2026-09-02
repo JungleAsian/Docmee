@@ -16,7 +16,6 @@ import { TemplatePicker } from './TemplatePicker'
 import { InteractivePicker } from './InteractivePicker'
 import { ListPicker } from './ListPicker'
 import { AutomationModeToggle } from './AutomationModeToggle'
-import { DeleteConversationDialog } from './DeleteConversationDialog'
 import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
 import { assessSafety, type SafetyLevel } from '../safety'
@@ -121,14 +120,12 @@ export function ConversationView({
   onDraftChange,
   detailsHidden = false,
   onToggleDetails,
-  onConversationDeleted,
 }: {
   conversationId: string
   draft?: string
   onDraftChange?: (draft: string) => void
   detailsHidden?: boolean
   onToggleDetails?: () => void
-  onConversationDeleted?: () => void
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
@@ -150,7 +147,6 @@ export function ConversationView({
   const [toolsOpen, setToolsOpen] = useState(false)
   const [mediaUncertain, setMediaUncertain] = useState(false)
   const [patientHandleVisible, setPatientHandleVisible] = useState(false)
-  const [deleteConversationOpen, setDeleteConversationOpen] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -384,6 +380,15 @@ export function ConversationView({
     },
   })
 
+  const deleteMessageMutation = useMutation({
+    mutationFn: (messageId: string) =>
+      api.del(`/conversations/${conversationId}/messages/${messageId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages', conversationId] })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+
   function onSend(e: FormEvent) {
     e.preventDefault()
     const content = draft.trim()
@@ -412,14 +417,6 @@ export function ConversationView({
     }
     sendMediaMutation.mutate({ form, idempotencyKey: mediaAttemptRef.current.key })
   }
-
-  const handleConversationDeleted = useCallback(() => {
-    setDeleteConversationOpen(false)
-    qc.removeQueries({ queryKey: ['conversation', conversationId] })
-    qc.removeQueries({ queryKey: ['messages', conversationId] })
-    qc.invalidateQueries({ queryKey: ['conversations'] })
-    onConversationDeleted?.()
-  }, [conversationId, onConversationDeleted, qc])
 
   // Permission-denied — the selected thread belongs to a clinic/role the operator
   // can't read (e.g. an admin switched clinics, or a deep-link to a foreign thread).
@@ -585,8 +582,8 @@ export function ConversationView({
                     flagged={flaggedIds.has(m.id)}
                     flagging={flagMutation.isPending && flagMutation.variables?.id === m.id}
                     onFlag={() => flagMutation.mutate(m)}
-                    deleteLabel={t('view.deleteTitle')}
-                    onDelete={() => setDeleteConversationOpen(true)}
+                    deleting={deleteMessageMutation.isPending && deleteMessageMutation.variables === m.id}
+                    onDelete={() => deleteMessageMutation.mutate(m.id)}
                     delivery={ind ? { glyph: ind.glyph, tone: ind.tone, label: t(ind.labelKey) } : null}
                     language={language}
                     conversationId={conversationId}
@@ -821,12 +818,6 @@ export function ConversationView({
           </form>
         </div>
       )}
-      <DeleteConversationDialog
-        open={deleteConversationOpen}
-        conversationId={conversationId}
-        onClose={() => setDeleteConversationOpen(false)}
-        onDeleted={handleConversationDeleted}
-      />
     </div>
   )
 }
@@ -938,7 +929,7 @@ function MessageBubble({
   flagged,
   flagging,
   onFlag,
-  deleteLabel,
+  deleting,
   onDelete,
   delivery,
   language,
@@ -954,7 +945,7 @@ function MessageBubble({
   flagged: boolean
   flagging: boolean
   onFlag: () => void
-  deleteLabel: string
+  deleting: boolean
   onDelete: () => void
   delivery: { glyph: string; tone: DeliveryTone; label: string } | null
   language: 'es' | 'en'
@@ -997,11 +988,12 @@ function MessageBubble({
         <button
           type="button"
           onClick={onDelete}
-          title={deleteLabel}
-          aria-label={deleteLabel}
+          disabled={deleting}
+          title="Delete message"
+          aria-label="Delete message"
           className={`crm-message-delete-btn ${fromPatient ? '-right-2' : '-left-2'}`}
         >
-          −
+          {deleting ? '…' : '−'}
         </button>
         {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
             replies, matching the reskin's spec. */}

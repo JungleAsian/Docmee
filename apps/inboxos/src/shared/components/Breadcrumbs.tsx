@@ -16,6 +16,7 @@ const SEGMENT_LABELS: Record<string, TranslationKey> = {
   'quick-replies': 'nav.quickReplies',
   templates: 'nav.templates',
   automations: 'automations.center.nav',
+  activities: 'nav.activities',
   kb: 'nav.kb',
   errors: 'nav.errors',
   usage: 'nav.usage',

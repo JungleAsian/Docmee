@@ -60,7 +60,7 @@ export function InboxContextRail({ conversationId, onHideDetails }: { conversati
           onHideDetails={onHideDetails}
           showNextAppointment={visibility.nextAppointment}
           showAppointmentDateTime={visibility.appointmentDateTime}
-          showPatientHistory={visibility.patientHistory}
+          showPatientHistory
           showChatStatus={visibility.chatStatus}
         />
       ),
@@ -154,14 +154,12 @@ function OthersPanel({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+        className="flex w-full cursor-pointer select-none items-center gap-1.5 px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-[var(--crm-text-main)] dark:text-gray-400 dark:hover:text-gray-200"
       >
-        <span className="text-xs font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
-          {t('inbox.others')}
-        </span>
-        <span aria-hidden className="text-[var(--crm-text-muted)]">
+        <span aria-hidden className="text-gray-400">
           {open ? '▾' : '▸'}
         </span>
+        <span>{t('inbox.others')}</span>
       </button>
       {open && (
         <div className="crm-inbox-others border-t border-[var(--crm-border-color)]">

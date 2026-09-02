@@ -13,8 +13,6 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, formatDateTime } from '../format'
-import { conversationMode } from '../conversationMode'
-import { AutomationModeToggle } from './AutomationModeToggle'
 import { InteractionModeToggle } from './InteractionModeToggle'
 import type { Appointment, Channel, Conversation, Patient, PatientStatus } from '../types'
 
@@ -61,7 +59,6 @@ export function PatientInfoCard({
   })
   const patient = patientQuery.data?.patient
   const personalConversation = patient?.automationMode === 'human_only'
-  const mode = conversationMode(conversation?.status, patient?.automationMode)
   const patientMetadata = patient?.metadata && typeof patient.metadata === 'object' ? patient.metadata : undefined
   const appointmentsQuery = useQuery({
     queryKey: ['patient-appointments', patientId],
@@ -125,8 +122,7 @@ export function PatientInfoCard({
       )}
 
       {patientId && (
-        <div className="crm-patient-status-controls mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-2">
-          <AutomationModeToggle conversationId={conversationId} patientId={patientId} mode={mode} />
+        <div className="crm-patient-status-controls mt-3 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-2">
           <InteractionModeToggle patientId={patientId} metadata={patientMetadata} />
         </div>
       )}

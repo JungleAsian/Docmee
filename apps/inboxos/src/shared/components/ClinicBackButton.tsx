@@ -5,14 +5,9 @@
 // clinic page (alerts, calendar, waitlist, reports, a patient detail, …) has a
 // consistent way back, exactly like Admin Studio.
 //
-// Platform-level, not browser-level: the destination is derived from the current
-// URL, never router.back()/history — deterministic regardless of how the user
-// arrived. The clinic home is /inbox: anything under /inbox/* goes back to the
-// inbox, a nested page (e.g. /help/[category]) drops its last segment, and any
-// other top-level clinic page returns to the inbox. Hidden on /inbox itself,
-// since there's no parent to go to from the home.
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+// History-aware: use the browser's previous page when it exists, then fall back
+// to the current section's parent for direct links, refreshes, or new tabs.
+import { usePathname, useRouter } from 'next/navigation'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useI18n } from '../hooks/useI18n'
 
@@ -20,6 +15,7 @@ const CLINIC_HOME = '/inbox'
 
 export function ClinicBackButton() {
   const pathname = usePathname()
+  const router = useRouter()
   const { t } = useI18n()
 
   const segments = pathname.split('/').filter(Boolean)
@@ -34,10 +30,17 @@ export function ClinicBackButton() {
     const up = segments.slice(0, -1)
     parent = up.length ? '/' + up.join('/') : CLINIC_HOME
   }
+  const goBack = () => {
+    if (window.history.length > 1) {
+      router.back()
+      return
+    }
+    router.push(parent)
+  }
 
   return (
-    <Link href={parent} prefetch={false} aria-label={t('nav.back')} title={t('nav.back')} className="crm-icon-btn">
+    <button type="button" onClick={goBack} aria-label={t('nav.back')} title={t('nav.back')} className="crm-icon-btn">
       <ArrowLeft size={20} />
-    </Link>
+    </button>
   )
 }

@@ -20,6 +20,7 @@ import { conversationMode } from '../conversationMode'
 import { filterConversations, type ChannelFilter } from '../conversationFilter'
 import { LENSES, lensCounts, matchesLens, type ConversationLens } from '../conversationLens'
 import { readInboxSettings } from '../inboxSettings'
+import { DeleteConversationDialog } from './DeleteConversationDialog'
 import type { Channel, Conversation, ConversationStatus } from '../types'
 
 // Req 20: row treatment per safety severity — a coloured left rail + a tinted row +
@@ -107,7 +108,9 @@ export function ConversationList({
   onSelect: (id: string) => void
 }) {
   const { t } = useI18n()
-  const userId = useAuthStore((s) => s.user?.id)
+  const user = useAuthStore((s) => s.user)
+  const userId = user?.id
+  const canDeleteConversations = user?.role === 'clinic_admin' || user?.role === 'ia_studio_admin'
   const members = useTeam()
   const { clinicId } = useActiveClinic()
   const clinicSettings = useQuery({
@@ -139,6 +142,7 @@ export function ConversationList({
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [selectedRows, setSelectedRows] = useState<Set<string>>(() => new Set())
+  const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null)
   useEffect(() => {
     if (channel !== 'all' && activeChannels !== undefined && !activeChannels.has(channel)) {
       setChannel('all')
@@ -559,6 +563,8 @@ export function ConversationList({
                 userId={userId}
                 checked={selectedRows.has(c.id)}
                 onCheck={toggleRow}
+                canDelete={canDeleteConversations}
+                onDelete={setDeleteConversationId}
               />
             ))}
             {pageNormal.length > 0 && (
@@ -577,6 +583,8 @@ export function ConversationList({
                 checked={selectedRows.has(c.id)}
                 onCheck={toggleRow}
                 onHide={hideRow}
+                canDelete={canDeleteConversations}
+                onDelete={setDeleteConversationId}
               />
             ))}
           </ul>
@@ -613,6 +621,21 @@ export function ConversationList({
           </div>
         )}
       </div>
+      <DeleteConversationDialog
+        open={deleteConversationId !== null}
+        conversationId={deleteConversationId ?? ''}
+        onClose={() => setDeleteConversationId(null)}
+        onDeleted={() => {
+          setDeleteConversationId(null)
+          setSelectedRows((current) => {
+            if (!deleteConversationId || !current.has(deleteConversationId)) return current
+            const next = new Set(current)
+            next.delete(deleteConversationId)
+            return next
+          })
+          qc.invalidateQueries({ queryKey: ['conversations'] })
+        }}
+      />
     </div>
   )
 }
@@ -651,6 +674,8 @@ function ThreadRow({
   checked,
   onCheck,
   onHide,
+  canDelete,
+  onDelete,
 }: {
   conversation: Conversation
   selected: boolean
@@ -660,6 +685,8 @@ function ThreadRow({
   checked: boolean
   onCheck: (id: string, checked: boolean) => void
   onHide?: (id: string) => void
+  canDelete: boolean
+  onDelete: (id: string) => void
 }) {
   const { t } = useI18n()
   const safety = assessSafety(c.tags).level
@@ -703,6 +730,20 @@ function ThreadRow({
               <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
               <line x1="2" y1="2" x2="22" y2="22" />
             </svg>
+          </button>
+        )}
+        {canDelete && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onDelete(c.id)
+            }}
+            title={t('view.delete')}
+            aria-label={t('view.delete')}
+            className="crm-conversation-delete-btn mt-1"
+          >
+            <span aria-hidden="true">−</span>
           </button>
         )}
         <button

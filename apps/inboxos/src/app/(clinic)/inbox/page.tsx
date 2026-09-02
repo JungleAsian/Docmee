@@ -35,6 +35,7 @@ export default function InboxPage() {
   const online = useOnline()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panelsOpen, setPanelsOpen] = useState(false)
+  const [detailsHidden, setDetailsHidden] = useState(false)
   const [listWidth, setListWidth] = useState(LIST_DEFAULT)
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT)
   const [isMedium, setIsMedium] = useState(false)
@@ -49,6 +50,7 @@ export default function InboxPage() {
   const select = (id: string | null) => {
     setSelectedId(id)
     setPanelsOpen(false)
+    setDetailsHidden(false)
   }
 
   // Deep-link from the Alerts center (Screen 11): /inbox?c=<conversationId> opens
@@ -164,7 +166,9 @@ export default function InboxPage() {
         style={
           isLarge
             ? selectedId
-              ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` : `44px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
+              ? detailsHidden
+                ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` : `44px minmax(${MAIN_MIN}px,1fr)` }
+                : { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` : `44px minmax(${MAIN_MIN}px,1fr) 6px ${rightWidth}px` }
               : { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` : `44px minmax(${MAIN_MIN}px,1fr)` }
             : isMedium
               ? { gridTemplateColumns: listExpanded ? `${listWidth}px 6px minmax(${MAIN_MIN}px,1fr)` : `44px minmax(${MAIN_MIN}px,1fr)` }
@@ -220,7 +224,12 @@ export default function InboxPage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
-              <ConversationView key={selectedId} conversationId={selectedId} />
+              <ConversationView
+                key={selectedId}
+                conversationId={selectedId}
+                detailsHidden={detailsHidden}
+                onToggleDetails={() => setDetailsHidden((value) => !value)}
+              />
             </div>
           </>
         ) : (
@@ -230,7 +239,7 @@ export default function InboxPage() {
         )}
       </div>
 
-      {selectedId && (
+      {selectedId && !detailsHidden && (
         <ResizeHandle
           className="hidden lg:block"
           label="Resize WhatsApp panel"
@@ -239,9 +248,11 @@ export default function InboxPage() {
       )}
 
       {/* Contextual panels — static third column on desktop. */}
-      <div className={`${selectedId ? 'lg:block' : 'lg:hidden'} crm-inbox-details crm-inbox-side-scroll hidden min-h-0 overflow-y-auto overscroll-contain`}>
-        {panels}
-      </div>
+      {selectedId && !detailsHidden && (
+        <div className="crm-inbox-details crm-inbox-side-scroll hidden min-h-0 overflow-y-auto overscroll-contain lg:block">
+          {panels}
+        </div>
+      )}
       </div>
 
       {/* …and the same panels as a right-hand slide-over drawer on mobile. */}

@@ -4,7 +4,7 @@
 // the AI bot or a human secretary is driving the thread, a send box, and
 // resolve/reopen actions. Reopen creates a NEW conversation (Decision 4) and the
 // view follows the caller to it via onConversationChange.
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
@@ -16,6 +16,7 @@ import { TemplatePicker } from './TemplatePicker'
 import { InteractivePicker } from './InteractivePicker'
 import { ListPicker } from './ListPicker'
 import { MediaRepositoryRail } from './MediaRepositoryRail'
+import { AutomationModeToggle } from './AutomationModeToggle'
 import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
 import { assessSafety, type SafetyLevel } from '../safety'
@@ -102,8 +103,12 @@ function isClosedStatus(status: ConversationStatus | undefined): boolean {
 
 export function ConversationView({
   conversationId,
+  detailsHidden = false,
+  onToggleDetails,
 }: {
   conversationId: string
+  detailsHidden?: boolean
+  onToggleDetails?: () => void
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
@@ -115,7 +120,6 @@ export function ConversationView({
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [mediaRailOpen, setMediaRailOpen] = useState(false)
-  const [classificationTab, setClassificationTab] = useState('all')
   const [mediaUncertain, setMediaUncertain] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -162,29 +166,6 @@ export function ConversationView({
   const mode = conversationMode(conversation?.status, patientQuery.data?.patient.automationMode)
   const patientMetadata = patientQuery.data?.patient.metadata && typeof patientQuery.data.patient.metadata === 'object' ? patientQuery.data.patient.metadata : undefined
   const interaction = interactionMode(patientMetadata)
-  const classificationTabs = useMemo(() => {
-    const intents = new Set<string>()
-    let hasUnclassified = false
-    for (const message of messages) {
-      if (message.role !== 'user') continue
-      const intent = message.classification?.intent?.trim()
-      if (intent) intents.add(intent)
-      else hasUnclassified = true
-    }
-    return [
-      { key: 'all', label: 'All' },
-      ...Array.from(intents).sort().map((intent) => ({ key: intent, label: intent.replace(/[_-]+/g, ' ') })),
-      ...(hasUnclassified ? [{ key: 'unclassified', label: 'Unclassified' }] : []),
-    ]
-  }, [messages])
-  const visibleMessages = useMemo(() => {
-    if (!features.classifications || classificationTab === 'all') return messages
-    return messages.filter((message) => {
-      if (message.role !== 'user') return false
-      const intent = message.classification?.intent?.trim()
-      return classificationTab === 'unclassified' ? !intent : intent === classificationTab
-    })
-  }, [classificationTab, features.classifications, messages])
   const closed = isClosedStatus(conversation?.status)
 
   useEffect(() => {
@@ -416,9 +397,9 @@ export function ConversationView({
           <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {features.humanOnlyMode && conversation?.patientId && (
               <>
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${mode === 'human' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300'}`}>
-                  {mode === 'human' ? 'Secretary' : 'AI'}
-                </span>
+                <div className="crm-chat-header-mode">
+                  <AutomationModeToggle conversationId={conversationId} patientId={conversation.patientId} mode={mode} />
+                </div>
                 <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${interaction === 'opted_out' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
                   {interaction === 'opted_out' ? 'Opt-out' : 'Opt-in'}
                 </span>
@@ -450,31 +431,35 @@ export function ConversationView({
                 ))}
               </select>
             )}
+            {onToggleDetails && (
+              <button
+                type="button"
+                onClick={onToggleDetails}
+                aria-label={detailsHidden ? 'Show patient details' : 'Hide patient details'}
+                title={detailsHidden ? 'Show patient details' : 'Hide patient details'}
+                className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
+              >
+                {detailsHidden ? 'Show details' : 'Hide details'}
+              </button>
+            )}
           </div>
         </div>
         {conversation && <KbCitations metadata={conversation.metadata} />}
       </div>
 
       {/* Messages */}
-      {features.classifications && <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--crm-border-color)] px-3 py-2" role="tablist" aria-label="Message classifications">
-        {classificationTabs.map((tab) => (
-          <button key={tab.key} type="button" role="tab" aria-selected={classificationTab === tab.key} onClick={() => setClassificationTab(tab.key)} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium capitalize ${classificationTab === tab.key ? 'bg-[var(--crm-primary-color)] text-white' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)]'}`}>
-            {tab.label}
-          </button>
-        ))}
-      </div>}
       <div ref={scrollRef} className="crm-chat-messages space-y-2.5">
         {messagesQuery.isLoading ? (
           <p className="text-sm text-gray-400">{t('common.loading')}</p>
-        ) : visibleMessages.length === 0 ? (
+        ) : messages.length === 0 ? (
           <p className="text-sm text-gray-400">{t('view.noMessages')}</p>
         ) : (
           (() => {
             // Req 5: mark the single moment the first human agent took the thread over
             // from the bot, rendered as a centred timeline marker.
-            const firstAgentIdx = visibleMessages.findIndex((x) => x.role === 'agent')
-            return visibleMessages.map((m, i) => {
-              const prev = visibleMessages[i - 1]
+            const firstAgentIdx = messages.findIndex((x) => x.role === 'agent')
+            return messages.map((m, i) => {
+              const prev = messages[i - 1]
               const newDay =
                 !prev ||
                 new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString()
@@ -566,87 +551,92 @@ export function ConversationView({
             </button>
           </div>
           <form onSubmit={onSend} className="flex min-w-0 flex-1 items-end gap-2">
-            {/* ＋ tools menu */}
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setToolsOpen((v) => !v)}
-                aria-label={t('view.tools')}
-                title={t('view.tools')}
-                aria-expanded={toolsOpen}
-                className="crm-composer-icon-btn text-xl leading-none"
-              >
-                ＋
-              </button>
-              {toolsOpen && (
-                <>
-                  <button
-                    type="button"
-                    aria-hidden
-                    tabIndex={-1}
-                    onClick={() => setToolsOpen(false)}
-                    className="fixed inset-0 z-20 cursor-default"
-                  />
-                  <div className="absolute bottom-12 left-0 z-30 flex items-center gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-1.5 shadow-[var(--crm-shadow-md)]">
-                    <QuickReplyPicker
-                      onPick={(content) => setDraft((d) => (d.trim() ? `${d}\n${content}` : content))}
+            <div className="flex shrink-0 items-center gap-2">
+              {/* ＋ tools menu */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setToolsOpen((v) => !v)}
+                  aria-label={t('view.tools')}
+                  title={t('view.tools')}
+                  aria-expanded={toolsOpen}
+                  className="crm-composer-icon-btn text-xl leading-none"
+                >
+                  ＋
+                </button>
+                {toolsOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-hidden
+                      tabIndex={-1}
+                      onClick={() => setToolsOpen(false)}
+                      className="fixed inset-0 z-20 cursor-default"
                     />
-                    {conversation?.channel === 'whatsapp' && (
-                      <TemplatePicker
-                        conversationId={conversationId}
-                        onPick={(templateId) => sendTemplateMutation.mutate(templateId)}
-                        disabled={sendTemplateMutation.isPending}
+                    <div className="absolute bottom-12 left-0 z-30 flex items-center gap-1 rounded-xl border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] p-1.5 shadow-[var(--crm-shadow-md)]">
+                      <QuickReplyPicker
+                        onPick={(content) => setDraft((d) => (d.trim() ? `${d}\n${content}` : content))}
                       />
-                    )}
-                    {/* Req 3: tappable reply-button menu (WhatsApp only). */}
-                    {conversation?.channel === 'whatsapp' && (
-                      <InteractivePicker
-                        onSend={(body, buttons) => sendInteractiveMutation.mutate({ body, buttons })}
-                        disabled={sendInteractiveMutation.isPending}
-                      />
-                    )}
-                    {/* Req 3: single-select LIST menu for >3 options (WhatsApp only). */}
-                    {conversation?.channel === 'whatsapp' && (
-                      <ListPicker
-                        onSend={(body, button, sections) =>
-                          sendListMutation.mutate({ body, button, sections })
-                        }
-                        disabled={sendListMutation.isPending}
-                      />
-                    )}
-                    {/* Req 3: attach an image (WhatsApp only). */}
-                    {conversation?.channel === 'whatsapp' && (
-                      <>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png"
-                          className="hidden"
-                          onChange={onAttach}
+                      {conversation?.channel === 'whatsapp' && (
+                        <TemplatePicker
+                          conversationId={conversationId}
+                          onPick={(templateId) => sendTemplateMutation.mutate(templateId)}
+                          disabled={sendTemplateMutation.isPending}
                         />
-                        <button
-                          type="button"
-                          title={t('view.attachImage')}
-                          aria-label={t('view.attachImage')}
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={sendMediaMutation.isPending}
-                          className="crm-composer-icon-btn text-sm"
-                        >
-                          📎
-                        </button>
-                        {features.mediaRepository && <button
-                          type="button"
-                          title="Open media repository"
-                          aria-label="Open media repository"
-                          onClick={() => { setMediaRailOpen(true); setToolsOpen(false) }}
-                          className="crm-composer-icon-btn text-sm"
-                        >
-                          🗂️
-                        </button>}
-                      </>
-                    )}
-                  </div>
-                </>
+                      )}
+                      {/* Req 3: tappable reply-button menu (WhatsApp only). */}
+                      {conversation?.channel === 'whatsapp' && (
+                        <InteractivePicker
+                          onSend={(body, buttons) => sendInteractiveMutation.mutate({ body, buttons })}
+                          disabled={sendInteractiveMutation.isPending}
+                        />
+                      )}
+                      {/* Req 3: single-select LIST menu for >3 options (WhatsApp only). */}
+                      {conversation?.channel === 'whatsapp' && (
+                        <ListPicker
+                          onSend={(body, button, sections) =>
+                            sendListMutation.mutate({ body, button, sections })
+                          }
+                          disabled={sendListMutation.isPending}
+                        />
+                      )}
+                      {/* Req 3: attach an image (WhatsApp only). */}
+                      {conversation?.channel === 'whatsapp' && (
+                        <>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            className="hidden"
+                            onChange={onAttach}
+                          />
+                          <button
+                            type="button"
+                            title={t('view.attachImage')}
+                            aria-label={t('view.attachImage')}
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={sendMediaMutation.isPending}
+                            className="crm-composer-icon-btn text-sm"
+                          >
+                            📎
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              {features.mediaRepository && conversation?.channel === 'whatsapp' && (
+                <button
+                  type="button"
+                  title="Open media repository"
+                  aria-label="Open media repository"
+                  aria-pressed={mediaRailOpen}
+                  onClick={() => setMediaRailOpen(true)}
+                  className="crm-composer-icon-btn text-sm"
+                >
+                  🗂️
+                </button>
               )}
             </div>
 

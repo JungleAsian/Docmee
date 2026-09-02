@@ -125,8 +125,8 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
       </div>
 
       {loading ? (
-        <div className="grid gap-3 p-4 md:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+        <div className={`grid gap-3 border-t border-gray-200 ${compact ? 'p-3 lg:grid-cols-2' : 'p-4 lg:grid-cols-[1.1fr_0.9fr]'} dark:border-gray-800`}>
+          {[0, 1].map((i) => (
             <div key={i} className="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
           ))}
         </div>
@@ -135,14 +135,6 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
           Could not load the live clinic summary. Inbox and calendar are still available.
         </div>
       ) : (
-        <>
-          <div className={`grid gap-3 ${compact ? 'p-3 sm:grid-cols-4' : 'p-4 sm:grid-cols-2 lg:grid-cols-4'}`}>
-            <BriefMetric label="Needs attention" value={summary.urgent.length} tone={summary.urgent.length ? 'red' : 'green'} />
-            <BriefMetric label="Waiting on staff" value={summary.waiting.length} tone={summary.waiting.length ? 'amber' : 'green'} />
-            <BriefMetric label="Unassigned" value={summary.unassigned.length} tone={summary.unassigned.length ? 'indigo' : 'green'} />
-            <BriefMetric label="Visits today" value={summary.appointments.length} tone="blue" />
-          </div>
-
           <div className={`grid gap-3 border-t border-gray-200 ${compact ? 'p-3 lg:grid-cols-2' : 'p-4 lg:grid-cols-[1.1fr_0.9fr]'} dark:border-gray-800`}>
             <div className="clinic-nested-surface rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
@@ -198,25 +190,7 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
               )}
             </div>
           </div>
-        </>
       )}
     </section>
-  )
-}
-
-function BriefMetric({ label, value, tone }: { label: string; value: number; tone: 'red' | 'amber' | 'indigo' | 'blue' | 'green' }) {
-  const toneClass = {
-    red: 'bg-red-50 text-red-700 ring-red-100 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-900',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900',
-    indigo: 'bg-teal-50 text-teal-700 ring-teal-100 dark:bg-teal-950/40 dark:text-teal-300 dark:ring-teal-900',
-    blue: 'bg-sky-50 text-sky-700 ring-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900',
-    green: 'bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900',
-  }[tone]
-
-  return (
-    <div className={`rounded-lg px-3 py-2 ring-1 ${toneClass}`}>
-      <p className="crm-brief-metric-value font-bold tabular-nums">{value}</p>
-      <p className="mt-1 text-xs font-semibold uppercase text-current opacity-80">{label}</p>
-    </div>
   )
 }

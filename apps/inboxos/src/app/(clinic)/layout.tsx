@@ -184,7 +184,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           </button>
           <ClinicBackButton />
           <div className="crm-header-context">
-            <span className="crm-header-breadcrumb">{t(headerTitleKey)}</span>
+            <span className="crm-header-breadcrumb" aria-current="page">{t(headerTitleKey)}</span>
           </div>
           <div className="relative crm-header-customize">
             <button

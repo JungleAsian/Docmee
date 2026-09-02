@@ -40,7 +40,7 @@ export function Breadcrumbs() {
           <span key={crumb.href} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <span className="text-gray-300 dark:text-gray-600">/</span>}
             {last ? (
-              <span className="truncate font-medium text-gray-700 dark:text-gray-300">{crumb.label}</span>
+              <span className="crm-header-breadcrumb" aria-current="page">{crumb.label}</span>
             ) : (
               <Link prefetch={false} href={crumb.href} className="truncate hover:text-teal-600">
                 {crumb.label}

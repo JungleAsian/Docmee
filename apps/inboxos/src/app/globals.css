@@ -48,6 +48,9 @@
   --crm-space-4: 16px;
   --crm-space-6: 24px;
   --crm-space-8: 32px;
+  --crm-shell-gutter: var(--crm-space-4);
+  --crm-inbox-shell-gutter: var(--crm-space-3);
+  --crm-rail-button-gap: var(--crm-space-2);
   --crm-type-display-size: 28px;
   --crm-type-display-line-height: 34px;
   --crm-type-h1-size: 20px;
@@ -302,6 +305,7 @@ body {
     position: relative;
     width: 220px;
     z-index: 50;
+    overflow: visible;
     background: linear-gradient(180deg, #05374e 0%, var(--crm-sidebar-bg) 54%, #062f42 100%);
     border-right: 0;
     box-shadow: 16px 0 36px rgba(3, 36, 54, .16);
@@ -347,16 +351,15 @@ body {
 
   .crm-sidebar-leaf-toggle {
     position: absolute;
-    top: 28px;
-    right: -9px;
-    z-index: 80;
-    width: 24px;
-    height: 30px;
+    top: 22px;
+    right: -14px;
+    z-index: 120;
+    width: 28px;
+    height: 28px;
     align-items: center;
     justify-content: center;
     border: 1px solid rgba(255, 255, 255, .26);
-    border-right: 0;
-    border-radius: 999px 0 0 999px;
+    border-radius: 999px;
     color: #ffffff;
     background: linear-gradient(135deg, #10c5d5, #05a8ba);
     box-shadow: 0 10px 20px rgba(2, 56, 78, .28);
@@ -369,7 +372,7 @@ body {
   }
 
   .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle {
-    top: 28px;
+    top: 22px;
   }
 
   .crm-sidebar-header {
@@ -502,12 +505,23 @@ body {
      icons instead of hiding the whole side rail. */
   .crm-sidebar-collapsed {
     width: 80px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header {
+    position: relative;
     min-height: 76px;
     padding: 9px 10px 4px;
+  }
+
+  .crm-sidebar-collapsed .crm-sidebar-header::after {
+    content: '';
+    position: absolute;
+    right: 12px;
+    bottom: 0;
+    left: 12px;
+    height: 1px;
+    background: rgba(255, 255, 255, .16);
   }
 
   .crm-sidebar-collapsed .crm-sidebar-header img {
@@ -519,9 +533,34 @@ body {
 
   .crm-sidebar-collapsed .crm-sidebar-nav {
     align-items: center;
-    gap: 5px;
+    gap: var(--crm-rail-button-gap);
     padding-inline: 12px;
     overflow: hidden;
+  }
+
+  .crm-sidebar-collapsed .crm-nav-group-items {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--crm-rail-button-gap);
+  }
+
+  .crm-sidebar-collapsed .crm-nav-group {
+    width: 100%;
+  }
+
+  .crm-sidebar-collapsed .crm-nav-group + .crm-nav-group {
+    margin-top: var(--crm-space-2);
+    padding-top: var(--crm-space-2);
+    border-top: 1px solid rgba(255, 255, 255, .16);
+  }
+
+  .crm-sidebar-collapsed .crm-nav-group-unlabelled {
+    border-color: rgba(255, 255, 255, .16);
+  }
+
+  .crm-sidebar-collapsed .crm-nav-group-items > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0;
   }
 
   .crm-sidebar-collapsed .crm-nav-item,
@@ -541,7 +580,7 @@ body {
 
   .crm-sidebar-collapsed .crm-sidebar-footer {
     align-items: center;
-    gap: 5px;
+    gap: var(--crm-rail-button-gap);
     padding: 5px 12px 9px;
   }
 
@@ -587,7 +626,7 @@ body {
     flex-wrap: nowrap;
     align-items: center;
     gap: 12px;
-    padding: 14px 24px;
+    padding: 14px var(--crm-shell-gutter);
   }
 
   .crm-header-context {
@@ -603,6 +642,9 @@ body {
   }
 
   .crm-header-breadcrumb {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -610,6 +652,12 @@ body {
     color: var(--crm-text-main);
     font-size: var(--crm-type-label-size);
     font-weight: 800;
+    line-height: var(--crm-type-label-line-height);
+    padding: 4px 9px;
+    border: 1px solid var(--crm-border-color);
+    border-radius: 999px;
+    background: var(--crm-surface-elevated);
+    box-shadow: var(--crm-shadow-card);
   }
 
   .crm-header-search {
@@ -737,7 +785,7 @@ body {
     overflow: auto;
     width: 100%;
     max-width: none;
-    padding: 0 16px 24px;
+    padding: 0 var(--crm-shell-gutter) 24px;
   }
 
   .crm-dashboard-content > * {
@@ -937,6 +985,41 @@ body {
     border-left: 4px solid var(--crm-primary-color);
   }
 
+  .crm-conversation-delete-btn {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(248, 113, 113, 0.55);
+    border-radius: 999px;
+    background: rgba(254, 226, 226, 0.86);
+    color: #dc2626;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    transition: var(--crm-transition);
+  }
+
+  .crm-conversation-delete-btn:hover {
+    border-color: rgba(220, 38, 38, 0.65);
+    background: rgba(254, 202, 202, 0.95);
+    color: #b91c1c;
+  }
+
+  .dark .crm-conversation-delete-btn {
+    border-color: rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.26);
+    color: #f87171;
+  }
+
+  .dark .crm-conversation-delete-btn:hover {
+    border-color: rgba(248, 113, 113, 0.55);
+    background: rgba(127, 29, 29, 0.42);
+    color: #fca5a5;
+  }
+
   .crm-conv-avatar {
     display: grid;
     width: 40px;
@@ -969,6 +1052,25 @@ body {
     border-bottom: 1px solid var(--crm-border-color);
     background: var(--crm-card-bg);
     padding: 18px 24px;
+  }
+
+  .crm-chat-header-mode .crm-status-toggle {
+    gap: 0;
+  }
+
+  .crm-chat-header-mode .crm-status-toggle > div:first-child {
+    display: none;
+  }
+
+  .crm-chat-header-mode .crm-status-toggle-options {
+    min-width: 128px;
+    border-radius: 999px;
+    background: var(--crm-soft-bg);
+  }
+
+  .crm-chat-header-mode .crm-status-toggle-options button {
+    border-radius: 999px;
+    padding: 5px 9px;
   }
 
   .crm-chat-messages {
@@ -1081,7 +1183,7 @@ body {
 
     .crm-dashboard-content {
       gap: 14px;
-      padding: 0 10px 16px;
+      padding: 0 12px 16px;
     }
 
     .crm-user-profile {
@@ -1289,12 +1391,23 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-sidebar-leaf-toggle,
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-leaf-toggle {
-    top: 28px;
+    top: 22px;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header {
+    position: relative;
     min-height: 76px;
     padding: 9px 10px 4px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header::after {
+    content: '';
+    position: absolute;
+    right: 12px;
+    bottom: 0;
+    left: 12px;
+    height: 1px;
+    background: rgba(255, 255, 255, .16);
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-header img {
@@ -1313,9 +1426,34 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-nav {
     align-items: center;
-    gap: 5px;
+    gap: var(--crm-rail-button-gap);
     padding-inline: 12px;
     overflow: hidden;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-group-items {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--crm-rail-button-gap);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-group {
+    width: 100%;
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-group + .crm-nav-group {
+    margin-top: var(--crm-space-2);
+    padding-top: var(--crm-space-2);
+    border-top: 1px solid rgba(255, 255, 255, .16);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-group-unlabelled {
+    border-color: rgba(255, 255, 255, .16);
+  }
+
+  .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-group-items > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar:not(.crm-sidebar-collapsed) .crm-nav-group {
@@ -1389,7 +1527,7 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-footer {
-    gap: 5px;
+    gap: var(--crm-rail-button-gap);
     padding: 5px 12px 9px;
   }
 
@@ -1435,7 +1573,7 @@ body {
     min-height: 72px;
     flex-wrap: nowrap;
     gap: 12px;
-    padding: 14px 24px;
+    padding: 14px var(--crm-inbox-shell-gutter);
   }
 
   .crm-inboxos-brand {
@@ -1532,7 +1670,7 @@ body {
   .crm-inboxos-desktop-shell .crm-dashboard-content {
     gap: 0;
     overflow: hidden;
-    padding: 0 12px 12px;
+    padding: 0 var(--crm-inbox-shell-gutter) var(--crm-inbox-shell-gutter);
   }
 
   .crm-inboxos-desktop-shell .docmee-inbox-reskin {
@@ -1654,6 +1792,20 @@ body {
     white-space: nowrap;
   }
 
+  .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle > div:first-child {
+    display: none;
+  }
+
+  .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle-options {
+    min-width: 128px;
+    border-radius: 999px;
+  }
+
+  .crm-inboxos-desktop-shell .crm-chat-header-mode .crm-status-toggle-options button {
+    border-radius: 999px;
+    padding: 5px 9px;
+  }
+
   .crm-inboxos-desktop-shell .crm-booking-calendar-card > div:first-child {
     padding: 12px 14px;
   }
@@ -1733,8 +1885,8 @@ body {
 
   @media (max-width: 1024px) {
     .crm-inboxos-desktop-shell .crm-top-header {
-      padding-left: 20px;
-      padding-right: 20px;
+      padding-left: var(--crm-inbox-shell-gutter);
+      padding-right: var(--crm-inbox-shell-gutter);
     }
 
     .crm-inboxos-brand {
@@ -1742,8 +1894,8 @@ body {
     }
 
     .crm-inboxos-desktop-shell .crm-dashboard-content {
-      padding-left: 10px;
-      padding-right: 10px;
+      padding-left: var(--crm-inbox-shell-gutter);
+      padding-right: var(--crm-inbox-shell-gutter);
     }
   }
 

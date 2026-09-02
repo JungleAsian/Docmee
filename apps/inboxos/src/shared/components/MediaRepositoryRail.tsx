@@ -205,7 +205,7 @@ export function MediaRepositoryRail({
 
   const assets = (query.data?.assets ?? []).slice(0, 10)
   return (
-    <aside aria-label="Media repository" className="absolute inset-y-0 right-0 z-40 flex w-80 max-w-full flex-col border-l border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] shadow-xl">
+    <aside aria-label="Media repository" className="absolute inset-0 z-40 flex flex-col border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] shadow-xl">
       <header className="flex items-center justify-between border-b border-[var(--crm-border-color)] px-3 py-3">
         <div><h2 className="text-sm font-bold">Media repository</h2><p className="text-[11px] text-[var(--crm-text-muted)]">Up to 10 files · 100 MB total</p></div>
         <button type="button" onClick={onClose} aria-label="Close media repository" className="rounded p-1 hover:bg-[var(--crm-hover-bg)]">✕</button>

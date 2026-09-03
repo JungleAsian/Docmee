@@ -237,6 +237,13 @@ export interface RunOptions {
   startNodeId?: string
 }
 
+export interface WorkflowRunOutcome {
+  status: 'completed' | 'waiting'
+  trace: WorkflowStep[]
+  currentNodeId?: string
+  resumeReason?: 'delay' | 'reply' | 'approval' | 'interactive_reply'
+}
+
 const MAX_STEPS = 100 // backstop against cycles / runaway graphs
 
 export async function runWorkflow(
@@ -450,6 +457,33 @@ export async function runWorkflow(
   }
 
   return trace
+}
+
+/**
+ * Runtime-facing result for durable workers.  The original trace-only API is
+ * retained for existing callers; workers use this to persist a cursor without
+ * inferring execution state from UI-oriented trace strings.
+ */
+export async function runWorkflowWithOutcome(
+  workflow: Pick<Workflow, 'nodes' | 'edges'>,
+  ctx: WorkflowContext,
+  exec: WorkflowExecutors,
+  opts: RunOptions = {},
+): Promise<WorkflowRunOutcome> {
+  const trace = await runWorkflow(workflow, ctx, exec, opts)
+  const last = trace.at(-1)
+  if (last?.status !== 'paused') return { status: 'completed', trace }
+
+  const node = workflow.nodes.find((candidate) => candidate.id === last.nodeId)
+  const nextNodeIdForPause = nextNodeId(workflow.edges, last.nodeId)
+  const resumeReason: WorkflowRunOutcome['resumeReason'] = node?.type === 'logic.delay'
+    ? 'delay'
+    : node?.type === 'logic.wait_for_reply'
+      ? 'reply'
+      : node?.type === 'action.approval'
+        ? 'approval'
+        : 'interactive_reply'
+  return { status: 'waiting', trace, currentNodeId: nextNodeIdForPause ?? last.nodeId, resumeReason }
 }
 
 /** Next node from `from`. Prefers the edge matching `handle` (condition branch),

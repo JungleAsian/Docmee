@@ -1,5 +1,6 @@
 export {
   runWorkflow,
+  runWorkflowWithOutcome,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   WORKFLOW_MENU_CONTEXT_KEY,
   WORKFLOW_SLOT_MENU_CONTEXT_KEY,
@@ -13,6 +14,7 @@ export {
   type WorkflowStep,
   type StepStatus,
   type RunOptions,
+  type WorkflowRunOutcome,
   type WorkflowCaptureState,
   type WorkflowMenuState,
   type WorkflowMenuOption,
@@ -31,3 +33,7 @@ export {
   type WorkflowValidationIssue,
   type WorkflowValidationIssueCode,
 } from './workflow-validator.js'
+export { compileWorkflowDocument, materializeWorkflowDocument } from './workflow-compiler.js'
+export { workflowPortsForNode, validateWorkflowPortConnection, type WorkflowPort } from './workflow-ports.js'
+export { workflowRunTransition, isTerminalWorkflowRunState, workflowRetryDelayMs, type WorkflowRunState, type WorkflowRunTransition } from './workflow-run-state.js'
+export { simulateWorkflow } from './workflow-simulator.js'

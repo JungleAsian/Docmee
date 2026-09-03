@@ -35,7 +35,7 @@ const current: Workflow = {
   id: 'workflow-1',
   clinicId: 'clinic-1',
   name: 'Booking',
-  status: 'active' as const,
+  status: 'published' as const,
   activeRevisionId: 'revision-old',
   nodes: [{ id: 'old', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 }],
   edges: [],
@@ -50,6 +50,14 @@ describe('normalizeWorkflowGraph', () => {
     const wf = normalizeWorkflowGraph({ ...base, nodes, edges } as Workflow)
     expect(wf.nodes).toBe(nodes)
     expect(wf.edges).toBe(edges)
+    expect(wf.document).toEqual({
+      version: 2,
+      definition: {
+        nodes: [{ id: 'n1', kind: 'trigger', type: 'trigger.message_keyword', config: {} }],
+        edges,
+      },
+      presentation: { nodes: { n1: { x: 0, y: 0 } } },
+    })
   })
 
   it('parses double-encoded jsonb (string) back into arrays', () => {
@@ -69,6 +77,16 @@ describe('normalizeWorkflowGraph', () => {
     expect(wf.nodes).toBe('{oops')
     expect(wf.edges).toBe('nope')
   })
+
+  it('retains a persisted V2 document independently from its legacy graph projection', () => {
+    const document = {
+      version: 2 as const,
+      definition: { nodes: [{ id: 'n1', kind: 'trigger' as const, type: 'trigger.message_keyword', config: {} }], edges: [] },
+      presentation: { nodes: { n1: { x: 400, y: 120 } } },
+    }
+    const wf = normalizeWorkflowGraph({ ...base, document } as Workflow)
+    expect(wf.document).toEqual(document)
+  })
 })
 
 describe('workflows repository revisions', () => {
@@ -80,6 +98,7 @@ describe('workflows repository revisions', () => {
     const { sql, calls } = transactionalSql([
       [current],
       [updated],
+      [],
       [{ id: 'revision-new', clinicId: 'clinic-1', workflowId: 'workflow-1', definition: { nodes: updated.nodes, edges: [] } }],
       [{ ...updated, activeRevisionId: 'revision-new' }],
     ])
@@ -90,7 +109,7 @@ describe('workflows repository revisions', () => {
 
     expect(workflow?.activeRevisionId).toBe('revision-new')
     expect(calls[0]?.query).toContain('FOR UPDATE')
-    expect(calls[2]?.query).toContain('INSERT INTO workflow_revisions')
-    expect(calls[3]?.query).toContain('SET active_revision_id')
+    expect(calls[3]?.query).toContain('INSERT INTO workflow_revisions')
+    expect(calls[4]?.query).toContain('SET active_revision_id')
   })
 })

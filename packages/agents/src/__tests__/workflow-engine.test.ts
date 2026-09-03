@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   runWorkflow,
+  runWorkflowWithOutcome,
   resolveMenuHandle,
   parseMenuOptions,
   type WorkflowExecutors,
@@ -205,6 +206,17 @@ describe('runWorkflow', () => {
     const resume = makeExec()
     await runWorkflow(wf, {}, resume, { startNodeId: 's' })
     expect(resume.sendMessage).toHaveBeenCalledWith('later', {})
+  })
+
+  it('returns a durable waiting cursor for a paused delay', async () => {
+    const exec = makeExec()
+    const outcome = await runWorkflowWithOutcome({
+      nodes: [node('t', 'trigger', 'trigger.message_keyword'), node('d', 'logic', 'logic.delay', { amount: 1, unit: 'minute' }), node('s', 'action', 'action.send_message')],
+      edges: [edge('t', 'd'), edge('d', 's')],
+    }, {}, exec)
+
+    expect(outcome).toMatchObject({ status: 'waiting', currentNodeId: 's', resumeReason: 'delay' })
+    expect(outcome.trace.at(-1)).toMatchObject({ nodeId: 'd', status: 'paused' })
   })
 
   it('pauses at an approval node without running downstream actions', async () => {

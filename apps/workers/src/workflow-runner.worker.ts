@@ -9,6 +9,7 @@
 import {
   createGoogleCalendarOps,
   runWorkflow,
+  runWorkflowWithOutcome,
   validateWorkflowDefinition,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   WORKFLOW_MENU_CONTEXT_KEY,
@@ -784,7 +785,12 @@ async function assertWorkflowAutomationAllowed(sql: Sql, clinicId: string, patie
   if (!patientAllowsAutomation(patient)) throw new WorkflowAutomationSuppressed()
 }
 
-function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: string): WorkflowExecutors {
+function buildExecutors(
+  sql: Sql,
+  data: WorkflowRunJobData,
+  workflowRunId: string,
+  captureResume?: (input: { nodeId: string; ms: number; context: WorkflowContext }) => void,
+): WorkflowExecutors {
   const { clinicId } = data
   const notify = async (content: string, ctx: WorkflowContext) =>
     void (await createNotificationsRepository(sql).create({
@@ -1755,9 +1761,13 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
     async scheduleResume(nodeId, ms, context) {
       if (!nodeId) return
-      // A delay resumes in a different worker turn. Preserve every value
-      // accumulated before the pause instead of falling back to the original
-      // trigger-only context captured in `data`.
+      // A worker must durably record its cursor before adding another queue
+      // job.  Capturing the intent here lets processWorkflowRunJob enforce
+      // that order after the pure engine returns.
+      if (captureResume) {
+        captureResume({ nodeId, ms, context })
+        return
+      }
       await scheduleWorkflowResume({ ...data, context }, nodeId, ms)
     },
   }
@@ -1771,7 +1781,7 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
   try {
     const workflows = createWorkflowsRepository(sql)
     const currentWorkflow = await workflows.findById(data.clinicId, data.workflowId)
-    if (!currentWorkflow || currentWorkflow.status !== 'active') {
+    if (!currentWorkflow || currentWorkflow.status !== 'published') {
       console.log(`[workflow] ${data.workflowId} not active; skipping run`)
       return
     }
@@ -1809,35 +1819,64 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
       return
     }
     workflowRunId = run.id
-    await executions.setRunStatus(run.id, 'running', {
-      sourceEventId,
-      queueJobId: String(job.id ?? ''),
-      startNodeId: data.startNodeId ?? null,
+    const entered = await executions.transitionRun({
+      id: run.id,
+      from: data.startNodeId ? ['waiting', 'retry_scheduled'] : ['running'],
+      to: 'running',
+      trace: { sourceEventId, queueJobId: String(job.id ?? ''), startNodeId: data.startNodeId ?? null },
+      currentNodeId: data.startNodeId ?? null,
     })
+    if (!entered) {
+      console.log(`[workflow] ${data.workflowId}/${sourceEventId} was cancelled or moved by another worker; skipping`)
+      return
+    }
     const approvals = createWorkflowApprovalsRepository(sql)
     if (data.approvalId && !(await approvals.claimResume(data.clinicId, data.approvalId))) return
-    const exec = buildExecutors(sql, data, run.id)
-    const trace = await runWorkflow(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
-    const terminal = trace[trace.length - 1]?.status === 'paused' ? 'paused' : 'completed'
+    const pendingResumeRef: { current: { nodeId: string; ms: number; context: WorkflowContext } | null } = { current: null }
+    const exec = buildExecutors(sql, data, run.id, (resume) => { pendingResumeRef.current = resume })
+    const outcome = await runWorkflowWithOutcome(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
     if (data.approvalId) await approvals.markResumed(data.clinicId, data.approvalId)
-    await executions.setRunStatus(run.id, terminal, { trace, terminalState: terminal })
-    console.log(`[workflow] ${workflow.name} ran ${trace.length} step(s) for clinic ${data.clinicId}`)
+    const tracePayload = { trace: outcome.trace, terminalState: outcome.status }
+    if (outcome.status === 'waiting') {
+      const pendingResume = pendingResumeRef.current
+      // Reply/approval waits are resumed by their trusted event handlers, not
+      // a speculative timer. Delays are the only waits with a concrete wake-up.
+      const resumeAt = pendingResume
+        ? new Date(Date.now() + pendingResume.ms)
+        : null
+      const persisted = await executions.scheduleResume({
+        id: run.id,
+        from: ['running'],
+        resumeAt,
+        reason: outcome.resumeReason ?? 'reply',
+        currentNodeId: outcome.currentNodeId ?? null,
+        trace: tracePayload,
+      })
+      if (!persisted) return
+      if (pendingResume) {
+        // The cursor is now durable; only then may a future job be enqueued.
+        await scheduleWorkflowResume({ ...data, context: pendingResume.context }, pendingResume.nodeId, pendingResume.ms)
+      }
+    } else {
+      await executions.transitionRun({ id: run.id, from: ['running'], to: 'completed', trace: tracePayload })
+    }
+    console.log(`[workflow] ${workflow.name} ran ${outcome.trace.length} step(s) for clinic ${data.clinicId}`)
   } catch (error) {
     if (error instanceof WorkflowAutomationSuppressed) {
       if (workflowRunId) {
-        await executions.setRunStatus(workflowRunId, 'completed', {
+        await executions.transitionRun({ id: workflowRunId, from: ['running', 'waiting'], to: 'completed', trace: {
           reason: 'patient_human_only',
           terminalState: 'suppressed',
-        }).catch((statusError) => console.error('[workflow] failed to record suppressed terminal state', statusError))
+        }}).catch((statusError) => console.error('[workflow] failed to record suppressed terminal state', statusError))
       }
       return
     }
     if (data.approvalId) await createWorkflowApprovalsRepository(sql).markFailed(data.clinicId, data.approvalId, error instanceof Error ? error.message : String(error)).catch(() => {})
     if (workflowRunId) {
-      await executions.setRunStatus(workflowRunId, 'failed', {
+      await executions.transitionRun({ id: workflowRunId, from: ['running', 'waiting', 'retry_scheduled'], to: 'failed', failureCode: 'workflow_execution_error', trace: {
         error: error instanceof Error ? error.message : String(error),
         terminalState: 'failed',
-      }).catch((statusError) => console.error('[workflow] failed to record terminal state', statusError))
+      }}).catch((statusError) => console.error('[workflow] failed to record terminal state', statusError))
     }
     throw error
   } finally {

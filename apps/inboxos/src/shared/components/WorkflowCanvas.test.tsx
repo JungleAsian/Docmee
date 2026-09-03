@@ -6,6 +6,7 @@ import {
   roundedOrthogonalPath,
   WorkflowLayoutControls,
   WorkflowNodeView,
+  workflowEdgeAppearance,
   workflowPathAppearance,
 } from './WorkflowCanvas'
 
@@ -80,6 +81,23 @@ describe('WorkflowLayoutControls', () => {
     expect(workflowPathAppearance(false, false)).toEqual({ nodeOpacity: 1, edgeOpacity: 1, edgeWidth: 2 })
     expect(workflowPathAppearance(true, true)).toEqual({ nodeOpacity: 1, edgeOpacity: 1, edgeWidth: 3.5 })
     expect(workflowPathAppearance(true, false)).toEqual({ nodeOpacity: 0.38, edgeOpacity: 0.28, edgeWidth: 2 })
+  })
+
+  it('promotes the hovered route above overlapping paths without making unrelated edges unreadable', () => {
+    expect(workflowEdgeAppearance({ hasSelection: true, inSelectedPath: false, hovered: false, order: 3 })).toEqual({
+      opacity: 0.28,
+      width: 2,
+      zIndex: 3,
+      animated: false,
+      dasharray: undefined,
+    })
+    expect(workflowEdgeAppearance({ hasSelection: true, inSelectedPath: true, hovered: true, order: 3 })).toEqual({
+      opacity: 1,
+      width: 4.5,
+      zIndex: 10_003,
+      animated: true,
+      dasharray: '7 5',
+    })
   })
 
   it('renders the primary input on the left and branch outputs on their logical rows at the right', () => {

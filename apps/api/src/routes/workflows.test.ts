@@ -14,6 +14,8 @@ vi.mock('@docmee/agents', () => ({
   getOAuth2Client: () => ({}),
   validateWorkflowDefinition: () => validation.errors,
   validateWorkflowDefinitionDetailed: () => validation.issues,
+  materializeWorkflowDocument: (document: { definition: unknown }) => document.definition,
+  simulateWorkflow: async () => ({ status: 'completed', trace: [] }),
 }))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (value: string) => `enc:${value}`,
@@ -40,11 +42,14 @@ vi.mock('@docmee/db', () => ({
     },
   }),
   createWorkflowApprovalsRepository: () => ({}),
+  createWorkflowExecutionsRepository: () => ({ listRuns: async () => [], findRunById: async () => null }),
   createAuditRepository: () => ({ log: vi.fn() }),
+  normalizeWorkflowStatus: (status: string) => status === 'active' ? 'published' : status,
 }))
 
 import { buildApp } from '../app.js'
 import { signAccessToken } from '../auth/jwt.js'
+import { redactWorkflowDiagnostic } from './workflows.js'
 
 const adminAuth = {
   authorization: `Bearer ${signAccessToken({ userId: 'admin-c1', clinicId: 'c-1', role: 'clinic_admin', email: 'admin@c1.test' })}`,
@@ -56,6 +61,20 @@ const secretaryAuth = {
 function seed(id: string, clinicId = 'c-1') {
   store.workflows.set(id, { id, clinicId, name: id, status: 'draft', nodes: [], edges: [] })
 }
+
+describe('workflow run diagnostics', () => {
+  it('redacts message and credential-like data before returning a trace', () => {
+    expect(redactWorkflowDiagnostic({
+      nodeId: 'send-1',
+      providerPayload: { body: 'patient message', token: 'secret-token' },
+      metadata: { authorization: 'Bearer value', safe: 'visible' },
+    })).toEqual({
+      nodeId: 'send-1',
+      providerPayload: '[redacted]',
+      metadata: { authorization: '[redacted]', safe: 'visible' },
+    })
+  })
+})
 
 describe('workflow delete contract (CRE-534)', () => {
   let app: Awaited<ReturnType<typeof buildApp>>

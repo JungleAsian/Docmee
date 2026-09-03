@@ -6,6 +6,21 @@ const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Reco
 const edge = (id: string, source: string, target: string, sourceHandle?: string): WorkflowEdge => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })
 
 describe('validateWorkflowDefinition', () => {
+  it('reports a typed-port issue when an edge targets a trigger input', () => {
+    const issues = validateWorkflowDefinitionDetailed([
+      { id: 'start', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 },
+      { id: 'message', kind: 'action', type: 'action.send_message', config: { text: 'Hello' }, x: 320, y: 0 },
+      { id: 'end', kind: 'action', type: 'action.end', config: {}, x: 640, y: 0 },
+    ], [
+      { id: 'start-message', source: 'start', target: 'message' },
+      { id: 'message-start', source: 'message', target: 'start' },
+      { id: 'message-end', source: 'message', target: 'end' },
+    ], { requireTrigger: true })
+
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'invalid_port_connection', edgeId: 'message-start', nodeId: 'message' }),
+    ]))
+  })
   it('accepts a reachable, typed workflow with one trigger', () => {
     expect(validateWorkflowDefinition([
       node('trigger', 'trigger', 'trigger.message_keyword'),

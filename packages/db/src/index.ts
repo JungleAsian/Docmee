@@ -1,6 +1,12 @@
 // ── Client boundary ────────────────────────────────────────────────────────────
 export { createDbClient, createServiceDbClient, withClinicContext, toJson } from './client.js'
 export type { Sql, TxSql } from './client.js'
+export {
+  normalizeWorkflowStatus,
+  workflowLifecycleTransition,
+  canTransitionWorkflowLifecycle,
+  type WorkflowLifecycleAction,
+} from './workflows/workflow-lifecycle.js'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type {
@@ -81,10 +87,18 @@ export type {
   FollowUpStatus,
   Workflow,
   WorkflowStatus,
+  LegacyWorkflowStatus,
   WorkflowNodeKind,
   WorkflowNode,
   WorkflowEdge,
   WorkflowDefinition,
+  WorkflowExecutionNode,
+  WorkflowExecutionDefinition,
+  WorkflowNodePresentation,
+  WorkflowPresentationGroup,
+  WorkflowPresentation,
+  WorkflowDocumentV2,
+  WorkflowDocument,
   WorkflowRevision,
   GeneratedReport,
   ReportType,

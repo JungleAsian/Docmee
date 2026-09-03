@@ -2,7 +2,7 @@
 // ledger is the source of truth for whether an action may invoke a provider.
 import { toJson, type Sql } from '../client.js'
 
-export type WorkflowRunStatus = 'running' | 'paused' | 'completed' | 'failed'
+export type WorkflowRunStatus = 'running' | 'waiting' | 'retry_scheduled' | 'cancelled' | 'compensating' | 'completed' | 'failed'
 export type WorkflowEffectStatus = 'in_progress' | 'succeeded' | 'failed' | 'uncertain'
 
 export interface WorkflowRunRecord {
@@ -14,6 +14,14 @@ export interface WorkflowRunRecord {
   queueJobId: string | null
   status: WorkflowRunStatus
   trace: Record<string, unknown>
+  currentNodeId: string | null
+  resumeAt: string | null
+  resumeReason: string | null
+  attempt: number
+  maxAttempts: number
+  cancelRequestedAt: string | null
+  failureCode: string | null
+  stateVersion: number
 }
 
 export interface WorkflowEffectRecord {
@@ -32,6 +40,14 @@ export interface WorkflowExecutionsRepository {
   /** Atomically creates the one run for a workflow/source event pair. */
   claimRun(input: { clinicId: string; workflowId: string; workflowRevisionId?: string; sourceEventId: string; queueJobId?: string | null }): Promise<WorkflowRunRecord | null>
   findRun(clinicId: string, workflowId: string, sourceEventId: string): Promise<WorkflowRunRecord | null>
+  listRuns(clinicId: string, workflowId: string, limit?: number): Promise<WorkflowRunRecord[]>
+  findRunById(clinicId: string, workflowId: string, runId: string): Promise<WorkflowRunRecord | null>
+  /** Guarded state transition; returns false when another worker moved the run. */
+  transitionRun(input: { id: string; from: WorkflowRunStatus[]; to: WorkflowRunStatus; trace?: Record<string, unknown>; currentNodeId?: string | null; failureCode?: string | null }): Promise<boolean>
+  /** A null resumeAt means an external event (reply/approval) owns resumption. */
+  scheduleResume(input: { id: string; from: WorkflowRunStatus[]; resumeAt: Date | null; reason: string; currentNodeId?: string | null; trace?: Record<string, unknown> }): Promise<boolean>
+  requestCancellation(input: { id: string; clinicId: string; workflowId: string }): Promise<boolean>
+  /** Temporary compatibility wrapper. New workers must use transitionRun. */
   setRunStatus(id: string, status: WorkflowRunStatus, trace?: Record<string, unknown>): Promise<void>
   /** Returns a row only for the caller that won the durable effect claim. */
   claimEffect(input: { workflowRunId: string; nodeId: string; nodeType: string; executionKey: string }): Promise<WorkflowEffectRecord | null>
@@ -48,8 +64,8 @@ export function createWorkflowExecutionsRepository(sql: Sql): WorkflowExecutions
         INSERT INTO workflow_runs (clinic_id, workflow_id, workflow_revision_id, source_event_id, queue_job_id, status)
         VALUES (${input.clinicId}, ${input.workflowId}, ${input.workflowRevisionId ?? null}, ${input.sourceEventId}, ${input.queueJobId ?? null}, 'running')
         ON CONFLICT (clinic_id, workflow_id, source_event_id) DO UPDATE
-          SET status = 'running', updated_at = NOW()
-          WHERE workflow_runs.status = 'failed'
+          SET status = 'running', state_version = workflow_runs.state_version + 1, updated_at = NOW()
+          WHERE workflow_runs.status IN ('failed', 'retry_scheduled') AND workflow_runs.cancel_requested_at IS NULL
         RETURNING *
       `
       return rows[0] ?? null
@@ -64,10 +80,72 @@ export function createWorkflowExecutionsRepository(sql: Sql): WorkflowExecutions
       return rows[0] ?? null
     },
 
+    async listRuns(clinicId, workflowId, limit = 50) {
+      return sql<WorkflowRunRecord[]>`
+        SELECT * FROM workflow_runs
+        WHERE clinic_id = ${clinicId} AND workflow_id = ${workflowId}
+        ORDER BY updated_at DESC
+        LIMIT ${Math.min(Math.max(limit, 1), 100)}
+      `
+    },
+
+    async findRunById(clinicId, workflowId, runId) {
+      const rows = await sql<WorkflowRunRecord[]>`
+        SELECT * FROM workflow_runs
+        WHERE clinic_id = ${clinicId} AND workflow_id = ${workflowId} AND id = ${runId}
+        LIMIT 1
+      `
+      return rows[0] ?? null
+    },
+
+    async transitionRun(input) {
+      const rows = await sql<[{ id: string }]>`
+        UPDATE workflow_runs
+        SET status = ${input.to},
+            trace = trace || ${sql.json(toJson(input.trace ?? {}))},
+            current_node_id = COALESCE(${input.currentNodeId ?? null}, current_node_id),
+            failure_code = ${input.failureCode ?? null},
+            resume_at = CASE WHEN ${input.to === 'waiting' || input.to === 'retry_scheduled'} THEN resume_at ELSE NULL END,
+            resume_reason = CASE WHEN ${input.to === 'waiting' || input.to === 'retry_scheduled'} THEN resume_reason ELSE NULL END,
+            state_version = state_version + 1,
+            updated_at = NOW()
+        WHERE id = ${input.id} AND status = ANY(${input.from}) AND cancel_requested_at IS NULL
+        RETURNING id
+      `
+      return rows.length > 0
+    },
+
+    async scheduleResume(input) {
+      const rows = await sql<[{ id: string }]>`
+        UPDATE workflow_runs
+        SET status = 'waiting',
+            resume_at = ${input.resumeAt?.toISOString() ?? null},
+            resume_reason = ${input.reason},
+            current_node_id = COALESCE(${input.currentNodeId ?? null}, current_node_id),
+            trace = trace || ${sql.json(toJson(input.trace ?? {}))},
+            state_version = state_version + 1,
+            updated_at = NOW()
+        WHERE id = ${input.id} AND status = ANY(${input.from}) AND cancel_requested_at IS NULL
+        RETURNING id
+      `
+      return rows.length > 0
+    },
+
+    async requestCancellation(input) {
+      const rows = await sql<[{ id: string }]>`
+        UPDATE workflow_runs
+        SET cancel_requested_at = COALESCE(cancel_requested_at, NOW()), state_version = state_version + 1, updated_at = NOW()
+        WHERE id = ${input.id} AND clinic_id = ${input.clinicId} AND workflow_id = ${input.workflowId}
+          AND status IN ('running', 'waiting', 'retry_scheduled')
+        RETURNING id
+      `
+      return rows.length > 0
+    },
+
     async setRunStatus(id, status, trace = {}) {
       await sql`
         UPDATE workflow_runs
-        SET status = ${status}, trace = trace || ${sql.json(toJson(trace))}, updated_at = NOW()
+        SET status = ${status}, trace = trace || ${sql.json(toJson(trace))}, state_version = state_version + 1, updated_at = NOW()
         WHERE id = ${id}
       `
     },

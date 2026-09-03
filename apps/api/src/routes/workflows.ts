@@ -8,11 +8,11 @@
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { createAuditRepository, createClinicsRepository, createWorkflowApprovalsRepository, createWorkflowsRepository } from '@docmee/db'
+import { createAuditRepository, createClinicsRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
 import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
-import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
-import { validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
+import type { WorkflowNode, WorkflowEdge, WorkflowDocumentV2 } from '@docmee/db'
+import { materializeWorkflowDocument, simulateWorkflow, validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
 import { readAiAssistant, resolveChat } from '../lib/ai-assistant.js'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
@@ -34,18 +34,57 @@ const edgeSchema = z.object({
   target: z.string().min(1),
   sourceHandle: z.string().nullable().optional(),
 })
+const executionNodeSchema = nodeSchema.omit({ x: true, y: true })
+const workflowDocumentSchema = z.object({
+  version: z.literal(2),
+  definition: z.object({
+    nodes: z.array(executionNodeSchema),
+    edges: z.array(edgeSchema),
+  }),
+  presentation: z.object({
+    nodes: z.record(z.object({ x: z.number(), y: z.number(), width: z.number().optional(), height: z.number().optional() })),
+    viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number().positive() }).optional(),
+    groups: z.array(z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      nodeIds: z.array(z.string().min(1)),
+      collapsed: z.boolean().optional(),
+      lane: z.string().min(1).optional(),
+    })).optional(),
+  }),
+})
+const workflowStatusSchema = z.enum(['draft', 'validated', 'ready', 'published', 'superseded', 'archived', 'active']).transform(normalizeWorkflowStatus)
 const createSchema = z.object({
   name: z.string().min(1),
-  status: z.enum(['draft', 'active']).optional(),
+  status: workflowStatusSchema.optional(),
   nodes: z.array(nodeSchema).optional(),
   edges: z.array(edgeSchema).optional(),
+  document: workflowDocumentSchema.optional(),
 })
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
-  status: z.enum(['draft', 'active']).optional(),
+  status: workflowStatusSchema.optional(),
   nodes: z.array(nodeSchema).optional(),
   edges: z.array(edgeSchema).optional(),
+  document: workflowDocumentSchema.optional(),
+  expectedVersion: z.number().int().positive().optional(),
 })
+
+function graphFromDocument(document: WorkflowDocumentV2): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
+  return materializeWorkflowDocument(document)
+}
+
+function hasMixedGraphRepresentations(data: { nodes?: unknown; edges?: unknown; document?: unknown }): boolean {
+  return data.document !== undefined && (data.nodes !== undefined || data.edges !== undefined)
+}
+
+function expectedWorkflowVersion(request: { headers: Record<string, string | string[] | undefined> }, bodyVersion?: number): number | undefined {
+  const header = request.headers['if-match']
+  const raw = Array.isArray(header) ? header[0] : header
+  if (!raw) return bodyVersion
+  const parsed = Number(raw.replace(/^W\//, '').replaceAll('"', ''))
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : bodyVersion
+}
 
 function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[], active: boolean, reply: FastifyReply): boolean {
   const errors = validateWorkflowDefinition(nodes, edges, { requireTrigger: active })
@@ -56,6 +95,17 @@ function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[], active: boo
     issues: validateWorkflowDefinitionDetailed(nodes, edges, { requireTrigger: active }),
   })
   return false
+}
+
+/** Operator diagnostics must never become a second transport for patient
+ * messages, credentials, or raw provider payloads. Keep state + node trace. */
+export function redactWorkflowDiagnostic(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactWorkflowDiagnostic)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => {
+    const secret = /message|content|body|token|secret|authorization|provider.*payload/i.test(key)
+    return [key, secret ? '[redacted]' : redactWorkflowDiagnostic(nested)]
+  }))
 }
 
 // ── AI "Start with a wizard" (guided Q&A → workflow) ─────────────────────────
@@ -116,6 +166,79 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
     },
   )
 
+  app.get<{ Params: { id: string; workflowId: string } }>(
+    '/clinics/:id/workflows/:workflowId/revisions',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const revisions = await withDb((sql) => createWorkflowsRepository(sql).listRevisions(clinicId, request.params.workflowId))
+      return { revisions }
+    },
+  )
+
+  app.get<{ Params: { id: string; workflowId: string }; Querystring: { limit?: string } }>(
+    '/clinics/:id/workflows/:workflowId/runs',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const limit = Number(request.query.limit ?? 50)
+      const runs = await withDb((sql) => createWorkflowExecutionsRepository(sql).listRuns(clinicId, request.params.workflowId, Number.isFinite(limit) ? limit : 50))
+      return { runs: runs.map((run) => ({ ...run, trace: redactWorkflowDiagnostic(run.trace) })) }
+    },
+  )
+
+  app.get<{ Params: { id: string; workflowId: string; runId: string } }>(
+    '/clinics/:id/workflows/:workflowId/runs/:runId',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const run = await withDb((sql) => createWorkflowExecutionsRepository(sql).findRunById(clinicId, request.params.workflowId, request.params.runId))
+      if (!run) return reply.code(404).send({ error: 'Workflow run not found' })
+      return { run: { ...run, trace: redactWorkflowDiagnostic(run.trace) } }
+    },
+  )
+
+  app.post<{ Params: { id: string; workflowId: string }; Body: { context?: Record<string, unknown> } }>(
+    '/clinics/:id/workflows/:workflowId/simulate',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const workflow = await withDb((sql) => createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId))
+      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' })
+      if (!validateGraph(workflow.nodes, workflow.edges, true, reply)) return
+      const outcome = await simulateWorkflow(workflow, request.body?.context ?? {})
+      return { simulation: { ...outcome, simulated: true } }
+    },
+  )
+
+  app.post<{ Params: { id: string; workflowId: string; runId: string } }>(
+    '/clinics/:id/workflows/:workflowId/runs/:runId/cancel',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const cancelled = await withDb((sql) => createWorkflowExecutionsRepository(sql).requestCancellation({
+        id: request.params.runId,
+        clinicId,
+        workflowId: request.params.workflowId,
+      }))
+      if (!cancelled) return reply.code(409).send({ error: 'Workflow run cannot be cancelled' })
+      await withDb((sql) => createAuditRepository(sql).log({
+        clinicId,
+        actorId: request.user!.userId,
+        action: 'workflow_run_cancellation_requested',
+        resourceType: 'workflow_run',
+        resourceId: request.params.runId,
+        metadata: { workflowId: request.params.workflowId },
+      }))
+      return { cancelled: true }
+    },
+  )
+
   app.post<{ Params: { id: string } }>(
     '/clinics/:id/workflows',
     { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
@@ -124,9 +247,15 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       if (!parsed.ok) return
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-      const nodes = (parsed.data.nodes ?? []) as WorkflowNode[]
-      const edges = (parsed.data.edges ?? []) as WorkflowEdge[]
-      if (!validateGraph(nodes, edges, parsed.data.status === 'active', reply)) return
+      if (hasMixedGraphRepresentations(parsed.data)) {
+        return reply.code(400).send({ error: 'Send either nodes/edges or document, not both' })
+      }
+      const graph = parsed.data.document ? graphFromDocument(parsed.data.document) : {
+        nodes: (parsed.data.nodes ?? []) as WorkflowNode[],
+        edges: (parsed.data.edges ?? []) as WorkflowEdge[],
+      }
+      const { nodes, edges } = graph
+      if (!validateGraph(nodes, edges, parsed.data.status === 'published', reply)) return
       const workflow = await withDb(async (sql) =>
         createWorkflowsRepository(sql).create({
           clinicId,
@@ -134,6 +263,7 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
           status: parsed.data.status ?? 'draft',
           nodes,
           edges,
+          document: parsed.data.document,
         }),
       )
       return reply.code(201).send({ workflow })
@@ -208,19 +338,80 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
         createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId),
       )
       if (!current) return reply.code(404).send({ error: 'Workflow not found' })
-      const nodes = (parsed.data.nodes ?? current.nodes) as WorkflowNode[]
-      const edges = (parsed.data.edges ?? current.edges) as WorkflowEdge[]
-      const active = parsed.data.status === 'active' || (parsed.data.status === undefined && current.status === 'active')
-      if (!validateGraph(nodes, edges, active, reply)) return
+      if (hasMixedGraphRepresentations(parsed.data)) {
+        return reply.code(400).send({ error: 'Send either nodes/edges or document, not both' })
+      }
+      const graph = parsed.data.document ? graphFromDocument(parsed.data.document) : {
+        nodes: (parsed.data.nodes ?? current.nodes) as WorkflowNode[],
+        edges: (parsed.data.edges ?? current.edges) as WorkflowEdge[],
+      }
+      const { nodes, edges } = graph
+      const published = parsed.data.status === 'published' || (parsed.data.status === undefined && current.status === 'published')
+      if (!validateGraph(nodes, edges, published, reply)) return
+      const expectedVersion = expectedWorkflowVersion(request, parsed.data.expectedVersion)
       const workflow = await withDb(async (sql) =>
         createWorkflowsRepository(sql).update(clinicId, request.params.workflowId, {
           name: parsed.data.name,
           status: parsed.data.status,
           nodes,
           edges,
+          document: parsed.data.document,
+          expectedVersion,
+          actorId: request.user!.userId,
         }),
       )
-      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' })
+      if (!workflow) {
+        if (expectedVersion !== undefined) {
+          const latest = await withDb((sql) => createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId))
+          if (latest) return reply.code(409).send({ error: 'Workflow changed by another editor', currentVersion: latest.documentVersion, workflow: latest })
+        }
+        return reply.code(404).send({ error: 'Workflow not found' })
+      }
+      reply.header('ETag', `"${workflow.documentVersion}"`)
+      return { workflow }
+    },
+  )
+
+  app.post<{ Params: { id: string; workflowId: string }; Body: { action?: string; reason?: string; expectedVersion?: number } }>(
+    '/clinics/:id/workflows/:workflowId/lifecycle',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const action = request.body?.action
+      if (action !== 'validate' && action !== 'mark_ready' && action !== 'publish' && action !== 'archive' && action !== 'restore') {
+        return reply.code(400).send({ error: 'Invalid workflow lifecycle action' })
+      }
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const current = await withDb((sql) => createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId))
+      if (!current) return reply.code(404).send({ error: 'Workflow not found' })
+      if (action === 'validate' || action === 'mark_ready' || action === 'publish') {
+        if (!validateGraph(current.nodes, current.edges, true, reply)) return
+      }
+      const expectedVersion = expectedWorkflowVersion(request, request.body?.expectedVersion)
+      const workflow = await withDb((sql) => createWorkflowsRepository(sql).transitionLifecycle(clinicId, request.params.workflowId, action, {
+        actorId: request.user!.userId,
+        reason: request.body?.reason,
+        expectedVersion,
+      }))
+      if (!workflow) return reply.code(409).send({ error: 'Workflow lifecycle changed or action is not allowed' })
+      reply.header('ETag', `"${workflow.documentVersion}"`)
+      return { workflow }
+    },
+  )
+
+  app.post<{ Params: { id: string; workflowId: string; revisionId: string }; Body: { reason?: string; expectedVersion?: number } }>(
+    '/clinics/:id/workflows/:workflowId/revisions/:revisionId/restore',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const workflow = await withDb((sql) => createWorkflowsRepository(sql).restoreRevision(clinicId, request.params.workflowId, request.params.revisionId, {
+        actorId: request.user!.userId,
+        reason: request.body?.reason,
+        expectedVersion: expectedWorkflowVersion(request, request.body?.expectedVersion),
+      }))
+      if (!workflow) return reply.code(409).send({ error: 'Revision cannot be restored because this workflow changed or the revision is unavailable' })
+      reply.header('ETag', `"${workflow.documentVersion}"`)
       return { workflow }
     },
   )

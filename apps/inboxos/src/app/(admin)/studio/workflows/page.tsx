@@ -11,7 +11,6 @@ import { api, ApiError, type ApiIssue } from '@/shared/api/client'
 import { ClinicSelect, useClinics } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
-import { PillToggle } from '@/shared/components/PillToggle'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
@@ -109,9 +108,16 @@ export default function WorkflowsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
     onError: (error: Error) => setDeleteError(error.message || t('common.error')),
   })
-  const toggleMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: WorkflowStatus }) =>
-      api.patch(`/clinics/${clinicId}/workflows/${id}`, { status }),
+  const lifecycleMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: 'publish' | 'archive' | 'restore' }) => {
+      const endpoint = `/clinics/${clinicId}/workflows/${id}/lifecycle`
+      if (action !== 'publish') return api.post<{ workflow: Workflow }>(endpoint, { action })
+      // Publishing is deliberately an explicit state transition, never a hidden
+      // boolean toggle. The server re-validates the graph at every gate.
+      await api.post<{ workflow: Workflow }>(endpoint, { action: 'validate' })
+      await api.post<{ workflow: Workflow }>(endpoint, { action: 'mark_ready' })
+      return api.post<{ workflow: Workflow }>(endpoint, { action: 'publish' })
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   })
   const createFromTemplate = useMutation({
@@ -288,18 +294,28 @@ export default function WorkflowsPage() {
                         {formatDateTime(wf.updatedAt, language)}
                       </td>
                       <td className="px-3 py-2">
-                        <PillToggle
-                          checked={wf.status === 'active'}
-                          label={wf.status === 'active' ? t('wf.deactivate') : t('wf.activate')}
-                          onChange={(next) => toggleMutation.mutate({ id: wf.id, status: next ? 'active' : 'draft' })}
-                          size="sm"
-                        />
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${wf.status === 'published' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
+                          {wf.status === 'published' ? 'Published' : wf.status}
+                        </span>
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-2">
                           <button type="button" onClick={() => setEditing(wf)} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
                             {t('common.edit')}
                           </button>
+                          {wf.status === 'published' ? (
+                            <button type="button" onClick={() => lifecycleMutation.mutate({ id: wf.id, action: 'archive' })} className={`${btn} border border-amber-300 text-amber-700 dark:text-amber-200`}>
+                              Archive
+                            </button>
+                          ) : wf.status === 'archived' ? (
+                            <button type="button" onClick={() => lifecycleMutation.mutate({ id: wf.id, action: 'restore' })} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
+                              Restore draft
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => lifecycleMutation.mutate({ id: wf.id, action: 'publish' })} className={`${btn} border border-cyan-300 text-cyan-700 dark:text-cyan-200`}>
+                              Publish
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => setPendingDelete(wf)}
@@ -519,7 +535,7 @@ function WorkflowEditor({
   const { t, language } = useI18n()
   const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
-  const [status, setStatus] = useState<WorkflowStatus>(workflow?.status ?? 'draft')
+  const status: WorkflowStatus = workflow?.status ?? 'draft'
   // Builder mode (Enhanced / Guided) — lifted here so its toggle lives in the
   // toolbar (item 16); persisted per-browser.
   const [mode, setMode] = useState<CanvasMode>(() => readCanvasMode())
@@ -544,6 +560,12 @@ function WorkflowEditor({
   const [importError, setImportError] = useState<string | null>(null)
   const [focusedIssue, setFocusedIssue] = useState<ApiIssue | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const simulation = useMutation({
+    mutationFn: () => api.post<{ simulation: { status: string; resumeReason?: string; trace: Array<{ nodeId: string; type: string; status: string }> } }>(
+      `/clinics/${clinicId}/workflows/${workflow!.id}/simulate`,
+      { context: {} },
+    ),
+  })
 
   const applyCanvasChange = useCallback((next: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => {
     const now = Date.now()
@@ -651,7 +673,7 @@ function WorkflowEditor({
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name: name.trim() || t('wf.untitled'), status, nodes, edges }
+      const payload = { name: name.trim() || t('wf.untitled'), nodes, edges, ...(workflow?.documentVersion ? { expectedVersion: workflow.documentVersion } : {}) }
       return workflow
         ? api.patch(`/clinics/${clinicId}/workflows/${workflow.id}`, payload)
         : api.post(`/clinics/${clinicId}/workflows`, payload)
@@ -694,17 +716,9 @@ function WorkflowEditor({
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-          <input
-            type="checkbox"
-            checked={status === 'active'}
-            onChange={(e) => {
-              setStatus(e.target.checked ? 'active' : 'draft')
-              setDirty(true)
-            }}
-          />
-          {t('wf.activeToggle')}
-        </label>
+        <span className="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">
+          {status === 'published' ? 'Published' : 'Draft'}
+        </span>
         <button
           type="button"
           onClick={undo}
@@ -730,6 +744,15 @@ function WorkflowEditor({
           className={`${btn} border border-gray-300 text-gray-700 disabled:opacity-40 dark:text-gray-200`}
         >
           ▦ {t('wf.autoLayout')}
+        </button>
+        <button
+          type="button"
+          onClick={() => simulation.mutate()}
+          disabled={!workflow || dirty || simulation.isPending}
+          title={dirty ? 'Save changes before simulating' : 'Run a side-effect-free simulation'}
+          className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}
+        >
+          ▷ Simulate
         </button>
         <button
           type="button"
@@ -814,6 +837,22 @@ function WorkflowEditor({
             </details>
           )}
         </div>
+      )}
+      {simulation.isError && (
+        <div role="alert" className="mx-4 mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          Simulation failed: {simulation.error instanceof Error ? simulation.error.message : t('common.error')}
+        </div>
+      )}
+      {simulation.data && (
+        <section aria-label="Workflow simulation" className="mx-4 mt-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900 dark:bg-violet-950">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-semibold text-violet-900 dark:text-violet-100">Simulation: {simulation.data.simulation.status}</p>
+            {simulation.data.simulation.resumeReason && <span className="text-xs text-violet-700 dark:text-violet-300">Wait: {simulation.data.simulation.resumeReason}</span>}
+          </div>
+          <ol className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-violet-800 dark:text-violet-200">
+            {simulation.data.simulation.trace.map((step) => <li key={`${step.nodeId}-${step.status}`} className="rounded bg-white/70 px-1.5 py-0.5 dark:bg-black/20">{step.nodeId} · {step.status}</li>)}
+          </ol>
+        </section>
       )}
       <p className="px-4 pt-2 text-xs text-gray-500">{t('wf.canvasHint')}</p>
       <div className="min-h-0 flex-1 p-4 pt-2">

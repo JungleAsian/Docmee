@@ -288,7 +288,7 @@ export async function enqueueWorkflowRunByTarget(
     return false
   }
   const target = await createWorkflowsRepository(sql).findById(clinicId, targetWorkflowId)
-  if (!target || target.status !== 'active') return false
+  if (!target || target.status !== 'published') return false
   await workflowQueue().add('run', {
     clinicId,
     workflowId: targetWorkflowId,

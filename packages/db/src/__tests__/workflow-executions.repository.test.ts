@@ -13,14 +13,39 @@ function fakeSql(rows: Record<string, unknown>[]) {
 }
 
 describe('workflow execution ledger', () => {
-  it('claims one workflow run for a source event and permits only failed-run recovery', async () => {
+  it('claims one workflow run for a source event and permits only recoverable-run recovery', async () => {
     const { sql, calls } = fakeSql([{ id: 'run-1' }])
     await createWorkflowExecutionsRepository(sql).claimRun({
       clinicId: 'clinic-1', workflowId: 'workflow-1', workflowRevisionId: 'revision-1', sourceEventId: 'wamid.1', queueJobId: 'workflow-run-1',
     })
     expect(calls[0]?.query).toContain('ON CONFLICT (clinic_id, workflow_id, source_event_id) DO UPDATE')
-    expect(calls[0]?.query).toContain("WHERE workflow_runs.status = 'failed'")
+    expect(calls[0]?.query).toContain("WHERE workflow_runs.status IN ('failed', 'retry_scheduled')")
+    expect(calls[0]?.query).toContain('cancel_requested_at IS NULL')
     expect(calls[0]?.values).toEqual(['clinic-1', 'workflow-1', 'revision-1', 'wamid.1', 'workflow-run-1'])
+  })
+
+  it('persists a resume cursor before a future delay job may be queued', async () => {
+    const { sql, calls } = fakeSql([{ id: 'run-1' }])
+    const saved = await createWorkflowExecutionsRepository(sql).scheduleResume({
+      id: 'run-1',
+      from: ['running'],
+      resumeAt: new Date('2026-09-03T12:00:00.000Z'),
+      reason: 'delay',
+      currentNodeId: 'next-node',
+      trace: { trace: [{ nodeId: 'delay', status: 'paused' }] },
+    })
+    expect(saved).toBe(true)
+    expect(calls[0]?.query).toContain("SET status = 'waiting'")
+    expect(calls[0]?.query).toContain('resume_at =')
+    expect(calls[0]?.query).toContain('cancel_requested_at IS NULL')
+  })
+
+  it('scopes cancellation to the workflow and clinic that own the run', async () => {
+    const { sql, calls } = fakeSql([{ id: 'run-1' }])
+    await createWorkflowExecutionsRepository(sql).requestCancellation({ id: 'run-1', clinicId: 'clinic-1', workflowId: 'workflow-1' })
+    expect(calls[0]?.query).toContain('clinic_id =')
+    expect(calls[0]?.query).toContain('workflow_id =')
+    expect(calls[0]?.values).toEqual(['run-1', 'clinic-1', 'workflow-1'])
   })
 
   it('claims each deterministic node effect once and records provider identifiers on success', async () => {

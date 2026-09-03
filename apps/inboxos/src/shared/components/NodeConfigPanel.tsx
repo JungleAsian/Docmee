@@ -135,7 +135,7 @@ export function NodeConfigPanel({
     queryFn: () => api.get<{ workflows: Workflow[] }>(`/clinics/${clinicId}/workflows`),
   })
   const routableWorkflows = useMemo(
-    () => (workflowsQuery.data?.workflows ?? []).filter((wf) => wf.status === 'active' && wf.id !== workflowId),
+    () => (workflowsQuery.data?.workflows ?? []).filter((wf) => wf.status === 'published' && wf.id !== workflowId),
     [workflowsQuery.data, workflowId],
   )
 

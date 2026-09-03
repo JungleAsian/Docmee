@@ -673,7 +673,9 @@ export interface CustomFlow {
 }
 
 // ── Rev 3: N8N-style automation workflows ───────────────────────────────────────
-export type WorkflowStatus = 'draft' | 'active'
+/** Workflow lifecycle mirrors the execution contract. `published` is the only
+ * status the runtime may start; drafts and validation stages are editor-only. */
+export type WorkflowStatus = 'draft' | 'validated' | 'ready' | 'published' | 'superseded' | 'archived'
 export type WorkflowNodeKind = 'trigger' | 'logic' | 'action'
 export interface WorkflowNode {
   id: string
@@ -694,6 +696,10 @@ export interface Workflow {
   clinicId: string
   name: string
   status: WorkflowStatus
+  /** Increments on both definition and layout edits, for optimistic saves. */
+  documentVersion?: number
+  lifecycleChangedAt?: string | null
+  archivedAt?: string | null
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   createdAt: string

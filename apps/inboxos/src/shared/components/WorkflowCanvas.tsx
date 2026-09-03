@@ -77,6 +77,7 @@ type RoutedEdgeData = {
   color: string
   dimmed: boolean
   emphasized: boolean
+  hovered: boolean
 }
 
 export function roundedOrthogonalPath(points: { x: number; y: number }[], radius = 10): string {
@@ -136,7 +137,11 @@ function WorkflowRouteEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, 
         <EdgeLabelRenderer>
           <span
             className="pointer-events-none absolute rounded bg-gray-950/90 px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, opacity: routed.dimmed ? 0.45 : 1 }}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              opacity: routed.dimmed ? 0.45 : 1,
+              zIndex: routed.hovered ? 10_001 : 1,
+            }}
           >
             {routed.label}
           </span>
@@ -157,6 +162,48 @@ export function workflowPathAppearance(hasSelection: boolean, inPath: boolean): 
   return inPath
     ? { nodeOpacity: 1, edgeOpacity: 1, edgeWidth: 3.5 }
     : { nodeOpacity: 0.38, edgeOpacity: 0.28, edgeWidth: 2 }
+}
+
+/**
+ * The canvas may contain several orthogonal routes in the same corridor.
+ * Derive edge presentation exclusively from local interaction state so a
+ * hover never changes the saved workflow graph. `zIndex` reserves a high
+ * foreground band for the one edge being inspected.
+ */
+export function workflowEdgeAppearance({
+  hasSelection,
+  inSelectedPath,
+  hovered,
+  order,
+}: {
+  hasSelection: boolean
+  inSelectedPath: boolean
+  hovered: boolean
+  order: number
+}): {
+  opacity: number
+  width: number
+  zIndex: number
+  animated: boolean
+  dasharray: string | undefined
+} {
+  const path = workflowPathAppearance(hasSelection, inSelectedPath)
+  if (!hovered) {
+    return {
+      opacity: path.edgeOpacity,
+      width: path.edgeWidth,
+      zIndex: order,
+      animated: false,
+      dasharray: undefined,
+    }
+  }
+  return {
+    opacity: 1,
+    width: Math.max(4.5, path.edgeWidth),
+    zIndex: 10_000 + order,
+    animated: true,
+    dasharray: '7 5',
+  }
 }
 
 export function WorkflowLayoutControls({
@@ -721,6 +768,9 @@ function WorkflowCanvasInner({
   const [pickerQuery, setPickerQuery] = useState('')
   const [manualLayoutDirty, setManualLayoutDirty] = useState(false)
   const [measuredSizes, setMeasuredSizes] = useState<WorkflowNodeSizeMap>({})
+  // This is deliberately not part of the workflow document. It only controls
+  // which overlapping route is promoted while the operator inspects it.
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
 
@@ -824,7 +874,7 @@ function WorkflowCanvasInner({
         },
       }
     })
-    const rfEdges: Edge[] = edges.map((e) => {
+    const rfEdges: Edge[] = edges.map((e, order) => {
       if (mode !== 'enhanced') {
         // Classic / BotPenguin: plain thin gray beziers, no labels or colored markers.
         return {
@@ -849,20 +899,34 @@ function WorkflowCanvasInner({
       const route = routeByEdge.get(e.id)
       const emphasized = selectedPath?.edgeIds.has(e.id) ?? false
       const dimmed = Boolean(selectedPath && !emphasized)
-      const appearance = workflowPathAppearance(Boolean(selectedPath), emphasized)
+      const hovered = hoveredEdgeId === e.id
+      const appearance = workflowEdgeAppearance({
+        hasSelection: Boolean(selectedPath),
+        inSelectedPath: emphasized,
+        hovered,
+        order,
+      })
       return {
         id: e.id,
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle ?? undefined,
         type: route ? 'workflowRoute' : 'smoothstep',
-        data: route ? { route, label: edgeLabel, color, dimmed, emphasized } satisfies RoutedEdgeData : undefined,
-        style: { stroke: color, strokeWidth: appearance.edgeWidth, opacity: appearance.edgeOpacity },
+        data: route ? { route, label: edgeLabel, color, dimmed, emphasized, hovered } satisfies RoutedEdgeData : undefined,
+        style: {
+          stroke: color,
+          strokeWidth: appearance.width,
+          opacity: appearance.opacity,
+          strokeDasharray: appearance.dasharray,
+        },
+        zIndex: appearance.zIndex,
+        animated: appearance.animated,
+        ariaLabel: `${label(sourceNode?.type ?? e.source)}${edgeLabel ? ` ${edgeLabel}` : ''} to ${label(nodeById.get(e.target)?.type ?? e.target)}`,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, measuredSizes, label, language, selectedId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget])
+  }, [nodes, edges, measuredSizes, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -872,21 +936,19 @@ function WorkflowCanvasInner({
     setEdges(graph.edges)
   }, [graph, setNodes, setEdges])
 
-  // Item 23 of the 25-item batch: hovering an edge traces its connection with the
-  // flow-dash animation @xyflow/react already ships (the CSS keyframe is in the
-  // installed style.css) — just toggling `animated` per edge on hover/unhover,
-  // local-only state, never persisted via onChange.
+  // Hover state is local-only. Rendering derives the foreground route from this
+  // id, which also prevents a graph-prop sync from erasing the trace mid-hover.
   const handleEdgeMouseEnter = useCallback(
     (_event: unknown, edge: Edge) => {
-      setEdges((current) => current.map((e) => (e.id === edge.id ? { ...e, animated: true } : e)))
+      setHoveredEdgeId(edge.id)
     },
-    [setEdges],
+    [],
   )
   const handleEdgeMouseLeave = useCallback(
     (_event: unknown, edge: Edge) => {
-      setEdges((current) => current.map((e) => (e.id === edge.id ? { ...e, animated: false } : e)))
+      setHoveredEdgeId((current) => (current === edge.id ? null : current))
     },
-    [setEdges],
+    [],
   )
 
   // Both handlers below apply the raw change to React Flow's own local

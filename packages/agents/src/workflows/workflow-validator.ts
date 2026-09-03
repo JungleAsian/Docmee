@@ -1,5 +1,6 @@
 import type { WorkflowEdge, WorkflowNode } from '@docmee/db'
 import { parseMenuOptions, MENU_RESERVED_HANDLES, parseAiAgentScenarios } from './workflow-engine.js'
+import { validateWorkflowPortConnection } from './workflow-ports.js'
 
 const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['trigger.message_keyword', 'trigger'],
@@ -58,6 +59,7 @@ export type WorkflowValidationIssueCode =
   | 'invalid_setting'
   | 'incomplete_node'
   | 'invalid_connection'
+  | 'invalid_port_connection'
   | 'invalid_node'
   | 'unreachable_node'
   | 'cycle'
@@ -118,6 +120,7 @@ export function validateWorkflowDefinition(
     errors.push('This workflow has no trigger node, so it can never start (an active workflow requires exactly one trigger). Add exactly one trigger node — e.g. "Message keyword" or "Patient upset" — from the node panel.')
   }
 
+  const nodesByIdEarly = new Map(nodes.map((node) => [node.id, node]))
   const typeByIdEarly = new Map(nodes.map((node) => [node.id, node.type]))
   const outgoing = new Map<string, WorkflowEdge[]>()
   for (const edge of edges) {
@@ -131,6 +134,8 @@ export function validateWorkflowDefinition(
     if (!ids.has(edge.target)) {
       errors.push(`Edge ${edge.id} points to node "${edge.target}", which no longer exists on the canvas (unknown target). Delete this edge, or reconnect it to an existing node.`)
     }
+    const portError = validateWorkflowPortConnection(edge, nodesByIdEarly.get(edge.source), nodesByIdEarly.get(edge.target))
+    if (portError) errors.push(portError)
     // Self-loops are legal on pause nodes only: an interactive menu re-showing
     // itself on an unmatched reply (default) or a footer restart resumes on the
     // patient's next turn, so the loop is conversational, not synchronous. A
@@ -448,6 +453,28 @@ function issueFromTechnicalDetail(
           title: 'Una conexión del menú necesita atención',
           whatHappened: 'Una conexión de este menú no está unida a una opción válida. Es posible que la opción se haya renombrado o eliminado.',
           howToFix: 'Abre el menú, elimina la conexión rota y vuelve a conectar la opción correcta.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Edge ([^\s]+) (?:leaves end node|targets trigger node) ([^,]+), which has no (?:output|input) port\./)
+  if (match) {
+    const [, edgeId] = match
+    const edge = edgesById.get(edgeId)
+    return base({
+      code: 'invalid_port_connection',
+      title: 'One connection uses an unavailable port',
+      where: nodeLabel(edge?.source ? nodesById.get(edge.source) : undefined, edge?.source),
+      nodeId: edge?.source,
+      edgeId,
+      whatHappened: 'This connection leaves a node with no output or enters a node with no input.',
+      howToFix: 'Delete the connection, then connect a valid output to a valid input on the next workflow step.',
+      translations: {
+        es: {
+          title: 'Una conexión usa un puerto no disponible',
+          whatHappened: 'Esta conexión sale de un nodo sin salida o entra en un nodo sin entrada.',
+          howToFix: 'Elimina la conexión y une una salida válida con la entrada válida del siguiente paso.',
         },
       },
     })

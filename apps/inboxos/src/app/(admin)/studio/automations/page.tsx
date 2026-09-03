@@ -498,12 +498,12 @@ function WorkflowsSummary({ clinicId }: { clinicId: string }) {
               </div>
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                  workflow.status === 'active'
+                  workflow.status === 'published'
                     ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                     : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
                 }`}
               >
-                {workflow.status === 'active' ? t('wf.activeToggle') : t('automations.flows.off')}
+                {workflow.status === 'published' ? t('wf.activeToggle') : t('automations.flows.off')}
               </span>
             </li>
           ))}

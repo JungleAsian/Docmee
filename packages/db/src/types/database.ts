@@ -761,7 +761,10 @@ export interface FollowUp {
 }
 
 // ── Rev 3: N8N-style automation workflows ───────────────────────────────────────
-export type WorkflowStatus = 'draft' | 'active'
+/** `active` is accepted only at legacy API/database boundaries and normalized to
+ * `published`; application code operates on this explicit lifecycle. */
+export type WorkflowStatus = 'draft' | 'validated' | 'ready' | 'published' | 'superseded' | 'archived'
+export type LegacyWorkflowStatus = WorkflowStatus | 'active'
 export type WorkflowNodeKind = 'trigger' | 'logic' | 'action'
 
 /** One node on the workflow canvas. `type` is the concrete node (e.g.
@@ -791,8 +794,15 @@ export interface Workflow {
   status: WorkflowStatus
   /** Immutable graph used by new runs while this workflow is active. */
   activeRevisionId: string | null
+  /** Optimistic-concurrency token for both definition and layout edits. */
+  documentVersion?: number
+  lifecycleChangedAt?: string | null
+  archivedAt?: string | null
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
+  /** V2 document keeps execution and canvas presentation independent. Optional
+   * while installations backfill the additive database column. */
+  document?: WorkflowDocumentV2 | null
   createdAt: string
   updatedAt: string
 }
@@ -804,11 +814,58 @@ export interface WorkflowDefinition {
   edges: WorkflowEdge[]
 }
 
+/** A node without canvas coordinates. This is the executable representation
+ * introduced by workflow document v2; x/y remain on WorkflowNode for V1 API
+ * compatibility and are deliberately never read by the runner. */
+export type WorkflowExecutionNode = Omit<WorkflowNode, 'x' | 'y'>
+
+export interface WorkflowExecutionDefinition {
+  nodes: WorkflowExecutionNode[]
+  edges: WorkflowEdge[]
+}
+
+export interface WorkflowNodePresentation {
+  x: number
+  y: number
+  width?: number
+  height?: number
+}
+
+export interface WorkflowPresentationGroup {
+  id: string
+  label: string
+  nodeIds: string[]
+  collapsed?: boolean
+  lane?: string
+}
+
+/** Layout-only metadata. It is safe to update this object without creating a
+ * new executable workflow revision. */
+export interface WorkflowPresentation {
+  nodes: Record<string, WorkflowNodePresentation>
+  viewport?: { x: number; y: number; zoom: number }
+  groups?: WorkflowPresentationGroup[]
+}
+
+export interface WorkflowDocumentV2 {
+  version: 2
+  definition: WorkflowExecutionDefinition
+  presentation: WorkflowPresentation
+}
+
+/** Accepts historical persisted graph rows and the forward-compatible v2
+ * document so API boundaries can migrate clients incrementally. */
+export type WorkflowDocument = WorkflowDefinition | WorkflowDocumentV2
+
 export interface WorkflowRevision {
   id: string
   clinicId: string
   workflowId: string
   definition: WorkflowDefinition
+  revisionNumber?: number
+  status?: 'published' | 'superseded'
+  authorId?: string | null
+  reason?: string | null
   createdAt: string
 }
 

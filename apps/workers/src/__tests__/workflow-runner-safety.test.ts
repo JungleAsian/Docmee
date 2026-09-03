@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   findWorkflow: vi.fn(),
+  findRevision: vi.fn(),
   findPatient: vi.fn(),
   claimRun: vi.fn(),
   findRun: vi.fn(),
@@ -29,6 +30,7 @@ const h = vi.hoisted(() => ({
   createMessage: vi.fn(),
   chatComplete: vi.fn(),
   listEmbeddedChunks: vi.fn(),
+  queueAdd: vi.fn(),
   end: vi.fn(),
 }))
 
@@ -69,11 +71,11 @@ vi.mock('@docmee/channels', () => ({
 }))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
-vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: vi.fn() }) }))
+vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }) }))
 
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: h.end }),
-  createWorkflowsRepository: () => ({ findById: h.findWorkflow }),
+  createWorkflowsRepository: () => ({ findById: h.findWorkflow, findRevision: h.findRevision }),
   createPatientsRepository: () => ({ findById: h.findPatient, listContacts: h.listContacts }),
   createWorkflowExecutionsRepository: () => ({
     claimRun: h.claimRun,
@@ -145,9 +147,65 @@ beforeEach(() => {
   h.createMessage.mockResolvedValue({ id: 'message-1' })
   h.chatComplete.mockResolvedValue('SCENARIO: general\nREPLY:\nHello from AI.')
   h.listEmbeddedChunks.mockResolvedValue([])
+  h.queueAdd.mockResolvedValue(undefined)
 })
 
 describe('processWorkflowRunJob automation ownership', () => {
+  it('runs a pinned revision rather than the workflow definition edited later', async () => {
+    h.findWorkflow.mockResolvedValue({
+      id: WORKFLOW,
+      name: 'Booking',
+      status: 'active',
+      nodes: [{ id: 'current', kind: 'action', type: 'action.send_message', config: {}, x: 0, y: 0 }],
+      edges: [],
+    })
+    h.findRevision.mockResolvedValue({
+      id: '55555555-5555-4555-8555-555555555555',
+      definition: {
+        nodes: [{ id: 'pinned', kind: 'action', type: 'action.send_message', config: {}, x: 0, y: 0 }],
+        edges: [],
+      },
+    })
+
+    await processWorkflowRunJob({
+      id: 'job-revision-1',
+      data: {
+        clinicId: CLINIC,
+        workflowId: WORKFLOW,
+        workflowRevisionId: '55555555-5555-4555-8555-555555555555',
+        trigger: { type: 'message_keyword', sourceEventId: 'wamid.revision', patientId: PATIENT },
+      },
+    } as never)
+
+    expect(h.findRevision).toHaveBeenCalledWith(CLINIC, WORKFLOW, '55555555-5555-4555-8555-555555555555')
+    expect(h.runWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ id: 'pinned' })] }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('persists accumulated context when a delay schedules its resume', async () => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      ctx['selected_doctor'] = 'doctor-1'
+      await exec.scheduleResume('after-delay', 60_000, ctx)
+      return [{ status: 'paused' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.queueAdd).toHaveBeenCalledWith(
+      'run',
+      expect.objectContaining({
+        workflowId: WORKFLOW,
+        startNodeId: 'after-delay',
+        context: expect.objectContaining({ selected_doctor: 'doctor-1' }),
+      }),
+      expect.objectContaining({ delay: 60_000 }),
+    )
+  })
+
   it('does not claim or execute a workflow for a human-only patient', async () => {
     h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'human_only', metadata: {} })
 

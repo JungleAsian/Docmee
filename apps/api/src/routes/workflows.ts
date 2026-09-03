@@ -271,7 +271,8 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       if (decision === 'approved') {
         await createQueue('workflow-run').add('run', {
           clinicId, workflowId: approval.workflowId,
-          trigger: { type: 'trigger.workflow_approval', conversationId: approval.conversationId ?? undefined, patientId: approval.patientId ?? undefined },
+          workflowRevisionId: approval.workflowRevisionId ?? undefined,
+          trigger: { type: 'trigger.workflow_approval', sourceEventId: `workflow-approval:${approval.id}`, conversationId: approval.conversationId ?? undefined, patientId: approval.patientId ?? undefined },
           startNodeId: approval.resumeNodeId ?? undefined, context: approval.context, approvalId: approval.id,
         }, { jobId: `workflow-approval:${approval.id}` })
       }

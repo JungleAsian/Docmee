@@ -32,6 +32,8 @@ export const WorkflowTriggerSchema = z
 export const WorkflowRunJobSchema = z.object({
   clinicId: z.string().uuid(),
   workflowId: z.string().uuid(),
+  /** Immutable active graph selected when this run was enqueued. */
+  workflowRevisionId: z.string().uuid().optional(),
   trigger: WorkflowTriggerSchema,
   /** set when a delay node re-enqueues the run to resume mid-graph. */
   startNodeId: z.string().optional(),
@@ -72,6 +74,7 @@ const PENDING_WORKFLOWS_KEY = 'pendingWorkflowRuns'
 
 export interface PendingWorkflowRun {
   workflowId: string
+  workflowRevisionId?: string
   sourceEventId: string
   resumeNodeId: string
   context: Record<string, unknown>
@@ -96,6 +99,7 @@ export function readPendingWorkflowRuns(metadata: Record<string, unknown>): Pend
     const workflowId = entry['workflowId']
     const resumeNodeId = entry['resumeNodeId']
     const sourceEventId = entry['sourceEventId']
+    const workflowRevisionId = entry['workflowRevisionId']
     const expiresAt = entry['expiresAt']
     const rawContext = entry['context']
     if (
@@ -123,7 +127,14 @@ export function readPendingWorkflowRuns(metadata: Record<string, unknown>): Pend
     } catch {
       return []
     }
-    return [{ workflowId, sourceEventId, resumeNodeId, context, expiresAt }]
+    return [{
+      workflowId,
+      ...(typeof workflowRevisionId === 'string' ? { workflowRevisionId } : {}),
+      sourceEventId,
+      resumeNodeId,
+      context,
+      expiresAt,
+    }]
   })
 }
 
@@ -167,6 +178,7 @@ export async function resumePendingWorkflowRuns(
       {
         clinicId,
         workflowId: pending.workflowId,
+        workflowRevisionId: pending.workflowRevisionId,
         trigger: { ...ctx, type: 'trigger.conversation_reply', sourceEventId: pending.sourceEventId, conversationId },
         startNodeId: pending.resumeNodeId,
         context: pending.context,
@@ -247,6 +259,7 @@ export async function enqueueWorkflowRuns(
     await workflowQueue().add('run', {
       clinicId,
       workflowId: wf.id,
+      workflowRevisionId: wf.activeRevisionId ?? undefined,
       trigger: { type: triggerType, sourceEventId, ...ctx },
     } satisfies WorkflowRunJobData, { jobId: workflowRunKey(wf.id, sourceEventId) })
     enqueued++
@@ -279,6 +292,7 @@ export async function enqueueWorkflowRunByTarget(
   await workflowQueue().add('run', {
     clinicId,
     workflowId: targetWorkflowId,
+    workflowRevisionId: target.activeRevisionId ?? undefined,
     trigger: { type: triggerType, sourceEventId, ...ctx },
   } satisfies WorkflowRunJobData, { jobId: workflowRunKey(targetWorkflowId, sourceEventId) })
   return true
@@ -311,6 +325,7 @@ export async function enqueueInboundWorkflowRuns(
     await workflowQueue().add('run', {
       clinicId,
       workflowId: wf.id,
+      workflowRevisionId: wf.activeRevisionId ?? undefined,
       trigger: { type: 'trigger.message_keyword', sourceEventId, ...ctx },
     } satisfies WorkflowRunJobData, { jobId: workflowRunKey(wf.id, sourceEventId) })
     enqueued++

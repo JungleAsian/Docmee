@@ -16,11 +16,11 @@ describe('workflow execution ledger', () => {
   it('claims one workflow run for a source event and permits only failed-run recovery', async () => {
     const { sql, calls } = fakeSql([{ id: 'run-1' }])
     await createWorkflowExecutionsRepository(sql).claimRun({
-      clinicId: 'clinic-1', workflowId: 'workflow-1', sourceEventId: 'wamid.1', queueJobId: 'workflow-run-1',
+      clinicId: 'clinic-1', workflowId: 'workflow-1', workflowRevisionId: 'revision-1', sourceEventId: 'wamid.1', queueJobId: 'workflow-run-1',
     })
     expect(calls[0]?.query).toContain('ON CONFLICT (clinic_id, workflow_id, source_event_id) DO UPDATE')
     expect(calls[0]?.query).toContain("WHERE workflow_runs.status = 'failed'")
-    expect(calls[0]?.values).toEqual(['clinic-1', 'workflow-1', 'wamid.1', 'workflow-run-1'])
+    expect(calls[0]?.values).toEqual(['clinic-1', 'workflow-1', 'revision-1', 'wamid.1', 'workflow-run-1'])
   })
 
   it('claims each deterministic node effect once and records provider identifiers on success', async () => {

@@ -1235,7 +1235,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
 
     async requestApproval(node, resumeNodeId, ctx) {
       const expiryMinutes = boundedInteger(node.config?.['expiresMinutes'], 1_440, 5, 43_200)
-      const approval = await createWorkflowApprovalsRepository(sql).createPending({ clinicId, workflowId: data.workflowId, nodeId: node.id, runKey: workflowRunId, conversationId: ctx.conversationId, patientId: ctx.patientId, resumeNodeId, context: { ...ctx }, expiresAt: new Date(Date.now() + expiryMinutes * 60_000).toISOString() })
+      const approval = await createWorkflowApprovalsRepository(sql).createPending({ clinicId, workflowId: data.workflowId, workflowRevisionId: data.workflowRevisionId, nodeId: node.id, runKey: workflowRunId, conversationId: ctx.conversationId, patientId: ctx.patientId, resumeNodeId, context: { ...ctx }, expiresAt: new Date(Date.now() + expiryMinutes * 60_000).toISOString() })
       if (approval.status === 'pending') await notify('A workflow step requires your approval before continuing.', ctx)
     },
 
@@ -1346,6 +1346,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
       const metadata = writePendingWorkflowRun(conversation.metadata, {
         workflowId: data.workflowId,
+        workflowRevisionId: data.workflowRevisionId,
         sourceEventId: data.trigger.sourceEventId,
         resumeNodeId: capture.nodeId,
         context: { ...ctx },
@@ -1444,6 +1445,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
       const metadata = writePendingWorkflowRun(conversation.metadata, {
         workflowId: data.workflowId,
+        workflowRevisionId: data.workflowRevisionId,
         sourceEventId: data.trigger.sourceEventId,
         resumeNodeId: node.id,
         context: { ...ctx },
@@ -1532,6 +1534,7 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
       const metadata = writePendingWorkflowRun(conversation.metadata, {
         workflowId: data.workflowId,
+        workflowRevisionId: data.workflowRevisionId,
         sourceEventId: data.trigger.sourceEventId,
         resumeNodeId: node.id,
         context: { ...ctx },
@@ -1750,9 +1753,12 @@ function buildExecutors(sql: Sql, data: WorkflowRunJobData, workflowRunId: strin
       ctx['booking_status'] = 'created'
     },
 
-    async scheduleResume(nodeId, ms) {
+    async scheduleResume(nodeId, ms, context) {
       if (!nodeId) return
-      await scheduleWorkflowResume(data, nodeId, ms)
+      // A delay resumes in a different worker turn. Preserve every value
+      // accumulated before the pause instead of falling back to the original
+      // trigger-only context captured in `data`.
+      await scheduleWorkflowResume({ ...data, context }, nodeId, ms)
     },
   }
 }
@@ -1763,11 +1769,24 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
   const executions = createWorkflowExecutionsRepository(sql)
   let workflowRunId: string | null = null
   try {
-    const workflow = await createWorkflowsRepository(sql).findById(data.clinicId, data.workflowId)
-    if (!workflow || workflow.status !== 'active') {
+    const workflows = createWorkflowsRepository(sql)
+    const currentWorkflow = await workflows.findById(data.clinicId, data.workflowId)
+    if (!currentWorkflow || currentWorkflow.status !== 'active') {
       console.log(`[workflow] ${data.workflowId} not active; skipping run`)
       return
     }
+    // New jobs always carry this immutable snapshot. The fallback preserves
+    // already-queued pre-migration jobs until their bounded queue lifetime ends.
+    const revision = data.workflowRevisionId
+      ? await workflows.findRevision(data.clinicId, data.workflowId, data.workflowRevisionId)
+      : null
+    if (data.workflowRevisionId && !revision) {
+      console.error(`[workflow] pinned revision ${data.workflowRevisionId} is unavailable; refusing to execute ${data.workflowId}`)
+      return
+    }
+    const workflow = revision
+      ? { ...currentWorkflow, nodes: revision.definition.nodes, edges: revision.definition.edges }
+      : currentWorkflow
     const graphErrors = validateWorkflowDefinition(workflow.nodes, workflow.edges, { requireTrigger: true })
     if (graphErrors.length > 0) {
       console.error(`[workflow] ${data.workflowId} has an invalid persisted graph: ${graphErrors.join('; ')}`)
@@ -1781,6 +1800,7 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
       : await executions.claimRun({
         clinicId: data.clinicId,
         workflowId: data.workflowId,
+        workflowRevisionId: data.workflowRevisionId,
         sourceEventId,
         queueJobId: String(job.id ?? ''),
       })

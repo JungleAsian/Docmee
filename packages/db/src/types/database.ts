@@ -789,10 +789,27 @@ export interface Workflow {
   clinicId: string
   name: string
   status: WorkflowStatus
+  /** Immutable graph used by new runs while this workflow is active. */
+  activeRevisionId: string | null
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   createdAt: string
   updatedAt: string
+}
+
+/** Execution-only workflow graph. Canvas coordinates remain on the node for
+ * backwards compatibility, but executions are pinned to an immutable revision. */
+export interface WorkflowDefinition {
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+}
+
+export interface WorkflowRevision {
+  id: string
+  clinicId: string
+  workflowId: string
+  definition: WorkflowDefinition
+  createdAt: string
 }
 
 // ── Generated reports (Req 37 — Automatic reports) ──────────────────────────────

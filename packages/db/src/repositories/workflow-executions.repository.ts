@@ -9,6 +9,7 @@ export interface WorkflowRunRecord {
   id: string
   clinicId: string
   workflowId: string
+  workflowRevisionId: string | null
   sourceEventId: string
   queueJobId: string | null
   status: WorkflowRunStatus
@@ -29,7 +30,7 @@ export interface WorkflowEffectRecord {
 
 export interface WorkflowExecutionsRepository {
   /** Atomically creates the one run for a workflow/source event pair. */
-  claimRun(input: { clinicId: string; workflowId: string; sourceEventId: string; queueJobId?: string | null }): Promise<WorkflowRunRecord | null>
+  claimRun(input: { clinicId: string; workflowId: string; workflowRevisionId?: string; sourceEventId: string; queueJobId?: string | null }): Promise<WorkflowRunRecord | null>
   findRun(clinicId: string, workflowId: string, sourceEventId: string): Promise<WorkflowRunRecord | null>
   setRunStatus(id: string, status: WorkflowRunStatus, trace?: Record<string, unknown>): Promise<void>
   /** Returns a row only for the caller that won the durable effect claim. */
@@ -44,8 +45,8 @@ export function createWorkflowExecutionsRepository(sql: Sql): WorkflowExecutions
   return {
     async claimRun(input) {
       const rows = await sql<WorkflowRunRecord[]>`
-        INSERT INTO workflow_runs (clinic_id, workflow_id, source_event_id, queue_job_id, status)
-        VALUES (${input.clinicId}, ${input.workflowId}, ${input.sourceEventId}, ${input.queueJobId ?? null}, 'running')
+        INSERT INTO workflow_runs (clinic_id, workflow_id, workflow_revision_id, source_event_id, queue_job_id, status)
+        VALUES (${input.clinicId}, ${input.workflowId}, ${input.workflowRevisionId ?? null}, ${input.sourceEventId}, ${input.queueJobId ?? null}, 'running')
         ON CONFLICT (clinic_id, workflow_id, source_event_id) DO UPDATE
           SET status = 'running', updated_at = NOW()
           WHERE workflow_runs.status = 'failed'

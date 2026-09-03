@@ -94,6 +94,8 @@ export type {
   WorkflowNodeKind,
   WorkflowNode,
   WorkflowEdge,
+  WorkflowDefinition,
+  WorkflowRevision,
   // Generated reports (Req 37)
   GeneratedReport,
   ReportType,

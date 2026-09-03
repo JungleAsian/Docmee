@@ -84,6 +84,8 @@ export type {
   WorkflowNodeKind,
   WorkflowNode,
   WorkflowEdge,
+  WorkflowDefinition,
+  WorkflowRevision,
   GeneratedReport,
   ReportType,
   MediaAsset,

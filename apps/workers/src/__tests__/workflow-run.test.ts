@@ -42,6 +42,7 @@ describe('pending conversational workflow state', () => {
       { zernioConversationId: 'z-1' },
       {
         workflowId: 'workflow-1',
+        workflowRevisionId: '55555555-5555-4555-8555-555555555555',
         sourceEventId: 'wamid.test-1',
         resumeNodeId: 'ask-date',
         context: { patientId: 'patient-1', preferred_time: '09:00' },
@@ -50,7 +51,11 @@ describe('pending conversational workflow state', () => {
     )
     expect(metadata['zernioConversationId']).toBe('z-1')
     expect(readPendingWorkflowRuns(metadata)).toEqual([
-      expect.objectContaining({ workflowId: 'workflow-1', resumeNodeId: 'ask-date' }),
+      expect.objectContaining({
+        workflowId: 'workflow-1',
+        workflowRevisionId: '55555555-5555-4555-8555-555555555555',
+        resumeNodeId: 'ask-date',
+      }),
     ])
   })
 
@@ -187,11 +192,11 @@ describe('enqueueInboundWorkflowRuns', () => {
 
   it('claims the turn when a matched workflow is conversational', async () => {
     h.listActiveByTrigger.mockResolvedValue([
-      { id: 'wf-menu', nodes: [triggerNode, { id: 'm', kind: 'action', type: 'action.interactive_menu', config: {}, x: 0, y: 0 }] },
+      { id: 'wf-menu', activeRevisionId: '55555555-5555-4555-8555-555555555555', nodes: [triggerNode, { id: 'm', kind: 'action', type: 'action.interactive_menu', config: {}, x: 0, y: 0 }] },
     ])
     const claim = await enqueueInboundWorkflowRuns(sql, 'clinic-1', { sourceEventId: 'wamid.1', message: 'hi' })
     expect(claim).toEqual({ enqueued: 1, ownsTurn: true })
-    expect(h.queueAdd).toHaveBeenCalledWith('run', expect.objectContaining({ workflowId: 'wf-menu' }), expect.objectContaining({ jobId: workflowRunKey('wf-menu', 'wamid.1') }))
+    expect(h.queueAdd).toHaveBeenCalledWith('run', expect.objectContaining({ workflowId: 'wf-menu', workflowRevisionId: '55555555-5555-4555-8555-555555555555' }), expect.objectContaining({ jobId: workflowRunKey('wf-menu', 'wamid.1') }))
   })
 
   it('does not claim the turn for side-effect-only workflows (still enqueues)', async () => {
@@ -246,7 +251,7 @@ describe('enqueueWorkflowRunByTarget', () => {
   })
 
   it('enqueues with the expected jobId when the target is active', async () => {
-    h.findWorkflowById.mockResolvedValue({ id: 'wf-target', status: 'active' })
+    h.findWorkflowById.mockResolvedValue({ id: 'wf-target', status: 'active', activeRevisionId: '55555555-5555-4555-8555-555555555555' })
     const ok = await enqueueWorkflowRunByTarget(sql, 'clinic-1', 'wf-target', 'workflow.ai_agent_route', {
       sourceEventId: 'wamid.1',
       conversationId: 'convo-1',
@@ -254,7 +259,7 @@ describe('enqueueWorkflowRunByTarget', () => {
     expect(ok).toBe(true)
     expect(h.queueAdd).toHaveBeenCalledWith(
       'run',
-      expect.objectContaining({ clinicId: 'clinic-1', workflowId: 'wf-target' }),
+      expect.objectContaining({ clinicId: 'clinic-1', workflowId: 'wf-target', workflowRevisionId: '55555555-5555-4555-8555-555555555555' }),
       expect.objectContaining({ jobId: workflowRunKey('wf-target', 'wamid.1') }),
     )
   })

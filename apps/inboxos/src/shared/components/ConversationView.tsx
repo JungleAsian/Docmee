@@ -499,7 +499,7 @@ export function ConversationView({
             </div>
           </div>
 
-          <div className="crm-chat-header-actions ml-auto mt-1 flex w-full flex-wrap items-center gap-2 self-start sm:w-auto sm:justify-end">
+          <div className="crm-chat-header-actions ml-auto flex w-full flex-wrap items-center gap-2 self-start sm:w-auto sm:justify-end">
             {features.humanOnlyMode && conversation?.patientId && (
               <>
                 <div className="crm-chat-header-mode">

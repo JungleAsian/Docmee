@@ -176,11 +176,13 @@ export function WorkflowLayoutControls({
 }) {
   const copy = language === 'es'
     ? {
+        tidy: 'Ordenar flujo',
         branch: 'Organizar rama seleccionada',
         warning: `${crossingCount} cruces de conexiones detectados`,
         reduce: 'Reducir cruces',
       }
     : {
+        tidy: 'Tidy workflow',
         branch: 'Layout selected branch',
         warning: `${crossingCount} connection crossings detected`,
         reduce: 'Reduce crossings',
@@ -188,6 +190,13 @@ export function WorkflowLayoutControls({
 
   return (
     <div className="absolute right-3 top-3 z-10 flex max-w-xs flex-col items-end gap-2">
+      <button
+        type="button"
+        onClick={onReduceCrossings}
+        className="rounded border border-cyan-500/70 bg-gray-950/90 px-2.5 py-1.5 text-xs font-semibold text-cyan-100 shadow hover:bg-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+      >
+        {copy.tidy}
+      </button>
       <button
         type="button"
         disabled={!selectedId}
@@ -935,7 +944,10 @@ function WorkflowCanvasInner({
   const reduceCrossings = useCallback(() => {
     onChange({ nodes: layoutWorkflow(nodes, edges, { sizes: measuredSizes }), edges })
     setManualLayoutDirty(false)
-  }, [nodes, edges, measuredSizes, onChange])
+    window.requestAnimationFrame(() => {
+      void fitView({ duration: 240, padding: 0.25 })
+    })
+  }, [nodes, edges, measuredSizes, onChange, fitView])
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {

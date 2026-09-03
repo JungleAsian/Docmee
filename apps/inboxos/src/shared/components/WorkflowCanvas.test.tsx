@@ -10,6 +10,23 @@ import {
 } from './WorkflowCanvas'
 
 describe('WorkflowLayoutControls', () => {
+  it('offers a full-workflow tidy action even when no node is selected', () => {
+    vi.stubGlobal('React', React)
+    const markup = renderToStaticMarkup(
+      <WorkflowLayoutControls
+        selectedId={null}
+        crossingCount={0}
+        showCrossingWarning={false}
+        language="en"
+        onLayoutSelected={vi.fn()}
+        onReduceCrossings={vi.fn()}
+      />,
+    )
+
+    expect(markup).toContain('Tidy workflow')
+    expect(markup).toContain('>Tidy workflow</button>')
+  })
+
   it('exposes selected-branch layout accessibly and disables it without a selection', () => {
     vi.stubGlobal('React', React)
     const markup = renderToStaticMarkup(

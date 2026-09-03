@@ -247,6 +247,20 @@ describe('routeWorkflowEdges', () => {
     expect(routeWorkflowEdges(nodes, [edge('back', 'end', 'menu'), edge('loop', 'menu', 'menu')]))
       .toEqual(routeWorkflowEdges(nodes, [edge('back', 'end', 'menu'), edge('loop', 'menu', 'menu')]))
   })
+
+  it('moves a forward skip edge into an external lane instead of drawing through an intermediate node', () => {
+    const nodes = [
+      { ...node('start', 'trigger', 'trigger.message_keyword'), x: 0, y: 0 },
+      { ...node('between'), x: 340, y: 0 },
+      { ...node('end', 'action', 'action.end'), x: 680, y: 0 },
+    ]
+
+    const route = routeWorkflowEdges(nodes, [edge('skip', 'start', 'end')])[0]!
+
+    expect(route.kind).toBe('forward')
+    expect(route.lane).not.toBeNull()
+    expect(route.points.some((point) => point.y < 0 || point.y > 130)).toBe(true)
+  })
 })
 
 describe('layoutSelectedBranch', () => {

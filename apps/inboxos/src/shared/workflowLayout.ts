@@ -261,6 +261,39 @@ function branchAnchorY(node: WorkflowNode, edge: WorkflowEdge, size: WorkflowNod
   return index < 0 ? node.y + size.height / 2 : node.y + (size.height * (index + 1)) / (rows.length + 1)
 }
 
+const ROUTE_CLEARANCE = 20
+
+/** True when an orthogonal segment would visually pass through a card (with a
+ * small breathing margin). Routes only need this conservative test to decide
+ * whether a long forward connection belongs on an outside lane. */
+function routeCrossesNode(
+  points: WorkflowRoutePoint[],
+  nodes: WorkflowNode[],
+  sourceId: string,
+  targetId: string,
+  sizes?: WorkflowNodeSizeMap,
+): boolean {
+  for (const node of nodes) {
+    if (node.id === sourceId || node.id === targetId) continue
+    const size = nodeSize(node, sizes)
+    const left = node.x - ROUTE_CLEARANCE
+    const right = node.x + size.width + ROUTE_CLEARANCE
+    const top = node.y - ROUTE_CLEARANCE
+    const bottom = node.y + size.height + ROUTE_CLEARANCE
+    for (let index = 1; index < points.length; index++) {
+      const from = points[index - 1]!
+      const to = points[index]!
+      if (from.y === to.y && from.y >= top && from.y <= bottom) {
+        if (Math.max(from.x, to.x) >= left && Math.min(from.x, to.x) <= right) return true
+      }
+      if (from.x === to.x && from.x >= left && from.x <= right) {
+        if (Math.max(from.y, to.y) >= top && Math.min(from.y, to.y) <= bottom) return true
+      }
+    }
+  }
+  return false
+}
+
 /** Pure route metadata consumed by the custom React Flow edge. */
 export function routeWorkflowEdges(
   nodes: WorkflowNode[],
@@ -270,7 +303,19 @@ export function routeWorkflowEdges(
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const top = Math.min(0, ...nodes.map((node) => node.y))
   const bottom = Math.max(0, ...nodes.map((node) => node.y + nodeSize(node, sizes).height))
-  let externalIndex = 0
+  let topLaneIndex = 0
+  let bottomLaneIndex = 0
+  const reserveExternalLane = (start: WorkflowRoutePoint, end: WorkflowRoutePoint) => {
+    // Keep the most relevant return route closest to its source/target row,
+    // then fan matching routes outward instead of stacking them on one line.
+    const midpoint = (top + bottom) / 2
+    const lane: 'top' | 'bottom' = (start.y + end.y) / 2 <= midpoint ? 'top' : 'bottom'
+    const laneNumber = lane === 'top' ? topLaneIndex++ : bottomLaneIndex++
+    return {
+      lane,
+      laneY: lane === 'top' ? top - 64 - laneNumber * 44 : bottom + 64 + laneNumber * 44,
+    }
+  }
 
   return edges.flatMap<WorkflowEdgeRoute>((edge) => {
     const source = nodeById.get(edge.source)
@@ -284,19 +329,34 @@ export function routeWorkflowEdges(
 
     if (kind === 'forward') {
       const corridorX = Math.min(end.x - 28, start.x + Math.max(48, (end.x - start.x) * 0.45))
+      const compactPoints = [start, { x: corridorX, y: start.y }, { x: corridorX, y: end.y }, end]
+      if (!routeCrossesNode(compactPoints, nodes, source.id, target.id, sizes)) {
+        return [{
+          edgeId: edge.id,
+          kind,
+          lane: null,
+          points: compactPoints,
+          label: { x: start.x + Math.min(64, Math.max(28, corridorX - start.x)), y: start.y - 14 },
+        }]
+      }
+
+      // A forward edge that skips one or more layers should never cut through
+      // the cards it passes. Take a dedicated external channel instead; this
+      // preserves the visual left-to-right direction without producing a
+      // misleading line through a workflow step.
+      const { lane, laneY } = reserveExternalLane(start, end)
+      const sourceExitX = start.x + 40
+      const targetEntryX = end.x - 40
       return [{
         edgeId: edge.id,
         kind,
-        lane: null,
-        points: [start, { x: corridorX, y: start.y }, { x: corridorX, y: end.y }, end],
-        label: { x: start.x + Math.min(64, Math.max(28, corridorX - start.x)), y: start.y - 14 },
+        lane,
+        points: [start, { x: sourceExitX, y: start.y }, { x: sourceExitX, y: laneY }, { x: targetEntryX, y: laneY }, { x: targetEntryX, y: end.y }, end],
+        label: { x: start.x + 36, y: start.y - 14 },
       }]
     }
 
-    const lane: 'top' | 'bottom' = externalIndex % 2 === 0 ? 'top' : 'bottom'
-    const laneNumber = Math.floor(externalIndex / 2)
-    externalIndex++
-    const laneY = lane === 'top' ? top - 64 - laneNumber * 44 : bottom + 64 + laneNumber * 44
+    const { lane, laneY } = reserveExternalLane(start, end)
     const sourceExitX = start.x + 40
     const targetEntryX = end.x - 40
     return [{

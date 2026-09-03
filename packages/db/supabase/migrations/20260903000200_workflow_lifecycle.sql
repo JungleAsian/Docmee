@@ -18,13 +18,40 @@ ALTER TABLE workflow_revisions
   ADD COLUMN IF NOT EXISTS author_id UUID REFERENCES clinic_users(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS reason TEXT;
 
+-- Existing revision rows predate revision_number and therefore all receive the
+-- column default. Reconstruct a stable sequence before enforcing uniqueness.
+WITH ordered_revisions AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY workflow_id
+      ORDER BY created_at ASC, id ASC
+    ) AS sequence_number
+  FROM workflow_revisions
+)
+UPDATE workflow_revisions revision
+SET revision_number = ordered_revisions.sequence_number
+FROM ordered_revisions
+WHERE revision.id = ordered_revisions.id;
+
+-- The revision currently pinned by the workflow is the published one; earlier
+-- historical snapshots remain available but are explicitly superseded.
+UPDATE workflow_revisions revision
+SET status = CASE
+  WHEN revision.id = workflow.active_revision_id THEN 'published'
+  ELSE 'superseded'
+END
+FROM workflows workflow
+WHERE revision.workflow_id = workflow.id;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_revisions_sequence
   ON workflow_revisions (workflow_id, revision_number);
 
--- Revisions already pinned by the previous migration become revision 1.
-UPDATE workflows
-SET revision_number = 1
-WHERE active_revision_id IS NOT NULL AND revision_number = 0;
+-- Keep the denormalized workflow pointer aligned with its active revision.
+UPDATE workflows workflow
+SET revision_number = revision.revision_number
+FROM workflow_revisions revision
+WHERE revision.id = workflow.active_revision_id;
 
 CREATE INDEX IF NOT EXISTS idx_workflows_published_trigger
   ON workflows (clinic_id, status) WHERE status = 'published';

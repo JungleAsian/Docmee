@@ -52,8 +52,12 @@ async function runMigrations(sql: postgres.Sql, reset: boolean) {
     const sql_text = await readFile(path, 'utf8')
     console.log(`▶ Applying ${file}...`)
     try {
-      await sql.unsafe(sql_text)
-      await sql`INSERT INTO _migrations (name) VALUES (${file})`
+      // A failed migration must never leave schema changes behind without its
+      // _migrations record. PostgreSQL DDL used here is transactional.
+      await sql.begin(async (tx) => {
+        await tx.unsafe(sql_text)
+        await tx`INSERT INTO _migrations (name) VALUES (${file})`
+      })
       console.log(`  ✓ ${file}`)
     } catch (err) {
       console.error(`  ✗ ${file}: ${err instanceof Error ? err.message : String(err)}`)

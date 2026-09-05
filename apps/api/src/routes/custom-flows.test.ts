@@ -33,7 +33,7 @@ const store = vi.hoisted(() => ({
   ]),
 }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   withClinicContext: async (_sql: unknown, _clinicId: string, fn: (sql: unknown) => Promise<unknown>) => fn({}),
   createCustomFlowsRepository: () => ({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { googleOAuthAuthUrlPath, isTrustedGoogleOAuthUrl } from './googleOAuth'
+import { googleDriveAuthorization, googleOAuthAuthUrlPath, isTrustedGoogleOAuthUrl } from './googleOAuth'
 
 describe('Google OAuth helpers', () => {
   it('builds authenticated clinic and doctor initiation paths', () => {
@@ -15,5 +15,10 @@ describe('Google OAuth helpers', () => {
     expect(isTrustedGoogleOAuthUrl('https://accounts.google.com.evil.example/oauth')).toBe(false)
     expect(isTrustedGoogleOAuthUrl('https://evil.example/oauth')).toBe(false)
     expect(isTrustedGoogleOAuthUrl('not a url')).toBe(false)
+  })
+
+  it('requires both stored encrypted tokens before reporting Drive connected', () => {
+    expect(googleDriveAuthorization({ scopes: ['https://www.googleapis.com/auth/drive.file'] })).toEqual({ connected: false, browseAuthorized: false, uploadAuthorized: true })
+    expect(googleDriveAuthorization({ accessToken: 'enc:at', refreshToken: 'enc:rt', scopes: ['https://www.googleapis.com/auth/drive.readonly'] })).toEqual({ connected: true, browseAuthorized: true, uploadAuthorized: false })
   })
 })

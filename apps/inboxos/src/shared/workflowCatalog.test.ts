@@ -615,9 +615,11 @@ describe('validateWorkflowDefinition + reserved options as real buttons', () => 
       { id: 'e0', source: 't', target: 'menu' },
       { id: 'e1', source: 'menu', target: 't', sourceHandle: 'a' },
       { id: 'e2', source: 'menu', target: 't', sourceHandle: 'b' },
-      { id: 'e3', source: 'menu', target: 't', sourceHandle: 'default' },
+      { id: 'e3', source: 'menu', target: 'end', sourceHandle: 'default' },
     ]
-    expect(validateWorkflowDefinition([trigger, menu], edges, { requireTrigger: true })).toEqual([])
+    const end = node('end', 'action', 'action.end')
+    const validEdges = edges.map((edge) => edge.source === 'menu' ? { ...edge, target: 'end' } : edge)
+    expect(validateWorkflowDefinition([trigger, menu, end], validEdges, { requireTrigger: true })).toEqual([])
   })
 
   it('rejects a button-variant menu once real options + a visible reserved one exceed the 3-button cap', () => {
@@ -718,7 +720,7 @@ describe('validateWorkflowDefinition + action.offer_slot_menu (regression)', () 
     const edges = [
       { id: 'e0', source: 't', target: 'date_menu' },
       { id: 'e1', source: 'date_menu', target: 'confirm_menu', sourceHandle: 'selected' },
-      { id: 'e2', source: 'date_menu', target: 't', sourceHandle: 'empty' },
+      { id: 'e2', source: 'date_menu', target: 'end', sourceHandle: 'empty' },
       { id: 'e3', source: 'confirm_menu', target: 'end' },
     ]
     expect(validateWorkflowDefinition([trigger, dateMenu, confirmMenu, end], edges, { requireTrigger: true })).toEqual([])

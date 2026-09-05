@@ -11,7 +11,7 @@ const calendarOps = vi.hoisted(() => ({
   updateEvent: vi.fn(async () => undefined),
   deleteEvent: vi.fn(async () => undefined),
 }))
-vi.mock('@docmee/agents', () => ({
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
   getOAuth2Client: () => ({}),
   createGoogleCalendarOps: () => calendarOps,
 }))
@@ -62,7 +62,7 @@ const store = vi.hoisted(() => ({
   lastListRange: null as null | { from: string; to: string; doctorId?: string },
 }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({
     findById: async (id: string) => {

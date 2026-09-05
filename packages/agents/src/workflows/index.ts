@@ -36,5 +36,16 @@ export {
 export { compileWorkflowDocument, materializeWorkflowDocument } from './workflow-compiler.js'
 export { workflowPortsForNode, validateWorkflowPortConnection, type WorkflowPort } from './workflow-ports.js'
 export { workflowRunTransition, isTerminalWorkflowRunState, workflowRetryDelayMs, type WorkflowRunState, type WorkflowRunTransition } from './workflow-run-state.js'
-export { simulateWorkflow } from './workflow-simulator.js'
+export {
+  simulateWorkflow,
+  SIMULATION_REPLAY_LIMITS,
+  type WorkflowSimulationInput,
+  type WorkflowSimulationReplay,
+  type WorkflowSimulationResult,
+  type WorkflowSimulationStep,
+  type WorkflowSimulationEffect,
+  type WorkflowSimulationWait,
+  type WorkflowSimulationError,
+  type SimulationProviderOutcome,
+} from './workflow-simulator.js'
 export { validCapturedReply } from './capture-validation.js'

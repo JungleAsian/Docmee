@@ -38,7 +38,7 @@ export function SlideOver({
         onClick={onClose}
         className="absolute inset-0 bg-black/40"
       />
-      <div className="relative z-10 flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
+      <div data-docmee-glass="strong" className="relative z-10 flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button

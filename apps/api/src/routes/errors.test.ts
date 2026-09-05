@@ -6,7 +6,7 @@ vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: queue,
 }))
-vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS, getOAuth2Client: () => ({}) }))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (v: string) => `enc:${v}`,
   verifyPassword: () => true,
@@ -51,7 +51,7 @@ function seed(): Map<string, ErrorRow> {
 
 const store = vi.hoisted(() => ({ errors: new Map<string, ErrorRow>() }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createErrorReviewsRepository: () => ({
     listByClinic: async (clinicId: string, filters: { status?: string; from?: string; to?: string } = {}) =>

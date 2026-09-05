@@ -7,7 +7,7 @@ vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
 }))
-vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS, getOAuth2Client: () => ({}) }))
 
 const verifyPassword = vi.fn((plaintext: string, _hash: string) => plaintext === 'correct-password')
 vi.mock('@docmee/shared', () => ({
@@ -29,7 +29,7 @@ const update = vi.fn(async (id: string, data: { status?: string }) => ({
 }))
 const auditLog = vi.fn(async () => {})
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   toJson: (v: unknown) => v,
   createClinicsRepository: () => ({ findById, update, list: async () => [] }),

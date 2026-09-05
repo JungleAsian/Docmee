@@ -11,6 +11,7 @@ import { api, ApiError, type ApiIssue } from '@/shared/api/client'
 import { ClinicSelect, useClinics } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
+import { WorkflowSimulationPanel, buildSimulationRequestInput, createSimulationReplaySession, type SimulationResumeInput, type SimulationScenarioInput, type WorkflowSimulationView } from '@/shared/components/WorkflowSimulationPanel'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
@@ -559,20 +560,41 @@ function WorkflowEditor({
   const edges = hist.present.edges
   const [importError, setImportError] = useState<string | null>(null)
   const [focusedIssue, setFocusedIssue] = useState<ApiIssue | null>(null)
+  const [simulationPaused, setSimulationPaused] = useState(false)
+  const simulationSessionRef = useRef(createSimulationReplaySession())
+  const simulationScenarioRef = useRef<SimulationScenarioInput | undefined>(undefined)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const simulation = useMutation({
-    mutationFn: () => api.post<{ simulation: { status: string; resumeReason?: string; trace: Array<{ nodeId: string; type: string; status: string }> } }>(
-      `/clinics/${clinicId}/workflows/${workflow!.id}/simulate`,
-      { context: {} },
-    ),
+    mutationFn: async ({ mode: simulationMode, resumeInput, scenario }: { mode: 'run' | 'step' | 'resume'; resumeInput?: SimulationResumeInput; scenario?: SimulationScenarioInput }) => {
+      const generation = simulationSessionRef.current.generation
+      if (scenario) simulationScenarioRef.current = scenario
+      const activeScenario = scenario ?? simulationScenarioRef.current
+      const data = await api.post<{ simulation: WorkflowSimulationView }>(`/clinics/${clinicId}/workflows/${workflow!.id}/simulate`, {
+        graph: { nodes, edges },
+        input: buildSimulationRequestInput({ mode: simulationMode, replay: simulationSessionRef.current.replay, resumeInput, scenario: activeScenario }),
+      })
+      return { ...data, generation }
+    },
+    onSuccess: (data) => {
+      if (!simulationSessionRef.current.accept(data.generation, data.simulation.replay)) return
+      setSimulationPaused(false)
+    },
   })
+
+  const resetSimulation = useCallback(() => {
+    simulationSessionRef.current.reset()
+    simulationScenarioRef.current = undefined
+    simulation.reset()
+    setSimulationPaused(false)
+  }, [simulation])
 
   const applyCanvasChange = useCallback((next: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => {
     const now = Date.now()
     setHist((h) => (now - lastPushAtRef.current > 600 ? pushHistory(h, next) : replacePresent(h, next)))
     lastPushAtRef.current = now
     setDirty(true)
-  }, [])
+    resetSimulation()
+  }, [resetSimulation])
 
   const undo = useCallback(() => {
     let changed = false
@@ -582,8 +604,9 @@ function WorkflowEditor({
       return next
     })
     if (changed) setDirty(true)
+    if (changed) resetSimulation()
     lastPushAtRef.current = 0
-  }, [])
+  }, [resetSimulation])
 
   const redo = useCallback(() => {
     let changed = false
@@ -593,14 +616,16 @@ function WorkflowEditor({
       return next
     })
     if (changed) setDirty(true)
+    if (changed) resetSimulation()
     lastPushAtRef.current = 0
-  }, [])
+  }, [resetSimulation])
 
   const autoLayout = useCallback(() => {
     setHist((h) => pushHistory(h, { nodes: layoutWorkflow(h.present.nodes, h.present.edges), edges: h.present.edges }))
     lastPushAtRef.current = Date.now()
     setDirty(true)
-  }, [])
+    resetSimulation()
+  }, [resetSimulation])
 
   const handleExport = useCallback(() => {
     const raw = serializeWorkflowExport(name.trim() || t('wf.untitled'), nodes, edges)
@@ -629,11 +654,12 @@ function WorkflowEditor({
       setHist((h) => pushHistory(h, { nodes: layoutWorkflow(result.nodes, result.edges), edges: result.edges }))
       lastPushAtRef.current = Date.now()
       setDirty(true)
+      resetSimulation()
       // Only prefill the name if the admin hasn't already typed one -- never
       // clobber an in-progress rename with whatever the imported file was called.
       if (result.name && !name.trim()) setName(result.name)
     },
-    [name, t],
+    [name, t, resetSimulation],
   )
 
   // Ctrl/Cmd+Z, Ctrl+Shift+Z, Ctrl+Y — skipped while typing in a form field so
@@ -749,15 +775,7 @@ function WorkflowEditor({
         </button>
         </div>
         <div role="group" aria-label={language === 'es' ? 'Probar y transferir' : 'Test and transfer'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
-        <button
-          type="button"
-          onClick={() => simulation.mutate()}
-          disabled={!workflow || dirty || simulation.isPending}
-          title={dirty ? 'Save changes before simulating' : 'Run a side-effect-free simulation'}
-          className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}
-        >
-          ▷ Simulate
-        </button>
+        <button type="button" onClick={() => simulation.mutate({ mode: 'run' })} disabled={!workflow || simulation.isPending} title="Open and run the side-effect-free simulator" className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}>▷ Simulate</button>
         <button
           type="button"
           onClick={handleExport}
@@ -848,16 +866,20 @@ function WorkflowEditor({
           Simulation failed: {simulation.error instanceof Error ? simulation.error.message : t('common.error')}
         </div>
       )}
-      {simulation.data && (
-        <section aria-label="Workflow simulation" className="mx-4 mt-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm dark:border-violet-900 dark:bg-violet-950">
-          <div className="flex items-center justify-between gap-2">
-            <p className="font-semibold text-violet-900 dark:text-violet-100">Simulation: {simulation.data.simulation.status}</p>
-            {simulation.data.simulation.resumeReason && <span className="text-xs text-violet-700 dark:text-violet-300">Wait: {simulation.data.simulation.resumeReason}</span>}
-          </div>
-          <ol className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-violet-800 dark:text-violet-200">
-            {simulation.data.simulation.trace.map((step) => <li key={`${step.nodeId}-${step.status}`} className="rounded bg-white/70 px-1.5 py-0.5 dark:bg-black/20">{step.nodeId} · {step.status}</li>)}
-          </ol>
-        </section>
+      {(workflow || simulation.data) && (
+        <WorkflowSimulationPanel
+          result={simulation.data?.simulation ?? null}
+          busy={simulation.isPending}
+          paused={simulationPaused}
+          nodes={nodes.map((node) => ({ id: node.id, type: node.type }))}
+          onRun={(scenario) => simulation.mutate({ mode: 'run', scenario })}
+          onStep={(scenario) => simulation.mutate({ mode: 'step', scenario })}
+          onPause={() => setSimulationPaused(true)}
+          onUnpause={() => setSimulationPaused(false)}
+          onReset={resetSimulation}
+          onResume={(resumeInput) => simulation.mutate({ mode: 'resume', resumeInput })}
+          onFocusNode={(nodeId) => setFocusedIssue({ nodeId })}
+        />
       )}
       <p className="px-4 pt-2 text-xs text-gray-500">{t('wf.canvasHint')}</p>
       <div className="min-h-0 flex-1 p-4 pt-2">
@@ -869,6 +891,12 @@ function WorkflowEditor({
           workflowId={workflow?.id}
           mode={mode}
           focusIssue={focusedIssue}
+          simulation={{
+            currentNodeId: simulation.data?.simulation.trace.at(-1)?.nodeId,
+            testedNodeIds: simulation.data?.simulation.coverage.testedNodeIds ?? [],
+            untestedNodeIds: simulation.data?.simulation.coverage.untestedNodeIds ?? [],
+            errorNodeIds: simulation.data?.simulation.errors.flatMap((error) => error.nodeId ? [error.nodeId] : []) ?? [],
+          }}
         />
       </div>
     </>

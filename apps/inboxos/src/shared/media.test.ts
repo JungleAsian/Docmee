@@ -4,9 +4,11 @@ import {
   MEDIA_REPOSITORY_TABS,
   googleDriveImportPath,
   googleDrivePreviewPath,
+  googleDriveUploadPath,
   isDriveImagePreviewEligible,
   isImageMessage,
   messageMediaPath,
+  runForCurrentClinic,
 } from './media'
 
 describe('media helpers (Req 3)', () => {
@@ -32,10 +34,24 @@ describe('media helpers (Req 3)', () => {
     expect(googleDriveImportPath('clinic/one', 'file #1')).toBe('/clinics/clinic%2Fone/media/google-drive/file%20%231/import')
   })
 
+  it('encodes the clinic in the Drive create-upload path', () => {
+    expect(googleDriveUploadPath('clinic/one')).toBe('/clinics/clinic%2Fone/media/google-drive/upload')
+  })
+
   it('uses authenticated previews only for bounded Drive images', () => {
     expect(googleDrivePreviewPath('clinic/one', 'file #1')).toBe('/clinics/clinic%2Fone/media/google-drive/file%20%231/preview')
     expect(isDriveImagePreviewEligible({ mimeType: 'image/png', byteSize: 10 * 1024 * 1024 })).toBe(true)
     expect(isDriveImagePreviewEligible({ mimeType: 'image/png', byteSize: 10 * 1024 * 1024 + 1 })).toBe(false)
     expect(isDriveImagePreviewEligible({ mimeType: 'application/pdf', byteSize: 20 })).toBe(false)
+  })
+
+  it('drops delayed success and error effects after the active clinic changes', async () => {
+    let currentClinic = 'clinic-a'
+    const effects: string[] = []
+    const delayedSuccess = Promise.resolve().then(() => runForCurrentClinic('clinic-a', () => currentClinic, () => effects.push('success')))
+    const delayedError = Promise.resolve().then(() => runForCurrentClinic('clinic-a', () => currentClinic, () => effects.push('error')))
+    currentClinic = 'clinic-b'
+    await Promise.all([delayedSuccess, delayedError])
+    expect(effects).toEqual([])
   })
 })

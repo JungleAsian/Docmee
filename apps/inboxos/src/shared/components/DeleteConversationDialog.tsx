@@ -58,6 +58,7 @@ export function DeleteConversationDialog({
     >
       <div
         role="dialog"
+        data-docmee-glass="strong"
         aria-modal="true"
         aria-labelledby="delete-conv-title"
         className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"

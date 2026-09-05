@@ -5,7 +5,7 @@ vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
 }))
-vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS, getOAuth2Client: () => ({}) }))
 // Req 3 media proxy: stub the Graph media fetch so no real network call runs.
 const { fetchMedia } = vi.hoisted(() => ({
   fetchMedia: vi.fn(async () => ({
@@ -254,7 +254,7 @@ const store = vi.hoisted(() => ({
 
 const auditLog = vi.hoisted(() => vi.fn(async () => {}))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createConversationsRepository: () => ({
     listByClinic: async (clinicId: string) =>

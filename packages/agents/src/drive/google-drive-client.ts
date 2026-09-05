@@ -11,6 +11,7 @@ function loadGoogle(): Promise<GoogleApi> {
 }
 
 export const GOOGLE_DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
+export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 
 const SUPPORTED_DRIVE_MEDIA_TYPES = new Set([
   'application/pdf',
@@ -99,6 +100,7 @@ export interface GoogleDriveOps {
   listFiles(input: { query?: string; pageToken?: string; pageSize?: number }): Promise<{ files: GoogleDriveFile[]; nextPageToken: string | null }>
   getFile(fileId: string): Promise<GoogleDriveFile | null>
   downloadFile(fileId: string): Promise<Readable>
+  uploadFile(input: { name: string; mimeType: GoogleDriveFile['mimeType']; body: Readable }): Promise<GoogleDriveFile>
 }
 
 export function createGoogleDriveOps(config: GoogleDriveConfig): GoogleDriveOps {
@@ -132,6 +134,17 @@ export function createGoogleDriveOps(config: GoogleDriveConfig): GoogleDriveOps 
       const drive = await client()
       const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' })
       return response.data as unknown as Readable
+    },
+    async uploadFile(input) {
+      const drive = await client()
+      const response = await drive.files.create({
+        requestBody: { name: input.name },
+        media: { mimeType: input.mimeType, body: input.body },
+        fields: 'id,name,mimeType,size,modifiedTime,webViewLink',
+      })
+      const file = normalizeGoogleDriveFile(response.data)
+      if (!file) throw new Error('Google Drive returned invalid uploaded file metadata')
+      return file
     },
   }
 }

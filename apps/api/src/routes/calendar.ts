@@ -24,6 +24,7 @@ const CLINIC_GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file',
 ] as const
 
 function getCalendarSettings(settings: Record<string, unknown>): GoogleCalendarSettings | null {
@@ -142,7 +143,7 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
       const url = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         // One unified Google connection per clinic: calendar.events powers booking,
-        // spreadsheets powers CRM export, and Drive remains read-only for staff media browsing.
+        // spreadsheets powers CRM export; Drive browse is read-only and drive.file permits creating new files only.
         scope: [...CLINIC_GOOGLE_SCOPES],
         state,
         prompt: 'consent',
@@ -364,7 +365,7 @@ const calendarRoute: FastifyPluginAsync = async (app) => {
           key: 'booking_scope',
           label: 'Booking API scope',
           state: 'pass',
-          detail: 'OAuth requests calendar.events, spreadsheets, and read-only Drive scopes.',
+          detail: 'OAuth requests calendar.events, spreadsheets, read-only Drive browse, and create-only Drive file scopes.',
           action: 'Keep the consent screen approved for the requested scopes.',
         },
         ] satisfies Array<{

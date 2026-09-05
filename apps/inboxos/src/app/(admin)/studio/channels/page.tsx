@@ -32,6 +32,7 @@ import {
 } from '@/shared/channelStatus'
 import type { TranslationKey } from '@/shared/i18n'
 import type { Clinic, ClinicSettings } from '@/shared/types'
+import { googleDriveAuthorization } from '@/shared/googleOAuth'
 
 interface ChannelAccount {
   id: string
@@ -294,12 +295,11 @@ export default function ChannelsPage() {
 
           <ProviderStatusPanel clinic={clinic} whatsappAccounts={whatsappAccounts} />
 
-          {/* Even 2-column grid so every integration card (Facebook, Instagram,
-              Google Calendar, Google Sheets, WhatsApp) gets equal width. */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="space-y-3">
             {cards.map((card) => (
               <ServiceCardView key={card.key} card={card} clinic={clinic} onSaved={() => queryClient.invalidateQueries({ queryKey: ['clinic', clinicId] })} />
             ))}
+            <DriveIntegrationCard clinic={clinic} />
             <WhatsAppCard
               clinicId={clinicId}
               accounts={whatsappAccounts}
@@ -886,13 +886,9 @@ function ServiceCardView({
   const label = card.key === 'messenger' ? 'Facebook' : t(SVC_NAME[card.key])
   return (
     <div className="clinic-card flex flex-col p-3">
-      <div className="flex items-start gap-2.5">
-        <ServiceTile svc={card.key} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{label}</p>
-          <p className="truncate text-xs text-gray-400">{t(SVC_DESC[card.key])}</p>
-        </div>
-        <StatusBadge status={card.status} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-2.5"><ServiceTile svc={card.key} /><div className="min-w-0"><p className="truncate text-sm font-semibold">{label}</p><p className="truncate text-xs text-gray-400">{t(SVC_DESC[card.key])}</p></div></div>
+        <div className="flex flex-wrap items-center gap-2"><StatusBadge status={card.status} /><button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="inline-flex min-h-9 items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800">{open ? 'Hide configuration' : 'Show configuration'}</button></div>
       </div>
 
       <div className="mt-2.5 flex-1 space-y-1.5 text-xs">
@@ -933,19 +929,27 @@ function ServiceCardView({
         {card.webhookUrl && <WebhookRow url={card.webhookUrl} />}
       </div>
 
-      <div className="mt-2.5 border-t border-gray-100 pt-2 dark:border-gray-800">
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
-          className="inline-flex min-h-9 items-center justify-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-        >
-          {open ? 'Hide configuration' : 'Show configuration'}
-        </button>
-      </div>
-
       {open && <IntegrationWizard card={card} clinic={clinic} onSaved={onSaved} />}
     </div>
+  )
+}
+
+function DriveIntegrationCard({ clinic }: { clinic: Clinic }) {
+  const connection = clinic.settings?.googleCalendar as Record<string, unknown> | undefined
+  const { connected, browseAuthorized, uploadAuthorized } = googleDriveAuthorization(connection)
+  const ready = connected && browseAuthorized && uploadAuthorized
+  return (
+    <section id="google-drive" className="clinic-card p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-2.5"><BrandIcon name="googleDrive" /><div><h3 className="text-sm font-semibold">Google Drive</h3><p className="text-xs text-gray-400">Browse existing media or create a new Drive file.</p></div></div>
+        <div className="flex flex-wrap items-center gap-2"><StatusBadge status={ready ? 'connected' : connected ? 'pending' : 'disconnected'} /><GoogleOAuthButton clinicId={clinic.id} className="inline-flex min-h-9 items-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium dark:border-gray-700">{connected ? 'Reconnect Google' : 'Connect Google'}</GoogleOAuthButton></div>
+      </div>
+      <div className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-300">
+        <p>Browse permission: {browseAuthorized ? 'granted' : 'reconnect required'} · Upload permission: {uploadAuthorized ? 'granted' : 'reconnect required'}</p>
+        <p className="mt-1">Uploads create new PDF or image files only. Deleting and overwriting Drive files are unavailable.</p>
+        <Link href="/inbox" className="mt-2 inline-block font-semibold text-teal-700 dark:text-teal-300">Open Inbox media repository</Link>
+      </div>
+    </section>
   )
 }
 
@@ -1435,7 +1439,7 @@ function CalendarWizard({ clinic, onSaved }: { clinic: Clinic; onSaved: () => vo
     <WizardShell
       title="Google Calendar setup"
       recommendedTitle="Connect with Google for booking sync"
-      recommendedBody="Authorize the clinic Google account so Docmee can create appointment events and reuse the same consent for Google Sheets export."
+      recommendedBody="Authorize the clinic Google account once for Calendar booking, Sheets export, and Google Drive media browse/create access."
       recommendedButton={
         <GoogleOAuthButton clinicId={clinic.id} className="inline-flex min-h-10 items-center rounded-md bg-teal-600 px-4 py-2 text-xs font-medium text-white">
           Continue with Google

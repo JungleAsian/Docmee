@@ -146,7 +146,7 @@ body {
   border-radius: var(--crm-border-radius-md);
   background: var(--crm-card-bg);
   box-shadow: var(--crm-shadow-sm);
-  backdrop-filter: blur(18px);
+  backdrop-filter: none;
 }
 
 .docmee-page-hero::before {
@@ -3887,4 +3887,208 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 .dark .react-flow__attribution {
   background: transparent;
   color: #4b5563;
+}
+
+/* Shared glass surface contract. Explicit owners only: dense utility-colored
+   content retains the solid palette. Important background/border declarations
+   cross the pre-existing Value Analytics important utility-color boundary. */
+:root {
+  --crm-glass-solid: #ffffff;
+  --crm-glass-fill: rgba(255, 255, 255, .88);
+  --crm-glass-strong-fill: rgba(255, 255, 255, .96);
+  --crm-glass-border: rgba(15, 58, 74, .18);
+  --crm-glass-shadow: 0 8px 24px rgba(10, 40, 55, .08);
+  --crm-glass-blur: 12px;
+}
+.crm-header-search,
+.crm-user-profile,
+.docmee-help-search,
+.docmee-auth-loading-overlay {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.docmee-auth-loading-overlay {
+  background: var(--crm-glass-solid);
+}
+:root.dark {
+  --crm-glass-solid: #1a2437;
+  --crm-glass-fill: rgba(26, 36, 55, .88);
+  --crm-glass-strong-fill: rgba(26, 36, 55, .97);
+  --crm-glass-border: rgba(180, 222, 237, .20);
+  --crm-glass-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+[data-docmee-glass="outer"],
+[data-docmee-app-shell] .clinic-card,
+[data-docmee-app-shell] .clinic-toolbar,
+[data-docmee-app-shell] .clinic-page-header,
+[data-docmee-app-shell] .clinic-empty-state,
+.clinic-card,
+.clinic-toolbar,
+.clinic-page-header,
+.clinic-empty-state,
+.crm-stat-card,
+.crm-top-header,
+.crm-inbox-list,
+.docmee-auth-card,
+.docmee-site-hero-copy,
+.docmee-site-hero-panel,
+.docmee-site-band-card,
+.docmee-site-feature-card,
+.docmee-site-meta-card,
+.docmee-legal-card,
+.crm-bubble-panel,
+[data-docmee-glass="strong"],
+[data-docmee-app-shell] [data-docmee-glass="strong"] {
+  background: var(--crm-glass-solid) !important;
+  border-color: var(--crm-glass-border) !important;
+  box-shadow: var(--crm-glass-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+[data-docmee-glass="dense"],
+.crm-message,
+.react-flow__node {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+[data-docmee-glass="dense"] {
+  background: var(--crm-card-bg);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+[data-docmee-glass="outer"],
+[data-docmee-app-shell] .clinic-card,
+[data-docmee-app-shell] .clinic-toolbar,
+[data-docmee-app-shell] .clinic-page-header,
+[data-docmee-app-shell] .clinic-empty-state,
+.clinic-card,
+.clinic-toolbar,
+.clinic-page-header,
+.clinic-empty-state,
+.crm-stat-card,
+.crm-top-header,
+.crm-inbox-list,
+.docmee-auth-card,
+.docmee-site-hero-copy,
+.docmee-site-hero-panel,
+.docmee-site-band-card,
+.docmee-site-feature-card,
+.docmee-site-meta-card,
+.docmee-legal-card {
+    background: var(--crm-glass-fill) !important;
+    -webkit-backdrop-filter: blur(var(--crm-glass-blur));
+    backdrop-filter: blur(var(--crm-glass-blur));
+  }
+  .crm-bubble-panel,
+  [data-docmee-glass="strong"],
+  [data-docmee-app-shell] [data-docmee-glass="strong"] {
+    background: var(--crm-glass-strong-fill) !important;
+    -webkit-backdrop-filter: blur(var(--crm-glass-blur));
+    backdrop-filter: blur(var(--crm-glass-blur));
+  }
+}
+@media (prefers-reduced-transparency: reduce), print {
+[data-docmee-glass="outer"],
+[data-docmee-app-shell] .clinic-card,
+[data-docmee-app-shell] .clinic-toolbar,
+[data-docmee-app-shell] .clinic-page-header,
+[data-docmee-app-shell] .clinic-empty-state,
+.clinic-card,
+.clinic-toolbar,
+.clinic-page-header,
+.clinic-empty-state,
+.crm-stat-card,
+.crm-top-header,
+.crm-inbox-list,
+.docmee-auth-card,
+.docmee-site-hero-copy,
+.docmee-site-hero-panel,
+.docmee-site-band-card,
+.docmee-site-feature-card,
+.docmee-site-meta-card,
+.docmee-legal-card,
+.crm-bubble-panel,
+[data-docmee-glass="strong"],
+[data-docmee-app-shell] [data-docmee-glass="strong"] {
+    background: var(--crm-glass-solid) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+@media (forced-colors: active) {
+[data-docmee-glass="outer"],
+[data-docmee-app-shell] .clinic-card,
+[data-docmee-app-shell] .clinic-toolbar,
+[data-docmee-app-shell] .clinic-page-header,
+[data-docmee-app-shell] .clinic-empty-state,
+.clinic-card,
+.clinic-toolbar,
+.clinic-page-header,
+.clinic-empty-state,
+.crm-stat-card,
+.crm-top-header,
+.crm-inbox-list,
+.docmee-auth-card,
+.docmee-site-hero-copy,
+.docmee-site-hero-panel,
+.docmee-site-band-card,
+.docmee-site-feature-card,
+.docmee-site-meta-card,
+.docmee-legal-card,
+.crm-bubble-panel,
+[data-docmee-glass="strong"],
+[data-docmee-app-shell] [data-docmee-glass="strong"] {
+    background: Canvas !important;
+    color: CanvasText;
+    border: 1px solid CanvasText !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+/* Nested cards are content, not a second compositing layer. */
+.clinic-card .clinic-card,
+[data-docmee-app-shell] .clinic-card .clinic-card {
+  background: var(--crm-glass-solid) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* Keep the sidebar's light navigation labels on a dark teal surface in both themes. */
+.crm-sidebar,
+.crm-inboxos-desktop-shell .crm-sidebar {
+  background: var(--crm-sidebar-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .crm-sidebar,
+  .crm-inboxos-desktop-shell .crm-sidebar {
+    background: linear-gradient(180deg, rgba(5, 55, 78, .96), rgba(6, 47, 66, .96));
+    -webkit-backdrop-filter: blur(var(--crm-glass-blur));
+    backdrop-filter: blur(var(--crm-glass-blur));
+  }
+}
+@media (prefers-reduced-transparency: reduce), print {
+  .crm-sidebar,
+  .crm-inboxos-desktop-shell .crm-sidebar {
+    background: var(--crm-sidebar-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+@media (forced-colors: active) {
+  .crm-sidebar,
+  .crm-inboxos-desktop-shell .crm-sidebar,
+  .clinic-card .clinic-card,
+  [data-docmee-app-shell] .clinic-card .clinic-card {
+    background: Canvas !important;
+    color: CanvasText;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
 }

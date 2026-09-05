@@ -18,6 +18,7 @@ const store = vi.hoisted(() => ({
 }))
 
 vi.mock('@docmee/db', () => ({
+  normalizeWorkflowStatus: (value: string) => value,
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({
     findById: async (id: string) => store.clinics.get(id) ?? null,
@@ -53,7 +54,7 @@ vi.mock('@docmee/db', () => ({
   }),
 }))
 
-vi.mock('@docmee/agents', () => ({
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
   getOAuth2Client: () => ({
     generateAuthUrl: (options: { scope?: string[]; state?: string }) => {
       store.authUrlOptions.push(options)
@@ -64,7 +65,7 @@ vi.mock('@docmee/agents', () => ({
         access_token: 'at-raw',
         refresh_token: 'rt-raw',
         expiry_date: 1_900_000_000_000,
-        scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly',
+        scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file',
       },
     }),
   }),
@@ -172,6 +173,7 @@ describe('calendar routes', () => {
     expect(res.json().url).toContain('accounts.google.com')
     expect(store.authUrlOptions.at(-1)?.state).not.toBe('c1')
     expect(store.authUrlOptions.at(-1)?.scope).toContain('https://www.googleapis.com/auth/drive.readonly')
+    expect(store.authUrlOptions.at(-1)?.scope).toContain('https://www.googleapis.com/auth/drive.file')
   })
 
   it('GET /callback exchanges the code and stores encrypted tokens', async () => {
@@ -189,6 +191,7 @@ describe('calendar routes', () => {
       'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/spreadsheets',
       'https://www.googleapis.com/auth/drive.readonly',
+      'https://www.googleapis.com/auth/drive.file',
     ])
   })
 

@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { simulateWorkflow as realSimulateWorkflow, SIMULATION_REPLAY_LIMITS } from '../../../../packages/agents/src/workflows/workflow-simulator.js'
+import type { WorkflowSimulationInput } from '../../../../packages/agents/src/workflows/workflow-simulator.js'
+import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
 
 const validation = vi.hoisted(() => ({
   errors: [] as string[],
   issues: [] as Array<Record<string, unknown>>,
+  simulationCalls: [] as Array<{ workflow: unknown; input: unknown }>,
 }))
 
 vi.mock('@docmee/queue', () => ({
@@ -11,11 +15,15 @@ vi.mock('@docmee/queue', () => ({
   createQueue: () => ({ add: vi.fn() }),
 }))
 vi.mock('@docmee/agents', () => ({
+  SIMULATION_REPLAY_LIMITS,
   getOAuth2Client: () => ({}),
   validateWorkflowDefinition: () => validation.errors,
   validateWorkflowDefinitionDetailed: () => validation.issues,
   materializeWorkflowDocument: (document: { definition: unknown }) => document.definition,
-  simulateWorkflow: async () => ({ status: 'completed', trace: [] }),
+  simulateWorkflow: async (workflow: unknown, input: unknown) => {
+    validation.simulationCalls.push({ workflow, input })
+    return realSimulateWorkflow(workflow as { nodes: WorkflowNode[]; edges: WorkflowEdge[] }, input as WorkflowSimulationInput)
+  },
 }))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (value: string) => `enc:${value}`,
@@ -172,5 +180,88 @@ describe('workflow delete contract (CRE-534)', () => {
       details: validation.errors,
       issues: validation.issues,
     })
+  })
+
+  it('simulates an unsaved editor graph without mutating the stored workflow', async () => {
+    validation.errors = []
+    validation.issues = []
+    validation.simulationCalls = []
+    seed('wf-simulate')
+    const draftGraph = {
+      nodes: [{ id: 'draft-start', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 40, y: 40 }],
+      edges: [],
+    }
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/workflows/wf-simulate/simulate',
+      headers: adminAuth,
+      payload: { graph: draftGraph, input: { context: { tier: 'vip' }, maxSteps: 1 } },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(validation.simulationCalls).toEqual([{ workflow: draftGraph, input: { context: { tier: 'vip' }, maxSteps: 1 } }])
+    expect(store.workflows.get('wf-simulate')?.nodes).toEqual([])
+    expect(response.json().simulation.safety.isolated).toBe(true)
+  })
+
+  it('validates simulator bounds and the editor graph before execution', async () => {
+    validation.errors = []
+    validation.issues = []
+    seed('wf-invalid-sim')
+    const badInput = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-invalid-sim/simulate', headers: adminAuth, payload: { input: { maxSteps: 0 } } })
+    expect(badInput.statusCode).toBe(400)
+    expect(badInput.json().error).toBe('Validation failed')
+
+    validation.errors = ['Missing trigger']
+    validation.issues = [{ code: 'missing_trigger', title: 'Add a trigger' }]
+    const badGraph = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-invalid-sim/simulate', headers: adminAuth, payload: { graph: { nodes: [], edges: [] } } })
+    expect(badGraph.statusCode).toBe(400)
+    expect(badGraph.json()).toMatchObject({ error: 'Invalid workflow graph', details: ['Missing trigger'] })
+  })
+
+  it('round-trips a long message replay through the endpoint without losing edge evidence', async () => {
+    validation.errors = []
+    validation.issues = []
+    seed('wf-roundtrip')
+    const graph = {
+      nodes: [
+        { id: 'start', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 },
+        { id: 'send', kind: 'action', type: 'action.send_message', config: { text: 'x'.repeat(900) }, x: 0, y: 0 },
+        { id: 'wait', kind: 'logic', type: 'logic.wait_for_reply', config: {}, x: 0, y: 0 },
+        { id: 'end', kind: 'action', type: 'action.end', config: {}, x: 0, y: 0 },
+      ],
+      edges: [{ id: 'a', source: 'start', target: 'send' }, { id: 'b', source: 'send', target: 'wait' }, { id: 'c', source: 'wait', target: 'end' }],
+    }
+    const post = (input: unknown) => app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-roundtrip/simulate', headers: adminAuth, payload: { graph, input } })
+    const first = await post({})
+    expect(first.statusCode).toBe(200)
+    expect(first.json().simulation.replay.effects[0].summary.length).toBeLessThanOrEqual(500)
+    const next = await post({ replay: first.json().simulation.replay, reply: { text: 'continue' } })
+    expect(next.statusCode).toBe(200)
+    expect(next.json().simulation.status).toBe('completed')
+    expect(next.json().simulation.coverage.testedEdgeIds).toEqual(['a', 'b', 'c'])
+  })
+
+  it('returns an explicit cumulative replay budget outcome through repeated API segments', async () => {
+    validation.errors = []
+    validation.issues = []
+    seed('wf-budget')
+    const graph = {
+      nodes: [{ id: 'start', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 }, { id: 'wait', kind: 'logic', type: 'logic.wait_for_reply', config: {}, x: 0, y: 0 }],
+      edges: [{ id: 'a', source: 'start', target: 'wait' }, { id: 'b', source: 'wait', target: 'wait' }],
+    }
+    let replay: unknown
+    let result
+    for (let i = 0; i < 105; i++) {
+      const response = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-budget/simulate', headers: adminAuth, payload: { graph, input: { replay, reply: { text: 'again' } } } })
+      expect(response.statusCode).toBe(200)
+      result = response.json().simulation
+      replay = result.replay
+      if (!replay) break
+    }
+    expect(result.status).toBe('failed')
+    expect(result.trace).toHaveLength(100)
+    expect(result.errors[0]).toMatchObject({ code: 'step_limit', howToFix: expect.stringMatching(/reset/i) })
+    expect(replay).toBeUndefined()
   })
 })

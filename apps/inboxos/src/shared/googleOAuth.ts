@@ -14,3 +14,16 @@ export function isTrustedGoogleOAuthUrl(value: string): boolean {
     return false
   }
 }
+
+
+export function googleDriveAuthorization(connection: Record<string, unknown> | null | undefined) {
+  const scopes = Array.isArray(connection?.scopes)
+    ? connection.scopes.filter((scope): scope is string => typeof scope === 'string')
+    : []
+  const connected = typeof connection?.accessToken === 'string' && typeof connection?.refreshToken === 'string'
+  return {
+    connected,
+    browseAuthorized: scopes.includes('https://www.googleapis.com/auth/drive.readonly') || scopes.includes('https://www.googleapis.com/auth/drive'),
+    uploadAuthorized: scopes.includes('https://www.googleapis.com/auth/drive.file') || scopes.includes('https://www.googleapis.com/auth/drive'),
+  }
+}

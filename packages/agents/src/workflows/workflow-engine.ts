@@ -235,6 +235,12 @@ export interface WorkflowStep {
 export interface RunOptions {
   /** Resume from a specific node (used when a delay node re-enqueues the run). */
   startNodeId?: string
+  /** Optional caller-owned bound. Production retains the hard 100-step guard. */
+  maxSteps?: number
+  /** Observe each completed step with the context as it existed at that step. */
+  onStep?: (step: WorkflowStep, context: WorkflowContext) => void
+  onTransition?: (edge: WorkflowEdge) => void
+  onStop?: (reason: 'step_limit' | 'cycle' | 'completed', nextNodeId?: string) => void
 }
 
 export interface WorkflowRunOutcome {
@@ -242,6 +248,8 @@ export interface WorkflowRunOutcome {
   trace: WorkflowStep[]
   currentNodeId?: string
   resumeReason?: 'delay' | 'reply' | 'approval' | 'interactive_reply'
+  stopReason?: 'step_limit' | 'cycle' | 'completed'
+  nextNodeId?: string
 }
 
 const MAX_STEPS = 100 // backstop against cycles / runaway graphs
@@ -255,6 +263,10 @@ export async function runWorkflow(
   const { nodes, edges } = workflow
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const trace: WorkflowStep[] = []
+  const recordStep = (step: WorkflowStep) => {
+    trace.push(step)
+    opts.onStep?.(step, ctx)
+  }
 
   let current: WorkflowNode | undefined = opts.startNodeId
     ? byId.get(opts.startNodeId)
@@ -268,8 +280,12 @@ export async function runWorkflow(
     return capture?.nodeId === node.id && capture.status === 'pending'
   }
 
-  while (current && trace.length < MAX_STEPS) {
-    if (visited.has(current.id)) break // cycle guard
+  const stepLimit = Math.min(MAX_STEPS, Math.max(1, Math.floor(opts.maxSteps ?? MAX_STEPS)))
+  while (current && trace.length < stepLimit) {
+    if (visited.has(current.id)) {
+      opts.onStop?.('cycle')
+      return trace
+    }
     visited.add(current.id)
 
     const node: WorkflowNode = current
@@ -303,14 +319,14 @@ export async function runWorkflow(
         break
       case 'logic.delay':
         await exec.scheduleResume(nextNodeId(edges, node.id) ?? '', delayMs(cfg), ctx)
-        trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+        recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
         return trace
       case 'logic.wait_for_reply': {
         const paused = exec.waitForReply
           ? await exec.waitForReply(node, nextNodeId(edges, node.id) ?? '', ctx)
           : false
         if (paused) {
-          trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+          recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
           return trace
         }
         break
@@ -332,7 +348,7 @@ export async function runWorkflow(
               ? await exec.sendInteractiveMenu(node, ctx, nextPage)
               : false
             if (paused) {
-              trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+              recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
               return trace
             }
             handle = 'empty'
@@ -354,7 +370,7 @@ export async function runWorkflow(
         }
         const paused = exec.sendInteractiveMenu ? await exec.sendInteractiveMenu(node, ctx, 0) : false
         if (paused) {
-          trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+          recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
           return trace
         }
         // Could not pause (e.g. no conversation attached) — fall through the
@@ -376,7 +392,7 @@ export async function runWorkflow(
             const nextPage = outcome === 'more' ? slotMenu.page + 1 : slotMenu.page
             const paused = exec.sendSlotMenu ? await exec.sendSlotMenu(node, ctx, nextPage) : false
             if (paused) {
-              trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+              recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
               return trace
             }
             handle = 'empty'
@@ -388,7 +404,7 @@ export async function runWorkflow(
         }
         const paused = exec.sendSlotMenu ? await exec.sendSlotMenu(node, ctx, 0) : false
         if (paused) {
-          trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+          recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
           return trace
         }
         // Nothing to show (no slots at all, or could not pause) — route out
@@ -401,7 +417,7 @@ export async function runWorkflow(
         if (outcome === 'routed') {
           // A `route` scenario already enqueued the target workflow — this
           // run ends here, exactly like action.end, no successor consulted.
-          trace.push({ nodeId: node.id, type: node.type, status: 'ended' })
+          recordStep({ nodeId: node.id, type: node.type, status: 'ended' })
           return trace
         }
         handle = outcome
@@ -429,7 +445,7 @@ export async function runWorkflow(
         break
       case 'action.approval':
         await sideEffect(node, () => Promise.resolve(exec.requestApproval(node, nextNodeId(edges, node.id), ctx)))
-        trace.push({ nodeId: node.id, type: node.type, status: 'paused' })
+        recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
         return trace
       case 'action.transcribe_booking_voice':
         if (exec.transcribeBookingVoice) await sideEffect(node, () => Promise.resolve(exec.transcribeBookingVoice!(node, ctx)))
@@ -461,7 +477,7 @@ export async function runWorkflow(
         if (exec.extractBookingDetails) await sideEffect(node, () => Promise.resolve(exec.extractBookingDetails!(node, ctx)))
         break
       case 'action.end':
-        trace.push({ nodeId: node.id, type: node.type, status: 'ended' })
+        recordStep({ nodeId: node.id, type: node.type, status: 'ended' })
         return trace
       default:
         if (node.kind !== 'trigger' || !node.type.startsWith('trigger.')) {
@@ -470,11 +486,14 @@ export async function runWorkflow(
         break
     }
 
-    trace.push({ nodeId: node.id, type: node.type, status: 'ran' })
-    const nextId = nextNodeId(edges, node.id, handle)
+    recordStep({ nodeId: node.id, type: node.type, status: 'ran' })
+    const selectedEdge = selectWorkflowEdge(edges, node.id, handle)
+    if (selectedEdge) opts.onTransition?.(selectedEdge)
+    const nextId = selectedEdge?.target
     current = nextId ? byId.get(nextId) : undefined
   }
 
+  opts.onStop?.(current ? 'step_limit' : 'completed', current?.id)
   return trace
 }
 
@@ -489,9 +508,18 @@ export async function runWorkflowWithOutcome(
   exec: WorkflowExecutors,
   opts: RunOptions = {},
 ): Promise<WorkflowRunOutcome> {
-  const trace = await runWorkflow(workflow, ctx, exec, opts)
+  let stopReason: WorkflowRunOutcome['stopReason'] = 'completed'
+  let boundedCursor: string | undefined
+  const trace = await runWorkflow(workflow, ctx, exec, {
+    ...opts,
+    onStop: (reason, cursor) => {
+      stopReason = reason
+      boundedCursor = cursor
+      opts.onStop?.(reason, cursor)
+    },
+  })
   const last = trace.at(-1)
-  if (last?.status !== 'paused') return { status: 'completed', trace }
+  if (last?.status !== 'paused') return { status: 'completed', trace, stopReason, ...(boundedCursor ? { nextNodeId: boundedCursor } : {}) }
 
   const node = workflow.nodes.find((candidate) => candidate.id === last.nodeId)
   const nextNodeIdForPause = nextNodeId(workflow.edges, last.nodeId)
@@ -508,12 +536,16 @@ export async function runWorkflowWithOutcome(
 /** Next node from `from`. Prefers the edge matching `handle` (condition branch),
  *  then an unlabeled edge, then any edge. */
 function nextNodeId(edges: WorkflowEdge[], from: string, handle?: string): string | undefined {
+  return selectWorkflowEdge(edges, from, handle)?.target
+}
+
+export function selectWorkflowEdge(edges: WorkflowEdge[], from: string, handle?: string): WorkflowEdge | undefined {
   if (handle) {
     const branch = edges.find((e) => e.source === from && (e.sourceHandle ?? undefined) === handle)
-    if (branch) return branch.target
+    if (branch) return branch
   }
   const plain = edges.find((e) => e.source === from && !e.sourceHandle)
-  return (plain ?? edges.find((e) => e.source === from))?.target
+  return plain ?? edges.find((e) => e.source === from)
 }
 
 function evalCondition(cfg: Record<string, unknown>, ctx: WorkflowContext): boolean {

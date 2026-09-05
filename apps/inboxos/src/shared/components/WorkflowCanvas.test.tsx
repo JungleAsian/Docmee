@@ -145,4 +145,21 @@ describe('WorkflowLayoutControls', () => {
     expect(markup).toContain('react-flow__handle-left')
     expect(markup.match(/react-flow__handle-right/g)).toHaveLength(2)
   })
+
+  it('marks the current simulation step distinctly from tested coverage', () => {
+    const noop = vi.fn()
+    const markup = renderToStaticMarkup(
+      <ReactFlowProvider>
+        <WorkflowNodeView
+          id="send-1" type="wf" selected={false} dragging={false} draggable selectable deletable isConnectable zIndex={0} positionAbsoluteX={0} positionAbsoluteY={0}
+          data={{
+            wf: { id: 'send-1', kind: 'action', type: 'action.send_message', config: {}, x: 0, y: 0 },
+            label: 'Send message', mode: 'enhanced', onConfigure: noop, onDuplicate: noop, onDelete: noop,
+            onAddFrom: noop, edges: [], allTargets: [], onSetBranchTarget: noop, simulationState: 'current',
+          }}
+        />
+      </ReactFlowProvider>,
+    )
+    expect(markup).toContain('ring-4 ring-violet-500')
+  })
 })

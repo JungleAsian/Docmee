@@ -1,15 +1,17 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
-import { createWriteStream, promises as fs } from 'node:fs'
+import multipart from '@fastify/multipart'
+import { createReadStream, createWriteStream, promises as fs } from 'node:fs'
+import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { createGoogleDriveOps, GOOGLE_DRIVE_READONLY_SCOPE, type GoogleDriveConfig } from '@docmee/agents'
+import { createGoogleDriveOps, GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_DRIVE_READONLY_SCOPE, type GoogleDriveConfig } from '@docmee/agents'
 import { createClinicsRepository } from '@docmee/db'
 import { decryptValue, encryptValue } from '@docmee/shared'
 import { withDb } from '../lib/db.js'
 import { isDocmeeExpansionFeatureEnabled } from '../lib/features.js'
-import { kbVaultEnabled, MEDIA_ASSET_MAX_BYTES } from '../lib/kb-vault-storage.js'
+import { kbVaultEnabled, MEDIA_ASSET_MAX_BYTES, validateMediaAsset } from '../lib/kb-vault-storage.js'
 import {
   ingestMediaAssetFromPath,
   MediaAssetIngestError,
@@ -23,6 +25,27 @@ interface StoredGoogleConnection {
   refreshToken: string
   expiryDate?: number
   scopes: string[]
+}
+
+const TEMP_CLEANUP_BACKOFF_MS = [10, 50, 200] as const
+
+export async function removeDriveUploadTempFile(
+  path: string,
+  logFailure: (message: string) => void,
+  remove: (path: string) => Promise<unknown> = (target) => fs.rm(target, { force: true }),
+  wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+): Promise<boolean> {
+  for (let attempt = 0; attempt < TEMP_CLEANUP_BACKOFF_MS.length; attempt += 1) {
+    try {
+      await remove(path)
+      return true
+    } catch (error) {
+      const finalAttempt = attempt === TEMP_CLEANUP_BACKOFF_MS.length - 1
+      logFailure(`[google-drive] ${finalAttempt ? 'SECURITY: temp media cleanup exhausted' : 'temp media cleanup retry scheduled'} for ${path}: ${(error as Error).message}`)
+      if (!finalAttempt) await wait(TEMP_CLEANUP_BACKOFF_MS[attempt]!)
+    }
+  }
+  return false
 }
 
 function toMediaAssetSummary(asset: {
@@ -59,6 +82,11 @@ function storedGoogleConnection(settings: Record<string, unknown>): StoredGoogle
 
 function hasDriveScope(connection: StoredGoogleConnection): boolean {
   return connection.scopes.includes(GOOGLE_DRIVE_READONLY_SCOPE)
+    || connection.scopes.includes('https://www.googleapis.com/auth/drive')
+}
+
+function hasDriveUploadScope(connection: StoredGoogleConnection): boolean {
+  return connection.scopes.includes(GOOGLE_DRIVE_FILE_SCOPE)
     || connection.scopes.includes('https://www.googleapis.com/auth/drive')
 }
 
@@ -130,6 +158,7 @@ async function readBoundedPreview(source: NodeJS.ReadableStream, maxBytes: numbe
 }
 
 const googleDriveMediaRoute: FastifyPluginAsync = async (app) => {
+  await app.register(multipart, { limits: { fileSize: MEDIA_ASSET_MAX_BYTES } })
   app.addHook('preHandler', requireAuth)
   app.addHook('preHandler', async (request, reply) => {
     const requestedClinicId = (request.params as { id?: string } | undefined)?.id
@@ -148,8 +177,10 @@ const googleDriveMediaRoute: FastifyPluginAsync = async (app) => {
       const clinic = await loadClinic(clinicId)
       if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
       const connection = storedGoogleConnection(clinic.settings)
-      if (!connection) return { connected: false, authorized: false, reconnectRequired: false, files: [] }
-      if (!hasDriveScope(connection)) return { connected: true, authorized: false, reconnectRequired: true, files: [] }
+      if (!connection) return { connected: false, authorized: false, browseAuthorized: false, uploadAuthorized: false, reconnectRequired: false, files: [] }
+      const browseAuthorized = hasDriveScope(connection)
+      const uploadAuthorized = hasDriveUploadScope(connection)
+      if (!browseAuthorized) return { connected: true, authorized: false, browseAuthorized, uploadAuthorized, reconnectRequired: true, files: [] }
       const query = request.query.query?.trim().slice(0, 200)
       const pageToken = request.query.pageToken?.trim().slice(0, 2048)
       try {
@@ -158,10 +189,85 @@ const googleDriveMediaRoute: FastifyPluginAsync = async (app) => {
           ...(pageToken ? { pageToken } : {}),
           pageSize: 20,
         })
-        return { connected: true, authorized: true, reconnectRequired: false, ...result }
+        return { connected: true, authorized: true, browseAuthorized, uploadAuthorized, reconnectRequired: !uploadAuthorized, ...result }
       } catch (error) {
         request.log.error(`[google-drive] list failed: ${(error as Error).message}`)
         return googleProviderError(reply, error)
+      }
+    },
+  )
+
+  app.post<{ Params: { id: string } }>(
+    '/clinics/:id/media/google-drive/upload',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin', 'secretary', 'doctor') },
+    async (request, reply) => {
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const clinic = await loadClinic(clinicId)
+      if (!clinic) return reply.code(404).send({ error: 'Clinic not found' })
+      const connection = storedGoogleConnection(clinic.settings)
+      if (!connection || !hasDriveUploadScope(connection)) {
+        return reply.code(409).send({ error: 'Reconnect Google to allow creating new Drive files', reconnectRequired: true })
+      }
+
+      const tempPath = join(tmpdir(), `docmee-drive-upload-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+      let providerStream: ReturnType<typeof createReadStream> | null = null
+      try {
+        let uploadedPart: { filename: string; mimetype: string; truncated: boolean } | null = null
+        let partCount = 0
+        for await (const part of request.parts()) {
+          partCount += 1
+          if (part.type !== 'file' || uploadedPart || partCount > 1) {
+            if (part.type === 'file') part.file.resume()
+            continue
+          }
+          await pipeline(part.file, createWriteStream(tempPath, { flags: 'wx' }))
+          uploadedPart = { filename: part.filename, mimetype: part.mimetype, truncated: part.file.truncated }
+        }
+        if (!uploadedPart || partCount !== 1) {
+          reply.code(400)
+          return { error: 'Upload exactly one file' }
+        }
+        if (uploadedPart.truncated) {
+          reply.code(413)
+          return { error: 'File exceeds the 100 MB limit' }
+        }
+        const stat = await fs.stat(tempPath)
+        const handle = await fs.open(tempPath, 'r')
+        const signature = Buffer.alloc(12)
+        let bytesRead = 0
+        try {
+          ;({ bytesRead } = await handle.read(signature, 0, signature.length, 0))
+        } finally {
+          await handle.close()
+        }
+        const validation = validateMediaAsset({ contentType: uploadedPart.mimetype, byteSize: stat.size, signatureBytes: signature.subarray(0, bytesRead) })
+        if (validation) {
+          const status = validation === 'too_large' ? 413 : 400
+          reply.code(status)
+          return { error: validation === 'too_large' ? 'File exceeds the 100 MB limit' : 'Choose a non-empty PDF, JPEG, PNG, or WebP file whose content matches its type' }
+        }
+        providerStream = createReadStream(tempPath)
+        const uploaded = await (await driveOps(clinicId, connection)).uploadFile({
+          name: uploadedPart.filename || 'attachment',
+          mimeType: uploadedPart.mimetype as 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp',
+          body: providerStream,
+        })
+        // Return the payload so Fastify sends it only after finally finishes.
+        reply.code(201)
+        return { file: uploaded }
+      } catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'FST_REQ_FILE_TOO_LARGE') {
+          reply.code(413)
+          return { error: 'File exceeds the 100 MB limit' }
+        }
+        request.log.error(`[google-drive] create upload may be uncertain: ${(error as Error).message}`)
+        reply.code(502)
+        return { error: 'Google Drive upload outcome is uncertain; check Drive before trying again', uploadUncertain: true, retryable: false }
+      } finally {
+        if (providerStream && !providerStream.destroyed) providerStream.destroy()
+        if (providerStream && !providerStream.closed) await once(providerStream, 'close')
+        await removeDriveUploadTempFile(tempPath, (message) => request.log.error(message))
       }
     },
   )

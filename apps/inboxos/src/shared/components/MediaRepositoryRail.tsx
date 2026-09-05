@@ -11,7 +11,9 @@ import {
   MEDIA_REPOSITORY_TABS,
   googleDriveImportPath,
   googleDrivePreviewPath,
+  googleDriveUploadPath,
   isDriveImagePreviewEligible,
+  runForCurrentClinic,
   type MediaRepositoryTab,
 } from '../media'
 
@@ -30,6 +32,8 @@ interface GoogleDriveMediaFile {
 interface GoogleDriveMediaResponse {
   connected: boolean
   authorized: boolean
+  browseAuthorized: boolean
+  uploadAuthorized: boolean
   reconnectRequired: boolean
   files: GoogleDriveMediaFile[]
   nextPageToken?: string | null
@@ -101,6 +105,7 @@ export function MediaRepositoryRail({
   const role = useAuthStore((state) => state.user?.role)
   const qc = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
+  const driveFileRef = useRef<HTMLInputElement>(null)
   const sendAttemptRef = useRef<{ signature: string; key: string } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<MediaRepositoryTab>('docmee')
@@ -110,6 +115,14 @@ export function MediaRepositoryRail({
   const [drivePageToken, setDrivePageToken] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const [deliveryUncertain, setDeliveryUncertain] = useState(false)
+  useEffect(() => {
+    setSelectedId(null)
+    setSelectedDriveId(null)
+    setDriveSearchInput('')
+    setDriveQuery('')
+    setDrivePageToken(null)
+    setLocalError(null)
+  }, [clinicId])
   const query = useQuery({
     queryKey: ['media-assets', clinicId],
     enabled: Boolean(clinicId),
@@ -163,19 +176,36 @@ export function MediaRepositoryRail({
       qc.invalidateQueries({ queryKey: ['conversations'] })
     },
   })
-  const importDrive = useMutation<{ asset: MediaAssetSummary }>({
-    mutationFn: () => {
-      if (!clinicId || !selectedDriveId) throw new Error('Select a Google Drive file')
-      return api.post(googleDriveImportPath(clinicId, selectedDriveId))
+  const currentClinicIdRef = useRef(clinicId)
+  currentClinicIdRef.current = clinicId
+  const importDrive = useMutation<{ asset: MediaAssetSummary }, Error, { clinicId: string; fileId: string }>({
+    mutationFn: ({ clinicId: capturedClinicId, fileId }) => {
+      return api.post(googleDriveImportPath(capturedClinicId, fileId))
     },
-    onSuccess: ({ asset }) => {
+    onSuccess: ({ asset }, variables) => runForCurrentClinic(variables.clinicId, () => currentClinicIdRef.current, () => {
       setLocalError(null)
       setSelectedId(asset.id)
       setSelectedDriveId(null)
       setActiveTab('docmee')
-      qc.invalidateQueries({ queryKey: ['media-assets', clinicId] })
+      qc.invalidateQueries({ queryKey: ['media-assets', variables.clinicId] })
+    }),
+    onError: (error, variables) => runForCurrentClinic(variables.clinicId, () => currentClinicIdRef.current, () => setLocalError(error instanceof ApiError ? error.message : 'Google Drive import failed')),
+  })
+  const uploadDrive = useMutation<{ file: GoogleDriveMediaFile }, Error, { clinicId: string; file: File }>({
+    mutationFn: ({ clinicId: capturedClinicId, file }) => {
+      const form = new FormData()
+      form.append('file', file)
+      return api.upload(googleDriveUploadPath(capturedClinicId), form)
     },
-    onError: (error) => setLocalError(error instanceof ApiError ? error.message : 'Google Drive import failed'),
+    onSuccess: ({ file }, variables) => runForCurrentClinic(variables.clinicId, () => currentClinicIdRef.current, () => {
+      setLocalError(null)
+      setDriveSearchInput('')
+      setDriveQuery('')
+      setDrivePageToken(null)
+      setSelectedDriveId(file.id)
+      qc.invalidateQueries({ queryKey: ['google-drive-media', variables.clinicId] })
+    }),
+    onError: (error, variables) => runForCurrentClinic(variables.clinicId, () => currentClinicIdRef.current, () => setLocalError(error instanceof ApiError ? error.message : 'Google Drive upload failed; check Drive before trying again.')),
   })
   const remove = useMutation({
     mutationFn: (assetId: string) => api.del(`/clinics/${clinicId}/media/${assetId}`),
@@ -203,6 +233,19 @@ export function MediaRepositoryRail({
     setDriveQuery(driveSearchInput.trim())
   }
 
+  function onDriveUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!ACCEPTED_TYPES.includes(file.type) || file.size <= 0 || file.size > MAX_BYTES) {
+      setLocalError('Choose a non-empty PDF, JPEG, PNG, or WebP file up to 100 MB.')
+      return
+    }
+    setLocalError(null)
+    if (!clinicId) return
+    uploadDrive.mutate({ clinicId, file })
+  }
+
   const assets = (query.data?.assets ?? []).slice(0, 10)
   return (
     <aside aria-label="Media repository" className="absolute inset-0 z-40 flex flex-col border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] shadow-xl">
@@ -218,11 +261,11 @@ export function MediaRepositoryRail({
           <button type="button" onClick={() => fileRef.current?.click()} disabled={upload.isPending || query.data?.storageConfigured === false} className="w-full rounded-lg border border-[var(--crm-border-color)] px-3 py-2 text-xs font-semibold disabled:opacity-50">
             {upload.isPending ? 'Uploading…' : 'Upload file'}
           </button>
-        </div> : <form onSubmit={onDriveSearch} className="flex gap-2 border-b border-[var(--crm-border-color)] p-3">
+        </div> : <div className="space-y-2 border-b border-[var(--crm-border-color)] p-3"><form onSubmit={onDriveSearch} className="flex gap-2">
           <label className="sr-only" htmlFor="drive-media-search">Search Google Drive</label>
           <input id="drive-media-search" value={driveSearchInput} onChange={(event) => setDriveSearchInput(event.target.value)} placeholder="Search PDFs and images" className="min-w-0 flex-1 rounded-lg border border-[var(--crm-border-color)] bg-transparent px-3 py-2 text-xs" />
           <button type="submit" className="rounded-lg border border-[var(--crm-border-color)] px-3 py-2 text-xs font-semibold">Search</button>
-        </form>}
+        </form><input ref={driveFileRef} type="file" className="hidden" accept={ACCEPTED_TYPES.join(',')} onChange={onDriveUpload} /><button type="button" onClick={() => driveFileRef.current?.click()} disabled={uploadDrive.isPending || !drive.data?.uploadAuthorized} className="w-full rounded-lg border border-[var(--crm-border-color)] px-3 py-2 text-xs font-semibold disabled:opacity-50">{uploadDrive.isPending ? 'Creating new Drive file…' : 'Upload new file to Google Drive'}</button><p className="text-[10px] text-[var(--crm-text-muted)]">Creates a new file. Docmee cannot delete or overwrite Drive files.</p></div>}
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {activeTab === 'docmee' ? (query.isLoading ? <p role="status" className="text-xs text-[var(--crm-text-muted)]">Loading media…</p>
           : query.isError ? <p role="alert" className="text-xs text-red-600">Media could not be loaded. Try again.</p>
@@ -237,7 +280,7 @@ export function MediaRepositoryRail({
                 </li>)}</ul>) : drive.isLoading ? <p role="status" className="text-xs text-[var(--crm-text-muted)]">Loading Google Drive…</p>
           : drive.isError ? <p role="alert" className="text-xs text-red-600">Google Drive could not be loaded. Try again.</p>
             : !drive.data?.connected ? <div className="space-y-2 text-xs"><p>Google Drive is not connected for this clinic.</p><p className="text-[var(--crm-text-muted)]">Ask a clinic administrator to connect Google in Studio.</p><a href="/studio/channels" className="inline-block font-semibold text-[var(--crm-primary-color)]">Open Studio integrations</a></div>
-              : drive.data.reconnectRequired || !drive.data.authorized ? <div className="space-y-2 text-xs"><p>Google Drive needs a one-time permission refresh.</p><p className="text-[var(--crm-text-muted)]">Existing Calendar access remains active. Ask an administrator to reconnect Google to add read-only Drive access.</p><a href="/studio/channels" className="inline-block font-semibold text-[var(--crm-primary-color)]">Open Studio integrations</a></div>
+              : !drive.data.browseAuthorized ? <div className="space-y-2 text-xs"><p>Google Drive browsing needs a one-time permission refresh.</p><p className="text-[var(--crm-text-muted)]">Existing Calendar access remains active. Reconnect Google to grant Drive browse and create permissions.</p><a href="/studio/channels#google-drive" className="inline-block font-semibold text-[var(--crm-primary-color)]">Open Google Drive setup</a></div>
                 : drive.data.files.length === 0 ? <p className="text-xs text-[var(--crm-text-muted)]">No matching PDFs or images were found in Google Drive.</p>
                   : <><ul className="space-y-2">{drive.data.files.map((file) => {
                     const webLink = safeDriveWebLink(file.webViewLink)
@@ -252,7 +295,7 @@ export function MediaRepositoryRail({
         {(localError || send.isError) && <p role="alert" className="mt-2 text-xs text-red-600">{localError ?? (send.error instanceof ApiError ? send.error.message : 'Media send failed')}</p>}
       </div>
       <footer className="border-t border-[var(--crm-border-color)] p-3">
-        {activeTab === GOOGLE_DRIVE_MEDIA_TAB ? <button type="button" onClick={() => importDrive.mutate()} disabled={!selectedDriveId || importDrive.isPending || !drive.data?.authorized} className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+        {activeTab === GOOGLE_DRIVE_MEDIA_TAB ? <button type="button" onClick={() => clinicId && selectedDriveId && importDrive.mutate({ clinicId, fileId: selectedDriveId })} disabled={!selectedDriveId || importDrive.isPending || !drive.data?.authorized} className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
             {importDrive.isPending ? 'Importing securely…' : 'Import selected to Docmee'}
           </button> : <button type="button" onClick={() => send.mutate()} disabled={!selectedId || send.isPending || deliveryUncertain} className="w-full rounded-lg bg-[var(--crm-primary-color)] px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
             {deliveryUncertain ? 'Reconciliation required' : send.isPending ? 'Sending…' : 'Send selected media'}

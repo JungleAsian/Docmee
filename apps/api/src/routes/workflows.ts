@@ -12,7 +12,7 @@ import { createAuditRepository, createClinicsRepository, createWorkflowApprovals
 import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge, WorkflowDocumentV2 } from '@docmee/db'
-import { materializeWorkflowDocument, simulateWorkflow, validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
+import { materializeWorkflowDocument, simulateWorkflow, SIMULATION_REPLAY_LIMITS, validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
 import { readAiAssistant, resolveChat } from '../lib/ai-assistant.js'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
@@ -68,6 +68,47 @@ const patchSchema = z.object({
   edges: z.array(edgeSchema).optional(),
   document: workflowDocumentSchema.optional(),
   expectedVersion: z.number().int().positive().optional(),
+})
+const simulationReplaySchema = z.object({
+  startNodeId: z.string().min(1),
+  context: z.record(z.unknown()),
+  trace: z.array(z.object({
+    nodeId: z.string().min(1),
+    type: z.string().min(1),
+    status: z.enum(['ran', 'paused', 'ended', 'failed']),
+    context: z.record(z.unknown()),
+    selectedEdgeId: z.string().min(1).optional(),
+  })).max(SIMULATION_REPLAY_LIMITS.steps),
+  effects: z.array(z.object({
+    nodeId: z.string().min(1),
+    kind: z.enum(['message', 'template', 'notification', 'tag', 'draft', 'approval', 'provider', 'handoff']),
+    mocked: z.literal(true),
+    summary: z.string().max(SIMULATION_REPLAY_LIMITS.summaryCharacters),
+  })).max(SIMULATION_REPLAY_LIMITS.effects),
+  virtualNowMs: z.number().nonnegative(),
+  waitingFor: z.union([
+    z.object({ kind: z.enum(['reply', 'menu', 'approval']), nodeId: z.string().min(1) }),
+    z.object({ kind: z.literal('delay'), nodeId: z.string().min(1), remainingMs: z.number().nonnegative(), resumeAtMs: z.number().nonnegative() }),
+  ]).optional(),
+})
+const simulationInputSchema = z.object({
+  context: z.record(z.unknown()).optional(),
+  replay: simulationReplaySchema.optional(),
+  reply: z.object({ text: z.string().max(4_000).optional(), optionId: z.string().max(200).optional() }).optional(),
+  approval: z.enum(['approved', 'rejected', 'timeout']).optional(),
+  advanceTimeMs: z.number().nonnegative().max(31_536_000_000).optional(),
+  virtualNowMs: z.number().nonnegative().optional(),
+  maxSteps: z.number().int().min(1).max(100).optional(),
+  scenarios: z.object({
+    providerOutcomes: z.record(z.enum(['success', 'failure', 'empty'])).optional(),
+    intentOutcome: z.enum(['high', 'low', 'error']).optional(),
+    aiAgentOutcome: z.enum(['replied', 'handoff', 'no_match', 'error', 'routed']).optional(),
+    slots: z.array(z.string().max(200)).max(100).optional(),
+  }).optional(),
+})
+const simulateSchema = z.object({
+  graph: z.object({ nodes: z.array(nodeSchema).max(500), edges: z.array(edgeSchema).max(1_000) }).optional(),
+  input: simulationInputSchema.default({}),
 })
 
 function graphFromDocument(document: WorkflowDocumentV2): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
@@ -201,16 +242,19 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
     },
   )
 
-  app.post<{ Params: { id: string; workflowId: string }; Body: { context?: Record<string, unknown> } }>(
+  app.post<{ Params: { id: string; workflowId: string } }>(
     '/clinics/:id/workflows/:workflowId/simulate',
     { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
     async (request, reply) => {
+      const parsed = validate(simulateSchema, request.body, reply)
+      if (!parsed.ok) return
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
       const workflow = await withDb((sql) => createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId))
       if (!workflow) return reply.code(404).send({ error: 'Workflow not found' })
-      if (!validateGraph(workflow.nodes, workflow.edges, true, reply)) return
-      const outcome = await simulateWorkflow(workflow, request.body?.context ?? {})
+      const graph = parsed.data.graph ?? { nodes: workflow.nodes, edges: workflow.edges }
+      if (!validateGraph(graph.nodes, graph.edges, true, reply)) return
+      const outcome = await simulateWorkflow(graph, parsed.data.input)
       return { simulation: { ...outcome, simulated: true } }
     },
   )

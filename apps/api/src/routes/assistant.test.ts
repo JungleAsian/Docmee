@@ -15,7 +15,7 @@ vi.mock('@docmee/llm', () => ({
   embed: vi.fn(async () => []),
   embedText: vi.fn(async () => []),
 }))
-vi.mock('@docmee/agents', () => ({
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
   getOAuth2Client: () => ({}),
   detectLanguage: () => 'es',
   searchKb: vi.fn(async () => []),
@@ -53,7 +53,7 @@ const store = vi.hoisted(() => ({
   ]),
 }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createConversationsRepository: () => ({
     findById: async (clinicId: string, id: string) => {

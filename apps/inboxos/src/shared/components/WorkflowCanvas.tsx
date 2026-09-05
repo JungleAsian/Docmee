@@ -282,6 +282,7 @@ export type WfNodeData = {
   /** Every other node in the workflow, for the same dropdown's option list. */
   allTargets: { id: string; label: string }[]
   onSetBranchTarget: (sourceId: string, handleKey: string | undefined, targetId: string) => void
+  simulationState?: 'current' | 'tested' | 'untested' | 'error'
 }
 
 const KIND_ICON: Record<string, string> = {
@@ -448,7 +449,7 @@ const RING_HANDLE = '!rounded-full !border !border-gray-300 !bg-white dark:!bord
 const TEAL_HANDLE = '!bg-teal-500'
 
 export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
-  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom, edges: allEdges, allTargets, onSetBranchTarget } = data
+  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom, edges: allEdges, allTargets, onSetBranchTarget, simulationState } = data
   const face = nodeFaceText(wf)
   const rows = branchRows(wf)
   const { t } = useI18n()
@@ -492,7 +493,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
     const add = (handleId: string) => onAddFrom(wf.id, handleId)
     return (
       <div
-        className={`w-48 rounded-lg border border-gray-200 px-3 py-2 text-xs shadow-md dark:border-gray-700 ${NODE_KIND_FILL[wf.kind]} ${
+        className={`w-48 rounded-lg border border-gray-200 px-3 py-2 text-xs shadow-md dark:border-gray-700 ${NODE_KIND_FILL[wf.kind]} ${simulationRing(simulationState)} ${
           selected ? 'ring-2 ring-teal-300' : ''
         }`}
       >
@@ -562,7 +563,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
 
   return (
     <div
-      className={`group relative w-52 rounded-lg border-2 px-3 py-2 text-xs shadow-sm transition-shadow ${NODE_KIND_FILL[wf.kind]} ${NODE_KIND_TONE[wf.kind]} ${
+      className={`group relative w-52 rounded-lg border-2 px-3 py-2 text-xs shadow-sm transition-shadow ${NODE_KIND_FILL[wf.kind]} ${NODE_KIND_TONE[wf.kind]} ${simulationRing(simulationState)} ${
         selected ? NODE_KIND_RING[wf.kind] : 'hover:shadow-md'
       }`}
     >
@@ -746,6 +747,7 @@ function WorkflowCanvasInner({
   workflowId,
   mode,
   focusIssue,
+  simulation,
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
@@ -758,6 +760,7 @@ function WorkflowCanvasInner({
   /** Builder mode — lifted to the editor toolbar (item 16), passed in here. */
   mode: CanvasMode
   focusIssue?: WorkflowCanvasFocusIssue | null
+  simulation?: WorkflowCanvasSimulation
 }) {
   const { t, language } = useI18n()
   const { screenToFlowPosition, fitView } = useReactFlow()
@@ -873,6 +876,15 @@ function WorkflowCanvasInner({
         edges,
         allTargets: allTargets.filter((t) => t.id !== n.id),
         onSetBranchTarget: setBranchTarget,
+        simulationState: simulation?.errorNodeIds.includes(n.id)
+          ? 'error'
+          : simulation?.currentNodeId === n.id
+            ? 'current'
+            : simulation?.testedNodeIds.includes(n.id)
+              ? 'tested'
+              : simulation?.untestedNodeIds.includes(n.id)
+                ? 'untested'
+                : undefined,
         },
       }
     })
@@ -928,7 +940,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, measuredSizes, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget])
+  }, [nodes, edges, measuredSizes, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -1317,10 +1329,27 @@ export function WorkflowCanvas(props: {
   mode: CanvasMode
   /** Save-error focus target — selects the node, opens config, and centers it. */
   focusIssue?: WorkflowCanvasFocusIssue | null
+  /** Ephemeral simulator path state; never serialized into the workflow. */
+  simulation?: WorkflowCanvasSimulation
 }) {
   return (
     <ReactFlowProvider>
       <WorkflowCanvasInner {...props} />
     </ReactFlowProvider>
   )
+}
+
+interface WorkflowCanvasSimulation {
+  currentNodeId?: string
+  testedNodeIds: string[]
+  untestedNodeIds: string[]
+  errorNodeIds: string[]
+}
+
+function simulationRing(state: WfNodeData['simulationState']): string {
+  if (state === 'error') return 'ring-2 ring-red-500'
+  if (state === 'current') return 'ring-4 ring-violet-500'
+  if (state === 'tested') return 'ring-2 ring-emerald-400'
+  if (state === 'untested') return 'border-dashed opacity-70'
+  return ''
 }

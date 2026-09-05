@@ -42,6 +42,7 @@ export function WabaTableModal({ open, accounts, selectedId, onSelect, onAddNew,
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         role="dialog"
+        data-docmee-glass="strong"
         aria-modal="true"
         aria-labelledby="waba-table-modal-title"
         className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"

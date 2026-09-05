@@ -7,7 +7,7 @@ vi.mock('@docmee/queue', () => ({
   kbEmbedQueue: { add: vi.fn() },
   reportsQueue: { add: reportsAdd },
 }))
-vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS, getOAuth2Client: () => ({}) }))
 vi.mock('@docmee/shared', () => ({
   encryptValue: (v: string) => `enc:${v}`,
   verifyPassword: () => true,
@@ -25,7 +25,7 @@ const SUMMARY = {
 }
 const FULL = { ...SUMMARY, html: '<h2>Daily</h2>', data: { conversations: 4 } }
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({
     findById: async (id: string) => (id === 'c-1' ? { id: 'c-1', timezone: 'UTC' } : null),

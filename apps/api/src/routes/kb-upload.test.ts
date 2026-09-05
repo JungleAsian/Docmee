@@ -14,7 +14,7 @@ vi.mock('@docmee/queue', () => ({
 // extractor (which has its own unit suite in @docmee/agents). detectFormat/needsOcr
 // keep their real shape so the `ocr` flag in the response is covered.
 const trainDocument = vi.hoisted(() => vi.fn())
-vi.mock('@docmee/agents', () => ({
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
   getOAuth2Client: () => ({}),
   trainDocument,
   detectFormat: (filename: string) => (/\.(png|jpe?g|webp)$/i.test(filename) ? 'image' : 'txt'),
@@ -28,7 +28,7 @@ vi.mock('@docmee/shared', () => ({
 let nextId = 1
 const created = vi.hoisted(() => ({ documents: [] as Record<string, unknown>[], chunks: [] as Record<string, unknown>[] }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createDoctorsRepository: () => ({ findById: async () => null }),
   createKnowledgeRepository: () => ({

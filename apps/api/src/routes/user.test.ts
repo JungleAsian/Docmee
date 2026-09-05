@@ -5,14 +5,14 @@ vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
   kbEmbedQueue: { add: vi.fn() },
 }))
-vi.mock('@docmee/agents', () => ({ getOAuth2Client: () => ({}) }))
+vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS, getOAuth2Client: () => ({}) }))
 
 const store = vi.hoisted(() => ({
   // endpoint -> { userId, clinicId, userEmail, p256dh, auth }
   subs: new Map<string, Record<string, unknown>>(),
 }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
   createPushSubscriptionsRepository: () => ({
     upsert: async (input: { endpoint: string; userId: string }) => {

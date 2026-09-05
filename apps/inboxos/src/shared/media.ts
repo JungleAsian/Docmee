@@ -29,6 +29,15 @@ export function googleDrivePreviewPath(clinicId: string, fileId: string): string
   return `/clinics/${encodeURIComponent(clinicId)}/media/google-drive/${encodeURIComponent(fileId)}/preview`
 }
 
+export function googleDriveUploadPath(clinicId: string): string {
+  return `/clinics/${encodeURIComponent(clinicId)}/media/google-drive/upload`
+}
+
 export function isDriveImagePreviewEligible(file: { mimeType: string; byteSize: number }): boolean {
   return file.mimeType.startsWith('image/') && file.byteSize > 0 && file.byteSize <= 10 * 1024 * 1024
+}
+
+export function runForCurrentClinic<T>(capturedClinicId: string, getCurrentClinicId: () => string | null | undefined, effect: () => T): T | undefined {
+  if (getCurrentClinicId() !== capturedClinicId) return undefined
+  return effect()
 }

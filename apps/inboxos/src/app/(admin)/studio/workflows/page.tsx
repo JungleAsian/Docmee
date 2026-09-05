@@ -710,6 +710,7 @@ function WorkflowEditor({
               key={m}
               type="button"
               onClick={() => changeMode(m)}
+              aria-pressed={mode === m}
               className={`px-2.5 py-1 ${mode === m ? 'bg-teal-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700'}`}
             >
               {m === 'enhanced' ? t('wf.enhancedBuilder') : t('wf.guidedBuilder')}
@@ -719,6 +720,7 @@ function WorkflowEditor({
         <span className="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">
           {status === 'published' ? 'Published' : 'Draft'}
         </span>
+        <div role="group" aria-label={language === 'es' ? 'Editar y organizar' : 'Edit and arrange'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
         <button
           type="button"
           onClick={undo}
@@ -745,6 +747,8 @@ function WorkflowEditor({
         >
           ▦ {t('wf.autoLayout')}
         </button>
+        </div>
+        <div role="group" aria-label={language === 'es' ? 'Probar y transferir' : 'Test and transfer'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
         <button
           type="button"
           onClick={() => simulation.mutate()}
@@ -770,6 +774,7 @@ function WorkflowEditor({
           ⭱ {t('wf.import')}
         </button>
         <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
+        </div>
         <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
         </button>

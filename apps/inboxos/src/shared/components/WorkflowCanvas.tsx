@@ -579,7 +579,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
       )}
 
       {/* Hover toolbar */}
-      <div className="nodrag absolute -top-3 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="nodrag absolute -top-3 right-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         <button
           type="button"
           title={t('common.edit')}
@@ -620,7 +620,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
         <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${NODE_KIND_BADGE[wf.kind]}`}>
           <WorkflowNodeIcon icon={nodeIcon} className="h-3 w-3" />
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t(`wf.kind.${wf.kind}` as Parameters<typeof t>[0])}</span>
         {/* Item 21 of the 25-item batch: hover the node type's existing
             one-line description (already used in the palette) on the card itself.
             Kept inline next to the kind label (not flush right) so it never sits
@@ -772,6 +772,7 @@ function WorkflowCanvasInner({
   // This is deliberately not part of the workflow document. It only controls
   // which overlapping route is promoted while the operator inspects it.
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
+  const [libraryOpen, setLibraryOpen] = useState(false)
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
 
@@ -1136,7 +1137,7 @@ function WorkflowCanvasInner({
         e.dataTransfer.effectAllowed = 'move'
       }}
       onClick={() => onPick(def)}
-      className={`block w-full cursor-grab rounded border-l-2 bg-white px-2 py-1.5 text-left hover:bg-gray-100 active:cursor-grabbing dark:bg-gray-800 dark:hover:bg-gray-700 ${NODE_KIND_TONE[def.kind]}`}
+      className={`block w-full cursor-grab rounded-lg border-l-2 bg-white px-3 py-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 hover:bg-gray-100 active:cursor-grabbing dark:bg-gray-800 dark:hover:bg-gray-700 ${NODE_KIND_TONE[def.kind]}`}
     >
       <span className="flex items-center gap-1.5">
         <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${NODE_KIND_BADGE[def.kind]}`}>
@@ -1144,7 +1145,7 @@ function WorkflowCanvasInner({
         </span>
         <span className="font-medium text-gray-800 dark:text-gray-100">{t(def.labelKey as Parameters<typeof t>[0])}</span>
       </span>
-      <span className="mt-0.5 block text-[10px] leading-snug text-gray-400">{t(def.descKey as Parameters<typeof t>[0])}</span>
+      <span className="mt-1 block text-xs leading-relaxed text-gray-500 dark:text-gray-400">{t(def.descKey as Parameters<typeof t>[0])}</span>
     </button>
   )
 
@@ -1159,13 +1160,20 @@ function WorkflowCanvasInner({
   return (
     <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
       {/* Palette */}
-      <div className="w-[250px] shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-800 dark:bg-gray-900">
+      <div className="flex w-12 shrink-0 flex-col items-center border-r border-gray-200 bg-gray-50 py-3 dark:border-gray-800 dark:bg-gray-900">
+        <button type="button" aria-expanded={libraryOpen} aria-controls="workflow-node-library" onClick={() => setLibraryOpen((open) => !open)} className="rounded-lg px-3 py-2 text-lg text-cyan-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 dark:text-cyan-300" aria-label={language === 'es' ? 'Biblioteca de nodos' : 'Node library'} title={language === 'es' ? 'Biblioteca de nodos' : 'Node library'}>＋</button>
+      </div>
+      {libraryOpen && <div id="workflow-node-library" className="absolute bottom-0 left-12 top-0 z-20 w-64 max-w-[calc(100%-3rem)] overflow-y-auto border-r border-gray-200 bg-gray-50 p-3 text-xs shadow-xl dark:border-gray-800 dark:bg-gray-900 xl:static xl:shadow-none xl:shrink-0">
+        <h3 className="mb-1 text-sm font-semibold">{language === 'es' ? 'Añadir un paso' : 'Add a step'}</h3>
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{language === 'es' ? 'Haz clic para añadir o arrastra al lienzo.' : 'Click to add, or drag onto the canvas.'}</p>
         <input
           value={paletteQuery}
+          aria-label={t('wf.searchNodes')}
           onChange={(e) => setPaletteQuery(e.target.value)}
           placeholder={t('wf.searchNodes')}
           className="mb-2 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800"
         />
+        {!WORKFLOW_NODE_TYPES.some((def) => paletteMatches(def, paletteQuery)) && <p role="status" className="py-4 text-sm">{language === 'es' ? 'No hay resultados. Prueba otra búsqueda.' : 'No matching steps. Try another search.'}</p>}
         {(['trigger', 'logic', 'action'] as const).map((kind) => {
           const items = byKind(kind).filter((d) => paletteMatches(d, paletteQuery))
           if (items.length === 0) return null
@@ -1176,11 +1184,11 @@ function WorkflowCanvasInner({
             </div>
           )
         })}
-      </div>
+      </div>}
 
       {/* Canvas */}
       <div
-        className="relative flex-1"
+        className="relative min-w-0 flex-1"
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return
           e.preventDefault()
@@ -1222,6 +1230,14 @@ function WorkflowCanvasInner({
           <Controls />
           <MiniMap pannable className="!hidden sm:!block" />
         </ReactFlow>
+
+        {nodes.length === 0 && (
+          <div className="absolute inset-x-4 top-24 mx-auto max-w-sm rounded-xl border border-gray-700 bg-gray-900 p-5 text-center text-gray-100 shadow-lg">
+            <h3 className="text-base font-semibold">{language === 'es' ? 'Empieza con un disparador' : 'Start with a trigger'}</h3>
+            <p className="mt-2 text-sm text-gray-300">{language === 'es' ? 'Elige qué inicia el flujo y después conecta los siguientes pasos.' : 'Choose what starts the workflow, then connect the next steps.'}</p>
+            <button type="button" onClick={() => setLibraryOpen(true)} className="mt-4 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-white">{language === 'es' ? 'Abrir biblioteca' : 'Open node library'}</button>
+          </div>
+        )}
 
         <WorkflowLayoutControls
           selectedId={selectedId}
@@ -1266,7 +1282,8 @@ function WorkflowCanvasInner({
 
       {/* Config panel */}
       {selected && (
-        <aside className="w-64 shrink-0 overflow-y-auto border-l border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-800 dark:bg-gray-900">
+        <aside aria-label={language === 'es' ? 'Ajustes del paso' : 'Step settings'} className="absolute inset-y-0 right-0 z-20 w-80 max-w-[calc(100%-3rem)] overflow-y-auto border-l border-gray-200 bg-gray-50 p-4 text-sm shadow-xl dark:border-gray-800 dark:bg-gray-900 xl:static xl:shrink-0 xl:shadow-none">
+          <button type="button" onClick={() => setSelectedId(null)} className="mb-3 rounded border border-gray-300 px-3 py-1.5 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 dark:border-gray-700">{language === 'es' ? 'Cerrar ajustes' : 'Close settings'}</button>
           <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">{t(`wf.kind.${selected.kind}` as Parameters<typeof t>[0])}</p>
           <p className="mb-3 font-semibold text-gray-800 dark:text-gray-100">
             {String(selected.config?.customLabel ?? '').trim() || label(selected.type)}

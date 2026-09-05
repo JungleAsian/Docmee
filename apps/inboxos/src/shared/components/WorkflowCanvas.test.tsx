@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ReactFlowProvider } from '@xyflow/react'
 import {
   roundedOrthogonalPath,
+  WorkflowCanvas,
   WorkflowLayoutControls,
   WorkflowNodeView,
   workflowEdgeAppearance,
@@ -11,6 +12,13 @@ import {
 } from './WorkflowCanvas'
 
 describe('WorkflowLayoutControls', () => {
+  it('starts with the node library collapsed and exposes an accessible opener', () => {
+    vi.stubGlobal('React', React)
+    const markup = renderToStaticMarkup(<WorkflowCanvas nodes={[]} edges={[]} onChange={vi.fn()} mode="enhanced" />)
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).toContain('aria-controls="workflow-node-library"')
+    expect(markup).not.toContain('id="workflow-node-library"')
+  })
   it('offers a full-workflow tidy action even when no node is selected', () => {
     vi.stubGlobal('React', React)
     const markup = renderToStaticMarkup(

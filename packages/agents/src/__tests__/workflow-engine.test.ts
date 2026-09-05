@@ -58,6 +58,14 @@ describe('runWorkflow — action.handoff_to_secretary', () => {
 })
 
 describe('runWorkflow', () => {
+  it.each(['action.create_or_reschedule_booking', 'action.handoff_to_secretary', 'action.check_availability', 'logic.wait_for_reply'])('does not silently complete %s without an executor', async (type) => {
+    const workflow = { nodes: [node('step', type.startsWith('logic.') ? 'logic' : 'action', type)], edges: [] }
+    await expect(runWorkflow(workflow, {}, makeExec(), { startNodeId: 'step' })).rejects.toThrow(/unavailable/)
+  })
+
+  it('fails visibly for an unsupported runtime node', async () => {
+    await expect(runWorkflow({ nodes: [node('step', 'action', 'action.missing')], edges: [] }, {}, makeExec(), { startNodeId: 'step' })).rejects.toThrow(/unsupported type/)
+  })
   it('routes each action through the worker-owned durable side-effect boundary', async () => {
     const guarded = vi.fn(async (_node, _ctx, invoke) => invoke())
     const exec = makeExec({ runSideEffect: guarded })

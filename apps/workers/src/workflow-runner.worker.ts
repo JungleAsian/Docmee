@@ -8,9 +8,9 @@
 // secretary in v1 (full approve-and-resume round-trip is phase 3).
 import {
   createGoogleCalendarOps,
-  runWorkflow,
   runWorkflowWithOutcome,
   validateWorkflowDefinition,
+  validCapturedReply,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   WORKFLOW_MENU_CONTEXT_KEY,
   WORKFLOW_SLOT_MENU_CONTEXT_KEY,
@@ -718,29 +718,6 @@ function captureState(ctx: WorkflowContext): WorkflowCaptureState | null {
     typeof value['status'] !== 'string'
   ) return null
   return value as unknown as WorkflowCaptureState
-}
-
-function validCapturedReply(validation: string, raw: string): boolean {
-  const value = raw.trim()
-  if (!value) return false
-  switch (validation) {
-    case 'date': {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-      const parsed = new Date(`${value}T00:00:00Z`)
-      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
-    }
-    case 'time': {
-      const match = value.match(/^(\d{1,2}):(\d{2})$/)
-      return Boolean(match && Number(match[1]) <= 23 && Number(match[2]) <= 59)
-    }
-    case 'phone':
-      return /^\+?[1-9]\d{7,14}$/.test(value.replace(/[\s().-]/g, ''))
-    case 'yes_no':
-      return /^(yes|no|y|n|si|sí|confirm|cancel|confirmo|cancelar)$/i.test(value)
-    case 'required':
-    default:
-      return value.length > 0
-  }
 }
 
 function hashKeyPart(value: string): string {

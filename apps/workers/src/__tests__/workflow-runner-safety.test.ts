@@ -7,6 +7,8 @@ const h = vi.hoisted(() => ({
   claimRun: vi.fn(),
   findRun: vi.fn(),
   setRunStatus: vi.fn(),
+  transitionRun: vi.fn(),
+  scheduleResume: vi.fn(),
   claimEffect: vi.fn(),
   findEffect: vi.fn(),
   succeedEffect: vi.fn(),
@@ -34,9 +36,14 @@ const h = vi.hoisted(() => ({
   end: vi.fn(),
 }))
 
-vi.mock('@docmee/agents', () => ({
+vi.mock('@docmee/agents', async () => ({
+  validCapturedReply: (await import('../../../../packages/agents/src/workflows/capture-validation.js')).validCapturedReply,
   validateWorkflowDefinition: () => [],
   runWorkflow: h.runWorkflow,
+  runWorkflowWithOutcome: async (...args: unknown[]) => {
+    const trace = await h.runWorkflow(...args)
+    return { trace, status: trace.at(-1)?.status === 'paused' ? 'waiting' : 'completed' }
+  },
   createGoogleCalendarOps: () => ({ listSlots: h.listSlots, createEvent: h.createCalendarEvent, updateEvent: h.updateCalendarEvent }),
   WORKFLOW_CAPTURE_CONTEXT_KEY: 'capture',
   WORKFLOW_MENU_CONTEXT_KEY: 'menu',
@@ -81,6 +88,8 @@ vi.mock('@docmee/db', () => ({
     claimRun: h.claimRun,
     findRun: h.findRun,
     setRunStatus: h.setRunStatus,
+    transitionRun: h.transitionRun,
+    scheduleResume: h.scheduleResume,
     claimEffect: h.claimEffect,
     findEffect: h.findEffect,
     succeedEffect: h.succeedEffect,
@@ -120,7 +129,9 @@ const job = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'active', nodes: [], edges: [] })
+  h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published', nodes: [], edges: [] })
+  h.transitionRun.mockResolvedValue(true)
+  h.scheduleResume.mockResolvedValue(true)
   h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', metadata: {} })
   h.claimRun.mockResolvedValue({ id: 'run-1' })
   h.setRunStatus.mockResolvedValue(undefined)
@@ -155,7 +166,7 @@ describe('processWorkflowRunJob automation ownership', () => {
     h.findWorkflow.mockResolvedValue({
       id: WORKFLOW,
       name: 'Booking',
-      status: 'active',
+      status: 'published',
       nodes: [{ id: 'current', kind: 'action', type: 'action.send_message', config: {}, x: 0, y: 0 }],
       edges: [],
     })
@@ -245,9 +256,8 @@ describe('processWorkflowRunJob automation ownership', () => {
 
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.createMessage).not.toHaveBeenCalled()
-    expect(h.setRunStatus).toHaveBeenLastCalledWith('run-1', 'completed', expect.objectContaining({
-      reason: 'patient_human_only',
-      terminalState: 'suppressed',
+    expect(h.transitionRun).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'run-1', to: 'completed', trace: expect.objectContaining({ reason: 'patient_human_only', terminalState: 'suppressed' }),
     }))
   })
 
@@ -387,6 +397,28 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it.each([
+    ['email', 'not-an-email', 'pending'],
+    ['email', 'patient@example.com', 'captured'],
+    ['number', 'ten', 'pending'],
+    ['number', '10', 'captured'],
+  ])('captures %s reply %s only when valid', async (validation, message, status) => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const captureCtx = {
+        ...ctx,
+        message,
+        capture: { nodeId: 'capture-question', field: 'answer', validation, question: 'Please reply.', retryQuestion: 'Try again.', attempts: 0, maxAttempts: 3, status: 'pending' },
+      }
+      await exec.askAndCapture({ id: 'capture-question', type: 'action.ask_capture', config: { field: 'answer', validation } }, captureCtx)
+      expect(captureCtx.capture.status).toBe(status)
+      expect(captureCtx.answer).toBe(status === 'captured' ? message : undefined)
+      if (status === 'pending') expect(captureCtx.capture.attempts).toBe(1)
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.runWorkflow).toHaveBeenCalledOnce()
+  })
+
   it('asks the capture question instead of treating an interactive menu label as the answer', async () => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.askAndCapture({
@@ -489,9 +521,8 @@ describe('processWorkflowRunJob automation ownership', () => {
       vi.useRealTimers()
     }
 
-    expect(h.setRunStatus).toHaveBeenCalledWith('run-1', 'completed', expect.objectContaining({
-      terminalState: 'completed',
-      trace: expect.any(Array),
+    expect(h.transitionRun).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'run-1', to: 'completed', trace: expect.objectContaining({ terminalState: 'completed', trace: expect.any(Array) }),
     }))
   })
 

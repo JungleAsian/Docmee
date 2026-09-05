@@ -276,6 +276,22 @@ export async function runWorkflow(
     const cfg = node.config ?? {}
     let handle: string | undefined // conditional routing out of this node
 
+    // Missing integrations must fail visibly, not report an action as completed.
+    const requiredExecutor: Partial<Record<string, keyof WorkflowExecutors>> = {
+      'action.handoff_to_secretary': 'handoffSecretary',
+      'action.transcribe_booking_voice': 'transcribeBookingVoice',
+      'action.check_availability': 'checkAvailability',
+      'action.offer_slots': 'offerSlots',
+      'action.create_or_reschedule_booking': 'createOrRescheduleBooking',
+      'action.ask_capture': 'askAndCapture',
+      'action.extract_booking_details': 'extractBookingDetails',
+      'logic.wait_for_reply': 'waitForReply',
+    }
+    const executor = requiredExecutor[node.type]
+    if (executor && typeof exec[executor] !== 'function') {
+      throw new Error(`Workflow step ${node.id} (${node.type}) cannot run: ${executor} is unavailable. Configure this capability before retrying.`)
+    }
+
     switch (node.type) {
       case 'logic.condition':
         handle = evalCondition(cfg, ctx) ? 'true' : 'false'
@@ -448,7 +464,10 @@ export async function runWorkflow(
         trace.push({ nodeId: node.id, type: node.type, status: 'ended' })
         return trace
       default:
-        break // trigger.* and unknown nodes are pass-through
+        if (node.kind !== 'trigger' || !node.type.startsWith('trigger.')) {
+          throw new Error(`Workflow step ${node.id} has unsupported type ${node.type}. Replace it with a supported node.`)
+        }
+        break
     }
 
     trace.push({ nodeId: node.id, type: node.type, status: 'ran' })

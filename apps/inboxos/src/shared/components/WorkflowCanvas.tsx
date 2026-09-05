@@ -63,6 +63,7 @@ import {
 import { NodeConfigPanel } from './NodeConfigPanel'
 import { WorkflowLinearEditor } from './WorkflowLinearEditor'
 import { WorkflowNodeIcon } from './WorkflowNodeIcon'
+import { canConnectWorkflow } from '../workflowConnections'
 import { PencilSimple, CopySimple, TrashSimple } from '@phosphor-icons/react'
 
 const ReactFlow = ReactFlowBase
@@ -1024,7 +1025,7 @@ function WorkflowCanvasInner({
 
   const onConnect = useCallback(
     (c: Connection) => {
-      if (!c.source || !c.target) return
+      if (!c.source || !c.target || !canConnectWorkflow(nodes, edges, c)) return
       onChange({
         nodes,
         edges: [...edges, {
@@ -1041,7 +1042,7 @@ function WorkflowCanvasInner({
   /** Dropping a loose connection on the pane opens the node picker, auto-wired. */
   const onConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
-      if (connectionState.isValid) return
+      if (connectionState.isValid || connectionState.toNode) return
       const from = connectionState.fromNode
       if (!from || connectionState.fromHandle?.type !== 'source') return
       const point = 'changedTouches' in event ? event.changedTouches[0] : event
@@ -1202,6 +1203,7 @@ function WorkflowCanvasInner({
           onEdgeMouseEnter={handleEdgeMouseEnter}
           onEdgeMouseLeave={handleEdgeMouseLeave}
           onConnect={onConnect}
+          isValidConnection={(connection) => canConnectWorkflow(nodes, edges, connection)}
           onConnectEnd={onConnectEnd}
           onNodeClick={(_event: unknown, node: Node) => setSelectedId(node.id)}
           onPaneClick={() => setSelectedId(null)}

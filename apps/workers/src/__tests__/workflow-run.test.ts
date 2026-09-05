@@ -251,7 +251,7 @@ describe('enqueueWorkflowRunByTarget', () => {
   })
 
   it('enqueues with the expected jobId when the target is active', async () => {
-    h.findWorkflowById.mockResolvedValue({ id: 'wf-target', status: 'active', activeRevisionId: '55555555-5555-4555-8555-555555555555' })
+    h.findWorkflowById.mockResolvedValue({ id: 'wf-target', status: 'published', activeRevisionId: '55555555-5555-4555-8555-555555555555' })
     const ok = await enqueueWorkflowRunByTarget(sql, 'clinic-1', 'wf-target', 'workflow.ai_agent_route', {
       sourceEventId: 'wamid.1',
       conversationId: 'convo-1',

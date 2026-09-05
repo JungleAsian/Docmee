@@ -6,6 +6,25 @@ const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Reco
 const edge = (id: string, source: string, target: string, sourceHandle?: string): WorkflowEdge => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })
 
 describe('validateWorkflowDefinition', () => {
+  it.each(['typo', 'EMAIL'])('blocks unsupported capture validation %s on publish but preserves drafts', (validation) => {
+    const nodes = [node('start', 'trigger', 'trigger.message_keyword'), node('capture', 'action', 'action.ask_capture', { field: 'email', question: 'Your email?', validation }), node('end', 'action', 'action.end')]
+    const edges = [edge('a', 'start', 'capture'), edge('b', 'capture', 'end')]
+    expect(validateWorkflowDefinition(nodes, edges)).toEqual([])
+    expect(validateWorkflowDefinitionDetailed(nodes, edges, { requireTrigger: true })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'capture', code: 'invalid_setting' }),
+    ]))
+  })
+  it('saves disconnected draft work but prevents publishing it', () => {
+    const nodes = [node('start', 'trigger', 'trigger.message_keyword'), node('end', 'action', 'action.end')]
+    expect(validateWorkflowDefinition(nodes, [])).toEqual([])
+    expect(validateWorkflowDefinition(nodes, [], { requireTrigger: true }).join('\n')).toMatch(/unreachable/)
+  })
+
+  it('rejects extra classifier branches even when all required branches are connected', () => {
+    const nodes = [node('start', 'trigger', 'trigger.message_keyword'), node('classify', 'logic', 'logic.ai_classify_intent'), node('end', 'action', 'action.end')]
+    const edges = [edge('start', 'start', 'classify'), ...['high', 'low', 'error', 'unexpected'].map((handle) => edge(handle, 'classify', 'end', handle))]
+    expect(validateWorkflowDefinition(nodes, edges, { requireTrigger: true }).join('\n')).toMatch(/unsupported intent branch/)
+  })
   it('reports a typed-port issue when an edge targets a trigger input', () => {
     const issues = validateWorkflowDefinitionDetailed([
       { id: 'start', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 },

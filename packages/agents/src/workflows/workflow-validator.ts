@@ -1,6 +1,7 @@
 import type { WorkflowEdge, WorkflowNode } from '@docmee/db'
 import { parseMenuOptions, MENU_RESERVED_HANDLES, parseAiAgentScenarios } from './workflow-engine.js'
 import { validateWorkflowPortConnection } from './workflow-ports.js'
+import { CAPTURE_VALIDATIONS } from './capture-validation.js'
 
 const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['trigger.message_keyword', 'trigger'],
@@ -153,6 +154,9 @@ export function validateWorkflowDefinition(
     // malformed IDs/types/edges above, but reserve executable-graph requirements
     // for activation and worker load.
     if (!requireTrigger) continue
+    if (node.type === 'action.ask_capture' && !CAPTURE_VALIDATIONS.some((mode) => mode === (node.config?.['validation'] ?? 'required'))) {
+      errors.push(`Capture node ${node.id} has invalid validation. Choose text, date, time, phone, number, email, or yes_no.`)
+    }
     const next = outgoing.get(node.id) ?? []
     if (node.type === 'action.end' && next.length > 0) {
       errors.push(`The end node ${node.id} has ${next.length} outgoing edge${next.length === 1 ? '' : 's'}, but an end node must be a dead end (cannot have outgoing edges). Delete the edge(s) leaving this node.`)
@@ -190,6 +194,11 @@ export function validateWorkflowDefinition(
     }
     if (node.type === 'logic.ai_classify_intent') {
       const handles = new Set(next.map((edge) => edge.sourceHandle).filter((handle): handle is string => Boolean(handle)))
+      for (const edge of next) {
+        if (!['high', 'low', 'error'].includes(edge.sourceHandle ?? '')) {
+          errors.push(`Node ${node.id} has an unsupported intent branch on edge ${edge.id}. Reconnect it to high, low, or error.`)
+        }
+      }
       for (const handle of ['high', 'low', 'error']) {
         if (!handles.has(handle)) errors.push(`Intent classifier ${node.id} is missing its "${handle}" branch (requires a ${handle} successor). Connect an edge from the "${handle}" handle to a next node.`)
       }
@@ -343,7 +352,7 @@ export function validateWorkflowDefinition(
     }
   }
 
-  if (triggers.length !== 1) return errors
+  if (!requireTrigger || triggers.length !== 1) return errors
 
   // Cycle detection is barrier-aware. So a loop is only illegal when it is fully
   // synchronous (spins within one turn); conversational loops that pass through
@@ -585,7 +594,7 @@ function issueFromTechnicalDetail(
     })
   }
 
-  match = technicalDetails.match(/^(Interactive menu|Slot menu|AI Agent|Delay node) ([^\s]+) .*invalid|^Interactive menu ([^\s]+) has invalid/)
+  match = technicalDetails.match(/^(Interactive menu|Slot menu|AI Agent|Delay node|Capture node) ([^\s]+) .*invalid|^Interactive menu ([^\s]+) has invalid/)
   if (match) {
     const nodeId = match[2] ?? match[3]
     return base({

@@ -49,3 +49,4 @@ export {
   type SimulationProviderOutcome,
 } from './workflow-simulator.js'
 export { validCapturedReply } from './capture-validation.js'
+export { resolveAiAgentSettings } from './ai-agent-settings.js'

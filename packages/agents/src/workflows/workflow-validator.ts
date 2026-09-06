@@ -2,6 +2,7 @@ import type { WorkflowEdge, WorkflowNode } from '@docmee/db'
 import { parseMenuOptions, MENU_RESERVED_HANDLES, parseAiAgentScenarios } from './workflow-engine.js'
 import { validateWorkflowPortConnection } from './workflow-ports.js'
 import { CAPTURE_VALIDATIONS } from './capture-validation.js'
+import { resolveAiAgentSettings } from './ai-agent-settings.js'
 
 const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['trigger.message_keyword', 'trigger'],
@@ -298,6 +299,9 @@ export function validateWorkflowDefinition(
       }
     }
     if (node.type === 'action.ai_agent') {
+      try { resolveAiAgentSettings(node.config ?? {}, {}) } catch (error) {
+        errors.push(`AI Agent ${node.id}: ${error instanceof Error ? error.message : 'Invalid provider settings.'}`)
+      }
       const style = String(node.config?.['communicationStyle'] ?? '')
       if (style && !['professional', 'friendly', 'brief'].includes(style)) {
         errors.push(`AI Agent ${node.id} has communication style "${style}", which isn't valid (invalid communicationStyle "${style}" — must be professional, friendly, or brief). Open the node and choose a valid style.`)

@@ -122,7 +122,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.aiAgent',
     descKey: 'wf.desc.aiAgent',
-    fields: ['personality', 'customInstructions', 'communicationStyle', 'scenarios'],
+    fields: ['agentProvider', 'agentModel', 'agentMaxTokens', 'personality', 'customInstructions', 'communicationStyle', 'scenarios'],
     icon: 'robot',
   },
   { type: 'action.end', kind: 'action', labelKey: 'wf.node.end', descKey: 'wf.desc.end', fields: [], icon: 'end' },
@@ -371,6 +371,11 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
     { value: 'professional', labelKey: 'wf.style.professional' },
     { value: 'friendly', labelKey: 'wf.style.friendly' },
     { value: 'brief', labelKey: 'wf.style.brief' },
+  ],
+  agentProvider: [
+    { value: 'inherit', labelKey: 'wf.agent.inherit' },
+    { value: 'claude', labelKey: 'wf.agent.claude' },
+    { value: 'openai', labelKey: 'wf.agent.openai' },
   ],
   op: [
     { value: 'equals', labelKey: 'wf.op.equals' },

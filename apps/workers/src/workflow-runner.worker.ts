@@ -18,6 +18,7 @@ import {
   parseMenuOptions,
   resolveMenuHandle,
   parseAiAgentScenarios,
+  resolveAiAgentSettings,
   isEmergencyMessage,
   screenMedicalSafety,
   medicalSafetyDeferral,
@@ -1113,18 +1114,17 @@ function buildExecutors(
           : '',
       ].filter(Boolean).join('\n\n')
       const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
-      const provider: ChatProvider = ai.chatProvider === 'openai' || ai.chatProvider === 'custom' || ai.chatProvider === 'gemini' ? ai.chatProvider : 'claude'
-
+      const agentSettings = resolveAiAgentSettings(node.config ?? {}, ai)
       let raw: string
       try {
         raw = await withWorkflowAiAgentReplyTimeout(
           chatComplete({
-            provider,
-            model: ai.model?.trim() || defaultChatModel(provider),
+            provider: agentSettings.provider,
+            model: agentSettings.model || defaultChatModel(agentSettings.provider),
             baseURL: ai.baseURL?.trim() || undefined,
-            apiKey: resolveClinicAiKey(clinic.settings, provider),
+            apiKey: resolveClinicAiKey(clinic.settings, agentSettings.provider),
             history: [],
-            maxTokens: 512,
+            maxTokens: agentSettings.maxTokens,
             system,
             message,
           }),
@@ -1171,12 +1171,12 @@ function buildExecutors(
         try {
           reply = await withWorkflowAiAgentReplyTimeout(
             chatComplete({
-              provider,
-              model: ai.model?.trim() || defaultChatModel(provider),
+              provider: agentSettings.provider,
+              model: agentSettings.model || defaultChatModel(agentSettings.provider),
               baseURL: ai.baseURL?.trim() || undefined,
-              apiKey: resolveClinicAiKey(clinic.settings, provider),
+              apiKey: resolveClinicAiKey(clinic.settings, agentSettings.provider),
               history: [],
-              maxTokens: 512,
+              maxTokens: agentSettings.maxTokens,
               system: [
                 `You are the AI assistant for ${clinic.name}.`,
                 clinic.address ? `Clinic address: ${clinic.address}` : '',

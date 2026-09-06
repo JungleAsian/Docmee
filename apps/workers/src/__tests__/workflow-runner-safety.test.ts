@@ -37,6 +37,7 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock('@docmee/agents', async () => ({
+  resolveAiAgentSettings: (await import('../../../../packages/agents/src/workflows/ai-agent-settings.js')).resolveAiAgentSettings,
   validCapturedReply: (await import('../../../../packages/agents/src/workflows/capture-validation.js')).validCapturedReply,
   validateWorkflowDefinition: () => [],
   runWorkflow: h.runWorkflow,
@@ -526,13 +527,16 @@ describe('processWorkflowRunJob automation ownership', () => {
     }))
   })
 
-  it('instructs the AI agent to honor the workflow-selected patient language', async () => {
+  it.each(['openai', 'claude'])('honors the selected %s provider and patient language', async (provider) => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       const result = exec.aiAgent
         ? await exec.aiAgent({
             id: 'ai-agent',
             type: 'ai_agent',
             config: {
+              agentProvider: provider,
+              agentModel: 'test-model',
+              agentMaxTokens: '2048',
               communicationStyle: 'professional',
               scenarios: [
                 { id: 'general', description: 'General clinic question', action: 'reply' },
@@ -548,6 +552,9 @@ describe('processWorkflowRunJob automation ownership', () => {
 
     expect(h.chatComplete).toHaveBeenCalledWith(expect.objectContaining({
       system: expect.stringContaining('The patient selected English for this workflow. Reply in English'),
+      provider,
+      model: 'test-model',
+      maxTokens: 2048,
     }))
     expect(h.sendWhatsAppText).toHaveBeenCalledWith(
       'phone-1',
@@ -557,7 +564,7 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
-  it('uses a catch-all AI reply scenario when the provider classifier returns none', async () => {
+  it.each(['openai', 'claude'])('preserves %s settings in a catch-all fallback reply', async (provider) => {
     h.chatComplete
       .mockResolvedValueOnce('SCENARIO: NONE\nREPLY:\n')
       .mockResolvedValueOnce('We offer general dermatology support. Please call the clinic for exact service details.')
@@ -568,6 +575,9 @@ describe('processWorkflowRunJob automation ownership', () => {
             type: 'ai_agent',
             config: {
               communicationStyle: 'friendly',
+              agentProvider: provider,
+              agentModel: 'fallback-model',
+              agentMaxTokens: 1024,
               scenarios: [
                 { id: 'scenario_1', description: 'Answers any question', action: 'reply' },
               ],
@@ -581,6 +591,9 @@ describe('processWorkflowRunJob automation ownership', () => {
     await processWorkflowRunJob(job)
 
     expect(h.chatComplete).toHaveBeenCalledTimes(2)
+    for (const [options] of h.chatComplete.mock.calls) {
+      expect(options).toEqual(expect.objectContaining({ provider, model: 'fallback-model', maxTokens: 1024 }))
+    }
     expect(h.sendWhatsAppText).toHaveBeenCalledWith(
       'phone-1',
       'token',

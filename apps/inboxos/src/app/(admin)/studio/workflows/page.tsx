@@ -18,6 +18,7 @@ import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate, type WorkflowTemplate } from '@/shared/workflowTemplates'
 import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
 import { layoutWorkflow } from '@/shared/workflowLayout'
+import { publishWorkflow } from '@/shared/workflowPublish'
 import { serializeWorkflowExport, parseWorkflowExport } from '@/shared/workflowImport'
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus } from '@/shared/types'
 
@@ -113,13 +114,13 @@ export default function WorkflowsPage() {
     mutationFn: async ({ id, action }: { id: string; action: 'publish' | 'archive' | 'restore' }) => {
       const endpoint = `/clinics/${clinicId}/workflows/${id}/lifecycle`
       if (action !== 'publish') return api.post<{ workflow: Workflow }>(endpoint, { action })
-      // Publishing is deliberately an explicit state transition, never a hidden
-      // boolean toggle. The server re-validates the graph at every gate.
-      await api.post<{ workflow: Workflow }>(endpoint, { action: 'validate' })
-      await api.post<{ workflow: Workflow }>(endpoint, { action: 'mark_ready' })
-      return api.post<{ workflow: Workflow }>(endpoint, { action: 'publish' })
+      const workflow = await publishWorkflow({
+        read: async () => (await api.get<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows/${id}`)).workflow,
+        transition: async (nextAction, expectedVersion) => (await api.post<{ workflow: Workflow }>(endpoint, { action: nextAction, expectedVersion })).workflow,
+      })
+      return { workflow }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
   })
   const createFromTemplate = useMutation({
     // Re-run the same auto-layout the toolbar's "Auto Layout" button uses, so
@@ -224,6 +225,13 @@ export default function WorkflowsPage() {
         </p>
       )}
 
+      {lifecycleMutation.error && (
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p>{language === 'es' ? 'No se pudo actualizar el estado del flujo.' : 'Could not update workflow status.'} {lifecycleMutation.error.message}</p>
+          {lifecycleMutation.error instanceof ApiError && lifecycleMutation.error.details?.map((detail, index) => <p key={index}>{detail}</p>)}
+        </div>
+      )}
+
       {!clinicId ? (
         <p className="text-sm text-gray-500">{t('analytics.selectClinicPrompt')}</p>
       ) : (
@@ -300,7 +308,7 @@ export default function WorkflowsPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-2">
+                        <fieldset disabled={lifecycleMutation.isPending} className="flex justify-end gap-2">
                           <button type="button" onClick={() => setEditing(wf)} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`}>
                             {t('common.edit')}
                           </button>
@@ -324,7 +332,7 @@ export default function WorkflowsPage() {
                           >
                             {t('common.delete')}
                           </button>
-                        </div>
+                        </fieldset>
                       </td>
                     </tr>
                   ))}

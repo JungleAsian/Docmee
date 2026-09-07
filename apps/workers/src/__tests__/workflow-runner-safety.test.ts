@@ -30,6 +30,8 @@ const h = vi.hoisted(() => ({
   sendWhatsAppInteractiveList: vi.fn(),
   findTemplate: vi.fn(),
   createMessage: vi.fn(),
+  findConversation: vi.fn(),
+  updateConversation: vi.fn(),
   chatComplete: vi.fn(),
   listEmbeddedChunks: vi.fn(),
   queueAdd: vi.fn(),
@@ -99,7 +101,7 @@ vi.mock('@docmee/db', () => ({
   createWorkflowApprovalsRepository: () => ({ claimResume: vi.fn(), markResumed: vi.fn(), markFailed: vi.fn() }),
   createClinicsRepository: () => ({ findById: h.findClinic, update: vi.fn() }),
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
-  createConversationsRepository: () => ({}),
+  createConversationsRepository: () => ({ findById: h.findConversation, update: h.updateConversation }),
   createDoctorsRepository: () => ({ findById: h.findDoctor, listByClinic: vi.fn(), update: vi.fn() }),
   createDoctorServicesRepository: () => ({}),
   createAppointmentsRepository: () => ({
@@ -157,12 +159,38 @@ beforeEach(() => {
   h.sendWhatsAppInteractiveList.mockResolvedValue('wamid.menu')
   h.findTemplate.mockResolvedValue({ body: 'Approved reminder' })
   h.createMessage.mockResolvedValue({ id: 'message-1' })
+  h.findConversation.mockResolvedValue({ id: 'conversation-1', metadata: {} })
+  h.updateConversation.mockResolvedValue({ id: 'conversation-1' })
   h.chatComplete.mockResolvedValue('SCENARIO: general\nREPLY:\nHello from AI.')
   h.listEmbeddedChunks.mockResolvedValue([])
   h.queueAdd.mockResolvedValue(undefined)
 })
 
 describe('processWorkflowRunJob automation ownership', () => {
+  it('pauses a generic wait at its downstream AI Agent until the next patient message', async () => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const paused = await exec.waitForReply(
+        { id: 'wait-for-question', type: 'logic.wait_for_reply', config: { timeoutMinutes: 1440 } },
+        'ai-agent',
+        { ...ctx, conversationId: 'conversation-1' },
+      )
+      expect(paused).toBe(true)
+      return [{ nodeId: 'wait-for-question', type: 'logic.wait_for_reply', status: 'paused' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.updateConversation).toHaveBeenCalledWith(
+      CLINIC,
+      'conversation-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          pendingWorkflowRuns: [expect.objectContaining({ resumeNodeId: 'ai-agent' })],
+        }),
+      }),
+    )
+  })
+
   it('runs a pinned revision rather than the workflow definition edited later', async () => {
     h.findWorkflow.mockResolvedValue({
       id: WORKFLOW,

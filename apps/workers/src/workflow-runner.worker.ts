@@ -1311,12 +1311,12 @@ function buildExecutors(
       await sendWorkflowMessage(question, ctx)
     },
 
-    async waitForReply(node, _nextNodeId, ctx) {
+    async waitForReply(node, nextNodeId, ctx) {
       const capture = captureState(ctx)
-      if (!capture || capture.status !== 'pending') {
-        if (capture) delete ctx[WORKFLOW_CAPTURE_CONTEXT_KEY]
-        return false
-      }
+      const pendingCapture = capture?.status === 'pending' ? capture : null
+      if (capture && !pendingCapture) delete ctx[WORKFLOW_CAPTURE_CONTEXT_KEY]
+      const resumeNodeId = pendingCapture?.nodeId || nextNodeId
+      if (!resumeNodeId) return false
       if (!ctx.conversationId) {
         ctx['capture_status'] = 'error'
         ctx['capture_error'] = 'conversation_required'
@@ -1331,7 +1331,7 @@ function buildExecutors(
         workflowId: data.workflowId,
         workflowRevisionId: data.workflowRevisionId,
         sourceEventId: data.trigger.sourceEventId,
-        resumeNodeId: capture.nodeId,
+        resumeNodeId,
         context: { ...ctx },
         expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
       })
@@ -1342,7 +1342,7 @@ function buildExecutors(
           patientId: ctx.patientId,
           conversationId: ctx.conversationId,
           silentSinceIso: new Date().toISOString(),
-          recoveryPrompt: capture.retryQuestion || capture.question,
+          recoveryPrompt: pendingCapture?.retryQuestion || pendingCapture?.question || '',
         })
       }
       return true

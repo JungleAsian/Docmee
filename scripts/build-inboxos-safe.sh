@@ -15,8 +15,11 @@ if ! flock -n 9; then
 fi
 
 cd "$ROOT"
-echo "Building @docmee/inboxos from $ROOT"
+echo "Building Docmee runtime from $ROOT"
 echo "Log: $LOG_FILE"
-pnpm --filter @docmee/inboxos build 2>&1 | tee "$LOG_FILE"
+# The deployment restarts the entire service, including API and workers.
+# Rebuild their transitive dependencies so new source exports are available.
+pnpm --filter @docmee/workers... --filter @docmee/api... build 2>&1 | tee "$LOG_FILE"
+pnpm --filter @docmee/inboxos build 2>&1 | tee -a "$LOG_FILE"
 
 "$ROOT/scripts/live-regression-check.sh" --source-only

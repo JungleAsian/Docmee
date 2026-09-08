@@ -24,7 +24,7 @@ import {
   type AppointmentStatus,
   type AppointmentEventType,
 } from '@docmee/db'
-import { createGoogleCalendarOps, type CalendarOps, type RefreshedTokens } from '@docmee/agents'
+import { createGoogleCalendarOps, formatCalendarBooking, type CalendarOps, type RefreshedTokens } from '@docmee/agents'
 import {
   clinicInstantRange,
   clinicLocalInstant,
@@ -373,6 +373,10 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
         ? await patients.create({ clinicId, fullName: patientName })
         : await patients.findById(clinicId, patientId!)
       if (!patient) return { error: 'patient' as const }
+      const patientContacts = await patients.listContacts(clinicId, patient.id)
+      const patientPhone = patientContacts.find((contact) => contact.channel === 'whatsapp' && contact.isPrimary)?.contactHandle
+        ?? patientContacts.find((contact) => contact.channel === 'whatsapp')?.contactHandle
+      const serviceName = serviceId ? (await appts.listServices(clinicId)).find((service) => service.id === serviceId)?.name : null
 
       const capacity = Math.max(1, Number(doctor.manualOverbookingCapacity ?? 2))
       const booking = await appts.saveWithinCapacity({
@@ -407,11 +411,10 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       if (calendar) {
         try {
           const googleEventId = await calendar.createEvent({
-            title: eventTitle(patient.fullName),
+            ...formatCalendarBooking({ serviceName, patientName: patient.fullName, patientPhone, reason: notes }),
             date,
             time: start,
             durationMinutes: duration,
-            description: notes,
           })
           syncedAppointment = await appts.update(clinicId, appointment.id, {
             googleEventId,

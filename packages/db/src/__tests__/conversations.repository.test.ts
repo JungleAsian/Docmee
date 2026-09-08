@@ -34,3 +34,15 @@ describe('conversations.repository — listPatientNamesByClinic', () => {
     expect(capture.values).toContain('clinic-1')
   })
 })
+
+describe('conversations.repository — deleteClosedBefore', () => {
+  it('scopes the hard delete to terminal statuses and a clinic cutoff', async () => {
+    const capture: { query?: string; values?: unknown[] } = {}
+    const repo = createConversationsRepository(fakeSql([{ id: 'conv-1' }], capture))
+
+    await expect(repo.deleteClosedBefore('clinic-1', '2026-09-06T00:00:00.000Z')).resolves.toBe(1)
+    expect(capture.query).toContain("status IN ('resolved', 'archived')")
+    expect(capture.query).toContain('updated_at')
+    expect(capture.values).toEqual(['clinic-1', '2026-09-06T00:00:00.000Z'])
+  })
+})

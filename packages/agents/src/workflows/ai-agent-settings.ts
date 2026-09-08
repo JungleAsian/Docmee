@@ -1,5 +1,12 @@
 import type { ChatProvider } from '@docmee/llm'
 
+/** Defaults for workflow AI Agent nodes. These are intentionally independent
+ * of the clinic assistant setting: the node's selected service is authoritative. */
+export const AI_AGENT_DEFAULT_MODELS: Partial<Record<ChatProvider, string>> = {
+  claude: 'claude-sonnet-5',
+  openai: 'gpt-5.5',
+}
+
 /** Persist references and bounded generation settings, never credentials. */
 export function resolveAiAgentSettings(config: Record<string, unknown>, clinic: { chatProvider?: string; model?: string }) {
   for (const key of ['apiKey', 'api_key', 'agentApiKey', 'baseURL']) {
@@ -16,5 +23,5 @@ export function resolveAiAgentSettings(config: Record<string, unknown>, clinic: 
   if (raw !== undefined && typeof raw !== 'string' && typeof raw !== 'number') throw new Error('AI Agent output limit must be a number.')
   const maxTokens = raw === undefined || raw === '' ? 512 : Number(raw)
   if (!Number.isInteger(maxTokens) || maxTokens < 128 || maxTokens > 4096) throw new Error('AI Agent output limit must be an integer from 128 to 4096 tokens.')
-  return { provider, model: override || (provider === inherited ? clinic.model?.trim() : '') || '', maxTokens }
+  return { provider, model: override || AI_AGENT_DEFAULT_MODELS[provider] || clinic.model?.trim() || '', maxTokens }
 }

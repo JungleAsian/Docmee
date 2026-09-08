@@ -28,9 +28,10 @@ async function storeEmbedding(
 ): Promise<void> {
   await sql`
     UPDATE knowledge_chunks
-    SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{embedding}', ${sql.json(
-      toJson({ v: vector }),
-    )}::jsonb)
+    SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{embedding}', ${sql.json(toJson({ v: vector }))}::jsonb),
+        embedding = ${vector.length === 1536 ? `[${vector.join(',')}]` : null}::vector,
+        embedding_model = CASE WHEN ${vector.length === 1536} THEN 'docmee-1536' ELSE NULL END,
+        embedded_at = CASE WHEN ${vector.length === 1536} THEN now() ELSE NULL END
     WHERE id = ${chunkId} AND clinic_id = ${clinicId}
   `
 }

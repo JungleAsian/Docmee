@@ -161,24 +161,24 @@ describe('runClinicBot', () => {
     expect(system).not.toContain('CLINIC-SPECIFIC RULES')
   })
 
-  it('states the clinic address, phone, and type when configured', async () => {
+  it('does not expose non-KB clinic metadata as answerable facts', async () => {
     const deps = makeDeps()
     await runClinicBot(
       baseInput({ clinic: { ...clinic, address: 'Av. Reforma 123', phone: '+502 1234 5678', clinicType: 'Dental' } }),
       deps,
     )
     const system = (deps.complete as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string
-    expect(system).toContain('Clinic info:')
-    expect(system).toContain('Type: Dental')
-    expect(system).toContain('Address: Av. Reforma 123')
-    expect(system).toContain('Phone: +502 1234 5678')
+    expect(system).toContain('Knowledge Base is the authoritative source of truth')
+    expect(system).not.toContain('Type: Dental')
+    expect(system).not.toContain('Av. Reforma 123')
+    expect(system).not.toContain('+502 1234 5678')
   })
 
   it('omits the clinic-info block entirely when address/phone/type are unset', async () => {
     const deps = makeDeps()
     await runClinicBot(baseInput(), deps)
     const system = (deps.complete as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string
-    expect(system).not.toContain('Clinic info:')
+    expect(system).toContain('Knowledge Base is the authoritative source of truth')
   })
 
   it('applies the configured tone to the system prompt', async () => {

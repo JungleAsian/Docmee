@@ -20,6 +20,7 @@ import {
 import {
   createServiceDbClient,
   createConversationsRepository,
+  createClinicsRepository,
   createNotificationsRepository,
   createUsersRepository,
   type Conversation,
@@ -32,6 +33,8 @@ import { runStalledConversationCheck } from './stalled-conversation.js'
 export const SECRETARY_TIMEOUT_MINUTES = 10
 export const STALE_MINUTES = 30
 export const BOT_REACTIVATION_MINUTES = 60
+export const DEFAULT_CLOSED_CONVERSATION_RETENTION_HOURS = 24
+export const MAX_CLOSED_CONVERSATION_RETENTION_HOURS = 8760
 const DEDUP_WINDOW_MINUTES = 60
 /** Only scan the last day of alerts when escalating — older ones never re-fire. */
 const ESCALATION_SCAN_HOURS = 24
@@ -53,9 +56,25 @@ export async function runTimeoutChecks(): Promise<void> {
   const sql = createServiceDbClient({ url: process.env['DATABASE_URL'] ?? '' })
   try {
     const conversations = createConversationsRepository(sql)
+    const clinics = createClinicsRepository(sql)
     const notifications = createNotificationsRepository(sql)
     const users = createUsersRepository(sql)
     const store = buildNotificationStore(notifications)
+
+    // Closed conversation retention is enforced here, outside the request path.
+    // Only resolved/archived rows qualify; active, snoozed, assigned, and handoff
+    // conversations are never touched. Missing/invalid settings use the safe
+    // 24-hour default and are clamped to one year.
+    const retentionClinics = await clinics.list({ excludeCancelled: true })
+    for (const clinic of retentionClinics) {
+      const configured = Number((clinic.settings as { closedConversationRetentionHours?: unknown } | null)?.closedConversationRetentionHours)
+      const hours = Number.isFinite(configured) && configured >= 1
+        ? Math.min(Math.floor(configured), MAX_CLOSED_CONVERSATION_RETENTION_HOURS)
+        : DEFAULT_CLOSED_CONVERSATION_RETENTION_HOURS
+      const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+      const deleted = await conversations.deleteClosedBefore(clinic.id, cutoff)
+      if (deleted > 0) console.info(`[timeout-monitor] purged ${deleted} closed conversation(s) using ${hours}h retention for clinic ${clinic.id}`)
+    }
 
     // Resolve (and cache) the alert recipient per clinic for this run.
     const recipientCache = new Map<string, string | null>()

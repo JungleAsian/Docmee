@@ -48,6 +48,10 @@ vi.mock('@docmee/agents', async () => ({
     return { trace, status: trace.at(-1)?.status === 'paused' ? 'waiting' : 'completed' }
   },
   createGoogleCalendarOps: () => ({ listSlots: h.listSlots, createEvent: h.createCalendarEvent, updateEvent: h.updateCalendarEvent }),
+  formatCalendarBooking: (details: { serviceName?: string | null; patientName?: string | null; patientPhone?: string | null; reason?: string | null }) => ({
+    title: `${details.serviceName?.trim() || 'Clinic appointment'} - ${details.patientName?.trim() || 'Patient'}`,
+    description: `Details:\nPatient phone: ${details.patientPhone?.trim() || 'Not provided'}\nReason for visit: ${details.reason?.trim() || 'Not provided'}`,
+  }),
   WORKFLOW_CAPTURE_CONTEXT_KEY: 'capture',
   WORKFLOW_MENU_CONTEXT_KEY: 'menu',
   WORKFLOW_SLOT_MENU_CONTEXT_KEY: 'slots',
@@ -64,6 +68,9 @@ vi.mock('@docmee/agents', async () => ({
   toneInstruction: () => 'Be professional.',
   detectLanguage: () => 'en',
   searchKb: () => [],
+  rankKeywordChunks: () => [],
+  rerankHybridChunks: () => [],
+  isLikelyQuestion: () => false,
   scopeKbToMessage: (_message: string, chunks: unknown[]) => chunks,
   hasDoctorScopedChunks: () => false,
 }))
@@ -73,7 +80,13 @@ vi.mock('@docmee/shared', async (importOriginal) => ({
   decryptValue: (value: string) => value,
   encryptValue: (value: string) => value,
 }))
-vi.mock('@docmee/llm', () => ({ chatComplete: h.chatComplete, defaultChatModel: () => 'test' }))
+vi.mock('@docmee/llm', () => ({
+  chatComplete: h.chatComplete,
+  defaultChatModel: () => 'test',
+  claudeComplete: vi.fn(),
+  embedText: vi.fn(async () => [0.1, 0.2, 0.3]),
+  embed: vi.fn(async () => [0.1, 0.2, 0.3]),
+}))
 vi.mock('@docmee/channels', () => ({
   sendWhatsAppText: h.sendWhatsAppText,
   sendWhatsAppInteractiveButtons: vi.fn(),

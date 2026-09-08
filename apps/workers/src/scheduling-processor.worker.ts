@@ -348,6 +348,9 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       return
     }
     const patientId = data.patientId
+    const patientContacts = await patients.listContacts(data.clinicId, patientId)
+    const bookingPatientPhone = patientContacts.find((contact) => contact.channel === 'whatsapp' && contact.isPrimary)?.contactHandle
+      ?? patientContacts.find((contact) => contact.channel === 'whatsapp')?.contactHandle
 
     const conversation = data.conversationId
       ? await conversations.findById(data.clinicId, data.conversationId)
@@ -641,6 +644,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           clinic: clinicInfo,
           providers: resourceList,
           patientName: patient?.fullName ?? null,
+          patientPhone: bookingPatientPhone,
         }, {
           calendar: flowBookingCalendar,
           saveAppointment: async ({ providerId, doctorName, specialty, serviceId, startTime, endTime, reason, preferredDate, preferredTime, googleEventId, calendarSyncError }) => {

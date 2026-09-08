@@ -9,6 +9,8 @@ import {
   todayIso,
   nowLocalIso,
   excludePastSlots,
+  availabilityStartDate,
+  menuHeader,
   type WorkflowSlot,
 } from '../workflow-runner.worker.js'
 import type { WorkflowNode } from '@docmee/db'
@@ -28,6 +30,42 @@ describe('todayIso', () => {
   it('returns a YYYY-MM-DD string matching the current UTC date', () => {
     expect(todayIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(todayIso()).toBe(new Date().toISOString().slice(0, 10))
+  })
+
+  it('uses the clinic timezone at UTC date boundaries', () => {
+    const instant = new Date('2026-08-08T01:30:00Z')
+    expect(todayIso('America/New_York', instant)).toBe('2026-08-07')
+    expect(nowLocalIso('America/New_York', instant)).toBe('2026-08-07T21:30:00')
+  })
+})
+
+describe('availabilityStartDate', () => {
+  const instant = new Date('2026-08-08T15:00:00Z')
+
+  it('ignores a stale preferred date for a rolling date picker', () => {
+    expect(availabilityStartDate({}, { preferred_date: '2026-08-20' }, 'UTC', instant)).toBe('2026-08-08')
+  })
+
+  it('preserves a selected future date for a time picker', () => {
+    expect(availabilityStartDate({ dateField: 'preferred_date' }, { preferred_date: '2026-08-10' }, 'UTC', instant)).toBe('2026-08-10')
+  })
+
+  it('resets an explicitly selected date that is now in the past', () => {
+    expect(availabilityStartDate({ dateField: 'preferred_date' }, { preferred_date: '2026-08-07' }, 'UTC', instant)).toBe('2026-08-08')
+  })
+})
+
+describe('menuHeader', () => {
+  it('uses the configured workflow header verbatim', () => {
+    expect(menuHeader('Clínica Derma Paz', 'Docmee')).toBe('Clínica Derma Paz')
+  })
+
+  it('falls back to the clinic name instead of Docmee branding', () => {
+    expect(menuHeader('', 'Clínica Derma Paz')).toBe('Clínica Derma Paz')
+  })
+
+  it('uses a neutral fallback when both values are missing', () => {
+    expect(menuHeader('', '')).toBe('Menu')
   })
 })
 

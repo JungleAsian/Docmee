@@ -33,6 +33,17 @@ vi.mock('@docmee/db', () => ({
 vi.mock('@docmee/agents', () => ({
   resolveCalendarConfig: h.resolveCalendarConfig,
   calendarOpsFor: (resolved: unknown) => (resolved ? (resolved as { ops: unknown }).ops : null),
+  formatCalendarBooking: (details: {
+    serviceName?: string | null
+    patientName?: string | null
+    patientPhone?: string | null
+    reason?: string | null
+  }) => ({
+    title: `${details.serviceName?.trim() || 'Clinic appointment'} - ${details.patientName?.trim() || 'Patient'}`,
+    description: `Details:\nPatient phone: ${details.patientPhone?.trim() || 'Not provided'}\nReason for visit: ${
+      details.reason?.trim() || 'Not provided'
+    }`,
+  }),
 }))
 
 import { decideCalendarSyncAction, runCalendarSyncRetry } from '../calendar-sync-retry.js'

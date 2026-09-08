@@ -119,6 +119,45 @@ function TerminalNode({ data }: NodeProps<Node<TermNodeData>>) {
 
 const nodeTypes = { step: StepNode, terminal: TerminalNode }
 
+/** A long manual value should never be hidden behind a single-line field. */
+function ExpandableField({
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  mono = false,
+  rows = 1,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  maxLength?: number
+  mono?: boolean
+  rows?: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="relative">
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        rows={expanded ? Math.max(rows, 5) : rows}
+        className={`w-full resize-y rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800 ${mono ? 'font-mono' : ''}`}
+      />
+      <button
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+        className="absolute bottom-1 right-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+        aria-label={expanded ? 'Collapse field' : 'Expand field'}
+      >
+        {expanded ? 'Collapse' : 'Expand'}
+      </button>
+    </div>
+  )
+}
+
 // --- model <-> graph --------------------------------------------------------
 function toGraph(steps: CustomFlowStep[], startStepId: string | null, cleanConnections: boolean): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = steps.map((s, i) => ({
@@ -402,33 +441,20 @@ export function FlowCanvas({
             value={(selected.messages ?? []).join('\n')}
             onChange={(e) => patchSelected({ messages: e.target.value.split('\n') })}
             rows={4}
-            className="mb-2 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+            className="mb-2 w-full resize-y rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
             placeholder={t('flows.canvas.messagesHint')}
           />
           <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.collect')}</label>
-          <input
-            value={selected.collect ?? ''}
-            onChange={(e) => patchSelected({ collect: e.target.value || null })}
-            className="mb-2 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-            placeholder="name / phone / …"
-          />
+          <div className="mb-2">
+            <ExpandableField value={selected.collect ?? ''} onChange={(value) => patchSelected({ collect: value || null })} placeholder="name / phone / …" />
+          </div>
 
           {selected.type === 'single_choice' && (
             <div className="mb-3 space-y-2 rounded border border-violet-200 bg-violet-50/50 p-2 dark:border-violet-900 dark:bg-violet-950/30">
               <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.header')}</label>
-              <input
-                value={selected.header ?? ''}
-                onChange={(e) => patchSelected({ header: e.target.value || undefined })}
-                maxLength={60}
-                className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-              />
+              <div className="mb-1"><ExpandableField value={selected.header ?? ''} onChange={(value) => patchSelected({ header: value || undefined })} maxLength={60} /></div>
               <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.footer')}</label>
-              <input
-                value={selected.footer ?? ''}
-                onChange={(e) => patchSelected({ footer: e.target.value || undefined })}
-                maxLength={60}
-                className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-              />
+              <div className="mb-1"><ExpandableField value={selected.footer ?? ''} onChange={(value) => patchSelected({ footer: value || undefined })} maxLength={60} /></div>
               <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.renderMode')}</label>
               <select
                 value={selected.renderMode ?? 'buttons'}
@@ -441,13 +467,7 @@ export function FlowCanvas({
               {selected.renderMode === 'list' && (
                 <>
                   <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.listButtonLabel')}</label>
-                  <input
-                    value={selected.listButtonLabel ?? ''}
-                    onChange={(e) => patchSelected({ listButtonLabel: e.target.value || undefined })}
-                    maxLength={20}
-                    placeholder="Select"
-                    className="mb-1 w-full rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  />
+                  <div className="mb-1"><ExpandableField value={selected.listButtonLabel ?? ''} onChange={(value) => patchSelected({ listButtonLabel: value || undefined })} maxLength={20} placeholder="Select" /></div>
                 </>
               )}
 
@@ -466,35 +486,13 @@ export function FlowCanvas({
               <div className="space-y-2">
                 {(selected.options ?? []).map((opt, oi) => (
                   <div key={oi} className="space-y-1 rounded border border-gray-200 bg-white p-1.5 dark:border-gray-700 dark:bg-gray-900">
-                    <input
-                      value={opt.title}
-                      onChange={(e) => patchOption(oi, { title: e.target.value })}
-                      maxLength={24}
-                      placeholder={t('flows.canvas.optionTitle')}
-                      className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                    />
+                    <ExpandableField value={opt.title} onChange={(value) => patchOption(oi, { title: value })} maxLength={24} placeholder={t('flows.canvas.optionTitle')} />
                     {selected.renderMode === 'list' && (
-                      <input
-                        value={opt.description ?? ''}
-                        onChange={(e) => patchOption(oi, { description: e.target.value || undefined })}
-                        maxLength={72}
-                        placeholder={t('flows.canvas.optionDescription')}
-                        className="w-full rounded border border-gray-300 p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                      />
+                      <ExpandableField value={opt.description ?? ''} onChange={(value) => patchOption(oi, { description: value || undefined })} maxLength={72} placeholder={t('flows.canvas.optionDescription')} />
                     )}
-                    <input
-                      value={opt.goToNext}
-                      onChange={(e) => patchOption(oi, { goToNext: e.target.value })}
-                      placeholder={t('flows.canvas.goToNext')}
-                      className="w-full rounded border border-gray-300 p-1 text-xs font-mono dark:border-gray-700 dark:bg-gray-800"
-                    />
+                    <ExpandableField value={opt.goToNext} onChange={(value) => patchOption(oi, { goToNext: value })} placeholder={t('flows.canvas.goToNext')} mono />
                     <div className="flex items-center gap-1">
-                      <input
-                        value={opt.optionId}
-                        onChange={(e) => patchOption(oi, { optionId: e.target.value })}
-                        placeholder="optionId"
-                        className="w-full rounded border border-gray-300 p-1 text-[10px] font-mono text-gray-500 dark:border-gray-700 dark:bg-gray-800"
-                      />
+                      <ExpandableField value={opt.optionId} onChange={(value) => patchOption(oi, { optionId: value })} placeholder="optionId" mono />
                       <button type="button" onClick={() => removeOption(oi)} className="shrink-0 text-[10px] text-red-600 hover:underline">
                         {t('common.delete')}
                       </button>
@@ -512,7 +510,7 @@ export function FlowCanvas({
                 onChange={(e) => patchSelected({ retryMessage: e.target.value || undefined })}
                 rows={2}
                 maxLength={1024}
-                className="mb-1 w-full resize-none rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
+                className="mb-1 w-full resize-y rounded border border-gray-300 p-1.5 text-xs dark:border-gray-700 dark:bg-gray-800"
               />
               <div className="flex gap-2">
                 <div className="flex-1">
@@ -528,12 +526,7 @@ export function FlowCanvas({
                 </div>
                 <div className="flex-1">
                   <label className="mb-1 block font-medium text-gray-600 dark:text-gray-300">{t('flows.canvas.onFailNext')}</label>
-                  <input
-                    value={selected.onFailNext ?? ''}
-                    onChange={(e) => patchSelected({ onFailNext: e.target.value || undefined })}
-                    placeholder="handoff"
-                    className="w-full rounded border border-gray-300 p-1.5 text-xs font-mono dark:border-gray-700 dark:bg-gray-800"
-                  />
+                  <ExpandableField value={selected.onFailNext ?? ''} onChange={(value) => patchSelected({ onFailNext: value || undefined })} placeholder="handoff" mono />
                 </div>
               </div>
             </div>

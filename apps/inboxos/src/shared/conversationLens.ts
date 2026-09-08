@@ -22,6 +22,11 @@ export function isClosed(status: ConversationStatus): boolean {
   return CLOSED_STATUSES.includes(status)
 }
 
+/** True only when an open conversation is owned by the supplied user. */
+export function isAssignedToUser(c: Conversation, userId: string | null | undefined): boolean {
+  return Boolean(userId) && !isClosed(c.status) && c.assignedTo === userId
+}
+
 // A thread the bot is auto-answering on its own: still open and nobody has taken it.
 // The moment a human owns it (assignedTo) or it leaves 'open' (pending/handoff/
 // snoozed), it stops being a pure bot thread and becomes Active.

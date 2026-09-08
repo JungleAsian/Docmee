@@ -74,6 +74,7 @@ export interface UpdateAppointmentInput {
  */
 export interface AppointmentWithNames extends Appointment {
   patientName: string | null
+  patientPhone: string | null
   doctorName: string | null
   serviceName: string | null
   serviceDurationMinutes: number | null
@@ -409,11 +410,25 @@ export function createAppointmentsRepository(sql: Sql): AppointmentsRepository {
         SELECT
           a.*,
           p.full_name        AS patient_name,
+          COALESCE(primary_contact.contact_handle, whatsapp_contact.contact_handle) AS patient_phone,
           d.name              AS doctor_name,
           s.name              AS service_name,
           s.duration_minutes AS service_duration_minutes
         FROM appointments a
         LEFT JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN LATERAL (
+          SELECT pc.contact_handle
+          FROM patient_contacts pc
+          WHERE pc.patient_id = a.patient_id AND pc.channel = 'whatsapp' AND pc.is_primary = TRUE
+          LIMIT 1
+        ) primary_contact ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT pc.contact_handle
+          FROM patient_contacts pc
+          WHERE pc.patient_id = a.patient_id AND pc.channel = 'whatsapp'
+          ORDER BY pc.is_primary DESC, pc.created_at ASC
+          LIMIT 1
+        ) whatsapp_contact ON TRUE
         LEFT JOIN doctors  d ON d.id = a.doctor_id
         LEFT JOIN services s ON s.id = a.service_id
         WHERE a.calendar_sync_pending = TRUE

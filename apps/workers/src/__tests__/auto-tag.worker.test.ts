@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   findPatient: vi.fn(),
   updatePatient: vi.fn(),
+  listContacts: vi.fn(),
   listEmbeddedChunks: vi.fn(),
   listEnabledFlows: vi.fn(),
   // scheduling worker
@@ -85,7 +86,7 @@ vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: h.end }),
   createClinicsRepository: () => ({ findById: h.findClinic }),
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
-  createPatientsRepository: () => ({ findById: h.findPatient, update: h.updatePatient }),
+  createPatientsRepository: () => ({ findById: h.findPatient, update: h.updatePatient, listContacts: h.listContacts }),
   createKnowledgeRepository: () => ({ listEmbeddedChunks: h.listEmbeddedChunks }),
   createErrorReviewsRepository: () => ({ create: vi.fn().mockResolvedValue(undefined) }),
   createConversationsRepository: () => ({
@@ -131,6 +132,7 @@ beforeEach(() => {
   h.markProviderAccepted.mockResolvedValue(undefined)
   h.markSendFailed.mockResolvedValue(undefined)
   h.sendWhatsAppText.mockResolvedValue('wamid.reply')
+  h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '5215555555555', isPrimary: true }])
 })
 
 describe('agent worker — new_patient auto-tag (Req 11)', () => {

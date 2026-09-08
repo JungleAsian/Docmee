@@ -275,7 +275,7 @@ describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
   })
 
   it('offers exactly the delay units workflow-engine.ts understands, worker default first', () => {
-    expect(ENUM_FIELD_OPTIONS.unit?.map((o) => o.value)).toEqual(['hour', 'minute', 'day'])
+    expect(ENUM_FIELD_OPTIONS.unit?.map((o) => o.value)).toEqual(['hour', 'minute', 'second', 'day'])
   })
 
   it('offers exactly the booking modes workflow-runner.worker.ts understands, worker default first', () => {

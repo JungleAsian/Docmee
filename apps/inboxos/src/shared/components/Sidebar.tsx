@@ -90,7 +90,7 @@ export function Sidebar({
           onClick={railToggle.onToggle}
           className="crm-sidebar-leaf-toggle hidden md:inline-flex"
         >
-          <Leaf size={14} weight="fill" />
+          <Leaf size={18} weight="fill" aria-hidden="true" />
         </button>
       ) : null}
       <div className="crm-sidebar-header">

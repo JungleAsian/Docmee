@@ -24,6 +24,69 @@ export interface KbMatch {
   similarity: number
 }
 
+export interface HybridKbCandidate extends KbMatch {
+  vectorScore: number
+  lexicalScore: number
+  documentVersion?: number
+  updatedAt?: string
+}
+
+/** Final deterministic reranker for pgvector/FTS candidates. Newer approved
+ * versions win ties, while weak candidates remain excluded for fail-closed use. */
+export function rerankHybridChunks(candidates: HybridKbCandidate[], limit = 5): KbMatch[] {
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      similarity: 0.7 * candidate.vectorScore + 0.2 * Math.min(candidate.lexicalScore, 1) +
+        0.1 * Math.min(Math.max(candidate.documentVersion ?? 1, 1), 100) / 100,
+    }))
+    .filter((candidate) => candidate.vectorScore >= 0.78 || candidate.lexicalScore > 0)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, limit)
+    .map(({ title, content, similarity }) => ({ title, content, similarity }))
+}
+
+/** Deterministic fallback for active chunks that are not indexed yet. This is
+ * intentionally conservative: only chunks sharing meaningful query terms are
+ * returned, so an indexing delay never turns into an invented answer. */
+export function rankKeywordChunks(
+  query: string,
+  chunks: Array<Pick<EmbeddedChunk, 'title' | 'content'>>,
+  limit = 5,
+): KbMatch[] {
+  const stop = new Set(['a', 'al', 'and', 'de', 'del', 'el', 'en', 'es', 'for', 'from', 'la', 'las', 'los', 'of', 'que', 'the', 'un', 'una', 'y'])
+  const terms = query.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[\p{L}\p{N}]{3,}/gu)?.filter((term) => !stop.has(term)) ?? []
+  if (terms.length === 0) return []
+  return chunks
+    .map((chunk) => {
+      const haystack = `${chunk.title} ${chunk.content}`.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      const haystackTerms = haystack.match(/[\p{L}\p{N}]{3,}/gu) ?? []
+      const hits = terms.filter((term) => haystack.includes(term) || haystackTerms.some((candidate) =>
+        term.length >= 4 && candidate.length >= 4 && levenshteinAtMostOne(term, candidate),
+      )).length
+      return { title: chunk.title, content: chunk.content, similarity: hits / terms.length }
+    })
+    .filter((match) => match.similarity > 0)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, limit)
+}
+
+function levenshteinAtMostOne(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false
+  let edits = 0
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i += 1; j += 1; continue }
+    edits += 1
+    if (edits > 1) return false
+    if (a.length > b.length) i += 1
+    else if (b.length > a.length) j += 1
+    else { i += 1; j += 1 }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1
+}
+
 export function cosineSimilarity(a: number[], b: number[]): number {
   const len = Math.min(a.length, b.length)
   let dot = 0

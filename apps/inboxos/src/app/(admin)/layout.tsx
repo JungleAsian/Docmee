@@ -4,6 +4,7 @@
 // admin pages with a persistent sidebar (desktop) / slide-in drawer (mobile),
 // a top bar with breadcrumbs, and a hamburger toggle.
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
@@ -28,6 +29,7 @@ type OrderedNavGroup = NavGroup & { id: string }
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { ready, user } = useAuthGuard(['ia_studio_admin', 'clinic_admin'])
   const { t, language } = useI18n()
+  const router = useRouter()
   const { preferences, setPreferences } = useUserUiPreferences()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const railOpen = preferences.railExpanded
@@ -37,6 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [globalSearch, setGlobalSearch] = useState('')
   function toggleHidden(href: string) {
     const next = new Set(hiddenItems)
     if (next.has(href)) next.delete(href)
@@ -192,6 +195,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="crm-header-context">
             <Breadcrumbs />
           </div>
+          <div className="crm-header-center">
           <div className="relative crm-header-customize">
             <button
               type="button"
@@ -232,7 +236,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
-            <input type="search" placeholder="Search settings, users, channels, or knowledge..." />
+            <input type="search" value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const hit = visibleGroups.flatMap((g) => g.items).find((item) => `${item.label} ${item.href}`.toLowerCase().includes(globalSearch.trim().toLowerCase())); if (hit) router.push(hit.href) } }} placeholder="Search settings, users, channels, or knowledge..." />
+          </div>
           </div>
           {/* Req 39: let an admin enable Web Push on this device too, so platform
               alerts reach them on their phone with the panel closed. */}

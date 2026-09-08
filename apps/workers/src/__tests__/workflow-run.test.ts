@@ -27,6 +27,7 @@ import {
   workflowKeywordMatches,
   workflowRunKey,
   workflowResumeJobKey,
+  scheduleWorkflowResume,
   writePendingWorkflowRun,
 } from '../workflow-run.js'
 
@@ -163,6 +164,19 @@ describe('workflow idempotency keys', () => {
       workflowId: '22222222-2222-4222-8222-222222222222',
       trigger: { type: 'trigger.message_keyword' },
     })).toThrow()
+  })
+
+  it('schedules delay resumes with the requested delay and a fresh queue ID', async () => {
+    h.queueAdd.mockClear()
+    await scheduleWorkflowResume({
+      clinicId: '11111111-1111-4111-8111-111111111111',
+      workflowId: '22222222-2222-4222-8222-222222222222',
+      trigger: { type: 'trigger.message_keyword', sourceEventId: 'wamid.delay-1' },
+    }, 'next-node', 5_000)
+
+    const [, , options] = h.queueAdd.mock.calls.at(-1) as [string, unknown, { jobId: string; delay: number }]
+    expect(options.delay).toBe(5_000)
+    expect(options.jobId).toMatch(/^workflow-resume-22222222-2222-4222-8222-222222222222-[a-f0-9]{24}-\d+$/)
   })
 })
 

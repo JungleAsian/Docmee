@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isClosed, matchesLens, lensCounts, LENSES } from './conversationLens'
+import { isAssignedToUser, isClosed, matchesLens, lensCounts, LENSES } from './conversationLens'
 import type { Conversation } from './types'
 
 function conv(overrides: Partial<Conversation>): Conversation {
@@ -75,6 +75,16 @@ describe('matchesLens', () => {
       const live = [matchesLens(c, 'bot'), matchesLens(c, 'active')].filter(Boolean)
       expect(live).toHaveLength(1)
     }
+  })
+})
+
+describe('isAssignedToUser', () => {
+  it('matches only live conversations owned by the current operator', () => {
+    expect(isAssignedToUser(conv({ assignedTo: 'u-1' }), 'u-1')).toBe(true)
+    expect(isAssignedToUser(conv({ assignedTo: 'u-2' }), 'u-1')).toBe(false)
+    expect(isAssignedToUser(conv({ assignedTo: null }), 'u-1')).toBe(false)
+    expect(isAssignedToUser(conv({ status: 'resolved', assignedTo: 'u-1' }), 'u-1')).toBe(false)
+    expect(isAssignedToUser(conv({ assignedTo: 'u-1' }), null)).toBe(false)
   })
 })
 

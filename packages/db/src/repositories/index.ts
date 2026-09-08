@@ -46,7 +46,8 @@ export type { WorkflowApprovalsRepository, WorkflowApproval, WorkflowAiDraft, Cr
 export type { WorkflowExecutionsRepository, WorkflowRunRecord, WorkflowEffectRecord, WorkflowRunStatus, WorkflowEffectStatus } from './workflow-executions.repository.js'
 export type { KnowledgeRepository, CreateDocumentInput, CreateChunkInput,
               CreateIaProfileInput, UpdateIaProfileInput, CreateIaRuleInput,
-              EmbeddedChunkRow }                                                                  from './knowledge.repository.js'
+              EmbeddedChunkRow, KnowledgeSearchRow, KnowledgeSearchFilters, KnowledgeCandidate,
+              KnowledgeCandidateStatus }                    from './knowledge.repository.js'
 export type { ErrorReviewsRepository, CreateErrorReviewInput, ErrorReviewFilters }               from './error-reviews.repository.js'
 export type { AiUsageRepository, ClinicUsageSummary, ClinicUsageRow }                            from './ai-usage.repository.js'
 export type { NotificationsRepository, CreateNotificationInput }                                 from './notifications.repository.js'

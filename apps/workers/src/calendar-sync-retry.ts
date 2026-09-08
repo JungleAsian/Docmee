@@ -20,7 +20,7 @@ import {
   type Clinic,
   type Sql,
 } from '@docmee/db'
-import { resolveCalendarConfig, calendarOpsFor, type CalendarOps } from '@docmee/agents'
+import { resolveCalendarConfig, calendarOpsFor, formatCalendarBooking, type CalendarOps } from '@docmee/agents'
 
 const BATCH_SIZE = 50
 const MAX_AGE_DAYS = 30
@@ -38,8 +38,11 @@ export function decideCalendarSyncAction(appt: Pick<Appointment, 'status' | 'goo
 }
 
 function eventTitle(appt: AppointmentWithNames): string {
-  const doctor = appt.doctorName ? ` con ${appt.doctorName}` : ''
-  return appt.patientName ? `Cita: ${appt.patientName}${doctor}` : `Cita${doctor}`
+  return formatCalendarBooking({ serviceName: appt.serviceName, patientName: appt.patientName, patientPhone: appt.patientPhone, reason: appt.notes }).title
+}
+
+function eventDescription(appt: AppointmentWithNames): string {
+  return formatCalendarBooking({ serviceName: appt.serviceName, patientName: appt.patientName, patientPhone: appt.patientPhone, reason: appt.notes }).description
 }
 
 function durationMinutes(appt: Pick<Appointment, 'startTime' | 'endTime'>): number {
@@ -84,6 +87,7 @@ export async function runCalendarSyncRetry(sql: Sql): Promise<void> {
           date: appt.startTime.slice(0, 10),
           time: appt.startTime.slice(11, 16),
           durationMinutes: durationMinutes(appt),
+          description: eventDescription(appt),
         })
         await appointments.update(appt.clinicId, appt.id, { googleEventId: eventId, calendarSyncPending: false, calendarSyncError: null })
       } else if (action === 'update') {

@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   findClinic: vi.fn(),
   listAccounts: vi.fn(),
   findPatient: vi.fn(),
+  listContacts: vi.fn(),
   findConversation: vi.fn(),
   updateConversation: vi.fn(),
   listProviders: vi.fn(),
@@ -53,7 +54,7 @@ vi.mock('@docmee/queue', () => ({ notificationQueue: { add: h.notificationAdd } 
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: h.end }),
   createClinicsRepository: () => ({ findById: h.findClinic, update: vi.fn() }),
-  createPatientsRepository: () => ({ findById: h.findPatient, update: vi.fn() }),
+  createPatientsRepository: () => ({ findById: h.findPatient, update: vi.fn(), listContacts: h.listContacts }),
   createConversationsRepository: () => ({
     findById: h.findConversation,
     update: h.updateConversation,
@@ -107,6 +108,7 @@ beforeEach(() => {
     { channel: 'whatsapp', status: 'active', accountId: 'PHONE', accessTokenEnc: 'tok' },
   ])
   h.findPatient.mockResolvedValue({ id: PATIENT, fullName: 'Ana', metadata: {} })
+  h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '5215555555555', isPrimary: true }])
   h.findConversation.mockResolvedValue({ id: CONVO, metadata: {} })
   h.listProviders.mockResolvedValue([{ id: 'p1', fullName: 'Dr. X', specialty: 'General' }])
   h.listByPatient.mockResolvedValue([])

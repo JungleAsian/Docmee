@@ -248,12 +248,7 @@ describe('validateWorkflowDefinition', () => {
     expect(errors).toEqual([])
   })
 
-  it('enforces WhatsApp\'s title-length cap per variant — 20 for buttons, 24 for lists (regression)', () => {
-    // Production incident: confirm_menu's "Back to previous menu" (21 chars)
-    // passed this check under a uniform 24-char limit, but WhatsApp rejects
-    // any reply BUTTON title over 20 chars outright (#131009 "Parameter
-    // value is not valid") — the send path's catch then silently fell back
-    // to plain, non-interactive text with no way for the patient to reply.
+  it('allows interactive-menu titles up to 40 characters for either variant', () => {
     const withTitle = (title: string, variant: 'button' | 'list') =>
       validateWorkflowDefinition([
         node('trigger', 'trigger', 'trigger.message_keyword'),
@@ -261,10 +256,10 @@ describe('validateWorkflowDefinition', () => {
         node('end', 'action', 'action.end'),
       ], [edge('t', 'trigger', 'menu'), edge('m', 'menu', 'end', 'a')], { requireTrigger: true })
 
-    expect(withTitle('Back to previous menu', 'button').join('\n')).toMatch(/title exceeds 20 chars/)
-    expect(withTitle('Back to previous menu', 'list')).toEqual([]) // 22 chars, within the 24-char list cap
-    expect(withTitle('123456789012345678901', 'button').join('\n')).toMatch(/title exceeds 20 chars/) // 21 chars
-    expect(withTitle('1234567890123456789012345', 'list').join('\n')).toMatch(/title exceeds 24 chars/) // 25 chars
+    expect(withTitle('Back to previous menu', 'button')).toEqual([])
+    expect(withTitle('Back to previous menu', 'list')).toEqual([])
+    expect(withTitle('123456789012345678901', 'button')).toEqual([]) // 21 chars
+    expect(withTitle('12345678901234567890123456789012345678901', 'list').join('\n')).toMatch(/title exceeds 40 chars/) // 41 chars
   })
 
   it('allows a conversational loop through a pausing menu but rejects a synchronous cycle', () => {

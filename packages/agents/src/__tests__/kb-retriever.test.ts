@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { cosineSimilarity, rankChunks, searchKb, type EmbeddedChunk } from '../botbase/kb-retriever.js'
+import { cosineSimilarity, rankChunks, rankKeywordChunks, searchKb, type EmbeddedChunk } from '../botbase/kb-retriever.js'
 
 const chunk = (title: string, embedding: number[]): EmbeddedChunk => ({
   title,
@@ -52,5 +52,15 @@ describe('searchKb', () => {
     const matches = await searchKb('hi', [], embed)
     expect(matches).toEqual([])
     expect(embed).not.toHaveBeenCalled()
+  })
+})
+
+describe('rankKeywordChunks', () => {
+  it('retrieves active, not-yet-embedded KB content without inventing matches', () => {
+    const matches = rankKeywordChunks('¿Qué es el acné?', [
+      { title: 'Acné', content: 'El acné es una afección de la piel.' },
+      { title: 'Horarios', content: 'Abrimos de lunes a viernes.' },
+    ])
+    expect(matches.map((match) => match.title)).toEqual(['Acné'])
   })
 })

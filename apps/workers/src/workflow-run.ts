@@ -337,7 +337,10 @@ export async function enqueueInboundWorkflowRuns(
 /** Re-enqueue a paused run to resume at `nodeId` after `ms` (delay node). */
 export async function scheduleWorkflowResume(data: WorkflowRunJobData, nodeId: string, ms: number): Promise<void> {
   await workflowQueue().add('run', { ...data, startNodeId: nodeId }, {
-    jobId: workflowResumeJobKey(data.workflowId, data.trigger.sourceEventId, nodeId),
+    // The database transition is the idempotency boundary. A deterministic
+    // BullMQ id can otherwise collide with a completed/stale resume for the
+    // same conversational source event and silently drop this delay.
+    jobId: `${workflowResumeJobKey(data.workflowId, data.trigger.sourceEventId, nodeId)}-${Date.now()}`,
     delay: Math.max(0, Math.round(ms)),
   })
 }

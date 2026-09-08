@@ -77,7 +77,8 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
   const [reply, setReply] = useState('')
   const [optionId, setOptionId] = useState('')
   const [approval, setApproval] = useState<'approved' | 'rejected' | 'timeout'>('approved')
-  const [minutes, setMinutes] = useState('5')
+  const [advanceAmount, setAdvanceAmount] = useState('5')
+  const [advanceUnit, setAdvanceUnit] = useState<'second' | 'minute' | 'hour' | 'day'>('minute')
   const [providerNodeId, setProviderNodeId] = useState('')
   const [providerOutcome, setProviderOutcome] = useState<SimulationScenarioInput['providerOutcome']>('success')
   const [intentOutcome, setIntentOutcome] = useState<SimulationScenarioInput['intentOutcome']>('high')
@@ -86,7 +87,10 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
   const canContinue = wait?.kind === 'delay' || wait?.kind === 'approval' || Boolean(reply.trim() || optionId.trim())
   const continueSimulation = () => {
     if (!wait) return
-    if (wait.kind === 'delay') onResume({ advanceTimeMs: Math.max(0, Number(minutes) || 0) * 60_000 })
+    if (wait.kind === 'delay') {
+      const multiplier = advanceUnit === 'second' ? 1_000 : advanceUnit === 'hour' ? 3_600_000 : advanceUnit === 'day' ? 86_400_000 : 60_000
+      onResume({ advanceTimeMs: Math.max(0, Number(advanceAmount) || 0) * multiplier })
+    }
     else if (wait.kind === 'approval') onResume({ approval })
     else onResume({ reply: { text: reply.trim(), optionId: optionId.trim() || undefined } })
   }
@@ -151,7 +155,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
                   {wait.kind === 'menu' && <label className="mt-2 block text-xs">Menu option ID<input value={optionId} onChange={(event) => setOptionId(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label>}
                 </>}
                 {wait.kind === 'approval' && <label className="mt-2 block text-xs">Mock approval outcome<select value={approval} onChange={(event) => setApproval(event.target.value as typeof approval)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="timeout">Timed out</option></select></label>}
-                {wait.kind === 'delay' && <label className="mt-2 block text-xs">Advance virtual time (minutes)<input type="number" min="0" value={minutes} onChange={(event) => setMinutes(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label>}
+                {wait.kind === 'delay' && <div className="mt-2 grid grid-cols-[1fr_auto] gap-2"><label className="block text-xs">Advance virtual time<input type="number" min="0" value={advanceAmount} onChange={(event) => setAdvanceAmount(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label><label className="block text-xs">Unit<select value={advanceUnit} onChange={(event) => setAdvanceUnit(event.target.value as typeof advanceUnit)} className="mt-1 rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="second">Seconds</option><option value="minute">Minutes</option><option value="hour">Hours</option><option value="day">Days</option></select></label></div>}
                 <button type="button" onClick={continueSimulation} disabled={!canContinue || busy} className="mt-2 w-full rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">Continue simulation</button>
               </div>
             )}

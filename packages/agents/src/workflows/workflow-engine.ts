@@ -124,6 +124,10 @@ export interface AiAgentScenario {
   description: string
   action: AiAgentScenarioAction
   targetWorkflowId?: string
+  /** Where a route scenario should continue. Omitted means workflow for
+   * backwards compatibility with previously saved definitions. */
+  routeTarget?: 'workflow' | 'node'
+  targetNodeId?: string
 }
 
 /** Parse an AI Agent node's `config.scenarios` (stored as a JSON string, same
@@ -155,7 +159,7 @@ function isAiAgentScenario(value: unknown): value is AiAgentScenario {
  *  `handle` and therefore never needs a wired successor edge, mirroring how
  *  `action.end` needs none: the target workflow was already enqueued, so
  *  this run simply ends. */
-export type AiAgentOutcome = 'replied' | 'handoff' | 'no_match' | 'error' | 'routed'
+export type AiAgentOutcome = 'replied' | 'handoff' | 'no_match' | 'error' | 'routed' | 'routed_node'
 
 /**
  * Resolve a menu reply to an output handle. Precedence: reserved footer keys
@@ -420,6 +424,17 @@ export async function runWorkflow(
           recordStep({ nodeId: node.id, type: node.type, status: 'ended' })
           return trace
         }
+        if (outcome === 'routed_node') {
+          const targetNodeId = String(ctx['workflow_route_node_id'] ?? '')
+          const target = byId.get(targetNodeId)
+          if (!target || target.id === node.id) {
+            throw new Error(`AI Agent ${node.id} requested an invalid same-workflow route target.`)
+          }
+          delete ctx['workflow_route_node_id']
+          current = target
+          recordStep({ nodeId: node.id, type: node.type, status: 'ran' })
+          continue
+        }
         handle = outcome
         break
       }
@@ -567,6 +582,6 @@ function evalCondition(cfg: Record<string, unknown>, ctx: WorkflowContext): bool
 function delayMs(cfg: Record<string, unknown>): number {
   const amount = Number(cfg['amount'] ?? 0)
   const unit = String(cfg['unit'] ?? 'hour')
-  const mult = unit === 'day' ? 86_400_000 : unit === 'minute' ? 60_000 : 3_600_000
+  const mult = unit === 'day' ? 86_400_000 : unit === 'hour' ? 3_600_000 : unit === 'minute' ? 60_000 : unit === 'second' ? 1_000 : 3_600_000
   return Math.max(0, Number.isFinite(amount) ? amount : 0) * mult
 }

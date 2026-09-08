@@ -2,12 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { menuMessageWithConfiguredLinks } from '../workflow-runner.worker.js'
 
 describe('menuMessageWithConfiguredLinks', () => {
-  it('keeps the default Docmee menu links for existing nodes without link fields', () => {
+  it('leaves link sections blank when the clinic has not configured them', () => {
     expect(menuMessageWithConfiguredLinks({ message: 'Choose one' })).toBe([
       'Choose one',
-      '🌐 Website: https://docmee.ai/',
-      '❓ FAQ: https://docmee.ai/#faq',
-      '💬 Contact Us: https://docmee.ai/#contact',
     ].join('\n\n'))
   })
 

@@ -216,6 +216,15 @@ describe('runWorkflow', () => {
     expect(resume.sendMessage).toHaveBeenCalledWith('later', {})
   })
 
+  it('supports second-based delays without rounding to hours', async () => {
+    const exec = makeExec()
+    await runWorkflow({
+      nodes: [node('t', 'trigger', 'trigger.appointment_booked'), node('d', 'logic', 'logic.delay', { amount: 5, unit: 'second' }), node('s', 'action', 'action.send_message')],
+      edges: [edge('t', 'd'), edge('d', 's')],
+    }, {}, exec)
+    expect(exec.scheduleResume).toHaveBeenCalledWith('s', 5_000, {})
+  })
+
   it('returns a durable waiting cursor for a paused delay', async () => {
     const exec = makeExec()
     const outcome = await runWorkflowWithOutcome({
@@ -622,6 +631,16 @@ describe('runWorkflow — action.ai_agent node', () => {
     // Ends right after the agent node — the engine never looked up a
     // successor for 'routed' (trigger + agent, nothing beyond it).
     expect(trace).toHaveLength(2)
+  })
+
+  it('jumps to an explicitly selected node in the same workflow', async () => {
+    const aiAgent = vi.fn(async (_node, ctx) => {
+      ctx.workflow_route_node_id = 'replied'
+      return 'routed_node' as const
+    })
+    const exec = makeExec({ aiAgent })
+    const trace = await runWorkflow(wf, {}, exec)
+    expect(trace.map((s) => s.nodeId)).toEqual(['t', 'agent', 'replied'])
   })
 
   it('falls through to error when no executor is wired', async () => {

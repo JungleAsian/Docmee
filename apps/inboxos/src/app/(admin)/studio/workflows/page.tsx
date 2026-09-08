@@ -542,9 +542,12 @@ function WorkflowEditor({
   onClose: () => void
 }) {
   const { t, language } = useI18n()
+  // Keep the persisted identity locally after the first save. This lets a new
+  // workflow remain open and be saved repeatedly without creating duplicates.
+  const [persistedWorkflow, setPersistedWorkflow] = useState<Workflow | undefined>(workflow)
   const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
-  const status: WorkflowStatus = workflow?.status ?? 'draft'
+  const status: WorkflowStatus = persistedWorkflow?.status ?? 'draft'
   // Builder mode (Enhanced / Guided) — lifted here so its toggle lives in the
   // toolbar (item 16); persisted per-browser.
   const [mode, setMode] = useState<CanvasMode>(() => readCanvasMode())
@@ -559,6 +562,7 @@ function WorkflowEditor({
   // Dirty guard (R17): unsaved edits survive neither an accidental close nor a
   // full page unload.
   const [dirty, setDirty] = useState(false)
+  const [saved, setSaved] = useState(false)
   // Canvas state lives in an undo history; every canvas mutation flows through
   // the single onChange below. Keystroke bursts within 600 ms coalesce into one
   // step so typing a sentence is one undo, not thirty.
@@ -577,7 +581,7 @@ function WorkflowEditor({
       const generation = simulationSessionRef.current.generation
       if (scenario) simulationScenarioRef.current = scenario
       const activeScenario = scenario ?? simulationScenarioRef.current
-      const data = await api.post<{ simulation: WorkflowSimulationView }>(`/clinics/${clinicId}/workflows/${workflow!.id}/simulate`, {
+      const data = await api.post<{ simulation: WorkflowSimulationView }>(`/clinics/${clinicId}/workflows/${persistedWorkflow!.id}/simulate`, {
         graph: { nodes, edges },
         input: buildSimulationRequestInput({ mode: simulationMode, replay: simulationSessionRef.current.replay, resumeInput, scenario: activeScenario }),
       })
@@ -601,6 +605,7 @@ function WorkflowEditor({
     setHist((h) => (now - lastPushAtRef.current > 600 ? pushHistory(h, next) : replacePresent(h, next)))
     lastPushAtRef.current = now
     setDirty(true)
+    setSaved(false)
     resetSimulation()
   }, [resetSimulation])
 
@@ -707,15 +712,16 @@ function WorkflowEditor({
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name: name.trim() || t('wf.untitled'), nodes, edges, ...(workflow?.documentVersion ? { expectedVersion: workflow.documentVersion } : {}) }
-      return workflow
-        ? api.patch(`/clinics/${clinicId}/workflows/${workflow.id}`, payload)
-        : api.post(`/clinics/${clinicId}/workflows`, payload)
+      const payload = { name: name.trim() || t('wf.untitled'), nodes, edges, ...(persistedWorkflow?.documentVersion ? { expectedVersion: persistedWorkflow.documentVersion } : {}) }
+      return persistedWorkflow
+        ? api.patch<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows/${persistedWorkflow.id}`, payload)
+        : api.post<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows`, payload)
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setPersistedWorkflow(data.workflow)
       setDirty(false)
+      setSaved(true)
       setFocusedIssue(null)
-      onClose()
     },
   })
 
@@ -731,6 +737,7 @@ function WorkflowEditor({
           onChange={(e) => {
             setName(e.target.value)
             setDirty(true)
+            setSaved(false)
           }}
           placeholder={t('wf.namePlaceholder')}
           className="w-56 min-w-40 rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
@@ -783,7 +790,7 @@ function WorkflowEditor({
         </button>
         </div>
         <div role="group" aria-label={language === 'es' ? 'Probar y transferir' : 'Test and transfer'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
-        <button type="button" onClick={() => simulation.mutate({ mode: 'run' })} disabled={!workflow || simulation.isPending} title="Open and run the side-effect-free simulator" className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}>▷ Simulate</button>
+        <button type="button" onClick={() => simulation.mutate({ mode: 'run' })} disabled={!persistedWorkflow || simulation.isPending} title="Open and run the side-effect-free simulator" className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}>▷ Simulate</button>
         <button
           type="button"
           onClick={handleExport}
@@ -801,7 +808,8 @@ function WorkflowEditor({
         </button>
         <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
         </div>
-        <button type="button" onClick={() => save.mutate()} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
+        {saved && <span role="status" className="text-xs font-medium text-emerald-600">{t('common.saved')}</span>}
+        <button type="button" onClick={() => { setSaved(false); save.mutate() }} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
         </button>
       </div>
@@ -874,7 +882,7 @@ function WorkflowEditor({
           Simulation failed: {simulation.error instanceof Error ? simulation.error.message : t('common.error')}
         </div>
       )}
-      {(workflow || simulation.data) && (
+      {(persistedWorkflow || simulation.data) && (
         <WorkflowSimulationPanel
           result={simulation.data?.simulation ?? null}
           busy={simulation.isPending}
@@ -896,7 +904,7 @@ function WorkflowEditor({
           edges={edges}
           onChange={applyCanvasChange}
           clinicId={clinicId}
-          workflowId={workflow?.id}
+          workflowId={persistedWorkflow?.id}
           mode={mode}
           focusIssue={focusedIssue}
           simulation={{

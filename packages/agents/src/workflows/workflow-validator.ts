@@ -224,12 +224,10 @@ export function validateWorkflowDefinition(
       } else if (options.length > limit) {
         errors.push(`Interactive menu ${node.id} has ${options.length} options, more than WhatsApp allows for the "${variant}" style (max ${limit}). Remove options, or switch this node to "list" style, which allows up to 10.`)
       }
-      // WhatsApp's two interactive kinds cap option titles differently: a list
-      // row allows 24 chars, but a reply BUTTON allows only 20 — sending a
-      // longer button title doesn't truncate, it's rejected outright (#131009
-      // "Parameter value is not valid"), which the send path's catch silently
-      // downgrades to a plain-text fallback with no tappable options at all.
-      const titleLimit = variant === 'list' ? 24 : 20
+      // Keep option labels usable for clinic workflows while allowing the
+      // requested 40-character labels for both menu styles. Provider adapters
+      // may still apply channel-specific rendering limits at send time.
+      const titleLimit = 40
       const seen = new Set<string>()
       for (const opt of options) {
         if (seen.has(opt.optionId)) {
@@ -319,8 +317,18 @@ export function validateWorkflowDefinition(
         if (!s.description.trim()) {
           errors.push(`AI Agent ${node.id} has a scenario with no description. Open the node and describe what this scenario should handle.`)
         }
-        if (s.action === 'route' && !s.targetWorkflowId?.trim()) {
-          errors.push(`AI Agent ${node.id}'s scenario "${s.id}" is set to "route" but has no target workflow (requires a target workflow). Open the node and choose which workflow it should hand off to.`)
+        if (s.action === 'route') {
+          const routeTarget = s.routeTarget ?? 'workflow'
+          if (routeTarget === 'node') {
+            const targetNodeId = s.targetNodeId?.trim()
+            if (!targetNodeId) {
+              errors.push(`AI Agent ${node.id}'s scenario "${s.id}" is set to route within this workflow but has no target node. Choose the node where execution should continue.`)
+            } else if (!nodes.some((candidate) => candidate.id === targetNodeId) || targetNodeId === node.id) {
+              errors.push(`AI Agent ${node.id}'s scenario "${s.id}" points to an invalid same-workflow target node. Choose an existing node other than the AI Agent itself.`)
+            }
+          } else if (!s.targetWorkflowId?.trim()) {
+            errors.push(`AI Agent ${node.id}'s scenario "${s.id}" is set to "route" but has no target workflow (route to another workflow). Choose which workflow it should hand off to.`)
+          }
         }
       }
       const handles = new Set(next.map((edge) => edge.sourceHandle).filter((h): h is string => Boolean(h)))
@@ -347,8 +355,8 @@ export function validateWorkflowDefinition(
       if (!Number.isFinite(amount) || amount <= 0) {
         errors.push(`Delay node ${node.id} has no delay amount set, or it's zero or negative (requires a positive amount). Open the node and enter a positive number.`)
       }
-      if (!['minute', 'hour', 'day'].includes(String(node.config?.['unit'] ?? ''))) {
-        errors.push(`Delay node ${node.id} has no valid time unit selected (invalid unit — must be minute, hour, or day). Open the node and choose a unit.`)
+      if (!['second', 'minute', 'hour', 'day'].includes(String(node.config?.['unit'] ?? ''))) {
+        errors.push(`Delay node ${node.id} has no valid time unit selected (invalid unit — must be second, minute, hour, or day). Open the node and choose a unit.`)
       }
     }
     if (node.type === 'action.send_message' && !String(node.config?.['text'] ?? '').trim()) {

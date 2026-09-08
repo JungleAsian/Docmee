@@ -505,6 +505,8 @@ export interface ClinicSettings {
   businessHours?: BusinessHours
   bookingGrid?: { startHour: number; endHour: number; slotMinutes: number }
   stalledConversation?: { stallMinutes?: number; reannounceIntervalMinutes?: number; maxReannouncements?: number; closeGraceMinutes?: number }
+  /** Closed conversation retention in hours. Defaults to 24 when omitted. */
+  closedConversationRetentionHours?: number
   googleCalendar?: { calendarId?: string } & Record<string, unknown>
   googleSheets?: { spreadsheetId?: string; sheetName?: string; enabled?: boolean } & Record<
     string,

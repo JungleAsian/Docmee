@@ -2,9 +2,8 @@
 //
 // GET /conversations returns the FULL clinic set (no server pagination), so a
 // client-side filter is complete: it can never hide a thread the server would
-// otherwise have returned. The search matches the contact handle case- AND
-// accent-insensitively, so "jose" finds "José" and "maria" finds "María" — a
-// real need for a LATAM-first panel.
+// otherwise have returned. Search covers the contact handle, patient name,
+// latest message, and tags case- and accent-insensitively.
 import type { Channel, Conversation } from './types'
 
 export type ChannelFilter = Channel | 'all'
@@ -22,7 +21,8 @@ export function conversationMatches(c: Conversation, query: string, channel: Cha
   if (channel !== 'all' && c.channel !== channel) return false
   const q = normalize(query)
   if (!q) return true
-  return normalize(c.channelContactHandle).includes(q)
+  const searchable = [c.channelContactHandle, c.patientName ?? '', c.lastMessage?.content ?? '', ...(c.tags ?? [])]
+  return searchable.some((value) => normalize(value).includes(q))
 }
 
 export function filterConversations(

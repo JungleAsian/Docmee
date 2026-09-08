@@ -18,7 +18,7 @@ import { waitingMinutes, slaLevel, formatWaiting } from '../sla'
 import { assessSafety, safetyRank, type SafetyLevel } from '../safety'
 import { conversationMode } from '../conversationMode'
 import { filterConversations, type ChannelFilter } from '../conversationFilter'
-import { LENSES, lensCounts, matchesLens, type ConversationLens } from '../conversationLens'
+import { isAssignedToUser, LENSES, lensCounts, matchesLens, type ConversationLens } from '../conversationLens'
 import { readInboxSettings } from '../inboxSettings'
 import { DeleteConversationDialog } from './DeleteConversationDialog'
 import type { Channel, Conversation, ConversationStatus } from '../types'
@@ -214,7 +214,13 @@ export function ConversationList({
     [allRows, search, channel, activeChannels],
   )
   // Counts describe the same filtered rows rendered below.
-  const counts = projection.counts
+  const counts = useMemo(() => {
+    const next = lensCounts(projection.rows)
+    // Assigned is explicitly the human-handover queue for the current operator,
+    // never “any conversation with an assignee”.
+    next.assigned = projection.rows.filter((c) => isAssignedToUser(c, userId)).length
+    return next
+  }, [projection.rows, userId])
 
   // Apply the search/channel filter, then float safety-critical / urgent threads to
   // the top (stable within each severity band, so recency order is preserved
@@ -230,9 +236,13 @@ export function ConversationList({
   // Safety-flagged threads ALWAYS surface, regardless of the active lens — a tab must
   // never be able to hide an emergency/urgent thread (Req 20). The lens only narrows
   // the ordinary queue below the safety group.
-  const safetyRows = conversations.filter((c) => assessSafety(c.tags).level)
+  const assignedView = lens === 'assigned'
+  const belongsToAssignedUser = (c: Conversation) => !assignedView || isAssignedToUser(c, userId)
+  const safetyRows = conversations.filter(
+    (c) => assessSafety(c.tags).level && belongsToAssignedUser(c),
+  )
   const normalRowsAll = conversations.filter(
-    (c) => !assessSafety(c.tags).level && matchesLens(c, lens),
+    (c) => !assessSafety(c.tags).level && belongsToAssignedUser(c) && matchesLens(c, lens),
   )
   const normalRows = normalRowsAll
   const visibleCount = safetyRows.length + normalRows.length
@@ -361,7 +371,7 @@ export function ConversationList({
             </button>
           </div>
         </div>
-        {/* Find a thread by patient handle (client-side over the loaded set). */}
+        {/* Find a thread by patient identity or message content (client-side over the loaded set). */}
         <div className="relative mb-2">
           <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">
             🔎

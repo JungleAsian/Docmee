@@ -32,6 +32,7 @@ import {
   filterSlotsByAvailability,
   type DoctorAvailability,
 } from './doctor-availability.js'
+import { formatCalendarBooking } from './calendar-event-details.js'
 
 export type BookingStep =
   | 'confirm_doctor'
@@ -68,6 +69,7 @@ export interface BookingContext {
   clinic: ClinicInfo
   providers: ProviderRef[]
   patientName: string | null
+  patientPhone?: string | null
   serviceDurationMinutes?: number
   /** Injectable clock for deterministic tests; production defaults to the current time. */
   now?: Date
@@ -689,11 +691,12 @@ export async function advanceBookingFlow(
         }
       }
 
-      const title = pick(
-        L,
-        `Cita: ${ctx.patientName ?? 'Paciente'} con ${state.doctorName}`,
-        `Appointment: ${ctx.patientName ?? 'Patient'} with ${state.doctorName}`,
-      )
+      const calendarDetails = formatCalendarBooking({
+        serviceName: state.serviceName,
+        patientName: ctx.patientName,
+        patientPhone: ctx.patientPhone,
+        reason: state.reason,
+      })
       const appointmentStart = zonedDateTimeToInstant(slot.start, ctx.clinic.timezone)
       const appointmentEnd = zonedDateTimeToInstant(slot.end, ctx.clinic.timezone)
       if (!appointmentStart || !appointmentEnd || appointmentEnd <= appointmentStart) {
@@ -722,11 +725,11 @@ export async function advanceBookingFlow(
       let calendarSyncError: string | null = null
       try {
         eventId = await deps.calendar.createEvent({
-          title,
+          title: calendarDetails.title,
           date: state.preferredDate,
           time: state.preferredTime,
           durationMinutes: duration,
-          description: state.reason,
+          description: calendarDetails.description,
         })
       } catch (err) {
         calendarSyncError = err instanceof Error ? err.message : String(err)

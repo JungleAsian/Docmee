@@ -18,11 +18,22 @@ export {
 export {
   searchKb,
   rankChunks,
+  rankKeywordChunks,
+  rerankHybridChunks,
   cosineSimilarity,
   type Embedder,
   type EmbeddedChunk,
   type KbMatch,
+  type HybridKbCandidate,
 } from './kb-retriever.js'
+
+export {
+  evaluateKbCandidateGates,
+  deriveKbEvidenceScore,
+  type KbCandidateGateInput,
+  type KbCandidateGateResult,
+  type PatientKbFeedback,
+} from './kb-learning.js'
 
 export {
   detectDoctorId,
@@ -44,6 +55,7 @@ export {
   runClinicBot,
   isEmergencyMessage,
   isLikelyQuestion,
+  knowledgeHandoffNotice,
   emergencyNotice,
   resolveLanguage,
   toneInstruction,

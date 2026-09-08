@@ -4,7 +4,7 @@
 // Guards authentication, runs the presence heartbeat, and frames the page with
 // the shared sidebar.
 import { useMemo, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { api } from '@/shared/api/client'
@@ -49,6 +49,7 @@ function clinicHeaderTitleKey(pathname: string): TranslationKey {
 export default function ClinicLayout({ children }: { children: React.ReactNode }) {
   const { ready, user } = useAuthGuard()
   const { t } = useI18n()
+  const router = useRouter()
   const { features } = useFeatures()
   const { preferences, setPreferences } = useUserUiPreferences()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -58,6 +59,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   // through the authenticated user preference row. RBAC filters unavailable
   // routes before this preference is applied.
   const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [globalSearch, setGlobalSearch] = useState('')
   const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   function toggleHidden(href: string) {
     const next = new Set(hiddenItems)
@@ -186,6 +188,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           <div className="crm-header-context">
             <span className="crm-header-breadcrumb" aria-current="page">{t(headerTitleKey)}</span>
           </div>
+          <div className="crm-header-center">
           <div className="relative crm-header-customize">
             <button
               type="button"
@@ -224,9 +227,12 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
               </div>
             )}
           </div>
-          <div className="crm-header-search hidden lg:flex">
-            <MagnifyingGlass size={20} className="mr-3 shrink-0" />
-            <input type="search" placeholder="Search patients, messages, or appointments..." />
+          {!inboxRoute && (
+            <div className="crm-header-search hidden lg:flex">
+              <MagnifyingGlass size={20} className="mr-3 shrink-0" />
+              <input type="search" value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const hit = visibleGroups.flatMap((g) => g.items).find((item) => `${item.label} ${item.href}`.toLowerCase().includes(globalSearch.trim().toLowerCase())); if (hit) router.push(hit.href) } }} placeholder="Search patients, messages, or appointments..." />
+            </div>
+          )}
           </div>
           <div className="crm-header-actions">
             <NotificationBell />

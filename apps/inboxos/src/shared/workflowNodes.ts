@@ -395,6 +395,7 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
   unit: [
     { value: 'hour', labelKey: 'wf.unit.hour' },
     { value: 'minute', labelKey: 'wf.unit.minute' },
+    { value: 'second', labelKey: 'wf.unit.second' },
     { value: 'day', labelKey: 'wf.unit.day' },
   ],
   // action.create_or_reschedule_booking's mode — worker default is 'create'
@@ -521,6 +522,8 @@ export interface AiAgentScenarioLike {
   description: string
   action: AiAgentScenarioAction
   targetWorkflowId?: string
+  routeTarget?: 'workflow' | 'node'
+  targetNodeId?: string
 }
 
 /** Parse an action.ai_agent node's `config.scenarios` (JSON string or array).

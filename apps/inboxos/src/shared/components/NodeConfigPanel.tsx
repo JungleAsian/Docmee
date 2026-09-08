@@ -814,7 +814,7 @@ export function NodeConfigPanel({
                   value={sc.action}
                   onChange={(e) => {
                     const action = e.target.value as AiAgentScenarioAction
-                    patchAiAgentScenario(si, { action, ...(action === 'route' ? {} : { targetWorkflowId: undefined }) })
+                    patchAiAgentScenario(si, { action, ...(action === 'route' ? {} : { targetWorkflowId: undefined, targetNodeId: undefined, routeTarget: undefined }) })
                   }}
                   className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
                 >
@@ -823,18 +823,38 @@ export function NodeConfigPanel({
                   <option value="handoff">{t('wf.scenario.actionHandoff')}</option>
                 </select>
                 {sc.action === 'route' && (
-                  <select
-                    value={sc.targetWorkflowId ?? ''}
-                    onChange={(e) => patchAiAgentScenario(si, { targetWorkflowId: e.target.value })}
-                    className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
-                  >
-                    <option value="">{t('wf.scenario.targetWorkflow')}</option>
-                    {routableWorkflows.map((wf) => (
-                      <option key={wf.id} value={wf.id}>
-                        {wf.name}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      value={sc.routeTarget ?? (sc.targetWorkflowId ? 'workflow' : '')}
+                      onChange={(e) => patchAiAgentScenario(si, { routeTarget: e.target.value as 'workflow' | 'node', targetWorkflowId: undefined, targetNodeId: undefined })}
+                      className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                    >
+                      <option value="">Choose route destination</option>
+                      <option value="workflow">Another workflow</option>
+                      <option value="node">Node in this workflow</option>
+                    </select>
+                    {(sc.routeTarget ?? (sc.targetWorkflowId ? 'workflow' : '')) === 'workflow' ? (
+                      <select
+                        value={sc.targetWorkflowId ?? ''}
+                        onChange={(e) => patchAiAgentScenario(si, { targetWorkflowId: e.target.value })}
+                        className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                      >
+                        <option value="">{t('wf.scenario.targetWorkflow')}</option>
+                        {routableWorkflows.map((wf) => <option key={wf.id} value={wf.id}>{wf.name}</option>)}
+                      </select>
+                    ) : (sc.routeTarget === 'node' ? (
+                      <select
+                        value={sc.targetNodeId ?? ''}
+                        onChange={(e) => patchAiAgentScenario(si, { targetNodeId: e.target.value })}
+                        className="w-full rounded border border-gray-300 bg-white p-1 text-xs dark:border-gray-700 dark:bg-gray-800"
+                      >
+                        <option value="">Choose a node in this workflow</option>
+                        {allNodes.filter((candidate) => candidate.id !== node.id).map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>{String(candidate.config?.label ?? candidate.config?.name ?? candidate.type)} · {candidate.id}</option>
+                        ))}
+                      </select>
+                    ) : null)}
+                  </>
                 )}
                 <div className="flex justify-end">
                   <button type="button" onClick={() => removeAiAgentScenario(si)} className="shrink-0 text-[10px] text-red-600 hover:underline">

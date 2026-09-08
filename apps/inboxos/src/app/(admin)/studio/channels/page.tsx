@@ -146,6 +146,7 @@ interface SuperuserClinicSettingsForm {
   reannounceIntervalMinutes: string
   maxReannouncements: string
   closeGraceMinutes: string
+  closedConversationRetentionHours: string
   googleCalendarId: string
   googleSheetsEnabled: boolean
   googleSheetsSpreadsheetId: string
@@ -340,6 +341,7 @@ function buildSuperuserSettingsForm(settings: ClinicSettings | undefined): Super
     reannounceIntervalMinutes: String(settings?.stalledConversation?.reannounceIntervalMinutes ?? 10),
     maxReannouncements: String(settings?.stalledConversation?.maxReannouncements ?? 3),
     closeGraceMinutes: String(settings?.stalledConversation?.closeGraceMinutes ?? 5),
+    closedConversationRetentionHours: String(settings?.closedConversationRetentionHours ?? 24),
     googleCalendarId: settings?.googleCalendar?.calendarId ? String(settings.googleCalendar.calendarId) : '',
     googleSheetsEnabled: Boolean(settings?.googleSheets?.enabled),
     googleSheetsSpreadsheetId: settings?.googleSheets?.spreadsheetId ? String(settings.googleSheets.spreadsheetId) : '',
@@ -397,6 +399,10 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
       if (closeGraceMinutes < 1 || closeGraceMinutes > 60) {
         throw new Error('Close grace period must be between 1 and 60 minutes.')
       }
+      const closedConversationRetentionHours = integerFromForm(form.closedConversationRetentionHours, 24)
+      if (closedConversationRetentionHours < 1 || closedConversationRetentionHours > 8760) {
+        throw new Error('Closed conversation retention must be between 1 and 8760 hours.')
+      }
 
       const current = (clinic.settings ?? {}) as ClinicSettings
       const nextSettings: ClinicSettings = {
@@ -409,6 +415,7 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
           maxReannouncements,
           closeGraceMinutes,
         },
+        closedConversationRetentionHours,
         googleCalendar: {
           ...(current.googleCalendar ?? {}),
           calendarId: form.googleCalendarId.trim() || undefined,
@@ -511,6 +518,22 @@ function SuperuserClinicSettingsEditor({ clinic }: { clinic: Clinic }) {
               </select>
             </label>
           </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+          <h3 className="text-xs font-semibold uppercase text-gray-400">Closed conversation retention</h3>
+          <p className="mt-1 text-xs text-gray-500">Resolved and archived conversations older than this are permanently deleted. Active conversations are never affected.</p>
+          <label className="mt-3 block max-w-xs text-xs font-medium text-gray-500">
+            Delete after (hours)
+            <input
+              value={form.closedConversationRetentionHours}
+              onChange={(event) => updateField('closedConversationRetentionHours', event.target.value)}
+              type="number"
+              min={1}
+              max={8760}
+              className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-50"
+            />
+          </label>
         </div>
 
         <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">

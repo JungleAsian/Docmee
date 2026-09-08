@@ -38,6 +38,17 @@ describe('conversationMatches', () => {
     expect(conversationMatches(conv({ channelContactHandle: 'María' }), 'maria', 'all')).toBe(true)
   })
 
+  it('matches patient names and latest message content', () => {
+    expect(conversationMatches(conv({ patientName: 'Ana López' }), 'ana', 'all')).toBe(true)
+    expect(
+      conversationMatches(
+        conv({ lastMessage: { content: '¿Qué es el acné?', contentType: 'text', role: 'user' } }),
+        'acne',
+        'all',
+      ),
+    ).toBe(true)
+  })
+
   it('honours the channel filter', () => {
     const c = conv({ channel: 'instagram' })
     expect(conversationMatches(c, '', 'instagram')).toBe(true)

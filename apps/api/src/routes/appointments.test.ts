@@ -11,7 +11,9 @@ const calendarOps = vi.hoisted(() => ({
   updateEvent: vi.fn(async () => undefined),
   deleteEvent: vi.fn(async () => undefined),
 }))
-vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
+vi.mock('@docmee/agents', async () => ({
+  SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
+  formatCalendarBooking: (await import('../../../../packages/agents/src/calbot/calendar-event-details.js')).formatCalendarBooking,
   getOAuth2Client: () => ({}),
   createGoogleCalendarOps: () => calendarOps,
 }))
@@ -56,6 +58,10 @@ const store = vi.hoisted(() => ({
     ['pat-1', { id: 'pat-1', clinicId: 'c-1', fullName: 'Juan Pérez' }],
     ['pat-2', { id: 'pat-2', clinicId: 'c-3', fullName: 'María López' }],
   ]),
+  contacts: new Map<string, Record<string, unknown>[]>([
+    ['pat-1', [{ id: 'contact-1', clinicId: 'c-1', patientId: 'pat-1', channel: 'whatsapp', contactHandle: '+50255550101', isPrimary: true }]],
+    ['pat-2', [{ id: 'contact-2', clinicId: 'c-3', patientId: 'pat-2', channel: 'whatsapp', contactHandle: '+50255550102', isPrimary: true }]],
+  ]),
   services: [{ id: 'svc-1', clinicId: 'c-1', name: 'Limpieza', durationMinutes: 60 }] as Record<string, unknown>[],
   appts: new Map<string, Record<string, unknown>>(),
   events: [] as Record<string, unknown>[],
@@ -97,6 +103,15 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
       const row = store.patients.get(id)
       return row && row.clinicId === clinicId ? row : null
     },
+    create: async ({ clinicId, fullName }: { clinicId: string; fullName: string }) => {
+      const id = `pat-${store.patients.size + 1}`
+      const row = { id, clinicId, fullName }
+      store.patients.set(id, row)
+      return row
+    },
+    listContacts: async (clinicId: string, patientId: string) => (
+      store.contacts.get(patientId) ?? []
+    ).filter((contact) => contact.clinicId === clinicId),
   }),
   createAppointmentsRepository: () => ({
     listServices: async (clinicId: string) => store.services.filter((s) => s.clinicId === clinicId),

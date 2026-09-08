@@ -63,6 +63,8 @@ export {
   type FlowResult,
 } from './booking-flow.js'
 
+export { formatCalendarBooking, type CalendarBookingDetails } from './calendar-event-details.js'
+
 export {
   advanceRescheduleFlow,
   initialRescheduleState,

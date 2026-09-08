@@ -48,6 +48,53 @@ export interface ActiveChunkRow {
   doctorId: string | null
 }
 
+export interface KnowledgeSearchFilters {
+  clinicId: string
+  language?: string
+  doctorId?: string
+  documentVersion?: number
+}
+
+export interface KnowledgeSearchRow {
+  chunkId: string
+  documentId: string
+  title: string
+  content: string
+  doctorId: string | null
+  language: string | null
+  documentVersion: number
+  updatedAt: string
+  vectorScore: number
+  lexicalScore: number
+}
+
+export type KnowledgeCandidateStatus = 'pending_review' | 'approved' | 'rejected' | 'superseded'
+export interface KnowledgeCandidate {
+  id: string
+  clinicId: string
+  retrievalEventId: string | null
+  sourceQuestion: string
+  candidateContent: string
+  status: KnowledgeCandidateStatus
+  confidenceScore: number
+  groundingScore: number
+  medicalSafetyOk: boolean
+  promptSafetyOk: boolean
+  contradictionFree: boolean
+  consistencyCount: number
+  patientFeedback: 'accepted' | 'corrected' | 'escalated' | 'unknown'
+  humanEdit: string | null
+  approvedBy: string | null
+  approvedAt: string | null
+  sourceDocumentId: string | null
+  sourceDocumentVersion: number | null
+  previousVersionId: string | null
+  supportingChunks: unknown[]
+  originalSource: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
 /** Per-document training progress (Screen 7): how many chunks exist and how many
  *  already carry an embedding. The bot can only retrieve embedded chunks, so this
  *  drives the panel's "trained / training / not indexed" state. */
@@ -112,6 +159,37 @@ export interface KnowledgeRepository {
   listEmbeddedChunks(clinicId: string): Promise<EmbeddedChunkRow[]>
   /** Active chunks regardless of embedding state, for keyword fallback retrieval. */
   listActiveChunks(clinicId: string): Promise<ActiveChunkRow[]>
+  /** Hybrid pgvector + PostgreSQL full-text retrieval; only candidate rows are returned. */
+  searchChunks(query: string, embedding: number[], filters: KnowledgeSearchFilters, limit?: number): Promise<KnowledgeSearchRow[]>
+  createKnowledgeCandidate(input: {
+    clinicId: string
+    retrievalEventId?: string | null
+    sourceQuestion: string
+    candidateContent: string
+    confidenceScore: number
+    groundingScore: number
+    medicalSafetyOk: boolean
+    promptSafetyOk: boolean
+    contradictionFree: boolean
+    consistencyCount?: number
+    patientFeedback?: 'accepted' | 'corrected' | 'escalated' | 'unknown'
+    supportingChunks: unknown[]
+    originalSource?: Record<string, unknown>
+  }): Promise<KnowledgeCandidate>
+  updateRetrievalFeedback(eventId: string, feedback: 'accepted' | 'corrected' | 'escalated' | 'unknown', humanEdit?: string | null, humanApproved?: boolean): Promise<void>
+  recordRetrievalEvent(event: {
+    clinicId: string
+    conversationId?: string | null
+    query: string
+    language?: string | null
+    filters?: Record<string, unknown>
+    selectedChunks: unknown[]
+    answer?: string | null
+    handoffReason?: string | null
+    confidenceScore?: number | null
+    patientFeedback?: 'accepted' | 'corrected' | 'escalated' | 'unknown'
+    candidateId?: string | null
+  }): Promise<string>
   createChunk(data: CreateChunkInput): Promise<KnowledgeChunk>
   replaceChunks(clinicId: string, documentId: string, chunks: Omit<CreateChunkInput, 'documentId' | 'clinicId'>[]): Promise<KnowledgeChunk[]>
 
@@ -148,13 +226,14 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
         ...(data.doctorId ? { doctorId: data.doctorId } : {}),
       }
       const rows = await sql<KnowledgeDocument[]>`
-        INSERT INTO knowledge_documents (clinic_id, title, content, document_type, status, metadata)
+        INSERT INTO knowledge_documents (clinic_id, title, content, document_type, status, approved_at, metadata)
         VALUES (
           ${data.clinicId},
           ${data.title},
           ${data.content},
           ${data.documentType ?? 'faq'},
           ${data.status       ?? 'draft'},
+          CASE WHEN ${data.status ?? 'draft'} = 'active' THEN now() ELSE NULL END,
           ${sql.json(toJson(metadata))}
         )
         RETURNING *
@@ -163,22 +242,35 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
     },
 
     async updateDocument(clinicId, id, data) {
-      // COALESCE keeps any field the caller omitted; updated_at bumps via trigger.
+      // Editing content creates a new retrieval version and invalidates vectors
+      // before the document can be read again. This prevents stale answers.
       const rows = await sql<KnowledgeDocument[]>`
-        UPDATE knowledge_documents SET
-          title         = COALESCE(${data.title        ?? null}, title),
-          content       = COALESCE(${data.content      ?? null}, content),
-          document_type = COALESCE(${data.documentType ?? null}, document_type)
-        WHERE clinic_id = ${clinicId} AND id = ${id}
-        RETURNING *
-      `
+          UPDATE knowledge_documents SET
+            title         = COALESCE(${data.title        ?? null}, title),
+            content       = COALESCE(${data.content      ?? null}, content),
+            document_type = COALESCE(${data.documentType ?? null}, document_type),
+            version       = version + 1,
+            approved_at   = NULL
+          WHERE clinic_id = ${clinicId} AND id = ${id}
+          RETURNING *
+        `
+      // The lightweight repository test double has no transaction helper; the
+      // service postgres client does, so production always performs invalidation.
+      if (rows[0] && typeof (sql as unknown as { begin?: unknown }).begin === 'function') {
+        await sql`
+          UPDATE knowledge_chunks
+          SET embedding = NULL, embedding_model = NULL, embedded_at = NULL,
+              metadata = COALESCE(metadata, '{}') - 'embedding'
+          WHERE clinic_id = ${clinicId} AND document_id = ${id}
+        `
+      }
       if (!rows[0]) throw new Error(`Document not found: ${id}`)
       return rows[0]
     },
 
     async updateDocumentStatus(clinicId, id, status) {
       const rows = await sql<KnowledgeDocument[]>`
-        UPDATE knowledge_documents SET status = ${status}
+        UPDATE knowledge_documents SET status = ${status}, approved_at = CASE WHEN ${status} = 'active' THEN now() ELSE approved_at END
         WHERE clinic_id = ${clinicId} AND id = ${id}
         RETURNING *
       `
@@ -188,7 +280,7 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
 
     async approveDraftDocuments(clinicId) {
       return sql<KnowledgeDocument[]>`
-        UPDATE knowledge_documents SET status = 'active'
+        UPDATE knowledge_documents SET status = 'active', approved_at = now()
         WHERE clinic_id = ${clinicId} AND status = 'draft'
         RETURNING *
       `
@@ -262,6 +354,73 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
           AND d.status = 'active'
           AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
         ORDER BY d.updated_at DESC, c.chunk_index ASC
+      `
+    },
+
+    async searchChunks(query, embedding, filters, limit = 40) {
+      const vector = embedding.length === 1536 ? `[${embedding.join(',')}]` : null
+      if (!vector) return []
+      return sql<KnowledgeSearchRow[]>`
+        SELECT c.id AS chunk_id,
+               d.id AS document_id,
+               d.title,
+               c.content,
+               d.metadata ->> 'doctorId' AS doctor_id,
+               COALESCE(d.metadata ->> 'language', c.metadata ->> 'language') AS language,
+               d.version AS document_version,
+               d.updated_at,
+               COALESCE((1 - (c.embedding <=> ${vector}::vector))::float8, 0)::float8 AS vector_score,
+               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query}))::float8 AS lexical_score
+        FROM knowledge_chunks c
+        JOIN knowledge_documents d ON d.id = c.document_id AND d.clinic_id = c.clinic_id
+        WHERE c.clinic_id = ${filters.clinicId}
+          AND d.status = 'active'
+          AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
+          AND (${filters.language ?? null}::text IS NULL OR lower(COALESCE(d.metadata ->> 'language', c.metadata ->> 'language', '')) = lower(${filters.language ?? null}))
+          AND (${filters.doctorId ?? null}::text IS NULL OR d.metadata ->> 'doctorId' IS NULL OR d.metadata ->> 'doctorId' = ${filters.doctorId ?? null})
+          AND (${filters.documentVersion ?? null}::int IS NULL OR d.version = ${filters.documentVersion ?? null})
+        ORDER BY (0.70 * COALESCE((1 - (c.embedding <=> ${vector}::vector)), 0) +
+                  0.20 * LEAST(ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query})), 1) +
+                  0.10 * (1.0 / GREATEST(d.version, 1))) DESC,
+                 d.updated_at DESC
+        LIMIT ${limit}
+      `
+    },
+
+    async recordRetrievalEvent(event) {
+      const rows = await sql<{ id: string }[]>`
+        INSERT INTO knowledge_retrieval_events
+          (clinic_id, conversation_id, query, language, filters, selected_chunks, answer, handoff_reason, confidence_score, patient_feedback, candidate_id)
+        VALUES (
+          ${event.clinicId}, ${event.conversationId ?? null}, ${event.query}, ${event.language ?? null},
+          ${sql.json(toJson(event.filters ?? {}))}, ${sql.json(toJson(event.selectedChunks))},
+          ${event.answer ?? null}, ${event.handoffReason ?? null}, ${event.confidenceScore ?? null}, ${event.patientFeedback ?? 'unknown'}, ${event.candidateId ?? null}
+        )
+        RETURNING id
+      `
+      return rows[0]!.id
+    },
+
+    async createKnowledgeCandidate(input) {
+      const rows = await sql<KnowledgeCandidate[]>`
+        INSERT INTO knowledge_candidates
+          (clinic_id, retrieval_event_id, source_question, candidate_content, confidence_score, grounding_score,
+           medical_safety_ok, prompt_safety_ok, contradiction_free, consistency_count, patient_feedback,
+           supporting_chunks, original_source)
+        VALUES (${input.clinicId}, ${input.retrievalEventId ?? null}, ${input.sourceQuestion}, ${input.candidateContent},
+          ${input.confidenceScore}, ${input.groundingScore}, ${input.medicalSafetyOk}, ${input.promptSafetyOk},
+          ${input.contradictionFree}, ${input.consistencyCount ?? 1}, ${input.patientFeedback ?? 'unknown'},
+          ${sql.json(toJson(input.supportingChunks))}, ${sql.json(toJson(input.originalSource ?? {}))})
+        RETURNING *
+      `
+      return rows[0]!
+    },
+
+    async updateRetrievalFeedback(eventId, feedback, humanEdit = null, humanApproved = false) {
+      await sql`
+        UPDATE knowledge_retrieval_events
+        SET patient_feedback = ${feedback}, human_edit = ${humanEdit}, human_approved = ${humanApproved}
+        WHERE id = ${eventId}
       `
     },
 

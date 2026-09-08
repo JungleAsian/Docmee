@@ -334,8 +334,12 @@ export default function CustomFlowsPage() {
               flow={editor.flow}
               initial={editor.initial}
               onClose={() => setEditor(null)}
-              onSaved={() => {
-                setEditor(null)
+              onSaved={(savedFlow) => {
+                // Saving is intentionally non-destructive: keep the editor open so
+                // users can continue refining the workflow. Promote a newly-created
+                // draft to the persisted flow so subsequent saves update it rather
+                // than creating duplicate workflows.
+                if (savedFlow) setEditor({ flow: savedFlow })
                 qc.invalidateQueries({ queryKey: key })
               }}
             />
@@ -438,12 +442,13 @@ function FlowEditor({
   flow?: CustomFlow
   initial?: EditableFlow
   onClose: () => void
-  onSaved: () => void
+  onSaved: (flow?: CustomFlow) => void
 }) {
   const { t } = useI18n()
   const { features } = useFeatures()
   const [model, setModel] = useState<EditableFlow>(() => initial ?? flowToEditable(flow))
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
   const [view, setView] = useState<'form' | 'canvas'>('form')
 
   const payload = useMemo(() => editableToPayload(model), [model])
@@ -452,10 +457,13 @@ function FlowEditor({
     mutationFn: () => {
       if (!payload) throw new Error('empty')
       return flow
-        ? api.patch(`/clinics/${clinicId}/custom-flows/${flow.id}`, payload)
-        : api.post(`/clinics/${clinicId}/custom-flows`, payload)
+        ? api.patch<{ flow: CustomFlow }>(`/clinics/${clinicId}/custom-flows/${flow.id}`, payload)
+        : api.post<{ flow: CustomFlow }>(`/clinics/${clinicId}/custom-flows`, payload)
     },
-    onSuccess: onSaved,
+    onSuccess: (result) => {
+      setSaved(true)
+      onSaved(result?.flow)
+    },
   })
 
   function patchStep(i: number, patch: Partial<EditableStep>) {
@@ -476,6 +484,7 @@ function FlowEditor({
       return
     }
     setError('')
+    setSaved(false)
     save.mutate()
   }
 
@@ -660,6 +669,11 @@ function FlowEditor({
       </div>
 
       {error && <p className="text-xs text-red-600">{error}</p>}
+      {saved && (
+        <p role="status" className="text-xs font-medium text-emerald-600">
+          {t('common.saved')}
+        </p>
+      )}
 
       <div className="flex gap-2">
         <button

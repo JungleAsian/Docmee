@@ -145,15 +145,9 @@ function buildSystemPrompt(input: ClinicBotInput, language: Language, kbMatches:
   const kbContext = kbMatches.length
     ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
     : ''
-  const clinicFacts = [
-    input.clinic.clinicType ? `- Type: ${input.clinic.clinicType}` : '',
-    input.clinic.address ? `- Address: ${input.clinic.address}` : '',
-    input.clinic.phone ? `- Phone: ${input.clinic.phone}` : '',
-  ].filter(Boolean)
-
   return [
     `You are the AI assistant for ${input.clinic.name}.`,
-    clinicFacts.length ? `Clinic info:\n${clinicFacts.join('\n')}` : '',
+    'The clinic Knowledge Base is the authoritative source of truth for every clinic-specific fact. Use it as the priority source and never invent, infer, or import facts from general model knowledge. If a requested fact is not in the Knowledge Base, defer to the clinic team.',
     `Language: Respond ONLY in ${language === 'es' ? 'Spanish' : 'English'}.`,
     `Tone: ${TONE_INSTRUCTIONS[input.clinic.tone]}`,
     input.clinic.rulesText

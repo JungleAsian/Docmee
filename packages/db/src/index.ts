@@ -186,6 +186,8 @@ export type {
   UpdateIaProfileInput,
   CreateIaRuleInput,
   EmbeddedChunkRow,
+  KnowledgeSearchRow,
+  KnowledgeSearchFilters,
   ErrorReviewsRepository,
   CreateErrorReviewInput,
   ErrorReviewFilters,

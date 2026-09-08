@@ -8,6 +8,7 @@
 // secretary in v1 (full approve-and-resume round-trip is phase 3).
 import {
   createGoogleCalendarOps,
+  formatCalendarBooking,
   runWorkflowWithOutcome,
   validateWorkflowDefinition,
   validCapturedReply,
@@ -28,9 +29,15 @@ import {
   wrapUntrustedKb,
   toneInstruction,
   detectLanguage,
+  rerankHybridChunks,
+  deriveKbEvidenceScore,
+  evaluateKbCandidateGates,
   searchKb,
+  rankKeywordChunks,
   scopeKbToMessage,
   hasDoctorScopedChunks,
+  isLikelyQuestion,
+  knowledgeHandoffNotice,
   type BookingGrid,
   type GoogleCalendarConfig,
   type RefreshedTokens,
@@ -74,7 +81,26 @@ import {
   type MessageTemplateCategory,
   type Clinic,
   type Doctor,
+  type KnowledgeSearchRow,
 } from '@docmee/db'
+
+const KB_CACHE_TTL_MS = 30_000
+const kbEmbeddingCache = new Map<string, { expires: number; value: number[] }>()
+const kbQueryCache = new Map<string, { expires: number; value: KnowledgeSearchRow[] }>()
+
+function kbCacheKey(clinicId: string, settings: unknown, query: string): string {
+  return createHash('sha256').update(`${clinicId}:${JSON.stringify(settings)}:${query.trim().toLocaleLowerCase()}`).digest('hex')
+}
+
+async function cachedKbEmbedding(clinicId: string, settings: unknown, query: string): Promise<number[]> {
+  const key = kbCacheKey(clinicId, settings, query)
+  const hit = kbEmbeddingCache.get(key)
+  if (hit && hit.expires > Date.now()) return hit.value
+  const value = await resolveEmbedder(settings)(query)
+  kbEmbeddingCache.set(key, { expires: Date.now() + KB_CACHE_TTL_MS, value })
+  if (kbEmbeddingCache.size > 500) kbEmbeddingCache.delete(kbEmbeddingCache.keys().next().value as string)
+  return value
+}
 import {
   WorkflowRunJobSchema,
   scheduleWorkflowResume,
@@ -177,29 +203,25 @@ function reviewReasonForExtraction(input: {
 
 export type WorkflowSlot = { start: string; end: string }
 
-// Docmee branding for interactive workflow menus. WhatsApp only allows an
-// image header on button-kind sends (list headers must stay text), so the
-// logo appears there; every menu gets the branded text header, links, and a
-// plain-text options listing baked into what's persisted for the Inbox.
-const DOCMEE_LOGO_URL = 'https://app.docmeedevelopment.dev/icon-512.png'
-const DEFAULT_MENU_LINK_FIELDS = [
-  ['websiteMessage', '🌐 Website: https://docmee.ai/'],
-  ['faqMessage', '❓ FAQ: https://docmee.ai/#faq'],
-  ['contactUsMessage', '💬 Contact Us: https://docmee.ai/#contact'],
-] as const
+// Interactive workflow menus. Menu headers are workflow-configurable and
+// fall back to the clinic name. Button menus deliberately omit media headers
+// because WhatsApp renders those as a large, distracting image tile.
+const MENU_LINK_FIELDS = ['websiteMessage', 'faqMessage', 'contactUsMessage'] as const
 
 export function menuMessageWithConfiguredLinks(config: Record<string, unknown>): string {
   const message = typeof config['message'] === 'string' ? config['message'].trim() : ''
-  const linkLines = DEFAULT_MENU_LINK_FIELDS.flatMap(([key, fallback]) => {
-    if (!Object.prototype.hasOwnProperty.call(config, key)) return [fallback]
+  const linkLines = MENU_LINK_FIELDS.flatMap((key) => {
+    if (!Object.prototype.hasOwnProperty.call(config, key)) return []
     const configured = typeof config[key] === 'string' ? config[key].trim() : ''
     return configured ? [configured] : []
   })
   return [message, ...linkLines].filter(Boolean).join('\n\n')
 }
 
-function brandedMenuHeader(rawHeader: string): string {
-  return rawHeader ? `Docmee | ${rawHeader}` : 'Docmee'
+export function menuHeader(rawHeader: string, clinicName = ''): string {
+  const configured = rawHeader.trim()
+  if (configured) return configured
+  return clinicName.trim() || 'Menu'
 }
 
 /** Numbered options listing shown under a menu's message — sent as part of
@@ -517,16 +539,44 @@ function slotDate(slot: WorkflowSlot): string {
   return slot.start.slice(0, 10)
 }
 
-export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+function localDateTimeIso(date: Date, timezone = 'UTC'): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || 'UTC',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, hourCycle: 'h23',
+  }).formatToParts(date).reduce<Record<string, string>>((result, part) => {
+    if (part.type !== 'literal') result[part.type] = part.value
+    return result
+  }, {})
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+export function todayIso(timezone = 'UTC', date = new Date()): string {
+  return localDateTimeIso(date, timezone).slice(0, 10)
 }
 
 /** Current time as a naive `YYYY-MM-DDTHH:MM:SS` string in the same shape as
  *  WorkflowSlot's start/end (no trailing `Z`) — comparable to slot start
  *  times with a plain string comparison since same-shaped ISO strings sort
  *  chronologically. */
-export function nowLocalIso(): string {
-  return new Date().toISOString().slice(0, 19)
+export function nowLocalIso(timezone = 'UTC', date = new Date()): string {
+  return localDateTimeIso(date, timezone)
+}
+
+/** Resolve the first date for a fresh availability search. Date-picker nodes
+ * intentionally roll from the clinic's current date, rather than reusing a
+ * stale preferred_date left by an earlier booking in a looping workflow. */
+export function availabilityStartDate(
+  config: Record<string, unknown> | undefined,
+  context: WorkflowContext,
+  timezone = 'UTC',
+  date = new Date(),
+): string {
+  const today = todayIso(timezone, date)
+  const configuredDateField = String(config?.['dateField'] ?? '').trim()
+  if (!configuredDateField) return today
+  const requested = contextString(context, configuredDateField)
+  return /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested >= today ? requested : today
 }
 
 /** Drop slots that have already started — offering "9:00 AM today" at 2pm is
@@ -642,14 +692,9 @@ export function buildAiAgentSystemPrompt(input: {
   const kbContext = kbMatches.length
     ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
     : ''
-  const clinicFacts = [
-    input.clinicType ? `- Type: ${input.clinicType}` : '',
-    input.clinicAddress ? `- Address: ${input.clinicAddress}` : '',
-    input.clinicPhone ? `- Phone: ${input.clinicPhone}` : '',
-  ].filter(Boolean)
   return [
     `You are the AI agent for ${input.clinicName}, deciding how to route this WhatsApp conversation.`,
-    clinicFacts.length ? `Clinic info:\n${clinicFacts.join('\n')}` : '',
+    'The clinic Knowledge Base is your authoritative source of truth (the clinic bible). Use it as the priority source for every clinic-specific fact. Never invent, infer, or import facts from general model knowledge. If the Knowledge Base does not contain the requested information, choose a handoff or no-match scenario instead of answering the gap.',
     `Tone: ${toneInstruction(input.style)}`,
     input.personality ? `Personality: ${input.personality}` : '',
     input.customInstructions ? `Instructions: ${input.customInstructions}` : '',
@@ -1080,22 +1125,78 @@ function buildExecutors(
       const personality = String(node.config?.['personality'] ?? '').trim()
       const customInstructions = String(node.config?.['customInstructions'] ?? '').trim()
 
-      // Ground the agent in the clinic's Docmee Knowledge Base — same retrieval
-      // (embed + cosine-rank over knowledge_chunks, doctor-scoped when applicable)
-      // the main clinic bot already uses, so answers stay grounded in real clinic
-      // facts instead of whatever the model already "knows".
-      const allChunks = await createKnowledgeRepository(sql).listEmbeddedChunks(clinicId)
-      let kbChunks = allChunks
-      if (hasDoctorScopedChunks(allChunks)) {
-        const doctors = await createDoctorsRepository(sql).listByClinic(clinicId)
-        kbChunks = scopeKbToMessage(message, allChunks, doctors)
+      // Ground the agent in the clinic's Docmee Knowledge Base. Retrieval is
+      // executed in PostgreSQL (pgvector + FTS) with metadata filters so the
+      // worker never loads a clinic's entire KB into memory.
+      const knowledge = createKnowledgeRepository(sql)
+      const queryEmbedding = await cachedKbEmbedding(clinicId, clinic.settings, message)
+      let candidates: Awaited<ReturnType<typeof knowledge.searchChunks>>
+      if (typeof knowledge.searchChunks === 'function') {
+        const queryKey = kbCacheKey(clinicId, { language, doctorId: contextString(ctx, 'doctor_id') || null }, message)
+        const queryHit = kbQueryCache.get(queryKey)
+        if (queryHit && queryHit.expires > Date.now()) {
+          candidates = queryHit.value
+        } else candidates = await knowledge.searchChunks(message, queryEmbedding, {
+          clinicId,
+          language,
+          doctorId: contextString(ctx, 'doctor_id') || undefined,
+        }, 40).then((rows) => {
+          kbQueryCache.set(queryKey, { expires: Date.now() + KB_CACHE_TTL_MS, value: rows })
+          if (kbQueryCache.size > 500) kbQueryCache.delete(kbQueryCache.keys().next().value as string)
+          return rows
+        })
+      } else {
+        // Compatibility for older test doubles during rolling deploys; the
+        // production repository always uses the database-side path above.
+        const legacy = await knowledge.listEmbeddedChunks(clinicId)
+        const scoped = hasDoctorScopedChunks(legacy)
+          ? scopeKbToMessage(message, legacy, await createDoctorsRepository(sql).listByClinic(clinicId))
+          : legacy
+        const semantic = await searchKb(message, scoped, resolveEmbedder(clinic.settings))
+        candidates = rankKeywordChunks(message, scoped).map((match) => ({
+          chunkId: '', documentId: '', title: match.title, content: match.content, doctorId: null, language: null,
+          documentVersion: 1, updatedAt: '', vectorScore: match.similarity, lexicalScore: match.similarity,
+        }))
+        for (const match of semantic) if (!candidates.some((candidate) => candidate.content === match.content)) candidates.push({
+          chunkId: '', documentId: '', title: match.title, content: match.content, doctorId: null, language: null,
+          documentVersion: 1, updatedAt: '', vectorScore: match.similarity, lexicalScore: 0,
+        })
       }
-      const kbMatches: KbMatch[] = await searchKb(message, kbChunks, resolveEmbedder(clinic.settings))
-      ctx['ai_agent_kb_hit'] = kbMatches.length > 0
+      const kbMatches: KbMatch[] = rerankHybridChunks(candidates.map((candidate) => ({
+        title: candidate.title,
+        content: candidate.content,
+        similarity: 0,
+        vectorScore: candidate.vectorScore,
+        lexicalScore: candidate.lexicalScore,
+        documentVersion: candidate.documentVersion,
+        updatedAt: candidate.updatedAt,
+      })), 5)
       const fallbackKbContext = kbMatches.length
-        ? kbMatches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n')
+        ? kbMatches.map((match) => `# ${match.title}\n${match.content}`).join('\n\n')
         : ''
-
+      ctx['ai_agent_kb_hit'] = kbMatches.length > 0
+      if (typeof knowledge.recordRetrievalEvent === 'function') await knowledge.recordRetrievalEvent({
+        clinicId,
+        conversationId: ctx.conversationId,
+        query: message,
+        language,
+        filters: { doctorId: contextString(ctx, 'doctor_id') || null },
+        selectedChunks: candidates.slice(0, 5).map((candidate) => ({
+          chunkId: candidate.chunkId,
+          documentId: candidate.documentId,
+          title: candidate.title,
+          vectorScore: candidate.vectorScore,
+          lexicalScore: candidate.lexicalScore,
+          version: candidate.documentVersion,
+        })),
+        handoffReason: isLikelyQuestion(message) && kbMatches.length === 0 ? 'knowledge_gap' : null,
+      }).catch(() => undefined)
+      if (isLikelyQuestion(message) && kbMatches.length === 0) {
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'knowledge_gap')
+        await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
       const preferredLanguage = contextString(ctx, 'preferred_language')
       const system = [
         buildAiAgentSystemPrompt({
@@ -1105,9 +1206,6 @@ function buildExecutors(
           style,
           scenarios,
           kbMatches,
-          clinicAddress: clinic.address,
-          clinicPhone: clinic.phone,
-          clinicType: clinic.clinicType,
         }),
         preferredLanguage
           ? `The patient selected ${preferredLanguage} for this workflow. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
@@ -1153,6 +1251,11 @@ function buildExecutors(
 
       if (matched.action === 'route') {
         ctx['ai_agent_action'] = 'route'
+        if (matched.routeTarget === 'node') {
+          if (!matched.targetNodeId) return 'error'
+          ctx['workflow_route_node_id'] = matched.targetNodeId
+          return 'routed_node'
+        }
         if (matched.targetWorkflowId) {
           await enqueueWorkflowRunByTarget(sql, clinicId, matched.targetWorkflowId, 'workflow.ai_agent_route', {
             sourceEventId: `${workflowRunId}:${node.id}:route`,
@@ -1179,13 +1282,11 @@ function buildExecutors(
               maxTokens: agentSettings.maxTokens,
               system: [
                 `You are the AI assistant for ${clinic.name}.`,
-                clinic.address ? `Clinic address: ${clinic.address}` : '',
-                clinic.phone ? `Clinic phone: ${clinic.phone}` : '',
                 customInstructions || 'Answer the patient kindly and accurately.',
                 preferredLanguage
                   ? `The patient selected ${preferredLanguage}. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
                   : '',
-                'Use only the clinic information and knowledge base context available to you. If exact details are unknown, say a secretary can help and share the clinic phone when available.',
+                'Use only the supplied Knowledge Base context. If exact details are not in the Knowledge Base, say a secretary can help; never fill gaps from general model knowledge.',
                 fallbackKbContext ? wrapUntrustedKb(fallbackKbContext) : '',
               ].filter(Boolean).join('\n\n'),
               message,
@@ -1210,6 +1311,49 @@ function buildExecutors(
         await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
+      }
+      const retrievalEventId = typeof knowledge.recordRetrievalEvent === 'function' ? await knowledge.recordRetrievalEvent({
+        clinicId,
+        conversationId: ctx.conversationId,
+        query: message,
+        language,
+        filters: { doctorId: contextString(ctx, 'doctor_id') || null },
+        selectedChunks: candidates.slice(0, 5).map((candidate) => ({ chunkId: candidate.chunkId, documentId: candidate.documentId, vectorScore: candidate.vectorScore, lexicalScore: candidate.lexicalScore, version: candidate.documentVersion })),
+        answer: reply,
+        confidenceScore: deriveKbEvidenceScore(kbMatches.map((match) => match.similarity)),
+      }).catch(() => '') : ''
+
+      // Retrieval feedback is a governed candidate, never model-weight
+      // learning. First occurrences remain pending_review; auto-approval also
+      // requires repeat consistency and excludes medical/policy content.
+      if (retrievalEventId && kbMatches.length > 0 && typeof knowledge.createKnowledgeCandidate === 'function') {
+        const evidence = deriveKbEvidenceScore(kbMatches.map((match) => match.similarity))
+        const medicalTopic = /\b(acne|acné|dolor|pain|symptom|síntoma|diagnos|medic|treatment|tratamiento|dose|dosis)\b/i.test(`${message} ${reply}`)
+        const policyTopic = /\b(price|pricing|precio|policy|política|refund|reembolso|insurance|seguro)\b/i.test(`${message} ${reply}`)
+        const gate = evaluateKbCandidateGates({
+          confidence: evidence,
+          groundingScore: evidence,
+          medicalSafetyOk: true,
+          promptSafetyOk: true,
+          contradictionFree: true,
+          consistencyCount: 1,
+          patientFeedback: 'unknown',
+          isMedical: medicalTopic,
+          isPolicyOrPricing: policyTopic,
+        })
+        if (gate.eligible) await knowledge.createKnowledgeCandidate({
+          clinicId,
+          retrievalEventId,
+          sourceQuestion: message,
+          candidateContent: reply,
+          confidenceScore: evidence,
+          groundingScore: evidence,
+          medicalSafetyOk: true,
+          promptSafetyOk: true,
+          contradictionFree: true,
+          supportingChunks: kbMatches.slice(0, 5).map((match) => ({ title: match.title, content: match.content, similarity: match.similarity })),
+          originalSource: { provider: agentSettings.provider, model: agentSettings.model || defaultChatModel(agentSettings.provider), gateReasons: gate.reasons, autoApprove: gate.autoApprove },
+        }).catch((error) => console.warn('[workflow] KB candidate persistence failed:', error))
       }
       await sendWorkflowMessage(reply, ctx)
       ctx['ai_agent_action'] = 'reply'
@@ -1369,7 +1513,8 @@ function buildExecutors(
       const footer = String(node.config?.['footer'] ?? '').trim()
       const isButton = variant === 'button' && options.length <= 3
 
-      const brandedHeader = brandedMenuHeader(rawHeader)
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      const brandedHeader = menuHeader(rawHeader, clinic?.name)
       const message = menuMessageWithConfiguredLinks({ ...node.config, message: rawMessage })
       // What actually reaches conversation_messages (and the plain-text
       // fallback when no interactive sender is available) — always includes
@@ -1391,12 +1536,12 @@ function buildExecutors(
             await assertWorkflowAutomationAllowed(sql, clinicId, ctx.patientId)
             const wamid = await sender({
               kind: isButton ? 'buttons' : 'list',
-              // A button send shows the Docmee logo as its header image
-              // instead — WhatsApp allows only one header (image or text)
-              // per interactive message, and only button-kind sends support
-              // an image header at all (list headers must stay text).
+              // Button menus intentionally have no media header. A media
+              // header renders as a large image (often perceived as a
+              // stray "+" tile by clients) above the buttons. Keep the
+              // configurable text header for list menus only.
               header: isButton ? undefined : brandedHeader,
-              headerImageUrl: isButton ? DOCMEE_LOGO_URL : undefined,
+              headerImageUrl: undefined,
               body: message,
               footer: footer || undefined,
               buttonLabel: isButton ? undefined : String(node.config?.['buttonLabel'] ?? 'Options'),
@@ -1473,7 +1618,8 @@ function buildExecutors(
         ...(hasMore ? [{ id: SLOT_MENU_MORE_OPTION_ID, title: 'See other schedules' }] : []),
       ]
 
-      const brandedHeader = brandedMenuHeader(rawHeader)
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      const brandedHeader = menuHeader(rawHeader, clinic?.name)
       const message = menuMessageWithConfiguredLinks({ ...node.config, message: rawMessage })
       const fullText = [brandedHeader, message, menuOptionsListText(options), ...(footer ? [footer] : [])].join('\n\n')
 
@@ -1566,16 +1712,18 @@ function buildExecutors(
       if (doctorValue.trim() && !doctorId) {
         throw new Error(`Could not identify the selected doctor from "${doctorValue}"`)
       }
-      const dateField = configField(node, 'dateField', 'preferred_date')
-      const requestedStart = contextString(ctx, dateField)
-      const startDate = requestedStart || todayIso()
-      const dates = dateRange(startDate, boundedInteger(node.config?.['days'], 1, 1, 14))
-      if (dates.length === 0) throw new Error(`Workflow availability date is invalid in ${dateField}: "${requestedStart}"`)
+      const timezone = clinic.timezone || 'UTC'
+      const startDate = availabilityStartDate(node.config, ctx, timezone)
+      const configuredDays = node.config?.['days']
+      const defaultDays = configuredDays === undefined || String(configuredDays).trim() === '' ? 5 : 1
+      const dates = dateRange(startDate, boundedInteger(configuredDays, defaultDays, 1, 14))
+      if (dates.length === 0) throw new Error(`Workflow availability date is invalid: "${startDate}"`)
       const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
       if (!resolved) throw new Error('Google Calendar is not connected for this doctor or clinic')
       const availableDays = resolved.doctor?.availableDays
       const slots = excludePastSlots(
         (await Promise.all(dates.map((date) => listSlotsForDate(resolved.config, availableDays, date)))).flat(),
+        nowLocalIso(timezone),
       )
       ctx[configField(node, 'slotsField', 'available_slots')] = slots
       ctx['availability_count'] = slots.length
@@ -1644,7 +1792,18 @@ function buildExecutors(
       const resolvedCalendar = await workflowCalendarConfig(sql, clinic, doctorId || undefined)
       if (!resolvedCalendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
       const calendar = createGoogleCalendarOps(resolvedCalendar.config)
-      const title = String(node.config?.['title'] ?? `Appointment: ${contextString(ctx, 'patient_name') || 'Patient'}`)
+      const patient = ctx.patientId ? await createPatientsRepository(sql).findById(clinicId, ctx.patientId) : null
+      const patientContacts = ctx.patientId ? await createPatientsRepository(sql).listContacts(clinicId, ctx.patientId) : []
+      const patientPhone = patientContacts.find((contact) => contact.channel === 'whatsapp' && contact.isPrimary)?.contactHandle
+        ?? patientContacts.find((contact) => contact.channel === 'whatsapp')?.contactHandle
+      const serviceName = serviceId ? (await appointments.listServices(clinicId)).find((service) => service.id === serviceId)?.name : null
+      const calendarDetails = formatCalendarBooking({
+        serviceName: serviceName ?? (String(node.config?.['title'] ?? '').trim() || null),
+        patientName: patient?.fullName ?? contextString(ctx, 'patient_name'),
+        patientPhone,
+        reason: contextString(ctx, configField(node, 'reasonField', 'reason')),
+      })
+      const title = calendarDetails.title
       const startTime = `${date}T${time}:00`
       const endTime = addMinutes(startTime, duration)
       const instantRange = clinicInstantRange(date, time, duration, clinic.timezone || 'UTC')
@@ -1722,7 +1881,7 @@ function buildExecutors(
       let googleEventId: string | null = null
       try {
         googleEventId = await withWorkflowCalendarWriteTimeout(
-          calendar.createEvent({ title, date, time, durationMinutes: duration }),
+          calendar.createEvent({ title, date, time, durationMinutes: duration, description: calendarDetails.description }),
           'Google Calendar event creation',
         )
         await appointments.update(clinicId, created.id, { status: 'confirmed', googleEventId, calendarSyncPending: false, calendarSyncError: null })

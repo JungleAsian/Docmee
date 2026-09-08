@@ -71,6 +71,8 @@ export interface ConversationsRepository {
    * scoping), mirrors listStale/listDueSnoozed.
    */
   listMidFlowCandidates(olderThanMinutes: number): Promise<Conversation[]>
+  /** Permanently remove resolved/archived conversations older than the cutoff. */
+  deleteClosedBefore(clinicId: string, cutoff: string): Promise<number>
   create(data: CreateConversationInput): Promise<Conversation>
   update(clinicId: string, id: string, data: UpdateConversationInput): Promise<Conversation>
   bulkUpdate(clinicId: string, ids: string[], data: UpdateConversationInput): Promise<number>
@@ -292,6 +294,17 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
         ORDER BY clinic_id, last_message_at NULLS LAST
         LIMIT 500
       `
+    },
+
+    async deleteClosedBefore(clinicId, cutoff) {
+      const rows = await sql<{ id: string }[]>`
+        DELETE FROM conversations
+        WHERE clinic_id = ${clinicId}
+          AND status IN ('resolved', 'archived')
+          AND updated_at < ${cutoff}::timestamptz
+        RETURNING id
+      `
+      return rows.length
     },
 
     async listTags(clinicId) {

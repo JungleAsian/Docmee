@@ -141,9 +141,15 @@ export {
   createWorkflowApprovalsRepository,
   createWorkflowExecutionsRepository,
   createMediaAssetsRepository,
+  createSensitiveRetentionRepository,
 } from './repositories/index.js'
 
-export type { MediaAssetsRepository, CreateMediaAssetInput } from './repositories/index.js'
+export type {
+  MediaAssetsRepository,
+  CreateMediaAssetInput,
+  SensitiveRetentionRepository,
+  SensitiveRetentionPurgeResult,
+} from './repositories/index.js'
 
 export type {
   ClinicsRepository,

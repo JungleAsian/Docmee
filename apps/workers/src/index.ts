@@ -26,6 +26,7 @@ import { runTimeoutChecks } from './timeout-monitor.js'
 import { bootstrapReportsScheduler } from './reports.scheduler.js'
 import { runCalendarSyncRetry } from './calendar-sync-retry.js'
 import { startMediaCleanupScheduler } from './media-cleanup.js'
+import { startSensitiveDataCleanupScheduler } from './sensitive-data-cleanup.js'
 import { createServiceDbClient } from '@docmee/db'
 
 export const conversationWorker = createWorker(
@@ -123,6 +124,7 @@ if (typeof calendarSyncRetryScheduler.unref === 'function') calendarSyncRetrySch
 // their private S3 objects every five minutes. The consumer remains idle when
 // media storage is not configured.
 export const mediaCleanupScheduler = startMediaCleanupScheduler()
+export const sensitiveDataCleanupScheduler = startSensitiveDataCleanupScheduler()
 
 // P18 — Reports use a durable BullMQ scheduler. Sheets and review requests keep
 // their existing process-local cadence pending their own scheduler work.
@@ -137,8 +139,6 @@ export const phase3Scheduler = setInterval(() => {
 }, HOURLY_MS)
 if (typeof phase3Scheduler.unref === 'function') phase3Scheduler.unref()
 
-console.log(`[workers] all 14 workers registered and listening (build ${releaseBuildId()})`)
-
 // CRE-55: on PM2 reload/deploy, stop the schedulers and let BullMQ workers finish
 // their in-flight jobs (worker.close() waits for active jobs) before exit, so a
 // deploy never kills a job mid-execution.
@@ -148,6 +148,9 @@ const allWorkers = [
   licenseHeartbeatWorker, kbEmbedWorker, followUpWorker, reportsWorker,
   sheetsSyncWorker, reviewRequestWorker, workflowRunWorker,
 ]
+
+console.log(`[workers] all ${allWorkers.length} workers registered and listening (build ${releaseBuildId()})`)
+
 let shuttingDown = false
 async function shutdownWorkers(signal: string): Promise<void> {
   if (shuttingDown) return
@@ -158,6 +161,7 @@ async function shutdownWorkers(signal: string): Promise<void> {
   clearInterval(phase3Scheduler)
   clearInterval(calendarSyncRetryScheduler)
   clearInterval(mediaCleanupScheduler)
+  clearInterval(sensitiveDataCleanupScheduler)
   await Promise.allSettled(allWorkers.map((w) => w.close()))
   console.log('[workers] shutdown complete')
   process.exit(0)

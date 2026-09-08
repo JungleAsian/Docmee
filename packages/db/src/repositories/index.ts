@@ -26,6 +26,7 @@ export { createQosRepository }                 from './qos.repository.js'
 export { createReportsRepository }             from './reports.repository.js'
 export { createPushSubscriptionsRepository }   from './push-subscriptions.repository.js'
 export { createMediaAssetsRepository }          from './media-assets.repository.js'
+export { createSensitiveRetentionRepository }   from './sensitive-retention.repository.js'
 
 export type { ClinicsRepository, CreateClinicInput, UpdateClinicInput, ClinicDirectoryStat }     from './clinics.repository.js'
 export type { ChannelAccountsRepository, CreateChannelAccountInput }                             from './channel-accounts.repository.js'
@@ -62,3 +63,4 @@ export type { QosRepository, QosDashboard, QosAttentionItem }                   
 export type { ReportsRepository, CreateGeneratedReportInput }                                    from './reports.repository.js'
 export type { PushSubscriptionsRepository, UpsertPushSubscriptionInput }                         from './push-subscriptions.repository.js'
 export type { MediaAssetsRepository, CreateMediaAssetInput }                                      from './media-assets.repository.js'
+export type { SensitiveRetentionRepository, SensitiveRetentionPurgeResult }                        from './sensitive-retention.repository.js'

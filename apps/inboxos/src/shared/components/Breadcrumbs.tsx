@@ -8,7 +8,7 @@ import { useI18n } from '../hooks/useI18n'
 import type { TranslationKey } from '../i18n'
 
 const SEGMENT_LABELS: Record<string, TranslationKey> = {
-  studio: 'studio.breadcrumb.root',
+  studio: 'common.back',
   clinics: 'nav.clinics',
   users: 'nav.users',
   doctors: 'nav.doctors',

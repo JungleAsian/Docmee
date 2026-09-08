@@ -12,6 +12,7 @@ import { useActiveClinic } from '../hooks/useActiveClinic'
 import { useI18n } from '../hooks/useI18n'
 import { avatarColor, avatarLabel, relativeTime } from '../format'
 import type { Conversation } from '../types'
+import { conversationSearchInputProps } from '../conversationInputPolicy'
 
 function previewText(
   lastMessage: Conversation['lastMessage'],
@@ -51,7 +52,7 @@ export function BubbleConversationList({ onSelect }: { onSelect: (id: string) =>
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-[var(--crm-border-color)] p-2">
         <input
-          type="search"
+          {...conversationSearchInputProps()}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('conv.search')}

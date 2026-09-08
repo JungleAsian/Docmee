@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
+import { deleteConversationPasswordInputProps } from '../conversationInputPolicy'
 
 interface DeleteConversationDialogProps {
   open: boolean
@@ -72,7 +73,7 @@ export function DeleteConversationDialog({
           <span className="mb-1 block text-xs font-medium text-gray-500">{t('view.deleteConfirmPassword')}</span>
           <input
             ref={passwordRef}
-            type="password"
+            {...deleteConversationPasswordInputProps()}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"

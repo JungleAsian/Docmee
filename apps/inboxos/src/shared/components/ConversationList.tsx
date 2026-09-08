@@ -22,6 +22,7 @@ import { LENSES, lensCounts, matchesLens, type ConversationLens } from '../conve
 import { readInboxSettings } from '../inboxSettings'
 import { DeleteConversationDialog } from './DeleteConversationDialog'
 import type { Channel, Conversation, ConversationStatus } from '../types'
+import { conversationSearchInputProps } from '../conversationInputPolicy'
 
 // Req 20: row treatment per safety severity — a coloured left rail + a tinted row +
 // a badge so an emergency or urgent thread is unmistakable while scanning the queue.
@@ -366,7 +367,7 @@ export function ConversationList({
             🔎
           </span>
           <input
-            type="search"
+            {...conversationSearchInputProps()}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('conv.search')}

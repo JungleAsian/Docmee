@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
+import { usePlatformBack } from '@/shared/hooks/usePlatformBack'
 import { GoogleOAuthButton } from '@/shared/components/GoogleOAuthButton'
 import { LicenseBadge } from '@/shared/components/LicenseBadge'
 import { PillToggle } from '@/shared/components/PillToggle'
@@ -36,6 +37,7 @@ const STATUSES: ClinicStatus[] = ['active', 'suspended', 'cancelled']
 export default function ClinicDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { t } = useI18n()
+  const { goBack } = usePlatformBack({ fallback: '/studio/clinics' })
 
   const query = useQuery({
     queryKey: ['clinic', id],
@@ -47,6 +49,13 @@ export default function ClinicDetailPage({ params }: { params: Promise<{ id: str
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{clinic?.name ?? t('studio.clinics.detail')}</h1>
+        <button
+          type="button"
+          onClick={() => goBack()}
+          className="text-xs text-gray-500 hover:text-teal-600"
+        >
+          ← {t('nav.clinics')}
+        </button>
       </div>
 
       {query.isLoading ? (

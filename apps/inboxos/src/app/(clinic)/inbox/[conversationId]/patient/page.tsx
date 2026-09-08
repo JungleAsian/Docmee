@@ -9,12 +9,12 @@
 // mode, assignment, urgency). Closed conversations are READ-ONLY here — this view
 // never reopens them (Decision 4); reopening only ever happens from the live thread.
 import { use, useState, type FormEvent, type ReactNode } from 'react'
-import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useTeam } from '@/shared/hooks/useTeam'
 import { useOnline } from '@/shared/hooks/useOnline'
+import { usePlatformBack } from '@/shared/hooks/usePlatformBack'
 import { avatarColor, avatarLabel, formatDateTime, relativeTime } from '@/shared/format'
 import { TAG_TYPES, tagColor, tagLabel } from '@/shared/tagTypes'
 import { assessSafety } from '@/shared/safety'
@@ -154,18 +154,27 @@ export default function PatientHistoryPage({
       (Boolean(patientId) && patientQuery.isError && !(patientQuery.error instanceof ApiError && patientQuery.error.status === 404)))
 
   const backHref = `/inbox?c=${conversationId}`
+  const { goBack } = usePlatformBack({ fallback: backHref })
 
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       {/* Context strip / breadcrumb */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-        <Link prefetch={false} href={backHref} className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400">
+        <button
+          type="button"
+          onClick={() => goBack(backHref, true)}
+          className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:text-sky-800 dark:text-sky-400"
+        >
           ← {t('patient.backToConversation')}
-        </Link>
+        </button>
         <span className="text-gray-300 dark:text-gray-600">·</span>
-        <Link prefetch={false} href="/inbox" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+        <button
+          type="button"
+          onClick={() => goBack('/inbox', true)}
+          className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+        >
           {t('nav.inbox')}
-        </Link>
+        </button>
         <span className="text-gray-300 dark:text-gray-600">/</span>
         <span className="font-semibold text-gray-700 dark:text-gray-200">{t('patient.profile')}</span>
       </div>

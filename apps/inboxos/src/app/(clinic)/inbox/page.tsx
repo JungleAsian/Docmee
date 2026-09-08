@@ -18,6 +18,7 @@ import { useFeatures } from '@/shared/hooks/useFeatures'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useOnline } from '@/shared/hooks/useOnline'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
+import { usePlatformBack } from '@/shared/hooks/usePlatformBack'
 
 // v3 — bumped so the light InboxOS workspace proportions take effect for
 // everyone instead of preserving older dark-admin-shell column widths.
@@ -35,6 +36,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 export default function InboxPage() {
   const { t } = useI18n()
   const online = useOnline()
+  const { goBack } = usePlatformBack({ fallback: '/inbox' })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panelsOpen, setPanelsOpen] = useState(false)
   const [detailsHidden, setDetailsHidden] = useState(false)
@@ -238,7 +240,10 @@ export default function InboxPage() {
             <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-3 py-2 lg:hidden dark:border-gray-800">
               <button
                 type="button"
-                onClick={() => select(null)}
+                onClick={() => {
+                  select(null)
+                  goBack('/inbox', true)
+                }}
                 className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 md:hidden dark:border-gray-700 dark:text-gray-300"
               >
                 ← {t('inbox.backToList')}

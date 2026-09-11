@@ -800,9 +800,11 @@ function ThreadRow({
             >
               {mode === 'human' ? '●' : '✦'} {mode === 'human' ? t('view.mode.human') : t('view.mode.bot')}
             </span>
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[c.status]}`}>
-              {t(`conv.status.${c.status}` as const)}
-            </span>
+            {c.status !== 'handoff' && (
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[c.status]}`}>
+                {t(`conv.status.${c.status}` as const)}
+              </span>
+            )}
             {c.assignedTo === userId ? (
               <span className="text-[10px] font-medium text-teal-700 dark:text-teal-400">
                 {t('conv.assignedToMe')}

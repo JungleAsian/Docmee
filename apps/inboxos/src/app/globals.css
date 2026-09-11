@@ -992,9 +992,9 @@ body {
 
   /* Keep the media repository usable without covering the full conversation rail. */
   .crm-media-repository-rail {
-    top: 5% !important;
+    top: auto !important;
     right: 0 !important;
-    bottom: auto !important;
+    bottom: 0 !important;
     left: 0 !important;
     height: 90% !important;
   }

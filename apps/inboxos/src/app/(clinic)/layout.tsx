@@ -3,7 +3,7 @@
 // Clinic shell (secretary, doctor, clinic_admin — and admins passing through).
 // Guards authentication, runs the presence heartbeat, and frames the page with
 // the shared sidebar.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
@@ -59,7 +59,21 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   // through the authenticated user preference row. RBAC filters unavailable
   // routes before this preference is applied.
   const [customizeOpen, setCustomizeOpen] = useState(false)
+  const customizeMenuRef = useRef<HTMLDivElement>(null)
   const [globalSearch, setGlobalSearch] = useState('')
+  useEffect(() => {
+    if (!customizeOpen) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && !customizeMenuRef.current?.contains(target)) {
+        setCustomizeOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [customizeOpen])
   const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   function toggleHidden(href: string) {
     const next = new Set(hiddenItems)
@@ -189,44 +203,6 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <span className="crm-header-breadcrumb" aria-current="page">{t(headerTitleKey)}</span>
           </div>
           <div className="crm-header-center">
-          <div className="relative crm-header-customize">
-            <button
-              type="button"
-              aria-label={t('nav.customizeMenu')}
-              title={t('nav.customizeMenu')}
-              onClick={() => setCustomizeOpen((v) => !v)}
-              className="crm-icon-btn hidden md:inline-flex"
-            >
-              <SlidersHorizontal size={18} />
-            </button>
-            {customizeOpen && (
-              <div className="absolute left-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-                <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                  {t('nav.customizeMenu')}
-                </p>
-                {groups.map((group, gi) => (
-                  <div key={group.label ?? gi} className="mb-1">
-                    {group.label && (
-                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>
-                    )}
-                    {group.items.map((item) => (
-                      <label
-                        key={item.href}
-                        className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!hiddenItems.has(item.href)}
-                          onChange={() => toggleHidden(item.href)}
-                        />
-                        <span className="truncate">{item.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
           {!inboxRoute && (
             <div className="crm-header-search hidden lg:flex">
               <MagnifyingGlass size={20} className="mr-3 shrink-0" />
@@ -235,6 +211,27 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           )}
           </div>
           <div className="crm-header-actions">
+            <div ref={customizeMenuRef} className="relative crm-header-customize">
+              <button type="button" aria-label={t('nav.customizeMenu')} title={t('nav.customizeMenu')} onClick={() => setCustomizeOpen((v) => !v)} className="crm-icon-btn hidden md:inline-flex">
+                <SlidersHorizontal size={18} />
+              </button>
+              {customizeOpen && (
+                <div className="absolute right-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                  <p className="mb-1 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{t('nav.customizeMenu')}</p>
+                  {groups.map((group, gi) => (
+                    <div key={group.label ?? gi} className="mb-1">
+                      {group.label && <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{group.label}</p>}
+                      {group.items.map((item) => (
+                        <label key={item.href} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <input type="checkbox" checked={!hiddenItems.has(item.href)} onChange={() => toggleHidden(item.href)} />
+                          <span className="truncate">{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <NotificationBell />
             {user && (
               <div className="crm-user-profile">

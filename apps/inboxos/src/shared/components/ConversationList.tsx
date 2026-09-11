@@ -7,6 +7,7 @@
 // unmistakable while scanning a dense queue (Req 20). Supports a free-text search on
 // the contact handle, a channel filter, a status filter and an assignee filter.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { FacebookLogo, InstagramLogo, WhatsappLogo } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
@@ -52,6 +53,12 @@ const CHANNEL: Record<Channel, { label: string; glyph: string; badge: string; do
   whatsapp: { label: 'WhatsApp', glyph: '✆', badge: 'bg-[#25D366]', dot: 'bg-[#25D366]' },
   messenger: { label: 'Messenger', glyph: 'f', badge: 'bg-blue-500', dot: 'bg-blue-500' },
   instagram: { label: 'Instagram', glyph: '◉', badge: 'bg-pink-600', dot: 'bg-pink-600' },
+}
+
+function ChannelGlyph({ channel }: { channel: Channel }) {
+  if (channel === 'whatsapp') return <WhatsappLogo size={11} weight="fill" aria-hidden="true" />
+  if (channel === 'messenger') return <FacebookLogo size={11} weight="fill" aria-hidden="true" />
+  return <InstagramLogo size={11} weight="fill" aria-hidden="true" />
 }
 
 const STATUS_BADGE: Record<ConversationStatus, string> = {
@@ -553,7 +560,12 @@ export function ConversationList({
                         aria-label="Open media repository"
                         title="Open media repository"
                       >
-                        🗂️
+                        <img
+                          src="/brand/media-repository-folder.png"
+                          alt=""
+                          aria-hidden="true"
+                          className="h-5 w-5 object-contain"
+                        />
                       </button>
                     ) : null
                   }
@@ -738,7 +750,7 @@ function ThreadRow({
             title={ch.label}
             className={`absolute -bottom-0.5 -right-0.5 grid h-[17px] w-[17px] place-items-center rounded-full border-2 border-white text-[9px] font-bold text-white dark:border-gray-900 ${ch.badge}`}
           >
-            {ch.glyph}
+            <ChannelGlyph channel={c.channel} />
           </span>
         </span>
 

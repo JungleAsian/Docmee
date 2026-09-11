@@ -998,13 +998,7 @@ function MessageBubble({
         {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
             replies, matching the reskin's spec. */}
         <div className={`crm-sender-row ${isHuman ? '!text-teal-50/80' : ''} ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>
-          {isBot ? (
-            <img
-              src="/brand/docmee-loader-avatar.png?v=20260821"
-              alt="Docmee assistant"
-              className="crm-sender-avatar object-cover"
-            />
-          ) : (
+          {!isBot && (
             <span
               className="crm-sender-avatar"
               style={{ background: fromPatient ? avatarColor(senderSeed) : '#5C5D60' }}

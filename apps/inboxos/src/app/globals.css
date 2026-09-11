@@ -1941,7 +1941,7 @@ body {
     align-items: center;
     justify-content: center;
     border: 1px solid var(--crm-border-color);
-    border-radius: 999px;
+    border-radius: 0;
     color: var(--crm-primary-color);
     background: var(--crm-card-bg);
     box-shadow: var(--crm-shadow-sm);
@@ -4106,4 +4106,48 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
     backdrop-filter: none;
     box-shadow: none;
   }
+}
+
+/* Product card contract: surfaces are square across Docmee. Keep the
+   existing rounded treatment for avatars, badges, pills, and icon controls. */
+:root,
+:root.dark {
+  --crm-border-radius-sm: 0px;
+  --crm-border-radius-md: 0px;
+  --crm-border-radius-lg: 0px;
+}
+
+.docmee-page-hero,
+.crm-stat-card,
+.crm-inbox-container,
+.crm-inbox-panel-stack > *,
+.crm-inboxos-desktop-shell .crm-inbox-list,
+.crm-inboxos-desktop-shell .crm-inbox-chat,
+.crm-inboxos-desktop-shell .crm-inbox-details,
+.crm-inboxos-desktop-shell .crm-inbox-panel-stack > *,
+.crm-booking-calendar-card,
+.crm-bubble-panel,
+.docmee-auth-card,
+.docmee-site-hero-copy,
+.docmee-site-hero-panel,
+.docmee-site-band-card,
+.docmee-site-feature-card,
+.docmee-site-meta-card,
+.docmee-legal-card,
+.docmee-help-category-card,
+.clinic-page-header,
+.clinic-toolbar,
+.clinic-card,
+.clinic-section-surface,
+.clinic-nested-surface,
+[data-docmee-app-shell] .clinic-card,
+[data-docmee-app-shell] .clinic-toolbar,
+[data-docmee-app-shell] .clinic-page-header,
+[data-docmee-app-shell] .clinic-empty-state {
+  border-radius: 0 !important;
+}
+
+/* Catch page-specific card names without changing pills, buttons, or avatars. */
+:where([class*="-card"], [class$="card"]) {
+  border-radius: 0 !important;
 }

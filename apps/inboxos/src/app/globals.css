@@ -990,6 +990,15 @@ body {
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }
 
+  /* Keep the media repository usable without covering the full conversation rail. */
+  .crm-media-repository-rail {
+    top: 5% !important;
+    right: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    height: 90% !important;
+  }
+
   .dark .crm-inbox-list {
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }

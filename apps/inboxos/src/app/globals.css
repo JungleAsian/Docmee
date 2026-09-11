@@ -135,6 +135,7 @@ body {
 
 .docmee-page-hero {
   position: relative;
+  margin-top: 2px;
   isolation: isolate;
   display: flex;
   align-items: center;

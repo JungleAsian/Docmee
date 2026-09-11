@@ -311,7 +311,8 @@ body {
   .crm-sidebar {
     position: relative;
     width: 220px;
-    z-index: 50;
+    /* Keep the leaf toggle above the adjacent page header when the rail is collapsed. */
+    z-index: 70;
     overflow: visible;
     background: linear-gradient(180deg, #05374e 0%, var(--crm-sidebar-bg) 54%, #062f42 100%);
     border-right: 0;
@@ -1486,7 +1487,7 @@ body {
 
   .crm-inboxos-desktop-shell .crm-sidebar {
     width: 220px;
-    z-index: 50;
+    z-index: 70;
     border-right: 0;
     background: linear-gradient(180deg, #05374e 0%, #063c52 54%, #062f42 100%);
     box-shadow: 16px 0 36px rgba(3, 36, 54, .16);

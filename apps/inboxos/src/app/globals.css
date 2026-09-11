@@ -1880,6 +1880,8 @@ body {
 
   .crm-inboxos-desktop-shell .crm-inbox-details .crm-inbox-panel-stack {
     padding-top: 0;
+    padding-right: 0;
+    padding-left: 0;
   }
 
   .crm-inboxos-desktop-shell .crm-patient-status-controls {
@@ -4147,6 +4149,12 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 [data-docmee-app-shell] .clinic-page-header,
 [data-docmee-app-shell] .clinic-empty-state {
   border-radius: 0 !important;
+}
+
+/* The floating chat launcher is a control, not a product card. Keep its
+   circular affordance even while card surfaces use square corners globally. */
+.crm-chat-launcher {
+  border-radius: 50% !important;
 }
 
 /* Catch page-specific card names without changing pills, buttons, or avatars. */

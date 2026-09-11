@@ -242,7 +242,7 @@ export function ChatBubble() {
           setOpen((v) => !v)
         }}
         style={launcherPosition ? { left: launcherPosition.left, top: launcherPosition.top } : { bottom: 16, right: 16 }}
-        className="pointer-events-auto fixed z-30 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-[var(--crm-primary-color)] text-white shadow-[var(--crm-shadow-card)] transition hover:bg-[var(--crm-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--crm-primary-color)] focus-visible:ring-offset-2"
+        className="crm-chat-launcher pointer-events-auto fixed z-30 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-[var(--crm-primary-color)] text-white shadow-[var(--crm-shadow-card)] transition hover:bg-[var(--crm-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--crm-primary-color)] focus-visible:ring-offset-2"
       >
         <ChatCircleDots size={26} weight="fill" />
         {!open && unreadCount > 0 && (

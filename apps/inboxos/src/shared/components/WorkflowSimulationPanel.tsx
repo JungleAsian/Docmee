@@ -61,7 +61,7 @@ export function providerScenarioNodes(nodes: Array<{ id: string; type: string }>
   return nodes.filter((node) => PROVIDER_NODE_TYPES.has(node.type) && (outcome !== 'empty' || node.type === 'action.check_availability'))
 }
 
-export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRun, onStep, onPause, onUnpause, onReset, onResume, onFocusNode }: {
+export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRun, onStep, onPause, onUnpause, onReset, onResume, onFocusNode, defaultExpanded = false }: {
   result: WorkflowSimulationView | null
   busy: boolean
   paused: boolean
@@ -73,7 +73,9 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
   onReset: () => void
   onResume: (input: SimulationResumeInput) => void
   onFocusNode: (nodeId: string) => void
+  defaultExpanded?: boolean
 }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const [reply, setReply] = useState('')
   const [optionId, setOptionId] = useState('')
   const [approval, setApproval] = useState<'approved' | 'rejected' | 'timeout'>('approved')
@@ -108,17 +110,20 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h2 className="font-semibold text-violet-950 dark:text-violet-100">Safe workflow simulator</h2>
-          <p className="text-xs text-violet-700 dark:text-violet-300">Providers are mocked. No messages, patient records, appointments, or jobs are created.</p>
+          {expanded && <p className="text-xs text-violet-700 dark:text-violet-300">Providers are mocked. No messages, patient records, appointments, or jobs are created.</p>}
         </div>
         <span className="flex-1" />
-        <button type="button" onClick={() => onRun(scenario)} disabled={busy} className="rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">Run</button>
-        <button type="button" onClick={() => onStep(scenario)} disabled={busy || paused} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Step</button>
-        {paused
-          ? <button type="button" onClick={onUnpause} disabled={busy} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Resume</button>
-          : <button type="button" onClick={onPause} disabled={busy || !result} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Pause</button>}
-        <button type="button" onClick={onReset} disabled={busy || !result} className="rounded border border-gray-300 px-3 py-1.5 font-medium disabled:opacity-50">Reset</button>
+        <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="rounded border border-violet-400 px-3 py-1.5 font-medium hover:bg-violet-100 dark:hover:bg-violet-900/50">{expanded ? 'Hide' : 'Show'}</button>
+        {expanded && <>
+          <button type="button" onClick={() => onRun(scenario)} disabled={busy} className="rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">Run</button>
+          <button type="button" onClick={() => onStep(scenario)} disabled={busy || paused} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Step</button>
+          {paused
+            ? <button type="button" onClick={onUnpause} disabled={busy} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Resume</button>
+            : <button type="button" onClick={onPause} disabled={busy || !result} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Pause</button>}
+          <button type="button" onClick={onReset} disabled={busy || !result} className="rounded border border-gray-300 px-3 py-1.5 font-medium disabled:opacity-50">Reset</button>
+        </>}
       </div>
-      <details className="mt-2 rounded border border-violet-200 bg-white/60 p-2 text-xs dark:border-violet-800 dark:bg-black/20">
+      {expanded && <details className="mt-2 rounded border border-violet-200 bg-white/60 p-2 text-xs dark:border-violet-800 dark:bg-black/20">
         <summary className="cursor-pointer font-semibold">Mock scenario outcomes</summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
           <label>Provider step<select value={providerNodeId} onChange={(event) => setProviderNodeId(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="">Choose a provider step</option>{providerNodes.map((node) => <option key={node.id} value={node.id}>{node.id} ({node.type})</option>)}</select></label>
@@ -126,9 +131,9 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
           <label>Intent classification<select value={intentOutcome} onChange={(event) => setIntentOutcome(event.target.value as SimulationScenarioInput['intentOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="high">High confidence</option><option value="low">Low confidence</option><option value="error">Mock error</option></select></label>
           <label>AI agent outcome<select value={aiAgentOutcome} onChange={(event) => setAiAgentOutcome(event.target.value as SimulationScenarioInput['aiAgentOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="no_match">No match</option><option value="replied">Mock reply</option><option value="handoff">Mock handoff</option><option value="routed">Mock route</option><option value="error">Mock error</option></select></label>
         </div>
-      </details>
+      </details>}
 
-      {result && (
+      {expanded && result && (
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)]">
           <div>
             <div className="flex flex-wrap gap-2 text-xs">

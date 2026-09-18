@@ -4,7 +4,7 @@
 // admin pages with a persistent sidebar (desktop) / slide-in drawer (mobile),
 // a top bar with breadcrumbs, and a hamburger toggle.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
@@ -30,6 +30,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { ready, user } = useAuthGuard(['ia_studio_admin', 'clinic_admin'])
   const { t, language } = useI18n()
   const router = useRouter()
+  const pathname = usePathname()
+  const isWorkflowPage = pathname.startsWith('/studio/workflows')
   const { preferences, setPreferences } = useUserUiPreferences()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const railOpen = preferences.railExpanded
@@ -164,23 +166,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="crm-app-container" data-docmee-app-shell>
-      {/* Desktop sidebar — collapses to an icon-only rail when toggled off
-          instead of hiding entirely. */}
-      <div className="hidden md:flex">
-        <Sidebar
-          groups={visibleGroups}
-          title={t('studio.title')}
-          collapsed={!railOpen}
-          railToggle={{
-            expanded: railOpen,
-            onToggle: toggleRail,
-            label: railOpen ? t('nav.hideRail') : t('nav.showRail'),
-          }}
-        />
-      </div>
+      {/* The workflow canvas is a full-viewport editor, so keep the global rail
+          out of the way while the workflow page is active. */}
+      {!isWorkflowPage && <div className="hidden md:flex">
+          <Sidebar
+            groups={visibleGroups}
+            title={t('studio.title')}
+            collapsed={!railOpen}
+            railToggle={{
+              expanded: railOpen,
+              onToggle: toggleRail,
+              label: railOpen ? t('nav.hideRail') : t('nav.showRail'),
+            }}
+          />
+        </div>}
 
       {/* Mobile drawer */}
-      {drawerOpen && (
+      {drawerOpen && !isWorkflowPage && (
         <div className="fixed inset-0 z-40 flex md:hidden">
           <button
             type="button"
@@ -197,14 +199,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="crm-main-content">
         <PageHeroActionsProvider>
         <header className="crm-top-header shrink-0">
-          <button
-            type="button"
-            aria-label={t('common.openMenu')}
-            onClick={() => setDrawerOpen(true)}
-            className="crm-icon-btn md:hidden"
-          >
-            <List size={22} />
-          </button>
+          {!isWorkflowPage && <button
+              type="button"
+              aria-label={t('common.openMenu')}
+              onClick={() => setDrawerOpen(true)}
+              className="crm-icon-btn md:hidden"
+            >
+              <List size={22} />
+            </button>}
           <PlatformBackButton />
           <div className="crm-header-context">
             <Breadcrumbs />

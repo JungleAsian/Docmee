@@ -897,7 +897,6 @@ function WorkflowEditor({
           onFocusNode={(nodeId) => setFocusedIssue({ nodeId })}
         />
       )}
-      <p className="px-4 pt-2 text-xs text-gray-500">{t('wf.canvasHint')}</p>
       <div className="min-h-0 flex-1 p-4 pt-2">
         <WorkflowCanvas
           nodes={nodes}

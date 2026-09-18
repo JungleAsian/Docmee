@@ -20,7 +20,7 @@ describe('WorkflowSimulationPanel', () => {
   it('exposes real run, step, pause, and reset commands and labels every provider as mocked', () => {
     vi.stubGlobal('React', React)
     const markup = renderToStaticMarkup(
-      <WorkflowSimulationPanel result={null} busy={false} paused={false} onRun={vi.fn()} onStep={vi.fn()} onPause={vi.fn()} onUnpause={vi.fn()} onReset={vi.fn()} onResume={vi.fn()} onFocusNode={vi.fn()} />,
+      <WorkflowSimulationPanel result={null} busy={false} paused={false} defaultExpanded onRun={vi.fn()} onStep={vi.fn()} onPause={vi.fn()} onUnpause={vi.fn()} onReset={vi.fn()} onResume={vi.fn()} onFocusNode={vi.fn()} />,
     )
     expect(markup).toContain('Run')
     expect(markup).toContain('Step')
@@ -43,6 +43,7 @@ describe('WorkflowSimulationPanel', () => {
         onReset={vi.fn()}
         onResume={vi.fn()}
         onFocusNode={vi.fn()}
+        defaultExpanded
         result={{
           status: 'waiting',
           trace: [{ nodeId: 'wait', type: 'logic.wait_for_reply', status: 'paused', context: {} }],
@@ -66,7 +67,7 @@ describe('WorkflowSimulationPanel', () => {
       <WorkflowSimulationPanel
         result={{ status: 'paused', trace: [], effects: [], context: {}, virtualNowMs: 0, errors: [], coverage: { testedNodeIds: [], untestedNodeIds: [], testedEdgeIds: [], untestedEdgeIds: [] }, safety: { isolated: true, externalCalls: 0, persistentWrites: 0, queuedJobs: 0 } }}
         busy={false} paused nodes={[{ id: 'provider', type: 'action.check_availability' }, { id: 'message', type: 'action.send_message' }]}
-        onRun={vi.fn()} onStep={vi.fn()} onPause={vi.fn()} onUnpause={vi.fn()} onReset={vi.fn()} onResume={vi.fn()} onFocusNode={vi.fn()}
+        onRun={vi.fn()} onStep={vi.fn()} onPause={vi.fn()} onUnpause={vi.fn()} onReset={vi.fn()} onResume={vi.fn()} onFocusNode={vi.fn()} defaultExpanded
       />,
     )
     expect(markup).toContain('Resume')

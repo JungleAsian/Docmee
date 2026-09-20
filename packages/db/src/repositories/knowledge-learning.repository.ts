@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Sql, TxSql } from '../client.js'
 import { toJson } from '../client.js'
-import { writeKnowledgeDocument, type KnowledgeCandidate, type DocumentIndexWrite } from './knowledge.repository.js'
+import { lockKnowledgeMutation, writeKnowledgeDocument, type KnowledgeCandidate, type DocumentIndexWrite } from './knowledge.repository.js'
 import { officeHourFact, scopedOfficeHourConsistency } from './knowledge-learning-evidence.js'
 
 export interface LearningScope { retrievalRevision?: number; doctorId?: string | null; language?: string | null }
@@ -82,14 +82,14 @@ async function scopedConsistency(tx: Sql | TxSql, clinicId: string, scope: Learn
   return { complete: rows.length > 0 && rows.length <= 100 && await revisionCurrent(tx, clinicId, scope), sources: rows.map(row => row.content) }
 }
 
-async function sourcesCurrent(tx: Sql | TxSql, clinicId: string, citations: LearningCitation[], scope?: LearningScope, lock = false): Promise<boolean> {
+async function sourcesCurrent(tx: Sql | TxSql, clinicId: string, citations: LearningCitation[], scope?: LearningScope): Promise<boolean> {
   if (!citations.length || citations.length > 5) return false
   if (!await revisionCurrent(tx, clinicId, scope)) return false
   for (const citation of citations) {
     if (!citation.chunkId || !citation.documentId || !Number.isInteger(citation.documentVersion)) return false
     if (citation.retrievalRevision !== scope!.retrievalRevision || !Object.hasOwn(citation, 'doctorId') || !Object.hasOwn(citation, 'language') || !citation.governanceReviewState) return false
-    // Lock documents in publication transactions. An edit cannot interleave after validation.
-    if (lock) await tx`SELECT id FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${citation.documentId} FOR SHARE`
+    // Publication already owns the shared clinic/revision writer locks. Do not
+    // take document SHARE locks that would need upgrading during replacement.
     const rows = await tx<Array<{ id: string; documentVersion: number; doctorId: string | null; language: string | null; governanceReviewState: string }>>`
       SELECT c.id, c.document_version, d.metadata ->> 'doctorId' AS doctor_id,
         COALESCE(d.metadata ->> 'language', c.metadata ->> 'language') AS language,
@@ -222,7 +222,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
     },
     async review(clinicId: string, id: string, input: LearningReview): Promise<{ candidate: GovernedCandidate; write: DocumentIndexWrite | null }> {
       return sql.begin(async tx => {
-        await tx`SELECT id FROM clinics WHERE id = ${clinicId} FOR UPDATE`
+        await lockKnowledgeMutation(tx, clinicId)
         const rows = await tx<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId} AND id = ${id} FOR UPDATE`
         const candidate = rows[0]
         if (!candidate) throw new Error('not_found')
@@ -241,6 +241,30 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           if (cleaned.changed) throw new Error('remove_private_information')
           content = cleaned.text; confirmed = input.staffConfirmed === true
         }
+        if (input.action === 'edit' && candidate.status === 'approved') {
+          // Durable approval is immutable when drafting. A separately expiring
+          // candidate owns all unapproved text/history, including abandoned edits.
+          const fingerprint = learningFingerprint(`draft:${id}:${candidate.revision}:${content}`)
+          const existing = await tx<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId} AND fingerprint = ${fingerprint}`
+          if (existing[0]) return { candidate: existing[0], write: null }
+          const configRows = await tx<LearningSettings[]>`SELECT auto_approve, grounding_threshold, evidence_retention_hours FROM knowledge_learning_settings WHERE clinic_id = ${clinicId}`
+          const retention = configRows[0]?.evidenceRetentionHours ?? defaults.evidenceRetentionHours
+          const risks = Array.isArray(candidate.evidence?.risks) ? candidate.evidence.risks : ['risk_unknown']
+          const evidence = { ...candidate.evidence, grounding: 0, contradiction: 'unknown', risks: [...new Set([...risks, 'staff_correction'])] }
+          const drafts = await tx<GovernedCandidate[]>`INSERT INTO knowledge_candidates
+            (clinic_id, source_question, candidate_content, status, confidence_score, grounding_score,
+             medical_safety_ok, prompt_safety_ok, contradiction_free, supporting_chunks, original_source,
+             fingerprint, evidence, staff_confirmed, human_edit, previous_version_id,
+             published_document_id, published_document_version, expires_at)
+            VALUES (${clinicId}, '', ${content}, 'pending_review', 0, 0, false, false, false,
+              ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson({ source: 'approved_revision', candidateId: id }))},
+              ${fingerprint}, ${tx.json(toJson(evidence))}, ${confirmed}, ${content}, ${id},
+              ${candidate.publishedDocumentId}, ${candidate.publishedDocumentVersion}, now() + ${retention} * interval '1 hour') RETURNING *`
+          const draft = drafts[0]!
+          await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, citations, evidence)
+            VALUES (${clinicId}, ${draft.id}, 1, 'edit', ${input.actorId}, ${content}, ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson(evidence))})`
+          return { candidate: draft, write: null }
+        }
         if (input.action === 'rollback') {
           if (!input.historyId || input.staffConfirmed !== true || !candidate.publishedDocumentId) throw new Error('rollback_confirmation_required')
           const history = await tx<LearningHistory[]>`SELECT * FROM knowledge_learning_history WHERE clinic_id = ${clinicId} AND candidate_id = ${id} AND id = ${input.historyId}`
@@ -250,16 +274,13 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         const publishing = input.action === 'approve' || input.action === 'rollback'
         let write: DocumentIndexWrite | null = null
         if (publishing) {
-          const citations = candidate.supportingChunks as LearningCitation[]
-          const current = await sourcesCurrent(tx, clinicId, citations, candidate.evidence, true)
-          if ((citations.length > 0 || !confirmed) && !current) throw new Error('stale_sources')
-          // Every authoritative document mutation increments this row before commit.
-          // Hold it after locking cited documents so uncited edits/new documents
-          // cannot commit between the complete-scope check and publication.
-          if (citations.length) {
-            const revisions = await tx<Array<{ revision: number }>>`SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId} FOR UPDATE`
-            if (!revisions[0] || Number(revisions[0].revision) !== candidate.evidence.retrievalRevision) throw new Error('stale_sources')
+          if (candidate.publishedDocumentId) {
+            const target = await tx<Array<{ version: number }>>`SELECT * FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${candidate.publishedDocumentId} FOR UPDATE`
+            if (!target[0] || target[0].version !== candidate.publishedDocumentVersion) throw new Error('stale_candidate')
           }
+          const citations = candidate.supportingChunks as LearningCitation[]
+          const current = await sourcesCurrent(tx, clinicId, citations, candidate.evidence)
+          if ((citations.length > 0 || !confirmed) && !current) throw new Error('stale_sources')
           if (sanitizeLearningText(content).changed) throw new Error('remove_private_information')
           if (!officeHourFact(content) && !(confirmed && (input.content !== undefined || candidate.humanEdit || input.action === 'rollback'))) throw new Error('generalized_fact_review_required')
           if (input.automatic) {

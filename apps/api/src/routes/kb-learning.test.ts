@@ -44,4 +44,11 @@ describe('learning review authorization and publication', () => {
     expect(mocks.failed).toHaveBeenCalledWith('clinic-a','doc',4,'queue_unavailable')
     expect(mocks.review).toHaveBeenCalledWith('clinic-a','c', expect.objectContaining({ actorId: 'reviewer' }))
   })
+  it('returns the independent draft identity after editing approved knowledge without reindexing', async () => {
+    mocks.review.mockResolvedValueOnce({ candidate: { id: 'draft', previousVersionId: 'approved', status: 'pending_review', expiresAt: '2099-01-01' }, write: null })
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/approved/review', auth(), { action: 'edit', expectedRevision: 2, content: 'We open at ten.' })
+    expect(result.statusCode).toBe(200)
+    expect(result.json().candidate).toMatchObject({ id: 'draft', previousVersionId: 'approved', status: 'pending_review' })
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
 })

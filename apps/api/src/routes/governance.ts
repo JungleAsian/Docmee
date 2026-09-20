@@ -340,14 +340,8 @@ const governanceRoute: FastifyPluginAsync = async (app) => {
           ...(parsed.data.riskTier !== undefined ? { governanceRiskTier: parsed.data.riskTier } : {}),
           ...(parsed.data.notes !== undefined ? { governanceNotes: parsed.data.notes } : {}),
         }
-        const rows = await sql`
-          UPDATE knowledge_documents
-          SET metadata = metadata || ${sql.json(toJson(metadata))},
-              status = CASE WHEN ${state ?? null} IN ('excluded', 'archived') THEN 'archived' ELSE status END
-          WHERE clinic_id = ${clinicId} AND id = ${request.params.entryId}
-          RETURNING *
-        `
-        if (rows[0]) {
+        const document = await createKnowledgeRepository(sql).updateDocumentGovernance(clinicId, request.params.entryId, metadata)
+        if (document) {
           await createAuditRepository(sql).log({
             clinicId,
             actorId: request.user?.userId,
@@ -359,7 +353,7 @@ const governanceRoute: FastifyPluginAsync = async (app) => {
             ipAddress: request.ip,
           })
         }
-        return rows[0] ?? null
+        return document
       })
       if (!doc) return reply.code(404).send({ error: 'Document not found' })
       return { document: doc }

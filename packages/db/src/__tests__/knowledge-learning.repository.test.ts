@@ -46,7 +46,9 @@ describe('governed learning boundary', () => {
     expect(metadata).toMatchObject({ doctorId: 'doctor', language: 'es' })
     expect(f.queries.find(q => q.includes('INSERT INTO knowledge_learning_history'))).toContain('evidence')
     const revisionLock = f.queries.findIndex(q => q.includes('SELECT revision') && q.includes('FOR UPDATE'))
-    expect(revisionLock).toBeGreaterThan(-1)
+    expect(f.queries[0]).toMatch(/FROM clinics[\s\S]*FOR UPDATE/)
+    expect(revisionLock).toBe(1)
+    expect(f.queries.join('\n')).not.toContain('FOR SHARE')
     expect(revisionLock).toBeLessThan(f.queries.findIndex(q => q.includes('INSERT INTO knowledge_documents')))
     const updateIndex = f.queries.findIndex(q => q.includes('UPDATE knowledge_candidates'))
     expect(f.queries[updateIndex]).toContain('supporting_chunks =')
@@ -67,13 +69,96 @@ describe('governed learning boundary', () => {
     expect(f.values.flat()).toContain('admin')
     await expect(createKnowledgeLearningRepository(fake().sql).candidateFromGap('foreign', 'gap', 'We open at nine.', 'admin')).rejects.toThrow('not_found')
   })
-  it('allows a reviewed correction as a new revision without destroying prior approved history', async () => {
-    const f = fake(q => q.includes('FROM knowledge_candidates') ? [{ ...candidate, status: 'approved', expiresAt: null, publishedDocumentId: 'published', publishedDocumentVersion: 1 }]
-      : q.includes('UPDATE knowledge_candidates') ? [{ ...candidate, status: 'pending_review', humanEdit: 'Open at ten.', revision: 2 }] : [])
+  it('forks approved knowledge into an independently expiring draft without updating approved provenance', async () => {
+    const f = fake(q => q.includes('FROM knowledge_candidates') && q.includes('AND id =') ? [{ ...candidate, status: 'approved', expiresAt: null, publishedDocumentId: 'published', publishedDocumentVersion: 1 }]
+      : q.includes('INSERT INTO knowledge_candidates') ? [{ ...candidate, id: 'draft', previousVersionId: 'candidate', status: 'pending_review', expiresAt: '2099-01-01', revision: 1 }]
+      : q.includes('UPDATE knowledge_candidates') ? [{ ...candidate, status: 'pending_review', expiresAt: null }] : [])
     const result = await createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'edit', expectedRevision: 1, content: 'Open at ten.', staffConfirmed: true, actorId: 'admin' })
     expect(result.candidate.status).toBe('pending_review')
+    expect(result.candidate.id).toBe('draft')
+    expect(result.candidate.previousVersionId).toBe('candidate')
+    expect(result.candidate.expiresAt).not.toBeNull()
+    expect(f.queries.join('\n')).not.toContain('UPDATE knowledge_candidates')
+    const insert = f.queries.find(q => q.includes('INSERT INTO knowledge_candidates'))!
+    expect(insert).toContain('previous_version_id')
+    expect(insert).toContain('expires_at')
+    expect(insert).toContain("interval '1 hour'")
+    const historyValues = f.values[f.queries.findIndex(q => q.includes('INSERT INTO knowledge_learning_history'))]!
+    expect(historyValues).toContain('draft')
     expect(f.queries.join('\n')).not.toContain('DELETE')
     expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
+  })
+  it.each(['approve', 'rollback'] as const)('refuses %s over a newer target document version', async action => {
+    const f = fake(q => q.includes('FROM knowledge_candidates') ? [{ ...candidate, status: action === 'rollback' ? 'approved' : 'pending_review', publishedDocumentId: 'published', publishedDocumentVersion: 2, previousVersionId: 'parent' }]
+      : q.includes('FROM knowledge_learning_history') ? [{ action: 'approve', content: 'We open at 9 AM.' }]
+      : q.includes('FROM knowledge_documents') && q.includes('FOR UPDATE') ? [{ id: 'published', version: 3 }] : [])
+    await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action, expectedRevision: 1, actorId: 'admin', staffConfirmed: true, historyId: 'history' })).rejects.toThrow('stale_candidate')
+    expect(f.queries.join('\n')).not.toContain('UPDATE knowledge_documents')
+  })
+  it.each(['abandon', 'reject'] as const)('approve -> edit -> %s -> cleanup keeps only approved knowledge and history', async disposition => {
+    const states = new Map<string, GovernedCandidate>([['candidate', { ...candidate, expiresAt: '2099-01-01', sourceQuestion: 'Private source question' }]])
+    const histories: Array<{ candidateId: string; action: string; content: string }> = []
+    let documentWrites = 0
+    const f = fake((q, values) => {
+      if (q.includes('SELECT * FROM knowledge_candidates')) return q.includes('fingerprint') ? [] : [states.get(String(values[1]))!]
+      if (q.includes('SELECT c.id')) return [sourceRow]
+      if (q.includes('SELECT metadata')) return [{ metadata: { doctorId: 'doctor', language: 'es' } }]
+      if (q.includes('INSERT INTO knowledge_documents')) { documentWrites++; return [{ id: 'published', version: 1 }] }
+      if (q.includes('INSERT INTO knowledge_chunks')) return [{ id: 'new' }]
+      if (q.includes('INSERT INTO knowledge_candidates')) {
+        const draft = { ...candidate, id: 'draft', candidateContent: String(values[1]), sourceQuestion: '', previousVersionId: String(values[8]), publishedDocumentId: String(values[9]), publishedDocumentVersion: Number(values[10]), evidence: values[5], humanEdit: String(values[7]), expiresAt: '2099-01-01' } as GovernedCandidate
+        states.set('draft', draft); return [draft]
+      }
+      if (q.includes('UPDATE knowledge_candidates') && q.includes('RETURNING *')) {
+        const id = String(values.at(-1)); const before = states.get(id)!
+        const next = { ...before, candidateContent: String(values[0]), evidence: values[1], supportingChunks: values[2], humanEdit: values[3], status: values[7], revision: before.revision + 1, publishedDocumentId: values[10], publishedDocumentVersion: values[11], sourceQuestion: values[12] ? '' : before.sourceQuestion, expiresAt: values[14] ? null : before.expiresAt } as GovernedCandidate
+        states.set(id, next); return [next]
+      }
+      if (q.includes('INSERT INTO knowledge_learning_history')) {
+        const draftInsert = q.includes("1, 'edit'")
+        histories.push({ candidateId: String(values[1]), action: draftInsert ? 'edit' : String(values[3]), content: String(values[draftInsert ? 3 : 5]) })
+      }
+      if (q.includes('DELETE FROM knowledge_candidates')) {
+        // SQL-boundary harness models the migration's existing ON DELETE CASCADE;
+        // actual PostgreSQL FK/expiry execution remains an integration gate.
+        expect(q).toContain("status IN ('pending_review', 'rejected')")
+        const expired = [...states.values()].filter(row => row.expiresAt && Date.parse(row.expiresAt) <= Date.now() && ['pending_review', 'rejected'].includes(row.status))
+        for (const row of expired) {
+          states.delete(row.id)
+          for (let i = histories.length - 1; i >= 0; i--) if (histories[i]!.candidateId === row.id) histories.splice(i, 1)
+        }
+        return expired
+      }
+      return []
+    })
+    const repo = createKnowledgeLearningRepository(f.sql)
+    await repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    const approved = structuredClone(states.get('candidate')!)
+    const approvedHistory = structuredClone(histories)
+    const edited = await repo.review('clinic', 'candidate', { action: 'edit', expectedRevision: 2, actorId: 'admin', content: 'Unreviewed draft answer.', staffConfirmed: true })
+    expect(edited.candidate.id).toBe('draft')
+    expect(edited.candidate.sourceQuestion).toBe('')
+    expect(edited.candidate.expiresAt).not.toBeNull()
+    if (disposition === 'reject') await repo.review('clinic', 'draft', { action: 'reject', expectedRevision: 1, actorId: 'admin' })
+    expect(states.get('candidate')).toEqual(approved)
+    expect(histories.filter(row => row.candidateId === 'candidate')).toEqual(approvedHistory)
+    states.get('draft')!.expiresAt = '2000-01-01'
+    expect((await repo.purgeExpired()).candidates).toBe(1)
+    expect([...states.values()]).toEqual([approved])
+    expect(histories).toEqual(approvedHistory)
+    expect(JSON.stringify([...states.values(), ...histories])).not.toContain('Unreviewed draft answer.')
+    expect(documentWrites).toBe(1)
+  })
+  it('requires an expiring pending lifecycle and migrates only unapproved snapshots away from durable provenance', () => {
+    const migration = readFileSync(new URL('../../supabase/migrations/20260920000004_kb_learning_draft_lifecycle.sql', import.meta.url), 'utf8')
+    const schema = readFileSync(new URL('../../supabase/migrations/20260920000002_kb_learning_governance.sql', import.meta.url), 'utf8')
+    expect(schema).toMatch(/CREATE TABLE knowledge_learning_history[\s\S]*candidate_id uuid NOT NULL REFERENCES knowledge_candidates\(id\) ON DELETE CASCADE/)
+    expect(migration).toContain("status NOT IN ('pending_review', 'rejected') OR expires_at IS NOT NULL")
+    expect(migration).toContain('previous_version_id')
+    expect(migration).toContain('SET candidate_id = draft_id')
+    expect(migration).toContain("action NOT IN ('approve', 'rollback')")
+    expect(migration).toContain('candidate_content = approved.content')
+    expect(migration).not.toContain('DELETE FROM knowledge_learning_history')
   })
   it('negative patient feedback cannot be overwritten by a later acceptance', async () => {
     const f = fake(q => q.includes('UPDATE knowledge_learning_events') ? [{ candidateId: 'candidate' }] : [])

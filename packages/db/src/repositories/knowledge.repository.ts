@@ -178,6 +178,7 @@ export interface KnowledgeRepository {
   /** Edit an existing document's title / content / type (Screen 7 entry editor). */
   updateDocument(clinicId: string, id: string, data: UpdateDocumentInput): Promise<KnowledgeDocument>
   updateDocumentStatus(clinicId: string, id: string, status: DocumentStatus): Promise<KnowledgeDocument>
+  updateDocumentGovernance(clinicId: string, id: string, metadata: Record<string, unknown>): Promise<KnowledgeDocument | null>
   approveDraftDocuments(clinicId: string): Promise<KnowledgeDocument[]>
   /** Scope a document to a doctor (Req 30), or pass null to make it clinic-wide. */
   setDocumentDoctor(clinicId: string, id: string, doctorId: string | null): Promise<KnowledgeDocument>
@@ -300,6 +301,17 @@ function boundedLanguagePreference(rows: RankedKnowledgeSearchRow[], limit: numb
     .map(({ relevanceScore: _relevance, languagePreference: _language, ...row }) => row)
 }
 
+/**
+ * Shared KB writer protocol: clinic -> retrieval revision -> documents/candidates
+ * -> chunks. The stable clinic row also serializes a missing revision row and
+ * multi-document writes. Call before acquiring ANY other KB write lock. Reentry
+ * by the authoritative writer within a publication transaction is intentional.
+ */
+export async function lockKnowledgeMutation(tx: TxSql, clinicId: string): Promise<void> {
+  await tx`SELECT id FROM clinics WHERE id = ${clinicId} FOR UPDATE`
+  await tx`SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId} FOR UPDATE`
+}
+
 /** Compose the authoritative writer inside a caller-owned transaction. */
 export function writeKnowledgeDocument(tx: TxSql, data: WriteDocumentInput): Promise<DocumentIndexWrite> {
   return createKnowledgeRepository(tx as unknown as Sql, tx).writeDocument(data)
@@ -321,26 +333,34 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
     },
 
     async createDocument(data) {
-      // Per-doctor FAQ scope (Req 30) lives in metadata.doctorId alongside any
-      // caller-supplied metadata, so retrieval can filter on it (listEmbeddedChunks).
-      const metadata = {
-        ...(data.metadata ?? {}),
-        ...(data.doctorId ? { doctorId: data.doctorId } : {}),
-      }
-      const rows = await sql<KnowledgeDocument[]>`
-        INSERT INTO knowledge_documents (clinic_id, title, content, document_type, status, approved_at, metadata)
-        VALUES (
-          ${data.clinicId},
-          ${data.title},
-          ${data.content},
-          ${data.documentType ?? 'faq'},
-          ${data.status       ?? 'draft'},
-          CASE WHEN ${data.status ?? 'draft'} = 'active' THEN now() ELSE NULL END,
-          ${sql.json(toJson(metadata))}
-        )
-        RETURNING *
-      `
-      return rows[0]!
+      return sql.begin(async tx => {
+        await lockKnowledgeMutation(tx, data.clinicId)
+        // Per-doctor FAQ scope (Req 30) lives in metadata.doctorId alongside any
+        // caller-supplied metadata, so retrieval can filter on it (listEmbeddedChunks).
+        const metadata = {
+          ...(data.metadata ?? {}),
+          ...(data.doctorId ? { doctorId: data.doctorId } : {}),
+        }
+        const rows = await tx<KnowledgeDocument[]>`
+          INSERT INTO knowledge_documents (clinic_id, title, content, document_type, status, approved_at, metadata)
+          VALUES (
+            ${data.clinicId},
+            ${data.title},
+            ${data.content},
+            ${data.documentType ?? 'faq'},
+            ${data.status       ?? 'draft'},
+            CASE WHEN ${data.status ?? 'draft'} = 'active' THEN now() ELSE NULL END,
+            ${tx.json(toJson(metadata))}
+          )
+          RETURNING *
+        `
+        await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${data.clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
+        return rows[0]!
+      }) as unknown as Promise<KnowledgeDocument>
     },
 
     async writeDocument(data) {
@@ -348,6 +368,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
         ? (fn: (tx: TxSql) => Promise<DocumentIndexWrite>) => fn(transaction)
         : (fn: (tx: TxSql) => Promise<DocumentIndexWrite>) => sql.begin(fn)
       return run(async (tx) => {
+        await lockKnowledgeMutation(tx, data.clinicId)
         const withDoctorScope = (base: Record<string, unknown>) => {
           const metadata = { ...base }
           if (data.doctorId === null) delete metadata.doctorId
@@ -431,14 +452,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
 
     async replaceSourceDocuments(data) {
       return sql.begin(async (tx) => {
-        // Source rows may not exist on the first import, so they cannot provide
-        // a serialization point. The owning clinic row is stable and makes
-        // same-clinic source replacements enter this transaction one at a time.
-        await tx`
-          SELECT id FROM clinics
-          WHERE id = ${data.clinicId}
-          FOR UPDATE
-        `
+        await lockKnowledgeMutation(tx, data.clinicId)
         const existing = await tx<Array<{ id: string }>>`
           SELECT id FROM knowledge_documents
           WHERE clinic_id = ${data.clinicId} AND metadata ->> 'source' = ${data.source}
@@ -506,6 +520,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
 
     async prepareClinicReindex(clinicId) {
       return sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         const docs = await tx<Array<{ id: string; version: number; content: string }>>`
           SELECT id, version, content FROM knowledge_documents
           WHERE clinic_id = ${clinicId} AND status = 'active' AND approved_at IS NOT NULL
@@ -541,6 +556,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
 
     async updateDocument(clinicId, id, data) {
       return sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         const rows = await tx<KnowledgeDocument[]>`
           UPDATE knowledge_documents SET
             title         = COALESCE(${data.title        ?? null}, title),
@@ -561,6 +577,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
 
     async updateDocumentStatus(clinicId, id, status) {
       return sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         const rows = await tx<KnowledgeDocument[]>`
           UPDATE knowledge_documents SET status = ${status},
             approved_at = CASE WHEN ${status} = 'active' THEN now() ELSE approved_at END,
@@ -596,8 +613,28 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
       }) as unknown as Promise<KnowledgeDocument>
     },
 
+    async updateDocumentGovernance(clinicId, id, metadata) {
+      return sql.begin(async tx => {
+        await lockKnowledgeMutation(tx, clinicId)
+        const state = typeof metadata.governanceReviewState === 'string' ? metadata.governanceReviewState : null
+        const rows = await tx<KnowledgeDocument[]>`
+          UPDATE knowledge_documents
+          SET metadata = metadata || ${tx.json(toJson(metadata))},
+              status = CASE WHEN ${state} IN ('excluded', 'archived') THEN 'archived' ELSE status END
+          WHERE clinic_id = ${clinicId} AND id = ${id} RETURNING *
+        `
+        if (rows[0]) await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
+        return rows[0] ?? null
+      }) as unknown as Promise<KnowledgeDocument | null>
+    },
+
     async approveDraftDocuments(clinicId) {
       return sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         const docs = await tx<KnowledgeDocument[]>`
           UPDATE knowledge_documents
           SET status = 'active', approved_at = now(), indexing_status = 'pending', indexing_error = NULL
@@ -630,6 +667,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
 
     async setDocumentDoctor(clinicId, id, doctorId) {
       return sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         // Merge onto existing metadata so other keys survive; null removes the scope.
         const rows = await tx<KnowledgeDocument[]>`
           UPDATE knowledge_documents
@@ -653,6 +691,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
 
     async deleteDocument(clinicId, id) {
       await sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         const deleted = await tx<Array<{ id: string }>>`
           DELETE FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${id}
           RETURNING id
@@ -816,23 +855,32 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
     },
 
     async createChunk(data) {
-      const rows = await sql<KnowledgeChunk[]>`
-        INSERT INTO knowledge_chunks (document_id, clinic_id, content, chunk_index, metadata)
-        VALUES (
-          ${data.documentId},
-          ${data.clinicId},
-          ${data.content},
-          ${data.chunkIndex},
-          ${sql.json(toJson(data.metadata ?? {}))}
-        )
-        RETURNING *
-      `
-      return rows[0]!
+      return sql.begin(async tx => {
+        await lockKnowledgeMutation(tx, data.clinicId)
+        const rows = await tx<KnowledgeChunk[]>`
+          INSERT INTO knowledge_chunks (document_id, clinic_id, content, chunk_index, metadata)
+          VALUES (
+            ${data.documentId},
+            ${data.clinicId},
+            ${data.content},
+            ${data.chunkIndex},
+            ${tx.json(toJson(data.metadata ?? {}))}
+          )
+          RETURNING *
+        `
+        await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${data.clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
+        return rows[0]!
+      }) as unknown as Promise<KnowledgeChunk>
     },
 
     async replaceChunks(clinicId, documentId, chunks) {
       const results: KnowledgeChunk[] = []
       await sql.begin(async (tx) => {
+        await lockKnowledgeMutation(tx, clinicId)
         await tx`DELETE FROM knowledge_chunks WHERE clinic_id = ${clinicId} AND document_id = ${documentId}`
         for (const c of chunks) {
           const rows = await tx<KnowledgeChunk[]>`
@@ -848,6 +896,11 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
           `
           results.push(rows[0]!)
         }
+        await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
       })
       return results
     },

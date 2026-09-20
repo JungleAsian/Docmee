@@ -37,7 +37,7 @@ function fakeSql(
 
 describe('knowledge.repository — per-doctor FAQ scope (Req 30)', () => {
   it('folds doctorId into document metadata on create', async () => {
-    const { sql, lastValues } = fakeSql()
+    const { sql, queries, queryValues } = fakeSql()
     await createKnowledgeRepository(sql).createDocument({
       clinicId: 'clinic-1',
       title: 'FAQ',
@@ -45,18 +45,18 @@ describe('knowledge.repository — per-doctor FAQ scope (Req 30)', () => {
       doctorId: 'doc-1',
     })
     // The metadata param is the last interpolated value (sql.json wraps it as __json).
-    const metaParam = lastValues().at(-1) as { __json: Record<string, unknown> }
+    const metaParam = queryValues()[queries().findIndex(q => q.includes('INSERT INTO knowledge_documents'))]!.at(-1) as { __json: Record<string, unknown> }
     expect(metaParam.__json).toEqual({ doctorId: 'doc-1' })
   })
 
   it('stores no doctorId for a clinic-wide document', async () => {
-    const { sql, lastValues } = fakeSql()
+    const { sql, queries, queryValues } = fakeSql()
     await createKnowledgeRepository(sql).createDocument({
       clinicId: 'clinic-1',
       title: 'FAQ',
       content: 'body',
     })
-    const metaParam = lastValues().at(-1) as { __json: Record<string, unknown> }
+    const metaParam = queryValues()[queries().findIndex(q => q.includes('INSERT INTO knowledge_documents'))]!.at(-1) as { __json: Record<string, unknown> }
     expect(metaParam.__json).toEqual({})
   })
 
@@ -69,6 +69,37 @@ describe('knowledge.repository — per-doctor FAQ scope (Req 30)', () => {
 })
 
 describe('knowledge.repository — freshness retrieval contract', () => {
+  it.each(['write', 'reindex', 'replaceSource', 'status', 'approveDrafts', 'doctor', 'update', 'delete', 'replaceChunks', 'createDocument', 'createChunk', 'governance'])('takes the shared clinic/revision locks before %s touches any documents or chunks', async operation => {
+    const f = fakeSql(q => /FROM knowledge_documents|UPDATE knowledge_documents/.test(q) ? [{ id: 'doc-x', version: 1, content: 'Fact', status: 'active', metadata: {} }] : undefined)
+    const repo = createKnowledgeRepository(f.sql)
+    if (operation === 'write') await repo.writeDocument({ clinicId: 'clinic', id: 'doc-x', title: 'Title', content: 'Fact', chunks: [] })
+    if (operation === 'reindex') await repo.prepareClinicReindex('clinic')
+    if (operation === 'replaceSource') await repo.replaceSourceDocuments({ clinicId: 'clinic', source: 'github', documents: [] })
+    if (operation === 'status') await repo.updateDocumentStatus('clinic', 'doc-x', 'archived')
+    if (operation === 'approveDrafts') await repo.approveDraftDocuments('clinic')
+    if (operation === 'doctor') await repo.setDocumentDoctor('clinic', 'doc-x', null)
+    if (operation === 'update') await repo.updateDocument('clinic', 'doc-x', { title: 'Title' })
+    if (operation === 'delete') await repo.deleteDocument('clinic', 'doc-x')
+    if (operation === 'replaceChunks') await repo.replaceChunks('clinic', 'doc-x', [])
+    if (operation === 'createDocument') await repo.createDocument({ clinicId: 'clinic', title: 'Title', content: 'Fact' })
+    if (operation === 'createChunk') await repo.createChunk({ clinicId: 'clinic', documentId: 'doc-x', content: 'Fact', chunkIndex: 0 })
+    if (operation === 'governance') await repo.updateDocumentGovernance('clinic', 'doc-x', { governanceReviewState: 'excluded', governanceNotes: 'Review' })
+    expect(f.queries()[0]).toMatch(/FROM clinics[\s\S]*FOR UPDATE/)
+    expect(f.queries()[1]).toMatch(/knowledge_retrieval_revisions[\s\S]*FOR UPDATE/)
+    if (['createDocument', 'createChunk', 'replaceChunks'].includes(operation)) {
+      expect(f.queries().filter(q => q.includes('INSERT INTO knowledge_retrieval_revisions'))).toHaveLength(1)
+    }
+    const firstDocument = f.queries().findIndex(q => /knowledge_documents|knowledge_chunks/.test(q))
+    expect(firstDocument).toBeGreaterThan(1)
+  })
+  it('governance merges metadata, only archives exclusion states and bumps the retrieval revision once', async () => {
+    const f = fakeSql()
+    await createKnowledgeRepository(f.sql).updateDocumentGovernance('clinic', 'doc-x', { governanceReviewState: 'trusted', governanceNotes: 'Reviewed' })
+    const update = f.queries().find(q => q.includes('UPDATE knowledge_documents'))!
+    expect(update).toContain('metadata = metadata ||')
+    expect(update).toContain("IN ('excluded', 'archived') THEN 'archived' ELSE status")
+    expect(f.queries().filter(q => q.includes('INSERT INTO knowledge_retrieval_revisions'))).toHaveLength(1)
+  })
   it('legacy embedded and lexical reads exclude doctor scope unless that doctor is selected', async () => {
     const { sql, queries, queryValues } = fakeSql()
     const repo = createKnowledgeRepository(sql)
@@ -129,7 +160,7 @@ describe('knowledge.repository — freshness retrieval contract', () => {
     })
 
     expect(queries().some((query) => query.includes('DELETE FROM knowledge_documents'))).toBe(true)
-    expect(queries().filter((query) => query.includes('knowledge_retrieval_revisions'))).toHaveLength(1)
+    expect(queries().filter((query) => query.includes('INSERT INTO knowledge_retrieval_revisions'))).toHaveLength(1)
     expect(queries().some((query) => query.includes('INSERT INTO knowledge_chunks'))).toBe(true)
   })
 

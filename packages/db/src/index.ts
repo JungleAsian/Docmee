@@ -190,6 +190,7 @@ export type {
   CreateChunkInput,
   WriteDocumentInput,
   DocumentIndexWrite,
+  ReplaceSourceDocumentsInput,
   CreateIaProfileInput,
   UpdateIaProfileInput,
   CreateIaRuleInput,

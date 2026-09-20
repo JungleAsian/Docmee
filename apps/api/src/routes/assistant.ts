@@ -77,7 +77,7 @@ const assistantRoute: FastifyPluginAsync = async (app) => {
         ? await createPatientsRepository(sql).findById(clinicId, convo.patientId)
         : null
       const clinic = await createClinicsRepository(sql).findById(clinicId)
-      return { messages, patient, clinic }
+      return { messages, patient, clinic, conversation: convo }
     })
   }
 
@@ -120,7 +120,12 @@ const assistantRoute: FastifyPluginAsync = async (app) => {
       // Load the clinic's embedded KB chunks once and bind a clinic-scoped searcher —
       // only when J.zel has KB grounding enabled for this clinic.
       const chunks = ai.useKb
-        ? await withDb((sql) => createKnowledgeRepository(sql).listEmbeddedChunks(clinicId))
+        ? await withDb((sql) => {
+            const doctorId = typeof ctx.conversation.metadata['doctorId'] === 'string'
+              ? ctx.conversation.metadata['doctorId'] as string
+              : null
+            return createKnowledgeRepository(sql).listEmbeddedChunks(clinicId, doctorId)
+          })
         : []
       // Hoist out of the closure so ctx.clinic stays narrowed (non-null).
       const clinic = ctx.clinic

@@ -207,6 +207,21 @@ describe('KB routes (Req 30 — per-doctor FAQ scope)', () => {
     expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', expect.objectContaining({ documentId: 'kb-1', documentVersion: 2 }))
   })
 
+  it('PATCH content plus archived status withdraws the new version without queueing it', async () => {
+    kbEmbedAdd.mockClear()
+    writeDocument.mockResolvedValueOnce({
+      document: { id: 'kb-1', clinicId: 'c-1', title: 'Old', content: 'retired', documentType: 'policy', status: 'archived', version: 3, indexingStatus: 'withdrawn', metadata: {} },
+      chunks: [{ id: 'chunk-retired', content: 'retired' }], retrievalRevision: 4,
+    })
+    const res = await app.inject({
+      method: 'PATCH', url: '/clinics/c-1/kb/kb-1', headers: adminAuth,
+      payload: { content: 'retired', status: 'archived' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(kbEmbedAdd).not.toHaveBeenCalled()
+  })
+
   it('PATCH with no updatable field → 400', async () => {
     const res = await app.inject({ method: 'PATCH', url: '/clinics/c-1/kb/kb-1', headers: adminAuth, payload: {} })
     expect(res.statusCode).toBe(400)

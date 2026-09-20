@@ -37,6 +37,7 @@ vi.mock('@docmee/shared', () => ({
 }))
 
 const store = vi.hoisted(() => ({
+  kbScopes: [] as Array<string | null | undefined>,
   conversations: new Map<string, Record<string, unknown>>([
     [
       'conv-1',
@@ -50,6 +51,7 @@ const store = vi.hoisted(() => ({
         metadata: {},
       },
     ],
+    ['conv-doctor', { id: 'conv-doctor', clinicId: 'c-1', patientId: 'p-1', channel: 'whatsapp', channelContactHandle: '+50212345679', status: 'open', metadata: { doctorId: 'doctor-1' } }],
   ]),
 }))
 
@@ -71,7 +73,10 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
     findById: async () => ({ id: 'p-1', metadata: { language: 'es' } }),
   }),
   createKnowledgeRepository: () => ({
-    listEmbeddedChunks: async () => [],
+    listEmbeddedChunks: async (_clinicId: string, doctorId?: string | null) => {
+      store.kbScopes.push(doctorId)
+      return []
+    },
   }),
   createClinicsRepository: () => ({
     findById: async (id: string) =>
@@ -137,6 +142,7 @@ describe('internal AI assistant routes', () => {
   })
 
   it('POST /assist/suggestions → 200 returns suggestions + sources (doctor)', async () => {
+    store.kbScopes.length = 0
     const res = await app.inject({
       method: 'POST',
       url: '/conversations/conv-1/assist/suggestions',
@@ -146,6 +152,14 @@ describe('internal AI assistant routes', () => {
     const body = JSON.parse(res.body)
     expect(body.suggestions).toEqual(['Draft one', 'Draft two'])
     expect(body.sources).toEqual([{ title: 'Pricing FAQ', similarity: 0.92 }])
+    expect(store.kbScopes).toEqual([null])
+  })
+
+  it('POST /assist/suggestions uses the conversation doctor scope when selected', async () => {
+    store.kbScopes.length = 0
+    const res = await app.inject({ method: 'POST', url: '/conversations/conv-doctor/assist/suggestions', headers: authHeader('doctor') })
+    expect(res.statusCode).toBe(200)
+    expect(store.kbScopes).toEqual(['doctor-1'])
   })
 
   it('POST /assist/suggestions on unknown conversation → 404', async () => {

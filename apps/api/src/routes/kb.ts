@@ -246,17 +246,8 @@ async function syncGithubKb(app: Parameters<FastifyPluginAsync>[0]) {
   let chunks = 0
   await withDb(async (sql) => {
     for (const clinicId of targetClinicIds) {
-      const existing = await sql<{ id: string }[]>`
-        SELECT id FROM knowledge_documents
-        WHERE clinic_id = ${clinicId} AND metadata ->> 'source' = 'github'
-      `
-      const existingIds = existing.map((row) => row.id)
-      if (existingIds.length > 0) {
-        await sql`DELETE FROM knowledge_chunks WHERE clinic_id = ${clinicId} AND document_id = ANY(${existingIds})`
-        await sql`DELETE FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ANY(${existingIds})`
-      }
-
       const knowledge = createKnowledgeRepository(sql)
+      const sourceDocuments: Parameters<typeof knowledge.replaceSourceDocuments>[0]['documents'] = []
       for (const file of files) {
         const content = (await fs.readFile(file, 'utf8')).trim()
         if (!content) continue
@@ -275,8 +266,8 @@ async function syncGithubKb(app: Parameters<FastifyPluginAsync>[0]) {
           app.log.warn({ err, clinicId, path: relativePath }, 'github kb vault upload skipped')
           return null
         })
-        const document = await knowledge.createDocument({
-          clinicId,
+        const contentChunks = chunkText(content)
+        sourceDocuments.push({
           title: titleFromContent(relativePath, content),
           content,
           documentType: 'custom',
@@ -300,19 +291,25 @@ async function syncGithubKb(app: Parameters<FastifyPluginAsync>[0]) {
                 }
               : {}),
           },
-        })
-        documents += 1
-        const contentChunks = chunkText(content)
-        for (let index = 0; index < contentChunks.length; index += 1) {
-          const chunk = await knowledge.createChunk({
-            clinicId,
-            documentId: document.id,
-            content: contentChunks[index]!,
-            chunkIndex: index,
+          chunks: contentChunks.map((chunkContent, chunkIndex) => ({
+            content: chunkContent,
+            chunkIndex,
             metadata: { source: 'github', path: relativePath, commit },
+          })),
+        })
+      }
+      const writes = await knowledge.replaceSourceDocuments({ clinicId, source: 'github', documents: sourceDocuments })
+      documents += writes.length
+      chunks += writes.reduce((sum, write) => sum + write.chunks.length, 0)
+      for (const write of writes) {
+        const version = write.document.version ?? 1
+        try {
+          await kbEmbedQueue.add('embed-document', {
+            clinicId, documentId: write.document.id, documentVersion: version,
           })
-          chunks += 1
-          await kbEmbedQueue.add('embed', { chunkId: chunk.id, clinicId, content: chunk.content })
+        } catch (err) {
+          await knowledge.markDocumentIndexFailed(clinicId, write.document.id, version, 'queue_unavailable')
+          app.log.error({ err, clinicId, documentId: write.document.id }, 'github kb indexing queue failed')
         }
       }
     }
@@ -471,7 +468,9 @@ const kbRoute: FastifyPluginAsync = async (app) => {
             chunks: chunkText(content).map((chunkContent, chunkIndex) => ({ content: chunkContent, chunkIndex })),
           })
           document = written.document
-          indexJob = { documentId: document.id, documentVersion: document.version ?? 1 }
+          if (document.status === 'active') {
+            indexJob = { documentId: document.id, documentVersion: document.version ?? 1 }
+          }
         } else if (title !== undefined || documentType !== undefined) {
           document = await repo.updateDocument(clinicId, request.params.entryId, {
             title,

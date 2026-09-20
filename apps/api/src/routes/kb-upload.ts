@@ -115,11 +115,13 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
       })
 
       const version = document.version ?? 1
-      try {
-        await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: version })
-      } catch (err) {
-        await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(clinicId, document.id, version, 'queue_unavailable'))
-        request.log.error({ err, clinicId, documentId: document.id }, 'kb indexing queue failed')
+      if (document.status === 'active') {
+        try {
+          await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: version })
+        } catch (err) {
+          await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(clinicId, document.id, version, 'queue_unavailable'))
+          request.log.error({ err, clinicId, documentId: document.id }, 'kb indexing queue failed')
+        }
       }
 
       return reply

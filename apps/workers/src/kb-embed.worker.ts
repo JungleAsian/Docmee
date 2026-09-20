@@ -53,6 +53,13 @@ async function markDocumentReady(sql: Sql, clinicId: string, documentId: string,
   await sql`
     UPDATE knowledge_documents d SET indexing_status = 'ready', indexing_error = NULL
     WHERE d.clinic_id = ${clinicId} AND d.id = ${documentId} AND d.version = ${version}
+      AND d.status = 'active' AND d.approved_at IS NOT NULL
+      AND d.effective_from <= now() AND (d.effective_until IS NULL OR d.effective_until > now())
+      AND EXISTS (
+        SELECT 1 FROM knowledge_chunks c
+        WHERE c.clinic_id = d.clinic_id AND c.document_id = d.id
+          AND c.document_version = d.version AND c.is_active = true
+      )
       AND NOT EXISTS (
         SELECT 1 FROM knowledge_chunks c
         WHERE c.clinic_id = d.clinic_id AND c.document_id = d.id

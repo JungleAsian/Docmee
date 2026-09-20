@@ -84,7 +84,7 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
     await app.close()
   })
 
-  it('POST (admin) trains a document → draft doc + one queued embed per chunk', async () => {
+  it('POST (admin) stores draft chunks without falsely queueing them as active', async () => {
     created.documents.length = 0
     created.chunks.length = 0
     kbEmbedAdd.mockClear()
@@ -107,9 +107,7 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
     expect(body.ocr).toBe(false)
     // Document lands as draft for human review before the bot can retrieve it.
     expect(created.documents[0]).toMatchObject({ status: 'draft', clinicId: 'c-1' })
-    // One version-guarded document job indexes all current chunks.
-    expect(kbEmbedAdd).toHaveBeenCalledTimes(1)
-    expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', expect.objectContaining({ clinicId: 'c-1', documentVersion: 1 }))
+    expect(kbEmbedAdd).not.toHaveBeenCalled()
   })
 
   it('POST flags OCR for an image document', async () => {

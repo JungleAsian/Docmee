@@ -25,6 +25,7 @@ interface ChatBody {
   message?: string
   history?: ChatTurn[]
   route?: string
+  doctorId?: string | null
 }
 
 interface TestBody extends ChatBody {
@@ -102,11 +103,12 @@ async function buildKbGrounding(input: {
   settings: Record<string, unknown>
   log: { warn: (data: unknown, message?: string) => void }
   superuser?: boolean
+  doctorId?: string | null
 }): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none' }> {
   if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none' }
   try {
     const chunks = await withDb((sql) =>
-      createKnowledgeRepository(sql).listEmbeddedChunks(input.clinicId),
+      createKnowledgeRepository(sql).listEmbeddedChunks(input.clinicId, input.doctorId ?? null),
     )
     if (chunks.length > 0) {
       const matches = await searchKb(
@@ -137,7 +139,7 @@ async function buildKbGrounding(input: {
 
   try {
     const chunks = await withDb((sql) =>
-      createKnowledgeRepository(sql).listActiveChunks(input.clinicId),
+      createKnowledgeRepository(sql).listActiveChunks(input.clinicId, input.doctorId ?? null),
     )
     const matches = searchKbByKeyword(input.message, chunks, 6)
     return {
@@ -201,6 +203,7 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
       settings: clinic.settings,
       log: request.log,
       superuser,
+      doctorId: typeof body.doctorId === 'string' ? body.doctorId : null,
     })
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, JZEL_MAX_RETRIEVED_CONTEXT_CHARS)) : ''
 
@@ -307,6 +310,7 @@ ${context}`,
       ai,
       settings: clinic.settings,
       log: request.log,
+      doctorId: typeof body.doctorId === 'string' ? body.doctorId : null,
     })
     const kbMatches = kb.matches
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, 6000)) : ''

@@ -96,4 +96,16 @@ describe('processKbEmbedJob — per-clinic isolation (Req 7)', () => {
     expect(failedUpdate).toBeTruthy()
     expect(failedUpdate?.[1]).toEqual(expect.arrayContaining([CLINIC, 'doc-1', 7]))
   })
+
+  it('marks ready only for an eligible approved document with at least one current active chunk', async () => {
+    await processKbEmbedJob(makeJob({
+      clinicId: CLINIC, documentId: 'doc-1', documentVersion: 7,
+    }, 'embed-document'))
+
+    const readyUpdate = h.sqlCall.mock.calls.find(([text]) => String(text).includes("indexing_status = 'ready'"))
+    expect(readyUpdate?.[0]).toContain("d.status = 'active'")
+    expect(readyUpdate?.[0]).toContain('d.approved_at IS NOT NULL')
+    expect(readyUpdate?.[0]).toContain('EXISTS')
+    expect(readyUpdate?.[0]).toContain('c.is_active = true')
+  })
 })

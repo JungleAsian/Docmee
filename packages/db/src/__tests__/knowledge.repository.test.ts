@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { createKnowledgeRepository } from '../repositories/knowledge.repository.js'
 import type { Sql } from '../client.js'
+import type { KnowledgeSearchRow } from '../repositories/knowledge.repository.js'
 
 // Tagged-template stand-in for postgres.js. Captures the interpolated values of the
 // last query and returns canned rows, so the per-doctor FAQ wiring (Req 30) — the
 // metadata folding on create and the doctorId column on listEmbeddedChunks — is
 // asserted without a live database. `.json` mirrors postgres.js sql.json: it tags a
 // value so the test can read back what was passed.
-function fakeSql(): { sql: Sql; lastQuery: () => string; lastValues: () => unknown[]; queries: () => string[]; queryValues: () => unknown[][] } {
+function fakeSql(
+  responseFor?: (query: string, values: unknown[]) => unknown[] | undefined,
+): { sql: Sql; lastQuery: () => string; lastValues: () => unknown[]; queries: () => string[]; queryValues: () => unknown[][] } {
   let query = ''
   let values: unknown[] = []
   const allQueries: string[] = []
@@ -17,6 +20,8 @@ function fakeSql(): { sql: Sql; lastQuery: () => string; lastValues: () => unkno
     values = vals
     allQueries.push(query)
     allValues.push(vals)
+    const response = responseFor?.(query, vals)
+    if (response !== undefined) return Promise.resolve(response)
     if (query.includes('FROM knowledge_chunks')) {
       return Promise.resolve([
         { title: 'Horarios', content: 'L-V 9-18', embedding: [0.1], doctorId: null },
@@ -146,6 +151,78 @@ describe('knowledge.repository — freshness retrieval contract', () => {
     expect(sourceDelete).toBeGreaterThan(sourceRead)
   })
 
+  it('rebuilds current chunks from authoritative document text without surfacing legacy text', async () => {
+    const chunkState: Array<KnowledgeSearchRow & { isActive: boolean }> = [{
+      chunkId: 'legacy-v1', documentId: 'doc-v2', title: 'Policy', content: 'legacy v1 old text',
+      doctorId: null, language: 'en', documentVersion: 1, updatedAt: '2026-09-19T00:00:00.000Z',
+      vectorScore: 0, lexicalScore: 0, source: 'migration', provenance: {},
+      effectiveFrom: '2026-09-19T00:00:00.000Z', effectiveUntil: null, retrievalRevision: 0,
+      isActive: true,
+    }]
+    const { sql, queries, queryValues } = fakeSql((query) => {
+      if (query.includes('SELECT id, version, content') && query.includes('FROM knowledge_documents')) {
+        return [{ id: 'doc-v2', version: 2, content: 'current v2 policy text' }]
+      }
+      if (query.includes('UPDATE knowledge_chunks') && query.includes('is_active = false')) {
+        for (const chunk of chunkState) chunk.isActive = false
+        return []
+      }
+      if (query.includes('INSERT INTO knowledge_chunks')) {
+        chunkState.push({
+          chunkId: 'chunk-v2', documentId: 'doc-v2', title: 'Policy', content: 'current v2 policy text',
+          doctorId: null, language: 'en', documentVersion: 2, updatedAt: '2026-09-20T00:00:00.000Z',
+          vectorScore: 0, lexicalScore: 1, source: 'authoritative', provenance: {},
+          effectiveFrom: '2026-09-20T00:00:00.000Z', effectiveUntil: null, retrievalRevision: 1,
+          isActive: true,
+        })
+        return [{ id: 'chunk-v2', documentId: 'doc-v2', documentVersion: 2, content: 'current v2 policy text' }]
+      }
+      if (query.includes('FROM knowledge_chunks')) {
+        return chunkState.filter((chunk) => chunk.isActive && chunk.documentVersion === 2)
+      }
+      return undefined
+    })
+
+    const repository = createKnowledgeRepository(sql)
+    const queued = await repository.prepareClinicReindex('clinic-1')
+    const retrieved = await repository.searchChunks('policy', [], { clinicId: 'clinic-1' })
+
+    const withdrawIndex = queries().findIndex((query) =>
+      query.includes('UPDATE knowledge_chunks') && query.includes('is_active = false'),
+    )
+    const insertIndex = queries().findIndex((query) => query.includes('INSERT INTO knowledge_chunks'))
+    expect(withdrawIndex).toBeGreaterThanOrEqual(0)
+    expect(insertIndex).toBeGreaterThan(withdrawIndex)
+    expect(queryValues()[insertIndex]).toEqual(expect.arrayContaining([
+      'doc-v2', 'clinic-1', 'current v2 policy text', 0, 2, true,
+    ]))
+    expect(queryValues().flat()).not.toContain('legacy v1 old text')
+    expect(queued).toEqual([{ id: 'doc-v2', version: 2 }])
+    expect(retrieved.map((chunk) => chunk.content)).toEqual(['current v2 policy text'])
+    expect(chunkState.find((chunk) => chunk.chunkId === 'legacy-v1')?.isActive).toBe(false)
+  })
+
+  it('marks an authoritative document with no indexable current content failed instead of queueing it', async () => {
+    const { sql, queries, queryValues } = fakeSql((query) => {
+      if (query.includes('SELECT id, version, content') && query.includes('FROM knowledge_documents')) {
+        return [{ id: 'doc-empty', version: 3, content: '   ' }]
+      }
+      return undefined
+    })
+
+    const queued = await createKnowledgeRepository(sql).prepareClinicReindex('clinic-1')
+
+    const failedIndex = queries().findIndex((query) =>
+      query.includes('UPDATE knowledge_documents') && query.includes("indexing_status = 'failed'"),
+    )
+    expect(queued).toEqual([])
+    expect(failedIndex).toBeGreaterThanOrEqual(0)
+    expect(queryValues()[failedIndex]).toEqual(expect.arrayContaining([
+      'no_indexable_content', 'clinic-1', 'doc-empty', 3,
+    ]))
+    expect(queries().some((query) => query.includes('INSERT INTO knowledge_chunks'))).toBe(false)
+  })
+
   it('runs lexical retrieval when no vector is available', async () => {
     const { sql, lastQuery, lastValues } = fakeSql()
     await createKnowledgeRepository(sql).searchChunks('horario sábado', [], { clinicId: 'clinic-1' })
@@ -174,6 +251,31 @@ describe('knowledge.repository — freshness retrieval contract', () => {
 
     expect(query).toContain('language_preference')
     expect(query).not.toContain("AND ( IS NULL OR lower(COALESCE(d.metadata ->> 'language'")
+  })
+
+  it('keeps a relevant cross-language answer ahead of more than the result limit of irrelevant preferred rows', async () => {
+    const irrelevantPreferred = Array.from({ length: 41 }, (_, index) => ({
+      chunkId: `en-${index}`, documentId: `en-doc-${index}`, title: `English ${index}`,
+      content: 'irrelevant', doctorId: null, language: 'en', documentVersion: 1,
+      updatedAt: '2026-09-20T00:00:00.000Z', vectorScore: 0, lexicalScore: 0,
+      relevanceScore: 0, languagePreference: 1,
+    }))
+    const relevantCrossLanguage = {
+      chunkId: 'es-relevant', documentId: 'es-doc', title: 'Respuesta',
+      content: 'the relevant answer', doctorId: null, language: 'es', documentVersion: 1,
+      updatedAt: '2026-09-20T00:00:00.000Z', vectorScore: 0, lexicalScore: 1,
+      relevanceScore: 0.25, languagePreference: 0,
+    }
+    const { sql } = fakeSql((query) => query.includes('FROM knowledge_chunks')
+      ? [...irrelevantPreferred, relevantCrossLanguage]
+      : undefined)
+
+    const rows = await createKnowledgeRepository(sql).searchChunks(
+      'relevant answer', [], { clinicId: 'clinic-1', language: 'en' }, 40,
+    ) as Array<KnowledgeSearchRow & { relevanceScore?: number; languagePreference?: number }>
+
+    expect(rows).toHaveLength(40)
+    expect(rows[0]?.chunkId).toBe('es-relevant')
   })
 })
 

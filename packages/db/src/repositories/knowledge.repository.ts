@@ -234,6 +234,43 @@ export interface KnowledgeRepository {
   deleteIaRule(clinicId: string, id: string): Promise<void>
 }
 
+function chunkDocumentContent(content: string): string[] {
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return []
+  const chunks: string[] = []
+  let current = ''
+  for (const paragraph of normalized.split(/\n{2,}/)) {
+    const next = paragraph.trim()
+    if (!next) continue
+    if (current && `${current}\n\n${next}`.length > 1800) {
+      chunks.push(current)
+      current = next
+    } else {
+      current = current ? `${current}\n\n${next}` : next
+    }
+  }
+  if (current) chunks.push(current)
+  return chunks
+}
+
+type RankedKnowledgeSearchRow = KnowledgeSearchRow & {
+  relevanceScore?: number
+  languagePreference?: number
+}
+
+function boundedLanguagePreference(rows: RankedKnowledgeSearchRow[], limit: number): KnowledgeSearchRow[] {
+  return [...rows]
+    .sort((left, right) => {
+      const relevance = Number(right.relevanceScore ?? 0) - Number(left.relevanceScore ?? 0)
+      if (relevance !== 0) return relevance
+      const language = Number(right.languagePreference ?? 0) - Number(left.languagePreference ?? 0)
+      if (language !== 0) return language
+      return Date.parse(right.updatedAt ?? '') - Date.parse(left.updatedAt ?? '')
+    })
+    .slice(0, limit)
+    .map(({ relevanceScore: _relevance, languagePreference: _language, ...row }) => row)
+}
+
 export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
   return {
     async listDocuments(clinicId) {
@@ -432,28 +469,55 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
 
     async prepareClinicReindex(clinicId) {
       return sql.begin(async (tx) => {
-        const docs = await tx<Array<{ id: string; version: number }>>`
-          UPDATE knowledge_documents
-          SET indexing_status = 'pending', indexing_error = NULL
+        const docs = await tx<Array<{ id: string; version: number; content: string }>>`
+          SELECT id, version, content FROM knowledge_documents
           WHERE clinic_id = ${clinicId} AND status = 'active' AND approved_at IS NOT NULL
             AND effective_from <= now() AND (effective_until IS NULL OR effective_until > now())
-          RETURNING id, version
+          FOR UPDATE
         `
-        await tx`
-          UPDATE knowledge_chunks c
-          SET embedding = NULL, embedding_model = NULL, embedded_at = NULL,
-              metadata = COALESCE(c.metadata, '{}') - 'embedding'
-          FROM knowledge_documents d
-          WHERE c.clinic_id = ${clinicId} AND d.clinic_id = c.clinic_id AND d.id = c.document_id
-            AND c.document_version = d.version AND c.is_active = true
-            AND d.status = 'active' AND d.approved_at IS NOT NULL
-        `
+        const queueable: Array<{ id: string; version: number }> = []
+        for (const document of docs) {
+          await tx`
+            UPDATE knowledge_chunks
+            SET is_active = false, embedding = NULL, embedding_model = NULL,
+                embedded_at = NULL, metadata = COALESCE(metadata, '{}') - 'embedding'
+            WHERE clinic_id = ${clinicId} AND document_id = ${document.id}
+          `
+          await tx`
+            DELETE FROM knowledge_chunks
+            WHERE clinic_id = ${clinicId} AND document_id = ${document.id}
+              AND document_version = ${document.version}
+          `
+          const chunks = chunkDocumentContent(document.content)
+          if (chunks.length === 0) {
+            await tx`
+              UPDATE knowledge_documents
+              SET indexing_status = 'failed', indexing_error = ${'no_indexable_content'}
+              WHERE clinic_id = ${clinicId} AND id = ${document.id} AND version = ${document.version}
+            `
+            continue
+          }
+          for (const [chunkIndex, content] of chunks.entries()) {
+            await tx`
+              INSERT INTO knowledge_chunks
+                (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
+              VALUES (${document.id}, ${clinicId}, ${content}, ${chunkIndex},
+                ${tx.json(toJson({}))}, ${document.version}, ${true})
+            `
+          }
+          await tx`
+            UPDATE knowledge_documents
+            SET indexing_status = 'pending', indexing_error = NULL
+            WHERE clinic_id = ${clinicId} AND id = ${document.id} AND version = ${document.version}
+          `
+          queueable.push({ id: document.id, version: document.version })
+        }
         await tx`
           INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
           ON CONFLICT (clinic_id) DO UPDATE
           SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
         `
-        return docs
+        return queueable
       }) as unknown as Promise<Array<{ id: string; version: number }>>
     },
 
@@ -632,7 +696,8 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
 
     async searchChunks(query, embedding, filters, limit = 40) {
       const vector = embedding.length === 1536 ? `[${embedding.join(',')}]` : null
-      return sql<KnowledgeSearchRow[]>`
+      const candidateLimit = Math.max(limit, Math.min(limit * 2, 200))
+      const rows = await sql<RankedKnowledgeSearchRow[]>`
         WITH clinic_revision AS (
           SELECT COALESCE((SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${filters.clinicId}), 0) AS revision
         )
@@ -651,7 +716,11 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
                d.effective_from, d.effective_until, clinic_revision.revision AS retrieval_revision,
                CASE WHEN ${filters.language ?? null}::text IS NOT NULL AND
                  lower(COALESCE(d.metadata ->> 'language', c.metadata ->> 'language', '')) = lower(${filters.language ?? null})
-                 THEN 1 ELSE 0 END AS language_preference
+                 THEN 1 ELSE 0 END AS language_preference,
+               (0.65 * CASE WHEN ${vector}::text IS NULL OR c.embedding IS NULL THEN 0 ELSE COALESCE((1 - (c.embedding <=> ${vector}::vector)), 0) END +
+                0.25 * LEAST(ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query})), 1) +
+                0.05 * (1.0 / (1.0 + GREATEST(EXTRACT(EPOCH FROM (now() - d.updated_at)) / 86400.0, 0))) +
+                0.05 * LEAST(ln(1 + GREATEST(d.version, 1)) / ln(11), 1)) AS relevance_score
         FROM knowledge_chunks c
         JOIN knowledge_documents d ON d.id = c.document_id AND d.clinic_id = c.clinic_id
         CROSS JOIN clinic_revision
@@ -665,14 +734,11 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
             OR (${filters.doctorId ?? null}::text IS NOT NULL AND
               (d.metadata ->> 'doctorId' IS NULL OR d.metadata ->> 'doctorId' = ${filters.doctorId ?? null})))
           AND (${filters.documentVersion ?? null}::int IS NULL OR d.version = ${filters.documentVersion ?? null})
-        ORDER BY language_preference DESC,
-                 (0.65 * CASE WHEN ${vector}::text IS NULL OR c.embedding IS NULL THEN 0 ELSE COALESCE((1 - (c.embedding <=> ${vector}::vector)), 0) END +
-                  0.25 * LEAST(ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query})), 1) +
-                  0.05 * (1.0 / (1.0 + GREATEST(EXTRACT(EPOCH FROM (now() - d.updated_at)) / 86400.0, 0))) +
-                  0.05 * LEAST(ln(1 + GREATEST(d.version, 1)) / ln(11), 1)) DESC,
+        ORDER BY relevance_score DESC, language_preference DESC,
                  d.updated_at DESC
-        LIMIT ${limit}
+        LIMIT ${candidateLimit}
       `
+      return boundedLanguagePreference(rows, limit)
     },
 
     async recordRetrievalEvent(event) {

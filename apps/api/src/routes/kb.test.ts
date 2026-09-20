@@ -22,6 +22,7 @@ const store = vi.hoisted(() => ({
   ]),
 }))
 const writeDocument = vi.hoisted(() => vi.fn())
+const prepareClinicReindex = vi.hoisted(() => vi.fn())
 
 vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
@@ -78,6 +79,8 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
     },
     deleteDocument: async () => {},
     writeDocument,
+    prepareClinicReindex,
+    markDocumentIndexFailed: vi.fn(),
   }),
 }))
 
@@ -230,5 +233,21 @@ describe('KB routes (Req 30 — per-doctor FAQ scope)', () => {
   it('PATCH for an unknown document → 404', async () => {
     const res = await app.inject({ method: 'PATCH', url: '/clinics/c-1/kb/missing', headers: adminAuth, payload: { status: 'archived' } })
     expect(res.statusCode).toBe(404)
+  })
+
+  it('POST reembed queues only documents whose current lexical chunks were rebuilt', async () => {
+    kbEmbedAdd.mockClear()
+    prepareClinicReindex.mockResolvedValueOnce([{ id: 'doc-v2', version: 2 }])
+
+    const res = await app.inject({
+      method: 'POST', url: '/clinics/c-1/kb/reembed', headers: adminAuth,
+    })
+
+    expect(res.statusCode).toBe(202)
+    expect(JSON.parse(res.body)).toEqual({ queued: true, documents: 1 })
+    expect(kbEmbedAdd).toHaveBeenCalledTimes(1)
+    expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', {
+      clinicId: 'c-1', documentId: 'doc-v2', documentVersion: 2,
+    })
   })
 })

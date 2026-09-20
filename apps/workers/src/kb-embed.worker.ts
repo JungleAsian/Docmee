@@ -100,6 +100,15 @@ export async function processKbEmbedJob(job: Job): Promise<void> {
         WHERE clinic_id = ${clinicId} AND document_id = ${documentId}
           AND document_version = ${documentVersion} AND is_active = true
       `
+      if (chunks.length === 0) {
+        await sql`
+          UPDATE knowledge_documents
+          SET indexing_status = 'failed', indexing_error = ${'no_current_active_chunks'}
+          WHERE clinic_id = ${clinicId} AND id = ${documentId} AND version = ${documentVersion}
+        `
+        failureContext = undefined
+        throw new Error('KB document has no current active chunks')
+      }
       for (const c of chunks) await storeEmbedding(sql, clinicId, c.id, await embedder(c.content), documentId, documentVersion)
       await markDocumentReady(sql, clinicId, documentId, documentVersion)
       return

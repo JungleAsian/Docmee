@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   embedText: vi.fn(),
   sqlCall: vi.fn(),
   end: vi.fn(),
+  selectedChunks: [{ id: 'chunk-1', content: 'current text' }] as Array<{ id: string; content: string }>,
 }))
 
 vi.mock('@docmee/llm', () => ({
@@ -22,7 +23,7 @@ vi.mock('@docmee/db', () => {
     const text = strings.join('?')
     h.sqlCall(text, values)
     if (text.includes('SELECT id, content FROM knowledge_chunks')) {
-      return Promise.resolve([{ id: 'chunk-1', content: 'current text' }])
+      return Promise.resolve(h.selectedChunks)
     }
     return Promise.resolve([])
   }) as unknown as { json: (v: unknown) => unknown; end: () => void }
@@ -43,6 +44,7 @@ const makeJob = (data: unknown, name = 'embed') => ({ data, name }) as never
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.selectedChunks = [{ id: 'chunk-1', content: 'current text' }]
   h.embedText.mockResolvedValue([0.1, 0.2, 0.3])
 })
 
@@ -123,5 +125,21 @@ describe('processKbEmbedJob — per-clinic isolation (Req 7)', () => {
     )
     // NOT EXISTS keeps a mixed set unready; only a fully embedded set clears it.
     expect(readySql).toContain('AND NOT EXISTS')
+  })
+
+  it('fails a document job with zero current active chunks without marking it ready', async () => {
+    h.selectedChunks = []
+
+    await expect(processKbEmbedJob(makeJob({
+      clinicId: CLINIC, documentId: 'doc-empty', documentVersion: 3,
+    }, 'embed-document'))).rejects.toThrow('no current active chunks')
+
+    const failed = h.sqlCall.mock.calls.find(([text]) =>
+      String(text).includes("indexing_status = 'failed'"),
+    )
+    expect(failed?.[1]).toEqual(expect.arrayContaining([
+      'no_current_active_chunks', CLINIC, 'doc-empty', 3,
+    ]))
+    expect(h.sqlCall.mock.calls.some(([text]) => String(text).includes("indexing_status = 'ready'"))).toBe(false)
   })
 })

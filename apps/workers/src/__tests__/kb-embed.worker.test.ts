@@ -19,8 +19,12 @@ vi.mock('@docmee/llm', () => ({
 vi.mock('@docmee/db', () => {
   // A minimal postgres-style tagged-template client: callable, with .json and .end.
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
-    h.sqlCall(strings.join('?'), values)
-    return Promise.resolve(strings.join('').includes('SELECT settings FROM clinics') ? [] : [])
+    const text = strings.join('?')
+    h.sqlCall(text, values)
+    if (text.includes('SELECT id, content FROM knowledge_chunks')) {
+      return Promise.resolve([{ id: 'chunk-1', content: 'current text' }])
+    }
+    return Promise.resolve([])
   }) as unknown as { json: (v: unknown) => unknown; end: () => void }
   sql.json = (v: unknown) => ({ __json: v })
   sql.end = h.end
@@ -35,7 +39,7 @@ import { processKbEmbedJob } from '../kb-embed.worker.js'
 const CLINIC = 'clinic-A'
 const CHUNK = 'chunk-1'
 
-const makeJob = (data: unknown) => ({ data }) as never
+const makeJob = (data: unknown, name = 'embed') => ({ data, name }) as never
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -62,5 +66,34 @@ describe('processKbEmbedJob — per-clinic isolation (Req 7)', () => {
   it('always releases the connection (sql.end) after embedding', async () => {
     await processKbEmbedJob(makeJob({ chunkId: CHUNK, clinicId: CLINIC, content: 'x' }))
     expect(h.end).toHaveBeenCalledTimes(1)
+  })
+
+  it('guards an embedding write with the current document version', async () => {
+    await processKbEmbedJob(makeJob({
+      chunkId: CHUNK,
+      clinicId: CLINIC,
+      documentId: 'doc-1',
+      documentVersion: 7,
+      content: 'current text',
+    }))
+
+    const [sqlText, values] = h.sqlCall.mock.calls.find(([text]) => String(text).includes('UPDATE knowledge_chunks'))!
+    expect(sqlText).toContain('document_version')
+    expect(sqlText).toContain('knowledge_documents')
+    expect(values).toContain(7)
+    expect(values).toContain('doc-1')
+  })
+
+  it('marks the current document index failed when embedding fails so it can be retried', async () => {
+    h.embedText.mockRejectedValueOnce(new Error('provider unavailable'))
+    await expect(processKbEmbedJob(makeJob({
+      clinicId: CLINIC, documentId: 'doc-1', documentVersion: 7,
+    }, 'embed-document'))).rejects.toThrow('provider unavailable')
+
+    const failedUpdate = h.sqlCall.mock.calls.find(([text]) =>
+      String(text).includes("indexing_status = 'failed'"),
+    )
+    expect(failedUpdate).toBeTruthy()
+    expect(failedUpdate?.[1]).toEqual(expect.arrayContaining([CLINIC, 'doc-1', 7]))
   })
 })

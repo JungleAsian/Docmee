@@ -568,6 +568,12 @@ export interface KnowledgeDocument {
   documentType: DocumentType
   status: DocumentStatus
   metadata: Record<string, unknown>
+  version?: number
+  approvedAt?: string | null
+  effectiveFrom?: string
+  effectiveUntil?: string | null
+  indexingStatus?: 'pending' | 'ready' | 'failed' | 'withdrawn'
+  indexingError?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -579,6 +585,8 @@ export interface KnowledgeChunk {
   content: string
   chunkIndex: number
   metadata: Record<string, unknown>
+  documentVersion?: number
+  isActive?: boolean
   createdAt: string
 }
 

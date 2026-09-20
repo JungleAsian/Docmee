@@ -57,20 +57,26 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
       }
       if (chunks.length === 0) return reply.code(422).send({ error: 'Document has no extractable content' })
 
-      const { document, stored } = await withDb(async (sql) => {
+      const { document, stored, retrievalRevision } = await withDb(async (sql) => {
         const repo = createKnowledgeRepository(sql)
         // Parsed/OCR'd documents land as `draft` so a human reviews the extracted
         // text before it is retrievable — the bot only ever searches `active`
         // documents (knowledge.repository listEmbeddedChunks filters d.status='active').
         // Chunks are still embedded immediately, so approval makes it instantly live.
-        const doc = await repo.createDocument({
+        const written = await repo.writeDocument({
           clinicId,
           title: file.filename || 'Uploaded document',
           content: chunks.map((c) => c.content).join('\n\n'),
           documentType: 'custom',
           status: 'draft',
           metadata: { source: 'document', format, needsReview: true, ocr: ocrUsed },
+          chunks: chunks.map((c) => ({
+            content: c.content,
+            chunkIndex: c.chunkIndex,
+            metadata: { source: 'document', ...(c.question ? { question: c.question } : {}) },
+          })),
         })
+        const doc = written.document
         const vaultKey = kbUploadObjectKey({
           clinicId,
           documentId: doc.id,
@@ -105,29 +111,20 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
             WHERE clinic_id = ${clinicId} AND id = ${doc.id}
           `
         }
-        const rows = []
-        for (const c of chunks) {
-          rows.push(
-            await repo.createChunk({
-              documentId: doc.id,
-              clinicId,
-              content: c.content,
-              chunkIndex: c.chunkIndex,
-              metadata: { source: 'document', ...(c.question ? { question: c.question } : {}) },
-            }),
-          )
-        }
-        return { document: doc, stored: rows }
+        return { document: doc, stored: written.chunks, retrievalRevision: written.retrievalRevision }
       })
 
-      // Each chunk is embedded asynchronously (same job shape the kb-embed worker expects).
-      for (const chunk of stored) {
-        await kbEmbedQueue.add('embed', { chunkId: chunk.id, clinicId, content: chunk.content })
+      const version = document.version ?? 1
+      try {
+        await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: version })
+      } catch (err) {
+        await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(clinicId, document.id, version, 'queue_unavailable'))
+        request.log.error({ err, clinicId, documentId: document.id }, 'kb indexing queue failed')
       }
 
       return reply
         .code(201)
-        .send({ jobId: document.id, chunks: stored.length, status: 'draft', ocr: ocrUsed })
+        .send({ jobId: document.id, chunks: stored.length, status: 'draft', ocr: ocrUsed, retrievalRevision })
     },
   )
 }

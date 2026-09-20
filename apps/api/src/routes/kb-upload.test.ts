@@ -34,15 +34,15 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
   createKnowledgeRepository: () => ({
     listDocuments: async () => [],
     documentTrainingStats: async () => [],
-    createDocument: async (data: Record<string, unknown>) => {
+    writeDocument: async (data: Record<string, unknown>) => {
       const row = { id: `kb-new-${nextId++}`, ...data }
       created.documents.push(row)
-      return row
-    },
-    createChunk: async (data: Record<string, unknown>) => {
-      const row = { id: `chunk-${nextId++}`, ...data }
-      created.chunks.push(row)
-      return row
+      const rows = (data.chunks as Record<string, unknown>[]).map((chunk) => {
+        const createdChunk = { id: `chunk-${nextId++}`, documentId: row.id, clinicId: data.clinicId, ...chunk }
+        created.chunks.push(createdChunk)
+        return createdChunk
+      })
+      return { document: row, chunks: rows, retrievalRevision: 1 }
     },
   }),
 }))
@@ -107,9 +107,9 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
     expect(body.ocr).toBe(false)
     // Document lands as draft for human review before the bot can retrieve it.
     expect(created.documents[0]).toMatchObject({ status: 'draft', clinicId: 'c-1' })
-    // One embed job per chunk, same shape the kb-embed worker consumes.
-    expect(kbEmbedAdd).toHaveBeenCalledTimes(2)
-    expect(kbEmbedAdd).toHaveBeenCalledWith('embed', expect.objectContaining({ clinicId: 'c-1', content: 'chunk one' }))
+    // One version-guarded document job indexes all current chunks.
+    expect(kbEmbedAdd).toHaveBeenCalledTimes(1)
+    expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', expect.objectContaining({ clinicId: 'c-1', documentVersion: 1 }))
   })
 
   it('POST flags OCR for an image document', async () => {

@@ -30,6 +30,17 @@ export interface CreateChunkInput {
   metadata?: Record<string, unknown>
 }
 
+export interface WriteDocumentInput extends CreateDocumentInput {
+  id?: string
+  chunks: Array<Omit<CreateChunkInput, 'documentId' | 'clinicId'>>
+}
+
+export interface DocumentIndexWrite {
+  document: KnowledgeDocument
+  chunks: KnowledgeChunk[]
+  retrievalRevision: number
+}
+
 /** A KB chunk paired with its stored embedding, for in-process similarity search. */
 export interface EmbeddedChunkRow {
   title: string
@@ -66,6 +77,11 @@ export interface KnowledgeSearchRow {
   updatedAt: string
   vectorScore: number
   lexicalScore: number
+  source?: string | null
+  provenance?: Record<string, unknown>
+  effectiveFrom?: string
+  effectiveUntil?: string | null
+  retrievalRevision?: number
 }
 
 export type KnowledgeCandidateStatus = 'pending_review' | 'approved' | 'rejected' | 'superseded'
@@ -144,6 +160,12 @@ export interface KnowledgeRepository {
   listDocuments(clinicId: string): Promise<KnowledgeDocument[]>
   findDocument(clinicId: string, id: string): Promise<KnowledgeDocument | null>
   createDocument(data: CreateDocumentInput): Promise<KnowledgeDocument>
+  /** Atomically creates/edits content, withdraws old chunks, installs current
+   * lexical chunks, and increments the clinic retrieval revision. */
+  writeDocument(data: WriteDocumentInput): Promise<DocumentIndexWrite>
+  getClinicRetrievalRevision(clinicId: string): Promise<number>
+  markDocumentIndexFailed(clinicId: string, id: string, version: number, error: string): Promise<void>
+  prepareClinicReindex(clinicId: string): Promise<Array<{ id: string; version: number }>>
   /** Edit an existing document's title / content / type (Screen 7 entry editor). */
   updateDocument(clinicId: string, id: string, data: UpdateDocumentInput): Promise<KnowledgeDocument>
   updateDocumentStatus(clinicId: string, id: string, status: DocumentStatus): Promise<KnowledgeDocument>
@@ -241,69 +263,219 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
       return rows[0]!
     },
 
+    async writeDocument(data) {
+      return sql.begin(async (tx) => {
+        const withDoctorScope = (base: Record<string, unknown>) => {
+          const metadata = { ...base }
+          if (data.doctorId === null) delete metadata.doctorId
+          else if (data.doctorId !== undefined) metadata.doctorId = data.doctorId
+          return metadata
+        }
+        let document: KnowledgeDocument
+        if (data.id) {
+          const current = await tx<(KnowledgeDocument & { version?: number })[]>`
+            SELECT * FROM knowledge_documents
+            WHERE clinic_id = ${data.clinicId} AND id = ${data.id}
+            FOR UPDATE
+          `
+          if (!current[0]) throw new Error(`Document not found: ${data.id}`)
+          const metadata = withDoctorScope(data.metadata ?? current[0].metadata ?? {})
+          const nextVersion = (current[0].version ?? 1) + 1
+          await tx`
+            UPDATE knowledge_chunks
+            SET is_active = false, embedding = NULL, embedding_model = NULL,
+                embedded_at = NULL, metadata = COALESCE(metadata, '{}') - 'embedding'
+            WHERE clinic_id = ${data.clinicId} AND document_id = ${data.id}
+          `
+          const rows = await tx<KnowledgeDocument[]>`
+            UPDATE knowledge_documents SET
+              title = ${data.title}, content = ${data.content},
+              document_type = ${data.documentType ?? current[0].documentType},
+              status = ${data.status ?? current[0].status}, version = ${nextVersion},
+              approved_at = CASE WHEN ${data.status ?? current[0].status} = 'active' THEN now() ELSE NULL END,
+              indexing_status = 'pending', indexing_error = NULL,
+              metadata = ${tx.json(toJson(metadata))}
+            WHERE clinic_id = ${data.clinicId} AND id = ${data.id}
+            RETURNING *
+          `
+          document = rows[0]!
+        } else {
+          const metadata = withDoctorScope(data.metadata ?? {})
+          const rows = await tx<KnowledgeDocument[]>`
+            INSERT INTO knowledge_documents
+              (clinic_id, title, content, document_type, status, approved_at, indexing_status, metadata)
+            VALUES (${data.clinicId}, ${data.title}, ${data.content}, ${data.documentType ?? 'faq'},
+              ${data.status ?? 'draft'}, CASE WHEN ${data.status ?? 'draft'} = 'active' THEN now() ELSE NULL END,
+              'pending', ${tx.json(toJson(metadata))})
+            RETURNING *
+          `
+          document = rows[0]!
+        }
+        const version = document.version ?? 1
+        const chunks: KnowledgeChunk[] = []
+        for (const chunk of data.chunks) {
+          const rows = await tx<KnowledgeChunk[]>`
+            INSERT INTO knowledge_chunks
+              (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
+            VALUES (${document.id}, ${data.clinicId}, ${chunk.content}, ${chunk.chunkIndex},
+              ${tx.json(toJson(chunk.metadata ?? {}))}, ${version}, true)
+            RETURNING *
+          `
+          chunks.push(rows[0]!)
+        }
+        const revision = await tx<{ revision: number }[]>`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision)
+          VALUES (${data.clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+          RETURNING revision
+        `
+        return { document, chunks, retrievalRevision: Number(revision[0]?.revision ?? 1) }
+      }) as unknown as Promise<DocumentIndexWrite>
+    },
+
+    async getClinicRetrievalRevision(clinicId) {
+      const rows = await sql<{ revision: number }[]>`
+        SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId}
+      `
+      return Number(rows[0]?.revision ?? 0)
+    },
+
+    async markDocumentIndexFailed(clinicId, id, version, error) {
+      await sql`
+        UPDATE knowledge_documents
+        SET indexing_status = 'failed', indexing_error = ${error.slice(0, 500)}
+        WHERE clinic_id = ${clinicId} AND id = ${id} AND version = ${version}
+      `
+    },
+
+    async prepareClinicReindex(clinicId) {
+      return sql.begin(async (tx) => {
+        const docs = await tx<Array<{ id: string; version: number }>>`
+          UPDATE knowledge_documents
+          SET indexing_status = 'pending', indexing_error = NULL
+          WHERE clinic_id = ${clinicId} AND status = 'active' AND approved_at IS NOT NULL
+            AND effective_from <= now() AND (effective_until IS NULL OR effective_until > now())
+          RETURNING id, version
+        `
+        await tx`
+          UPDATE knowledge_chunks c
+          SET embedding = NULL, embedding_model = NULL, embedded_at = NULL,
+              metadata = COALESCE(c.metadata, '{}') - 'embedding'
+          FROM knowledge_documents d
+          WHERE c.clinic_id = ${clinicId} AND d.clinic_id = c.clinic_id AND d.id = c.document_id
+            AND c.document_version = d.version AND c.is_active = true
+            AND d.status = 'active' AND d.approved_at IS NOT NULL
+        `
+        await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
+        return docs
+      }) as unknown as Promise<Array<{ id: string; version: number }>>
+    },
+
     async updateDocument(clinicId, id, data) {
-      // Editing content creates a new retrieval version and invalidates vectors
-      // before the document can be read again. This prevents stale answers.
       const rows = await sql<KnowledgeDocument[]>`
           UPDATE knowledge_documents SET
             title         = COALESCE(${data.title        ?? null}, title),
             content       = COALESCE(${data.content      ?? null}, content),
-            document_type = COALESCE(${data.documentType ?? null}, document_type),
-            version       = version + 1,
-            approved_at   = NULL
+            document_type = COALESCE(${data.documentType ?? null}, document_type)
           WHERE clinic_id = ${clinicId} AND id = ${id}
           RETURNING *
         `
-      // The lightweight repository test double has no transaction helper; the
-      // service postgres client does, so production always performs invalidation.
-      if (rows[0] && typeof (sql as unknown as { begin?: unknown }).begin === 'function') {
-        await sql`
-          UPDATE knowledge_chunks
-          SET embedding = NULL, embedding_model = NULL, embedded_at = NULL,
-              metadata = COALESCE(metadata, '{}') - 'embedding'
-          WHERE clinic_id = ${clinicId} AND document_id = ${id}
-        `
-      }
       if (!rows[0]) throw new Error(`Document not found: ${id}`)
       return rows[0]
     },
 
     async updateDocumentStatus(clinicId, id, status) {
-      const rows = await sql<KnowledgeDocument[]>`
-        UPDATE knowledge_documents SET status = ${status}, approved_at = CASE WHEN ${status} = 'active' THEN now() ELSE approved_at END
-        WHERE clinic_id = ${clinicId} AND id = ${id}
-        RETURNING *
-      `
-      if (!rows[0]) throw new Error(`Document not found: ${id}`)
-      return rows[0]
+      return sql.begin(async (tx) => {
+        const rows = await tx<KnowledgeDocument[]>`
+          UPDATE knowledge_documents SET status = ${status},
+            approved_at = CASE WHEN ${status} = 'active' THEN now() ELSE approved_at END,
+            indexing_status = CASE WHEN ${status} = 'active' THEN 'pending' ELSE 'withdrawn' END,
+            indexing_error = NULL
+          WHERE clinic_id = ${clinicId} AND id = ${id}
+          RETURNING *
+        `
+        if (!rows[0]) throw new Error(`Document not found: ${id}`)
+        await tx`
+          UPDATE knowledge_chunks SET is_active = ${status === 'active'}
+          WHERE clinic_id = ${clinicId} AND document_id = ${id}
+            AND document_version = ${rows[0].version ?? 1}
+        `
+        await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
+        return rows[0]
+      }) as unknown as Promise<KnowledgeDocument>
     },
 
     async approveDraftDocuments(clinicId) {
-      return sql<KnowledgeDocument[]>`
-        UPDATE knowledge_documents SET status = 'active', approved_at = now()
-        WHERE clinic_id = ${clinicId} AND status = 'draft'
-        RETURNING *
-      `
+      return sql.begin(async (tx) => {
+        const docs = await tx<KnowledgeDocument[]>`
+          UPDATE knowledge_documents
+          SET status = 'active', approved_at = now(), indexing_status = 'pending', indexing_error = NULL
+          WHERE clinic_id = ${clinicId} AND status = 'draft'
+          RETURNING *
+        `
+        if (docs.length > 0) {
+          await tx`
+            UPDATE knowledge_chunks c SET is_active = true
+            FROM knowledge_documents d
+            WHERE c.clinic_id = ${clinicId} AND d.id = c.document_id AND d.clinic_id = c.clinic_id
+              AND c.document_version = d.version AND d.status = 'active'
+          `
+          await tx`
+            INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+            ON CONFLICT (clinic_id) DO UPDATE
+            SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+          `
+        }
+        return docs
+      }) as unknown as Promise<KnowledgeDocument[]>
     },
 
     async setDocumentDoctor(clinicId, id, doctorId) {
-      // Merge onto existing metadata so other keys survive; null removes the scope.
-      const rows = await sql<KnowledgeDocument[]>`
-        UPDATE knowledge_documents
-        SET metadata = ${
-          doctorId
-            ? sql`metadata || ${sql.json(toJson({ doctorId }))}`
-            : sql`metadata - 'doctorId'`
-        }
-        WHERE clinic_id = ${clinicId} AND id = ${id}
-        RETURNING *
-      `
-      if (!rows[0]) throw new Error(`Document not found: ${id}`)
-      return rows[0]
+      return sql.begin(async (tx) => {
+        // Merge onto existing metadata so other keys survive; null removes the scope.
+        const rows = await tx<KnowledgeDocument[]>`
+          UPDATE knowledge_documents
+          SET metadata = ${
+            doctorId
+              ? tx`metadata || ${tx.json(toJson({ doctorId }))}`
+              : tx`metadata - 'doctorId'`
+          }
+          WHERE clinic_id = ${clinicId} AND id = ${id}
+          RETURNING *
+        `
+        if (!rows[0]) throw new Error(`Document not found: ${id}`)
+        await tx`
+          INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+          ON CONFLICT (clinic_id) DO UPDATE
+          SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+        `
+        return rows[0]
+      }) as unknown as Promise<KnowledgeDocument>
     },
 
     async deleteDocument(clinicId, id) {
-      await sql`DELETE FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${id}`
+      await sql.begin(async (tx) => {
+        const deleted = await tx<Array<{ id: string }>>`
+          DELETE FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${id}
+          RETURNING id
+        `
+        if (deleted.length > 0) {
+          await tx`
+            INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
+            ON CONFLICT (clinic_id) DO UPDATE
+            SET revision = knowledge_retrieval_revisions.revision + 1, updated_at = now()
+          `
+        }
+      })
     },
 
     async listChunks(clinicId, documentId) {
@@ -317,12 +489,13 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
     async documentTrainingStats(clinicId) {
       // One grouped pass over the clinic's chunks — no per-document round trips.
       return sql<DocumentTrainingStat[]>`
-        SELECT document_id AS document_id,
+        SELECT c.document_id AS document_id,
                COUNT(*)::int AS chunk_count,
-               COUNT(*) FILTER (WHERE (metadata -> 'embedding') ? 'v')::int AS embedded_count
-        FROM knowledge_chunks
-        WHERE clinic_id = ${clinicId}
-        GROUP BY document_id
+               COUNT(*) FILTER (WHERE c.embedding IS NOT NULL OR (c.metadata -> 'embedding') ? 'v')::int AS embedded_count
+        FROM knowledge_chunks c
+        JOIN knowledge_documents d ON d.id = c.document_id AND d.clinic_id = c.clinic_id
+        WHERE c.clinic_id = ${clinicId} AND c.is_active = true AND c.document_version = d.version
+        GROUP BY c.document_id
       `
     },
 
@@ -337,6 +510,9 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
           ON d.id = c.document_id AND d.clinic_id = c.clinic_id
         WHERE c.clinic_id = ${clinicId}
           AND d.status = 'active'
+          AND d.approved_at IS NOT NULL
+          AND d.effective_from <= now() AND (d.effective_until IS NULL OR d.effective_until > now())
+          AND c.is_active = true AND c.document_version = d.version
           AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
           AND (c.metadata -> 'embedding') ? 'v'
       `
@@ -352,6 +528,9 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
           ON d.id = c.document_id AND d.clinic_id = c.clinic_id
         WHERE c.clinic_id = ${clinicId}
           AND d.status = 'active'
+          AND d.approved_at IS NOT NULL
+          AND d.effective_from <= now() AND (d.effective_until IS NULL OR d.effective_until > now())
+          AND c.is_active = true AND c.document_version = d.version
           AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
         ORDER BY d.updated_at DESC, c.chunk_index ASC
       `
@@ -359,8 +538,10 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
 
     async searchChunks(query, embedding, filters, limit = 40) {
       const vector = embedding.length === 1536 ? `[${embedding.join(',')}]` : null
-      if (!vector) return []
       return sql<KnowledgeSearchRow[]>`
+        WITH clinic_revision AS (
+          SELECT COALESCE((SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${filters.clinicId}), 0) AS revision
+        )
         SELECT c.id AS chunk_id,
                d.id AS document_id,
                d.title,
@@ -369,19 +550,32 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
                COALESCE(d.metadata ->> 'language', c.metadata ->> 'language') AS language,
                d.version AS document_version,
                d.updated_at,
-               COALESCE((1 - (c.embedding <=> ${vector}::vector))::float8, 0)::float8 AS vector_score,
-               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query}))::float8 AS lexical_score
+               CASE WHEN ${vector}::text IS NULL OR c.embedding IS NULL THEN 0
+                    ELSE COALESCE((1 - (c.embedding <=> ${vector}::vector))::float8, 0) END::float8 AS vector_score,
+               ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query}))::float8 AS lexical_score,
+               d.metadata ->> 'source' AS source, d.metadata AS provenance,
+               d.effective_from, d.effective_until, clinic_revision.revision AS retrieval_revision,
+               CASE WHEN ${filters.language ?? null}::text IS NOT NULL AND
+                 lower(COALESCE(d.metadata ->> 'language', c.metadata ->> 'language', '')) = lower(${filters.language ?? null})
+                 THEN 1 ELSE 0 END AS language_preference
         FROM knowledge_chunks c
         JOIN knowledge_documents d ON d.id = c.document_id AND d.clinic_id = c.clinic_id
+        CROSS JOIN clinic_revision
         WHERE c.clinic_id = ${filters.clinicId}
           AND d.status = 'active'
+          AND d.approved_at IS NOT NULL
+          AND d.effective_from <= now() AND (d.effective_until IS NULL OR d.effective_until > now())
+          AND c.is_active = true AND c.document_version = d.version
           AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
-          AND (${filters.language ?? null}::text IS NULL OR lower(COALESCE(d.metadata ->> 'language', c.metadata ->> 'language', '')) = lower(${filters.language ?? null}))
-          AND (${filters.doctorId ?? null}::text IS NULL OR d.metadata ->> 'doctorId' IS NULL OR d.metadata ->> 'doctorId' = ${filters.doctorId ?? null})
+          AND ((${filters.doctorId ?? null}::text IS NULL AND d.metadata ->> 'doctorId' IS NULL)
+            OR (${filters.doctorId ?? null}::text IS NOT NULL AND
+              (d.metadata ->> 'doctorId' IS NULL OR d.metadata ->> 'doctorId' = ${filters.doctorId ?? null})))
           AND (${filters.documentVersion ?? null}::int IS NULL OR d.version = ${filters.documentVersion ?? null})
-        ORDER BY (0.70 * COALESCE((1 - (c.embedding <=> ${vector}::vector)), 0) +
-                  0.20 * LEAST(ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query})), 1) +
-                  0.10 * (1.0 / GREATEST(d.version, 1))) DESC,
+        ORDER BY language_preference DESC,
+                 (0.65 * CASE WHEN ${vector}::text IS NULL OR c.embedding IS NULL THEN 0 ELSE COALESCE((1 - (c.embedding <=> ${vector}::vector)), 0) END +
+                  0.25 * LEAST(ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query})), 1) +
+                  0.05 * (1.0 / (1.0 + GREATEST(EXTRACT(EPOCH FROM (now() - d.updated_at)) / 86400.0, 0))) +
+                  0.05 * LEAST(ln(1 + GREATEST(d.version, 1)) / ln(11), 1)) DESC,
                  d.updated_at DESC
         LIMIT ${limit}
       `

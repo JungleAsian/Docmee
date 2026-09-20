@@ -21,6 +21,7 @@ const store = vi.hoisted(() => ({
     ['00000000-0000-0000-0000-0000000000d1', { id: '00000000-0000-0000-0000-0000000000d1', clinicId: 'c-1', name: 'Dra. García' }],
   ]),
 }))
+const writeDocument = vi.hoisted(() => vi.fn())
 
 vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
   createServiceDbClient: () => ({ end: async () => {} }),
@@ -76,6 +77,7 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
       return row
     },
     deleteDocument: async () => {},
+    writeDocument,
   }),
 }))
 
@@ -90,6 +92,18 @@ describe('KB routes (Req 30 — per-doctor FAQ scope)', () => {
 
   beforeAll(async () => {
     process.env['NODE_ENV'] = 'test'
+    writeDocument.mockImplementation(async (data: Record<string, unknown>) => {
+      const id = typeof data.id === 'string' ? data.id : `kb-new-${nextId++}`
+      const existing = store.docs.get(id) ?? {}
+      const row = {
+        ...existing, id, clinicId: data.clinicId, title: data.title, content: data.content,
+        documentType: data.documentType ?? 'faq', status: data.status ?? 'active',
+        version: Number(existing.version ?? 0) + 1,
+        metadata: data.doctorId ? { ...(data.metadata as object ?? {}), doctorId: data.doctorId } : (data.metadata ?? {}),
+      }
+      store.docs.set(id, row)
+      return { document: row, chunks: data.chunks as unknown[], retrievalRevision: 2 }
+    })
     app = await buildApp()
     await app.ready()
   })
@@ -116,10 +130,16 @@ describe('KB routes (Req 30 — per-doctor FAQ scope)', () => {
   })
 
   it('POST (admin) creates a clinic-wide document and queues embedding', async () => {
+    writeDocument.mockResolvedValueOnce({
+      document: { id: 'kb-written', clinicId: 'c-1', title: 'X', content: 'y', status: 'active', version: 1, metadata: {} },
+      chunks: [{ id: 'chunk-written', content: 'y' }],
+      retrievalRevision: 2,
+    })
     const res = await app.inject({ method: 'POST', url: '/clinics/c-1/kb', headers: adminAuth, payload: { title: 'X', content: 'y' } })
     expect(res.statusCode).toBe(201)
     expect(JSON.parse(res.body).document.metadata).toEqual({})
-    expect(kbEmbedAdd).toHaveBeenCalled()
+    expect(writeDocument).toHaveBeenCalledWith(expect.objectContaining({ clinicId: 'c-1', content: 'y' }))
+    expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', expect.objectContaining({ documentId: 'kb-written', documentVersion: 1 }))
   })
 
   it('POST (admin) creates a doctor-scoped document', async () => {
@@ -150,12 +170,29 @@ describe('KB routes (Req 30 — per-doctor FAQ scope)', () => {
     expect(JSON.parse(res.body).document.metadata.doctorId).toBeUndefined()
   })
 
+  it('PATCH activation queues the current document version for indexing', async () => {
+    kbEmbedAdd.mockClear()
+    const res = await app.inject({
+      method: 'PATCH', url: '/clinics/c-1/kb/kb-1', headers: adminAuth, payload: { status: 'active' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', expect.objectContaining({
+      clinicId: 'c-1', documentId: 'kb-1', documentVersion: 1,
+    }))
+  })
+
   it('PATCH with an unknown doctorId → 404', async () => {
     const res = await app.inject({ method: 'PATCH', url: '/clinics/c-1/kb/kb-1', headers: adminAuth, payload: { doctorId: '22222222-2222-2222-2222-222222222222' } })
     expect(res.statusCode).toBe(404)
   })
 
   it('PATCH edits the entry title and content (Screen 7 editor)', async () => {
+    writeDocument.mockResolvedValueOnce({
+      document: { id: 'kb-1', clinicId: 'c-1', title: 'Horarios actualizados', content: 'L-S 9-18', documentType: 'policy', status: 'active', version: 2, metadata: {} },
+      chunks: [{ id: 'chunk-new', content: 'L-S 9-18' }],
+      retrievalRevision: 3,
+    })
     const res = await app.inject({
       method: 'PATCH',
       url: '/clinics/c-1/kb/kb-1',
@@ -167,6 +204,7 @@ describe('KB routes (Req 30 — per-doctor FAQ scope)', () => {
     expect(doc.title).toBe('Horarios actualizados')
     expect(doc.content).toBe('L-S 9-18')
     expect(doc.documentType).toBe('policy')
+    expect(kbEmbedAdd).toHaveBeenCalledWith('embed-document', expect.objectContaining({ documentId: 'kb-1', documentVersion: 2 }))
   })
 
   it('PATCH with no updatable field → 400', async () => {

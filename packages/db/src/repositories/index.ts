@@ -46,6 +46,7 @@ export type { WorkflowsRepository, CreateWorkflowInput, UpdateWorkflowInput }   
 export type { WorkflowApprovalsRepository, WorkflowApproval, WorkflowAiDraft, CreateWorkflowApprovalInput, CreateWorkflowDraftInput } from './workflow-approvals.repository.js'
 export type { WorkflowExecutionsRepository, WorkflowRunRecord, WorkflowEffectRecord, WorkflowRunStatus, WorkflowEffectStatus } from './workflow-executions.repository.js'
 export type { KnowledgeRepository, CreateDocumentInput, CreateChunkInput,
+              WriteDocumentInput, DocumentIndexWrite,
               CreateIaProfileInput, UpdateIaProfileInput, CreateIaRuleInput,
               EmbeddedChunkRow, KnowledgeSearchRow, KnowledgeSearchFilters, KnowledgeCandidate,
               KnowledgeCandidateStatus }                    from './knowledge.repository.js'

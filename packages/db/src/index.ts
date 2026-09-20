@@ -188,6 +188,8 @@ export type {
   KnowledgeRepository,
   CreateDocumentInput,
   CreateChunkInput,
+  WriteDocumentInput,
+  DocumentIndexWrite,
   CreateIaProfileInput,
   UpdateIaProfileInput,
   CreateIaRuleInput,

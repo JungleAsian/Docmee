@@ -381,19 +381,23 @@ const kbRoute: FastifyPluginAsync = async (app) => {
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
     // Attach each document's training progress (chunk + embedded-chunk counts) so the
     // panel can show "trained / training / not indexed" without a per-document query.
-    const documents = await withDb(async (sql) => {
+    const result = await withDb(async (sql) => {
       const repo = createKnowledgeRepository(sql)
-      const [docs, stats] = await Promise.all([
+      const [docs, stats, retrievalRevision] = await Promise.all([
         repo.listDocuments(clinicId),
         repo.documentTrainingStats(clinicId),
+        typeof repo.getClinicRetrievalRevision === 'function'
+          ? repo.getClinicRetrievalRevision(clinicId)
+          : Promise.resolve(0),
       ])
       const byDoc = new Map(stats.map((s) => [s.documentId, s]))
-      return docs.map((d) => {
+      const documents = docs.map((d) => {
         const s = byDoc.get(d.id)
         return { ...d, chunkCount: s?.chunkCount ?? 0, embeddedCount: s?.embeddedCount ?? 0 }
       })
+      return { documents, retrievalRevision }
     })
-    return { documents }
+    return result
   })
 
   app.post<{ Params: { id: string } }>(
@@ -410,21 +414,28 @@ const kbRoute: FastifyPluginAsync = async (app) => {
         if (doctorId && !(await createDoctorsRepository(sql).findById(clinicId, doctorId))) {
           return { error: 'doctor_not_found' as const }
         }
-        return {
-          document: await createKnowledgeRepository(sql).createDocument({
+        const written = await createKnowledgeRepository(sql).writeDocument({
             clinicId,
             title: parsed.data.title,
             content: parsed.data.content,
             documentType: parsed.data.documentType ?? 'faq',
             status: parsed.data.status ?? 'active',
             doctorId: doctorId ?? null,
-          }),
-        }
+            chunks: chunkText(parsed.data.content).map((content, chunkIndex) => ({ content, chunkIndex })),
+          })
+        return { document: written.document, retrievalRevision: written.retrievalRevision }
       })
       if ('error' in result) return reply.code(404).send({ error: 'Doctor not found' })
-      // New content needs embedding before it can be retrieved.
-      await kbEmbedQueue.add('embed-document', { clinicId, documentId: result.document.id })
-      return reply.code(201).send({ document: result.document })
+      const version = result.document.version ?? 1
+      try {
+        await kbEmbedQueue.add('embed-document', { clinicId, documentId: result.document.id, documentVersion: version })
+      } catch (err) {
+        await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(clinicId, result.document.id, version, 'queue_unavailable'))
+        request.log.error({ err, clinicId, documentId: result.document.id }, 'kb indexing queue failed')
+        result.document.indexingStatus = 'failed'
+        result.document.indexingError = 'queue_unavailable'
+      }
+      return reply.code(201).send(result)
     },
   )
 
@@ -445,25 +456,55 @@ const kbRoute: FastifyPluginAsync = async (app) => {
         if (doctorId && !(await createDoctorsRepository(sql).findById(clinicId, doctorId))) {
           return { error: 'doctor_not_found' as const }
         }
-        if (title !== undefined || content !== undefined || documentType !== undefined) {
+        let indexJob: { documentId: string; documentVersion: number } | undefined
+        if (content !== undefined) {
+          const metadata = (document.metadata ?? {}) as Record<string, unknown>
+          const written = await repo.writeDocument({
+            id: request.params.entryId,
+            clinicId,
+            title: title ?? document.title,
+            content,
+            documentType: documentType ?? document.documentType,
+            status: status ?? document.status,
+            doctorId: doctorId !== undefined ? doctorId : (typeof metadata['doctorId'] === 'string' ? metadata['doctorId'] : null),
+            metadata,
+            chunks: chunkText(content).map((chunkContent, chunkIndex) => ({ content: chunkContent, chunkIndex })),
+          })
+          document = written.document
+          indexJob = { documentId: document.id, documentVersion: document.version ?? 1 }
+        } else if (title !== undefined || documentType !== undefined) {
           document = await repo.updateDocument(clinicId, request.params.entryId, {
             title,
-            content,
             documentType,
           })
         }
-        if (status !== undefined) {
+        if (status !== undefined && content === undefined) {
           document = await repo.updateDocumentStatus(clinicId, request.params.entryId, status)
+          if (status === 'active') {
+            indexJob = { documentId: document.id, documentVersion: document.version ?? 1 }
+          }
         }
-        if (doctorId !== undefined) {
+        if (doctorId !== undefined && content === undefined) {
           document = await repo.setDocumentDoctor(clinicId, request.params.entryId, doctorId)
         }
-        return { document }
+        return { document, indexJob }
       })
       if ('error' in result) {
         return reply
           .code(404)
           .send({ error: result.error === 'doctor_not_found' ? 'Doctor not found' : 'Document not found' })
+      }
+      if (result.indexJob) {
+        try {
+          await kbEmbedQueue.add('embed-document', { clinicId, ...result.indexJob })
+        } catch (err) {
+          await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(
+            clinicId, result.indexJob!.documentId, result.indexJob!.documentVersion, 'queue_unavailable',
+          ))
+          request.log.error({ err, clinicId, documentId: result.indexJob.documentId }, 'kb indexing queue failed')
+          result.document.indexingStatus = 'failed'
+          result.document.indexingError = 'queue_unavailable'
+        }
       }
       return { document: result.document }
     },
@@ -514,6 +555,19 @@ const kbRoute: FastifyPluginAsync = async (app) => {
       const documents = await withDb(async (sql) =>
         createKnowledgeRepository(sql).approveDraftDocuments(clinicId),
       )
+      for (const document of documents) {
+        const version = document.version ?? 1
+        try {
+          await kbEmbedQueue.add('embed-document', {
+            clinicId, documentId: document.id, documentVersion: version,
+          })
+        } catch (err) {
+          await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(
+            clinicId, document.id, version, 'queue_unavailable',
+          ))
+          request.log.error({ err, clinicId, documentId: document.id }, 'kb approval indexing queue failed')
+        }
+      }
       return { approved: documents.length, documents }
     },
   )
@@ -524,8 +578,20 @@ const kbRoute: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-      await kbEmbedQueue.add('reembed-clinic', { clinicId })
-      return reply.code(202).send({ queued: true })
+      const documents = await withDb((sql) => createKnowledgeRepository(sql).prepareClinicReindex(clinicId))
+      for (const document of documents) {
+        try {
+          await kbEmbedQueue.add('embed-document', {
+            clinicId, documentId: document.id, documentVersion: document.version,
+          })
+        } catch (err) {
+          await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(
+            clinicId, document.id, document.version, 'queue_unavailable',
+          ))
+          request.log.error({ err, clinicId, documentId: document.id }, 'kb reindex queue failed')
+        }
+      }
+      return reply.code(202).send({ queued: true, documents: documents.length })
     },
   )
 

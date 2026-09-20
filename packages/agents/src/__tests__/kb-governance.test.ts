@@ -4,9 +4,20 @@ import { expandKbQuery, rerankHybridChunks } from '../botbase/kb-retriever.js'
 
 const safe = { confidence: 0.9, groundingScore: 1, medicalSafetyOk: true, promptSafetyOk: true,
   contradictionFree: true, contradiction: 'clear' as const, consistencyCount: 2, autoApproveEnabled: true,
-  privacySafe: true, sourcesCurrent: true }
+  privacySafe: true, sourcesCurrent: true, safeContentClass: 'office_hours' as const }
 
 describe('governed KB evidence', () => {
+  it('does not certify a single source or intra-chunk contradictions as clear', () => {
+    expect(assessKbAnswer('Hours?', 'We open at 9 AM.', ['We open at 9 AM.'], .9).contradiction).toBe('unknown')
+    expect(assessKbAnswer('Hours?', 'We open at 9 AM.', ['We open at 9 AM. We open at 8 AM.'], .9, { complete: true, sources: ['We open at 9 AM. We open at 8 AM.'] }).contradiction).not.toBe('clear')
+    expect(assessKbAnswer('Hours?', 'We open at 9 AM.', ['We open at 9 AM.'], .9, { complete: true, sources: ['We open at 9 AM.', 'We open at 8 AM.'] }).contradiction).toBe('conflict')
+    expect(assessKbAnswer('Hours?', 'We open at 9 AM.', ['We open at 9 AM.'], .9, { complete: true, sources: ['We open at 9 AM.'] }).contradiction).toBe('clear')
+  })
+  it.each(['Take ibuprofen every morning.', 'Use retinol nightly.', 'Aplica una crema con corticoides.', 'Toma paracetamol cada ocho horas.', 'Children must be accompanied by an adult.', 'Los menores deben venir con un adulto.', 'We require identification at check-in.'])('never positively classifies unknown or restricted wording: %s', answer => {
+    const evidence = assessKbAnswer('Can you help?', answer, [answer], .99)
+    expect(evidence.safeContentClass).toBe('unknown')
+    expect(evaluateKbCandidateGates({ ...safe, safeContentClass: evidence.safeContentClass }).autoApprove).toBe(false)
+  })
   it.each([NaN, Infinity, -1, 2, undefined])('fails closed for invalid confidence %s', (confidence) => {
     expect(evaluateKbCandidateGates({ ...safe, confidence: confidence as number }).autoApprove).toBe(false)
   })

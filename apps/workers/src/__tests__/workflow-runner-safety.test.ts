@@ -38,6 +38,8 @@ const h = vi.hoisted(() => ({
   learningSettings: vi.fn(),
   reviewLearning: vi.fn(),
   sourcesCurrent: vi.fn(),
+  scopedConsistency: vi.fn(),
+  isEmergencyMessage: vi.fn(),
   queueAdd: vi.fn(),
   end: vi.fn(),
 }))
@@ -62,7 +64,7 @@ vi.mock('@docmee/agents', async () => ({
   SLOT_MENU_MORE_OPTION_ID: 'more',
   parseMenuOptions: (config: Record<string, unknown> | undefined) => config?.['options'] ?? [],
   parseAiAgentScenarios: (config: Record<string, unknown> | undefined) => config?.['scenarios'] ?? [],
-  isEmergencyMessage: () => false,
+  isEmergencyMessage: h.isEmergencyMessage,
   screenMedicalSafety: () => ({ safe: true }),
   medicalSafetyDeferral: () => 'A secretary will help you.',
   screenPromptLeak: () => ({ safe: true }),
@@ -103,7 +105,8 @@ vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
 vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }), kbEmbedQueue: { add: h.queueAdd } }))
 
-vi.mock('@docmee/db', () => ({
+vi.mock('@docmee/db', async () => ({
+  ...(await import('../../../../packages/db/src/repositories/knowledge-learning-evidence.js')),
   createServiceDbClient: () => ({ end: h.end }),
   createWorkflowsRepository: () => ({ findById: h.findWorkflow, findRevision: h.findRevision }),
   createPatientsRepository: () => ({ findById: h.findPatient, listContacts: h.listContacts }),
@@ -132,9 +135,9 @@ vi.mock('@docmee/db', () => ({
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
   createMessageTemplatesRepository: () => ({ findApprovedByCategory: h.findTemplate }),
-  createNotificationsRepository: () => ({}),
+  createNotificationsRepository: () => ({ create: vi.fn() }),
   createKnowledgeRepository: () => ({ searchChunks: h.searchChunks, getClinicRetrievalRevision: async () => 1, markDocumentIndexFailed: vi.fn() }),
-  createKnowledgeLearningRepository: () => ({ recordAttempt: h.recordLearning, settings: h.learningSettings, review: h.reviewLearning, sourcesCurrent: h.sourcesCurrent }),
+  createKnowledgeLearningRepository: () => ({ recordAttempt: h.recordLearning, settings: h.learningSettings, review: h.reviewLearning, sourcesCurrent: h.sourcesCurrent, scopedConsistency: h.scopedConsistency }),
 }))
 
 import { processWorkflowRunJob } from '../workflow-runner.worker.js'
@@ -183,20 +186,47 @@ beforeEach(() => {
   h.createMessage.mockResolvedValue({ id: 'message-1' })
   h.findConversation.mockResolvedValue({ id: 'conversation-1', metadata: {} })
   h.updateConversation.mockResolvedValue({ id: 'conversation-1' })
-  h.chatComplete.mockResolvedValue('SCENARIO: general\nCONFIDENCE: 0.9\nREPLY:\nHello from AI.')
-  h.searchChunks.mockResolvedValue([{ chunkId: 'kb-chunk', documentId: 'kb-doc', documentVersion: 1, title: 'Welcome', content: 'Hello from AI.', vectorScore: .99, lexicalScore: 1 }])
+  h.chatComplete.mockResolvedValue('SCENARIO: general\nCONFIDENCE: 0.9\nREPLY:\nWe open at 9 AM.')
+  h.searchChunks.mockResolvedValue([{ chunkId: 'kb-chunk', documentId: 'kb-doc', documentVersion: 1, title: 'Hours', content: 'We open at 9 AM.', vectorScore: .99, lexicalScore: 1, retrievalRevision: 1, doctorId: null, language: 'en', provenance: {} }])
   h.recordLearning.mockResolvedValue({ replayed: false, candidate: null })
   h.learningSettings.mockResolvedValue({ autoApprove: false, groundingThreshold: 1, evidenceRetentionHours: 24 })
   h.sourcesCurrent.mockResolvedValue(true)
+  h.isEmergencyMessage.mockReturnValue(false)
+  h.scopedConsistency.mockResolvedValue({ complete: true, sources: ['We open at 9 AM.'] })
   h.queueAdd.mockResolvedValue(undefined)
 })
 afterEach(() => vi.restoreAllMocks())
 
 describe('processWorkflowRunJob automation ownership', () => {
+  it.each(['emergency', 'provider_failure', 'no_match'])('records exactly one redacted terminal outcome for %s', async reason => {
+    h.isEmergencyMessage.mockReturnValue(reason === 'emergency')
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    if (reason === 'provider_failure') h.chatComplete.mockRejectedValue(new Error('secret-token patient Alex ZQ17'))
+    if (reason === 'no_match') h.chatComplete.mockResolvedValue('SCENARIO: missing\nCONFIDENCE: 0.9\nREPLY: unused')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.aiAgent({ id: 'terminal', type: 'action.ai_agent', config: { scenarios: reason === 'no_match' ? [] : [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: 'hours?', conversationId: 'conversation-1' })
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.recordLearning).toHaveBeenCalledTimes(1)
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason, answer: '' }))
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('secret-token')
+  })
+  it.each(['doctor_reassigned', 'governance_excluded'])('rechecks scope after generation for %s', async reason => {
+    h.sourcesCurrent.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent({ id: reason, type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `hours ${reason}?`, doctor_id: 'doctor-a', conversationId: 'conversation-1' })).toBe('handoff')
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.sourcesCurrent).toHaveBeenLastCalledWith(CLINIC, expect.any(Array), { retrievalRevision: 1, doctorId: 'doctor-a', language: 'en' })
+    expect(h.recordLearning).toHaveBeenCalledTimes(1)
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'stale_or_missing_sources', retrievalRevision: 1, doctorId: 'doctor-a', language: 'en', citations: [expect.objectContaining({ retrievalRevision: 1, doctorId: null, governanceReviewState: 'trusted' })] }))
+  })
   it.each([
-    { reason: 'low_answer_confidence', confidence: 'NaN', answer: 'Hello from AI.', current: true },
+    { reason: 'low_answer_confidence', confidence: 'NaN', answer: 'We open at 9 AM.', current: true },
     { reason: 'ungrounded_answer', confidence: '0.99', answer: 'We offer unlimited free care.', current: true },
-    { reason: 'stale_or_missing_sources', confidence: '0.99', answer: 'Hello from AI.', current: false },
+    { reason: 'stale_or_missing_sources', confidence: '0.99', answer: 'We open at 9 AM.', current: false },
   ])('hands off instead of sending unsupported output: $reason', async ({ reason, confidence, answer, current }) => {
     h.chatComplete.mockResolvedValue(`SCENARIO: general\nCONFIDENCE: ${confidence}\nREPLY:\n${answer}`)
     h.sourcesCurrent.mockResolvedValue(current)
@@ -654,7 +684,7 @@ describe('processWorkflowRunJob automation ownership', () => {
       'phone-1',
       'token',
       '15551234567',
-      'Hello from AI.',
+      'We open at 9 AM.',
     )
   })
 

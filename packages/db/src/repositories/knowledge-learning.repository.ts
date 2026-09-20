@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto'
 import type { Sql, TxSql } from '../client.js'
 import { toJson } from '../client.js'
 import { writeKnowledgeDocument, type KnowledgeCandidate, type DocumentIndexWrite } from './knowledge.repository.js'
+import { officeHourFact, scopedOfficeHourConsistency } from './knowledge-learning-evidence.js'
 
-export interface LearningCitation { chunkId: string; documentId: string; documentVersion: number }
+export interface LearningScope { retrievalRevision?: number; doctorId?: string | null; language?: string | null }
+export interface LearningCitation extends LearningScope { chunkId: string; documentId: string; documentVersion: number; governanceReviewState?: string }
 export interface LearningSettings { autoApprove: boolean; groundingThreshold: number; evidenceRetentionHours: number }
-export interface LearningEvidence extends Record<string, unknown> {
+export interface LearningEvidence extends Record<string, unknown>, LearningScope {
   relevance: number | null; confidence: number | null; grounding: number | null
   contradiction: 'unknown' | 'clear' | 'conflict'; risks: string[]
+  safeContentClass?: 'office_hours' | 'unknown'
 }
 export interface GovernedCandidate extends KnowledgeCandidate {
   revision: number; fingerprint: string; evidence: LearningEvidence; expiresAt: string | null
@@ -40,6 +43,7 @@ export function automaticPublicationReasons(candidate: GovernedCandidate, config
   if (!Array.isArray(candidate.evidence?.risks)) reasons.push('risk_unknown')
   else reasons.push(...candidate.evidence.risks)
   if (!candidate.medicalSafetyOk || !candidate.promptSafetyOk) reasons.push('safety_review_required')
+  if (candidate.evidence?.safeContentClass !== 'office_hours' || !officeHourFact(candidate.candidateContent)) reasons.push('unverified_content_class')
   if (!Number.isInteger(candidate.consistencyCount) || candidate.consistencyCount < 2) reasons.push('repeat_consistency_required')
   if (['corrected','escalated'].includes(candidate.patientFeedback)) reasons.push(`patient_${candidate.patientFeedback}`)
   if (candidate.staffConfirmed || candidate.humanEdit) reasons.push('staff_review_required')
@@ -58,23 +62,52 @@ export function sanitizeLearningText(value: string): { text: string; changed: bo
   return { text, changed: text !== value }
 }
 
-async function sourcesCurrent(tx: Sql | TxSql, clinicId: string, citations: LearningCitation[], lock = false): Promise<boolean> {
+async function revisionCurrent(tx: Sql | TxSql, clinicId: string, scope?: LearningScope): Promise<boolean> {
+  if (!scope || !Number.isInteger(scope.retrievalRevision) || !Object.hasOwn(scope, 'doctorId') || !Object.hasOwn(scope, 'language')) return false
+  const rows = await tx<Array<{ revision: number }>>`SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId}`
+  return Number(rows[0]?.revision ?? 0) === scope.retrievalRevision
+}
+
+async function scopedConsistency(tx: Sql | TxSql, clinicId: string, scope: LearningScope) {
+  if (!await revisionCurrent(tx, clinicId, scope)) return { complete: false, sources: [] as string[] }
+  // A complete, bounded scope is required. Unknown prose or >100 chunks cannot
+  // prove consistency and is deliberately routed to staff rather than guessed.
+  const rows = await tx<Array<{ content: string }>>`SELECT c.content FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id AND d.clinic_id = c.clinic_id
+    WHERE c.clinic_id = ${clinicId} AND d.status = 'active' AND d.approved_at IS NOT NULL
+      AND d.effective_from <= now() AND (d.effective_until IS NULL OR d.effective_until > now())
+      AND c.is_active = true AND c.document_version = d.version
+      AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
+      AND (d.metadata ->> 'doctorId' IS NULL OR d.metadata ->> 'doctorId' = ${scope.doctorId ?? null})
+    ORDER BY c.id LIMIT 101`
+  return { complete: rows.length > 0 && rows.length <= 100 && await revisionCurrent(tx, clinicId, scope), sources: rows.map(row => row.content) }
+}
+
+async function sourcesCurrent(tx: Sql | TxSql, clinicId: string, citations: LearningCitation[], scope?: LearningScope, lock = false): Promise<boolean> {
   if (!citations.length || citations.length > 5) return false
+  if (!await revisionCurrent(tx, clinicId, scope)) return false
   for (const citation of citations) {
     if (!citation.chunkId || !citation.documentId || !Number.isInteger(citation.documentVersion)) return false
+    if (citation.retrievalRevision !== scope!.retrievalRevision || !Object.hasOwn(citation, 'doctorId') || !Object.hasOwn(citation, 'language') || !citation.governanceReviewState) return false
     // Lock documents in publication transactions. An edit cannot interleave after validation.
     if (lock) await tx`SELECT id FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${citation.documentId} FOR SHARE`
-    const rows = await tx<Array<{ id: string; documentVersion: number }>>`
-      SELECT c.id, c.document_version FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
+    const rows = await tx<Array<{ id: string; documentVersion: number; doctorId: string | null; language: string | null; governanceReviewState: string }>>`
+      SELECT c.id, c.document_version, d.metadata ->> 'doctorId' AS doctor_id,
+        COALESCE(d.metadata ->> 'language', c.metadata ->> 'language') AS language,
+        COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') AS governance_review_state
+      FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
       WHERE c.clinic_id = ${clinicId} AND d.clinic_id = ${clinicId} AND c.id = ${citation.chunkId}
         AND d.id = ${citation.documentId} AND c.document_version = ${citation.documentVersion}
         AND d.version = c.document_version AND c.is_active AND d.status = 'active' AND d.approved_at IS NOT NULL
-        AND (d.effective_from IS NULL OR d.effective_from <= now())
+        AND d.effective_from <= now()
         AND (d.effective_until IS NULL OR d.effective_until > now())
+        AND COALESCE(d.metadata ->> 'governanceReviewState', 'trusted') NOT IN ('excluded', 'archived')
+        AND (d.metadata ->> 'doctorId' IS NULL OR d.metadata ->> 'doctorId' = ${scope!.doctorId ?? null})
     `
-    if (!rows.some(row => row.id === citation.chunkId && row.documentVersion === citation.documentVersion)) return false
+    if (!rows.some(row => row.id === citation.chunkId && row.documentVersion === citation.documentVersion
+      && row.doctorId === citation.doctorId && row.language === citation.language
+      && row.governanceReviewState === citation.governanceReviewState && !['excluded', 'archived'].includes(row.governanceReviewState))) return false
   }
-  return true
+  return revisionCurrent(tx, clinicId, scope)
 }
 
 export function createKnowledgeLearningRepository(sql: Sql) {
@@ -92,12 +125,13 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           evidence_retention_hours = EXCLUDED.evidence_retention_hours, updated_at = now()`
       return value
     },
-    sourcesCurrent: (clinicId: string, citations: LearningCitation[]) => sourcesCurrent(sql, clinicId, citations),
+    sourcesCurrent: (clinicId: string, citations: LearningCitation[], scope?: LearningScope) => sourcesCurrent(sql, clinicId, citations, scope),
+    scopedConsistency: (clinicId: string, scope: LearningScope) => scopedConsistency(sql, clinicId, scope),
     async list(clinicId: string, status = 'pending_review', limit = 50): Promise<GovernedCandidate[]> {
       const rows = await sql<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId} AND status = ${status}
         AND (expires_at IS NULL OR expires_at > now()) ORDER BY updated_at DESC LIMIT ${Math.min(100, Math.max(1, limit))}`
       const config = await settings(clinicId)
-      return Promise.all(rows.map(async row => ({ ...row, confidenceScore: Number(row.confidenceScore), groundingScore: Number(row.groundingScore), gateReasons: automaticPublicationReasons(row, config, await sourcesCurrent(sql, clinicId, row.supportingChunks as LearningCitation[])) })))
+      return Promise.all(rows.map(async row => ({ ...row, confidenceScore: Number(row.confidenceScore), groundingScore: Number(row.groundingScore), gateReasons: automaticPublicationReasons(row, config, await sourcesCurrent(sql, clinicId, row.supportingChunks as LearningCitation[], row.evidence)) })))
     },
     async events(clinicId: string) {
       return sql`SELECT id, candidate_id, question, answer, citations, evidence, feedback, handoff_reason, created_at FROM knowledge_learning_events
@@ -135,7 +169,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
     async recordAttempt(input: LearningAttempt): Promise<{ replayed: boolean; candidate: GovernedCandidate | null }> {
       if (!input.eventKey || input.eventKey.length > 512) throw new Error('invalid_event_key')
       const question = sanitizeLearningText(input.question); const answer = sanitizeLearningText(input.answer)
-      const evidence: LearningEvidence = { relevance: score(input.relevance), confidence: score(input.confidence), grounding: score(input.grounding), contradiction: input.contradiction, risks: [...new Set([...input.risks, ...(question.changed || answer.changed ? ['privacy'] : [])])] }
+      const evidence: LearningEvidence = { relevance: score(input.relevance), confidence: score(input.confidence), grounding: score(input.grounding), contradiction: input.contradiction, risks: [...new Set([...input.risks, ...(question.changed || answer.changed ? ['privacy'] : [])])], retrievalRevision: input.retrievalRevision, doctorId: input.doctorId, language: input.language, safeContentClass: officeHourFact(answer.text) ? 'office_hours' : 'unknown' }
       const config = await settings(input.clinicId)
       return sql.begin(async tx => {
         await tx`SELECT id FROM clinics WHERE id = ${input.clinicId} FOR UPDATE`
@@ -143,7 +177,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           VALUES (${input.clinicId}, ${learningFingerprint(input.eventKey)}, ${question.text}, ${answer.text}, ${tx.json(toJson(input.citations))}, ${tx.json(toJson(evidence))}, ${input.handoffReason ?? null}, now() + ${config.evidenceRetentionHours} * interval '1 hour')
           ON CONFLICT (clinic_id, event_key) DO NOTHING RETURNING id`
         if (!events[0]) return { replayed: true, candidate: null }
-        const current = await sourcesCurrent(tx, input.clinicId, input.citations)
+        const current = await sourcesCurrent(tx, input.clinicId, input.citations, evidence)
         const eligible = !input.handoffReason && current && answer.text.trim() && evidence.confidence !== null && evidence.confidence >= .8 && evidence.grounding !== null && evidence.grounding >= config.groundingThreshold && !evidence.risks.some(r => ['injection', 'prompt_injection', 'privacy'].includes(r))
         if (!eligible) {
           const reason = input.handoffReason ?? (!current ? 'stale_or_missing_sources' : 'insufficient_evidence')
@@ -152,7 +186,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
             ON CONFLICT (clinic_id, fingerprint) DO UPDATE SET occurrences = knowledge_gaps.occurrences + 1, updated_at = now()`
           return { replayed: false, candidate: null }
         }
-        const fingerprint = learningFingerprint(`${answer.text}\n${input.citations.map(c => c.documentId).sort().join(',')}`)
+        const fingerprint = learningFingerprint(`${answer.text}\n${JSON.stringify({ scope: { revision: evidence.retrievalRevision, doctorId: evidence.doctorId, language: evidence.language }, citations: [...input.citations].sort((a,b) => a.chunkId.localeCompare(b.chunkId)) })}`)
         const rows = await tx<GovernedCandidate[]>`INSERT INTO knowledge_candidates
           (clinic_id, source_question, candidate_content, status, confidence_score, grounding_score, medical_safety_ok, prompt_safety_ok, contradiction_free, supporting_chunks, fingerprint, evidence, expires_at)
           VALUES (${input.clinicId}, ${question.text}, ${answer.text}, 'pending_review', ${evidence.confidence}, ${evidence.grounding}, ${!evidence.risks.includes('medical')}, ${!evidence.risks.includes('injection')}, ${evidence.contradiction === 'clear'}, ${tx.json(toJson(input.citations))}, ${fingerprint}, ${tx.json(toJson(evidence))}, now() + ${config.evidenceRetentionHours} * interval '1 hour')
@@ -201,7 +235,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         if (input.action !== 'rollback' && candidate.status !== 'pending_review' && !(input.action === 'edit' && candidate.status === 'approved')) throw new Error('invalid_state')
         let content = candidate.candidateContent
         let confirmed = candidate.staffConfirmed
-        if (input.action === 'edit') {
+        if (input.action === 'edit' || (input.action === 'approve' && input.content !== undefined && !input.automatic)) {
           if (!input.content?.trim()) throw new Error('content_required')
           const cleaned = sanitizeLearningText(input.content)
           if (cleaned.changed) throw new Error('remove_private_information')
@@ -217,13 +251,23 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         let write: DocumentIndexWrite | null = null
         if (publishing) {
           const citations = candidate.supportingChunks as LearningCitation[]
-          const current = await sourcesCurrent(tx, clinicId, citations, true)
-          if (!confirmed && !current) throw new Error('stale_sources')
+          const current = await sourcesCurrent(tx, clinicId, citations, candidate.evidence, true)
+          if ((citations.length > 0 || !confirmed) && !current) throw new Error('stale_sources')
+          // Every authoritative document mutation increments this row before commit.
+          // Hold it after locking cited documents so uncited edits/new documents
+          // cannot commit between the complete-scope check and publication.
+          if (citations.length) {
+            const revisions = await tx<Array<{ revision: number }>>`SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId} FOR UPDATE`
+            if (!revisions[0] || Number(revisions[0].revision) !== candidate.evidence.retrievalRevision) throw new Error('stale_sources')
+          }
           if (sanitizeLearningText(content).changed) throw new Error('remove_private_information')
+          if (!officeHourFact(content) && !(confirmed && (input.content !== undefined || candidate.humanEdit || input.action === 'rollback'))) throw new Error('generalized_fact_review_required')
           if (input.automatic) {
             const configRows = await tx<LearningSettings[]>`SELECT auto_approve, grounding_threshold, evidence_retention_hours FROM knowledge_learning_settings WHERE clinic_id = ${clinicId} FOR SHARE`
             const config = configRows[0] ?? defaults
             if (automaticPublicationReasons(candidate, config, current).length) throw new Error('automatic_gates_failed')
+            const consistency = await scopedConsistency(tx, clinicId, candidate.evidence)
+            if (scopedOfficeHourConsistency(content, consistency.sources, consistency.complete) !== 'clear') throw new Error('automatic_gates_failed')
           }
           // Preserve source doctor/language scope. A learned answer must not widen a doctor's fact to the whole clinic.
           const scopes: Array<{ doctorId: string | null; language: string | null }> = []
@@ -236,14 +280,24 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           if (new Set(scopes.map(s => JSON.stringify(s))).size > 1) throw new Error('mixed_source_scope')
           const scope = scopes[0] ?? { doctorId: null, language: null }
           write = await writeKnowledgeDocument(tx, { clinicId, id: candidate.publishedDocumentId ?? undefined, doctorId: scope.doctorId, title: 'Reviewed clinic knowledge', content, status: 'active', documentType: 'faq', metadata: { source: 'governed_learning', candidateId: id, approver: input.actorId ?? 'automatic', citations, ...(scope.language ? { language: scope.language } : {}) }, chunks: [{ content, chunkIndex: 0 }] })
+          // Pending drafts are not durable facts. Keep their audit metadata only.
+          await tx`UPDATE knowledge_learning_history SET content = '' WHERE clinic_id = ${clinicId} AND candidate_id = ${id} AND action NOT IN ('approve', 'rollback')`
         }
+        // Our own authoritative write is the only scope change while the revision
+        // lock is held. Carry that revision forward for subsequent staff edits or
+        // rollback; audit history below still records the original evidence.
+        const nextEvidence = write ? { ...candidate.evidence, retrievalRevision: write.retrievalRevision } : candidate.evidence
+        const nextCitations = write ? (candidate.supportingChunks as LearningCitation[]).map(citation => ({ ...citation, retrievalRevision: write.retrievalRevision })) : candidate.supportingChunks
         const updated = await tx<GovernedCandidate[]>`UPDATE knowledge_candidates SET candidate_content = ${content},
-          human_edit = ${input.action === 'edit' ? content : candidate.humanEdit}, staff_confirmed = ${confirmed},
+          evidence = ${tx.json(toJson(nextEvidence))}, supporting_chunks = ${tx.json(toJson(nextCitations))},
+          human_edit = ${publishing ? (confirmed ? content : null) : input.action === 'edit' ? content : candidate.humanEdit}, staff_confirmed = ${confirmed},
           grounding_score = CASE WHEN ${input.action === 'edit'} THEN 0 ELSE grounding_score END,
           contradiction_free = CASE WHEN ${input.action === 'edit'} THEN false ELSE contradiction_free END,
           status = ${publishing ? 'approved' : input.action === 'reject' ? 'rejected' : 'pending_review'}, revision = revision + 1,
           approved_by = ${publishing ? input.actorId : candidate.approvedBy}, approved_at = CASE WHEN ${publishing} THEN now() ELSE approved_at END,
           published_document_id = ${write?.document.id ?? candidate.publishedDocumentId}, published_document_version = ${write?.document.version ?? candidate.publishedDocumentVersion},
+          source_question = CASE WHEN ${publishing} THEN '' ELSE source_question END,
+          source_question_expires_at = CASE WHEN ${publishing} THEN now() ELSE source_question_expires_at END,
           expires_at = CASE WHEN ${publishing} THEN NULL ELSE expires_at END, updated_at = now()
           WHERE clinic_id = ${clinicId} AND id = ${id} RETURNING *`
         await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, citations, evidence, document_id, document_version)
@@ -252,6 +306,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
       }) as unknown as Promise<{ candidate: GovernedCandidate; write: DocumentIndexWrite | null }>
     },
     async purgeExpired() {
+      await sql`UPDATE knowledge_candidates SET source_question = '' WHERE source_question_expires_at <= now() AND source_question <> ''`
       const events = await sql`DELETE FROM knowledge_learning_events WHERE expires_at <= now() RETURNING id`
       const gaps = await sql`DELETE FROM knowledge_gaps WHERE expires_at <= now() RETURNING id`
       const candidates = await sql`DELETE FROM knowledge_candidates WHERE expires_at <= now() AND status IN ('pending_review', 'rejected') RETURNING id`

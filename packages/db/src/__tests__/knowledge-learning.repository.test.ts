@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import type { Sql } from '../client.js'
 import { createKnowledgeLearningRepository, learningFingerprint, sanitizeLearningText, automaticPublicationReasons, type GovernedCandidate } from '../repositories/knowledge-learning.repository.js'
 
@@ -7,14 +8,16 @@ function fake(respond: (query: string, values: unknown[]) => unknown[] = () => [
   const values: unknown[][] = []
   const sql = Object.assign((s: TemplateStringsArray, ...v: unknown[]) => {
     const q = s.join('?'); queries.push(q); values.push(v)
-    return Promise.resolve(respond(q, v))
+    const rows = respond(q, v)
+    return Promise.resolve(q.includes('SELECT revision') && !rows.length ? [{ revision: 7 }] : rows)
   }, { json: (v: unknown) => v, begin: (fn: (tx: unknown) => unknown) => fn(sql) }) as unknown as Sql
   return { sql, queries, values }
 }
 
 describe('governed learning boundary', () => {
-  const citation = { chunkId: 'chunk', documentId: 'source', documentVersion: 2 }
-  const candidate = { id: 'candidate', revision: 1, status: 'pending_review', candidateContent: 'We open at nine.', supportingChunks: [citation], confidenceScore: .9, groundingScore: 1, consistencyCount: 2, contradictionFree: true, medicalSafetyOk: true, promptSafetyOk: true, patientFeedback: 'unknown', humanEdit: null, staffConfirmed: false, originalSource: {}, evidence: { relevance: .7, confidence: .9, grounding: 1, contradiction: 'clear', risks: [] } } as unknown as GovernedCandidate
+  const citation = { chunkId: 'chunk', documentId: 'source', documentVersion: 2, doctorId: 'doctor', language: 'es', governanceReviewState: 'trusted', retrievalRevision: 7 }
+  const sourceRow = { id: 'chunk', documentVersion: 2, doctorId: 'doctor', language: 'es', governanceReviewState: 'trusted' }
+  const candidate = { id: 'candidate', revision: 1, status: 'pending_review', candidateContent: 'We open at 9 AM.', supportingChunks: [citation], confidenceScore: .9, groundingScore: 1, consistencyCount: 2, contradictionFree: true, medicalSafetyOk: true, promptSafetyOk: true, patientFeedback: 'unknown', humanEdit: null, staffConfirmed: false, originalSource: {}, evidence: { relevance: .7, confidence: .9, grounding: 1, contradiction: 'clear', risks: [], retrievalRevision: 7, doctorId: 'doctor', language: 'es', safeContentClass: 'office_hours' } } as unknown as GovernedCandidate
   it('reports every automatic gate and rejects malformed, partial or restricted evidence', () => {
     const config = { autoApprove: true, groundingThreshold: .8, evidenceRetentionHours: 24 }
     expect(automaticPublicationReasons(candidate, config, true)).toEqual([])
@@ -28,7 +31,7 @@ describe('governed learning boundary', () => {
   it('publishes the document, chunks, revision and audit inside the single review transaction', async () => {
     let begins = 0
     const f = fake(q => q.includes('SELECT * FROM knowledge_candidates') ? [candidate]
-      : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2 }]
+      : q.includes('SELECT c.id') ? [sourceRow]
       : q.includes('SELECT metadata') ? [{ metadata: { doctorId: 'doctor', language: 'es' } }]
       : q.includes('INSERT INTO knowledge_documents') ? [{ id: 'published', version: 1 }]
       : q.includes('INSERT INTO knowledge_chunks') ? [{ id: 'new-chunk' }]
@@ -42,6 +45,12 @@ describe('governed learning boundary', () => {
     const metadata = f.values[f.queries.findIndex(q => q.includes('INSERT INTO knowledge_documents'))]!.find(v => typeof v === 'object')
     expect(metadata).toMatchObject({ doctorId: 'doctor', language: 'es' })
     expect(f.queries.find(q => q.includes('INSERT INTO knowledge_learning_history'))).toContain('evidence')
+    const revisionLock = f.queries.findIndex(q => q.includes('SELECT revision') && q.includes('FOR UPDATE'))
+    expect(revisionLock).toBeGreaterThan(-1)
+    expect(revisionLock).toBeLessThan(f.queries.findIndex(q => q.includes('INSERT INTO knowledge_documents')))
+    const updateIndex = f.queries.findIndex(q => q.includes('UPDATE knowledge_candidates'))
+    expect(f.queries[updateIndex]).toContain('supporting_chunks =')
+    expect(f.values[updateIndex]).toContainEqual(expect.objectContaining({ retrievalRevision: 1 }))
   })
   it('an approve retry returns the same published version without a second writer', async () => {
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [{ ...candidate, status: 'approved', revision: 2, publishedDocumentId: 'published', publishedDocumentVersion: 4 }] : [])
@@ -79,6 +88,82 @@ describe('governed learning boundary', () => {
   it('defaults automatic publication off', async () => {
     expect(await createKnowledgeLearningRepository(fake().sql).settings('clinic')).toEqual({ autoApprove: false, groundingThreshold: 1, evidenceRetentionHours: 24 })
   })
+  it.each(['doctor_reassigned', 'governance_excluded', 'revision_changed'])('blocks approval after %s even when staff confirmed', async change => {
+    const scoped = { ...citation, doctorId: 'doctor-a', language: 'en', governanceReviewState: 'trusted', retrievalRevision: 7 }
+    const row = { ...candidate, staffConfirmed: true, humanEdit: candidate.candidateContent, supportingChunks: [scoped], evidence: { ...candidate.evidence, retrievalRevision: 7, doctorId: 'doctor-a', language: 'en' } }
+    const f = fake(q => q.includes('FROM knowledge_candidates') ? [row]
+      : q.includes('SELECT revision') ? [{ revision: change === 'revision_changed' ? 8 : 7 }]
+      : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2, doctorId: change === 'doctor_reassigned' ? 'doctor-b' : 'doctor-a', language: 'en', governanceReviewState: change === 'governance_excluded' ? 'excluded' : 'trusted' }] : [])
+    await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', actorId: 'admin', expectedRevision: 1 })).rejects.toThrow('stale_sources')
+    expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
+  })
+  it('uses the full retrieval predicate and preserves revision/scope evidence', async () => {
+    const scoped = { ...citation, doctorId: null, language: 'en', governanceReviewState: 'trusted', retrievalRevision: 7 }
+    const f = fake(q => q.includes('SELECT revision') ? [{ revision: 7 }] : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2, doctorId: null, language: 'en', governanceReviewState: 'trusted' }] : [])
+    expect(await createKnowledgeLearningRepository(f.sql).sourcesCurrent('clinic', [scoped], { retrievalRevision: 7, doctorId: null, language: 'en' })).toBe(true)
+    const query = f.queries.find(q => q.includes('SELECT c.id'))!
+    expect(query).toContain("governanceReviewState")
+    expect(query).toContain('d.effective_from <= now()')
+    expect(query).not.toContain('effective_from IS NULL')
+    expect(query).toContain("doctorId")
+  })
+  it('dedupe changes for unchanged answers with a new source version or scope', async () => {
+    const fingerprints: unknown[] = []
+    for (const [version, doctorId] of [[2, 'doctor-a'], [3, 'doctor-a'], [3, 'doctor-b']] as const) {
+      const scoped = { ...citation, documentVersion: version, doctorId, language: 'en', governanceReviewState: 'trusted', retrievalRevision: 7 }
+      const f = fake(q => q.includes('SELECT revision') ? [{ revision: 7 }] : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: version, doctorId, language: 'en', governanceReviewState: 'trusted' }] : q.includes('INSERT INTO knowledge_learning_events') ? [{ id: 'event' }] : [])
+      await createKnowledgeLearningRepository(f.sql).recordAttempt({ clinicId: 'clinic', eventKey: 'event', question: 'Hours?', answer: 'We open at 9 AM.', citations: [scoped], ...candidate.evidence, retrievalRevision: 7, doctorId, language: 'en' })
+      const index = f.queries.findIndex(q => q.includes('INSERT INTO knowledge_candidates'))
+      expect(index).toBeGreaterThan(-1)
+      const stored = f.values[index]!.filter(v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v))
+      fingerprints.push(stored[0])
+      expect(f.values[index]).toContainEqual(expect.objectContaining({ retrievalRevision: 7, doctorId, language: 'en' }))
+    }
+    expect(new Set(fingerprints).size).toBe(3)
+  })
+  it('expires questions separately and migration scrubs durable legacy questions/history', async () => {
+    const f = fake(); await createKnowledgeLearningRepository(f.sql).purgeExpired()
+    expect(f.queries.join('\n')).toContain('source_question_expires_at <= now()')
+    const migration = readFileSync(new URL('../../supabase/migrations/20260920000003_kb_learning_evidence_remediation.sql', import.meta.url), 'utf8')
+    expect(migration).toContain("source_question = ''")
+    expect(migration).toContain("status IN ('approved', 'superseded')")
+    expect(migration).toContain('knowledge_learning_history')
+  })
+  it('approval clears an unrecognized name/identifier and retains only the reviewed generalized fact', async () => {
+    const rawQuestion = 'Alex ZQ17 asks when we open?'
+    expect(sanitizeLearningText(rawQuestion).changed).toBe(false)
+    const f = fake(q => q.includes('SELECT * FROM knowledge_candidates') ? [{ ...candidate, sourceQuestion: rawQuestion }]
+      : q.includes('SELECT c.id') ? [sourceRow]
+      : q.includes('SELECT metadata') ? [{ metadata: { doctorId: 'doctor', language: 'es' } }]
+      : q.includes('INSERT INTO knowledge_documents') ? [{ id: 'published', version: 1 }]
+      : q.includes('INSERT INTO knowledge_chunks') ? [{ id: 'new' }]
+      : q.includes('UPDATE knowledge_candidates') ? [{ ...candidate, sourceQuestion: '', revision: 2, status: 'approved' }] : [])
+    const result = await createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin', staffConfirmed: true, content: 'We open at 9 AM.' })
+    expect(result.candidate.sourceQuestion).toBe('')
+    expect(f.queries.find(q => q.includes('UPDATE knowledge_candidates'))).toContain("THEN '' ELSE source_question")
+    expect(f.queries.find(q => q.includes('UPDATE knowledge_learning_history'))).toContain("action NOT IN ('approve', 'rollback')")
+    expect(f.values.flat()).not.toContain(rawQuestion)
+    expect(f.values[f.queries.findIndex(q => q.includes('INSERT INTO knowledge_learning_history'))]).toContain('We open at 9 AM.')
+  })
+  it.each(['Take ibuprofen every morning.', 'Aplica retinol por la noche.', 'Children must be accompanied by an adult.', 'Los menores deben venir con un adulto.'])('unknown safe class cannot auto-publish: %s', async content => {
+    const row = { ...candidate, candidateContent: content, evidence: { ...candidate.evidence, safeContentClass: 'office_hours' } }
+    expect(automaticPublicationReasons(row as GovernedCandidate, { autoApprove: true, groundingThreshold: 1, evidenceRetentionHours: 24 }, true)).toContain('unverified_content_class')
+  })
+  it.each([['We open at 9 AM. We open at 8 AM.'], ['We open at 9 AM.', 'We open at 8 AM.']])('rechecks complete scoped consistency under approval lock: %j', async (...contents) => {
+    const f = fake(q => q.includes('SELECT * FROM knowledge_candidates') ? [candidate]
+      : q.includes('SELECT c.id') ? [sourceRow]
+      : q.includes('SELECT c.content') ? contents.map(content => ({ content }))
+      : q.includes('FROM knowledge_learning_settings') ? [{ autoApprove: true, groundingThreshold: 1, evidenceRetentionHours: 24 }] : [])
+    await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: null, automatic: true })).rejects.toThrow('automatic_gates_failed')
+    expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
+  })
+  it('only marks a bounded complete current scope complete and preserves language fallback evidence', async () => {
+    const f = fake(q => q.includes('SELECT c.content') ? Array.from({ length: 101 }, () => ({ content: 'We open at 9 AM.' })) : [])
+    const result = await createKnowledgeLearningRepository(f.sql).scopedConsistency('clinic', candidate.evidence)
+    expect(result.complete).toBe(false)
+    expect(f.queries.find(q => q.includes('SELECT c.content'))).toContain('LIMIT 101')
+    expect(f.queries.find(q => q.includes('SELECT c.content'))).toContain("governanceReviewState")
+  })
   it('scopes every list and caps pagination', async () => {
     const f = fake(); await createKnowledgeLearningRepository(f.sql).list('clinic', 'pending_review', 9000)
     expect(f.queries[0]).toContain('clinic_id =')
@@ -87,7 +172,7 @@ describe('governed learning boundary', () => {
   it('fails closed on missing and stale source versions', async () => {
     const f = fake(() => [{ id: 'chunk', documentVersion: 3 }]); const repo = createKnowledgeLearningRepository(f.sql)
     expect(await repo.sourcesCurrent('clinic', [])).toBe(false)
-    expect(await repo.sourcesCurrent('clinic', [{ chunkId: 'chunk', documentId: 'doc', documentVersion: 2 }])).toBe(false)
+    expect(await repo.sourcesCurrent('clinic', [{ ...citation, documentId: 'doc' }], candidate.evidence)).toBe(false)
     expect(f.values.flat()).toContain('clinic')
   })
   it('rejects stale review without publishing any document', async () => {
@@ -109,7 +194,7 @@ describe('governed learning boundary', () => {
   it.each(['disabled', 'medical', 'pricing_or_policy', 'prompt_injection', 'privacy', 'conflict', 'unknown', 'escalated'])('refuses automatic publication for %s under the transaction lock', async (risk) => {
     const row = { ...candidate, evidence: { ...candidate.evidence, risks: ['medical','pricing_or_policy','prompt_injection','privacy'].includes(risk) ? [risk] : [], contradiction: ['conflict','unknown'].includes(risk) ? risk : 'clear' }, patientFeedback: risk === 'escalated' ? 'escalated' : 'unknown' }
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [row]
-      : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2 }]
+      : q.includes('SELECT c.id') ? [sourceRow]
       : q.includes('FROM knowledge_learning_settings') ? [{ autoApprove: risk !== 'disabled', groundingThreshold: 1, evidenceRetentionHours: 24 }] : [])
     await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: null, automatic: true })).rejects.toThrow('automatic_gates_failed')
     expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
@@ -118,7 +203,7 @@ describe('governed learning boundary', () => {
   it('revalidates rollback ownership and republishes the historical answer as a new document version', async () => {
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [{ ...candidate, status: 'approved', publishedDocumentId: 'published', publishedDocumentVersion: 2 }]
       : q.includes('FROM knowledge_learning_history') ? [{ action: 'approve', content: 'Original approved hours.' }]
-      : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2 }]
+      : q.includes('SELECT c.id') ? [sourceRow]
       : q.includes('SELECT metadata') ? [{ metadata: {} }]
       : q.includes('SELECT * FROM knowledge_documents') ? [{ id: 'published', version: 2, status: 'active' }]
       : q.includes('UPDATE knowledge_documents') ? [{ id: 'published', version: 3 }]
@@ -133,7 +218,7 @@ describe('governed learning boundary', () => {
   it('serializes concurrent approve retries into one publication', async () => {
     let state = candidate; let writes = 0; let tail: Promise<unknown> = Promise.resolve()
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [state]
-      : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2 }]
+      : q.includes('SELECT c.id') ? [sourceRow]
       : q.includes('SELECT metadata') ? [{ metadata: {} }]
       : q.includes('INSERT INTO knowledge_documents') ? (writes++, [{ id: 'published', version: 1 }])
       : q.includes('INSERT INTO knowledge_chunks') ? [{ id: 'new' }]

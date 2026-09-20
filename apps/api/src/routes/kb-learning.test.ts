@@ -28,6 +28,13 @@ describe('learning review authorization and publication', () => {
     expect((await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1 })).statusCode).toBe(409)
     expect(mocks.add).not.toHaveBeenCalled()
   })
+  it('returns a review-required error for an unconfirmed generalized fact', async () => {
+    mocks.review.mockRejectedValueOnce(new Error('generalized_fact_review_required'))
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1 })
+    expect(result.statusCode).toBe(400)
+    expect(result.json().error).toBe('generalized_fact_review_required')
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
   it('queues only the committed document version and reports enqueue failure', async () => {
     mocks.review.mockResolvedValue({ candidate: { id: 'c', publishedDocumentId: 'doc', publishedDocumentVersion: 4 }, write: { document: { id: 'doc', version: 4 } } })
     mocks.add.mockRejectedValueOnce(new Error('offline'))

@@ -23,7 +23,7 @@ const route: FastifyPluginAsync = async app => {
     const code = error.message
     if (code === 'not_found') return reply.code(404).send({ error: code })
     if (['stale_candidate','stale_sources','expired_candidate','invalid_state','automatic_gates_failed','mixed_source_scope'].includes(code)) return reply.code(409).send({ error: code })
-    if (['content_required','remove_private_information','rollback_confirmation_required','invalid_settings'].includes(code)) return reply.code(400).send({ error: code })
+    if (['content_required','remove_private_information','rollback_confirmation_required','invalid_settings','generalized_fact_review_required'].includes(code)) return reply.code(400).send({ error: code })
     return reply.code(500).send({ error: 'learning_operation_failed' })
   })
   const base = '/clinics/:id/kb/learning'

@@ -1,3 +1,5 @@
+import { officeHourFact, scopedOfficeHourConsistency } from '@docmee/db'
+
 export type PatientKbFeedback = 'accepted' | 'corrected' | 'escalated' | 'unknown'
 
 export interface KbCandidateGateInput {
@@ -16,6 +18,7 @@ export interface KbCandidateGateInput {
   autoApproveEnabled?: boolean
   privacySafe?: boolean
   sourcesCurrent?: boolean
+  safeContentClass?: 'office_hours' | 'unknown'
 }
 
 export interface KbCandidateGateResult { eligible: boolean; autoApprove: boolean; reasons: string[] }
@@ -41,7 +44,8 @@ export function evaluateKbCandidateGates(input: KbCandidateGateInput): KbCandida
   if (!repeated) reasons.push('repeat_consistency_required')
   if (input.autoApproveEnabled !== true) reasons.push('automatic_publication_disabled')
   if (input.groundingScore !== 1) reasons.push('not_fully_grounded')
-  return { eligible, autoApprove: eligible && input.groundingScore === 1 && repeated && !restricted && input.autoApproveEnabled === true, reasons }
+  if (input.safeContentClass !== 'office_hours') reasons.push('unverified_content_class')
+  return { eligible, autoApprove: eligible && input.safeContentClass === 'office_hours' && input.groundingScore === 1 && repeated && !restricted && input.autoApproveEnabled === true, reasons }
 }
 
 function validScore(value: unknown): value is number {
@@ -62,14 +66,15 @@ export interface KbAnswerEvidence {
   groundingScore: number
   contradiction: 'unknown' | 'clear' | 'conflict'
   risks: string[]
+  safeContentClass: 'office_hours' | 'unknown'
   verifier: 'extractive-v1'
 }
 
 /** Deliberately conservative, not a semantic truth grader. Every factual claim
  * must be a complete sentence from current KB evidence. Paraphrases need review.
- * Multiple distinct evidence texts remain unknown: absence of detected conflict
- * must never be reported as proof that no conflicting clinic policy exists. */
-export function assessKbAnswer(question: string, answer: string, sources: string[], confidence?: number): KbAnswerEvidence {
+ * Consistency requires a complete current scope in a narrow recognized grammar;
+ * a retrieved singleton or unrecognized prose cannot establish no conflict. */
+export function assessKbAnswer(question: string, answer: string, sources: string[], confidence?: number, consistency?: { complete: boolean; sources: string[] }): KbAnswerEvidence {
   const normalize = (s: string) => s.toLocaleLowerCase().normalize('NFKC').replace(/\s+/g, ' ').trim()
   const sentences = (s: string) => s.split(/(?<=[.!?])\s+|\n+/).map(normalize).filter(Boolean)
   const sourceSentences = new Set(sources.flatMap(sentences))
@@ -83,7 +88,8 @@ export function assessKbAnswer(question: string, answer: string, sources: string
   if (/ignore.{0,40}(?:instruction|previous)|(?:system|developer)\s+prompt|ignora.{0,40}instruccion|reveal.{0,40}(?:prompt|secret)|<\/?(?:system|script)/i.test(text)) risks.push('prompt_injection')
   if (deidentifyKbText(question).changed || deidentifyKbText(answer).changed) risks.push('privacy')
   return { answerConfidence: validScore(confidence) ? confidence : null, groundingScore,
-    contradiction: groundingScore === 1 && new Set(sources.map(normalize)).size === 1 ? 'clear' : 'unknown',
+    contradiction: groundingScore === 1 ? scopedOfficeHourConsistency(answer, consistency?.sources ?? [], consistency?.complete === true) : 'unknown',
+    safeContentClass: officeHourFact(answer) ? 'office_hours' : 'unknown',
     risks, verifier: 'extractive-v1' }
 }
 

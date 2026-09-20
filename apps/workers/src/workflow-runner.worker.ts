@@ -79,6 +79,8 @@ import {
   type Clinic,
   type Doctor,
   type KnowledgeSearchRow,
+  type LearningCitation,
+  type LearningScope,
 } from '@docmee/db'
 
 const KB_CACHE_TTL_MS = 30_000
@@ -1102,10 +1104,21 @@ function buildExecutors(
     },
 
     async aiAgent(node, ctx) {
-      const clinic = await createClinicsRepository(sql).findById(clinicId)
-      if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
       const message = contextString(ctx, 'message')
       const language = detectLanguage(message)
+      const learning = createKnowledgeLearningRepository(sql)
+      const knowledge = createKnowledgeRepository(sql)
+      let kbMatches: Array<KnowledgeSearchRow & { similarity: number }> = []
+      let citations: LearningCitation[] = []
+      let scope: LearningScope = { doctorId: contextString(ctx, 'doctor_id') || null, language }
+      let consistency = { complete: false, sources: [] as string[] }
+      let outcome: { answer: string; confidence: number | null; reason: string | null } = { answer: '', confidence: null, reason: 'attempt_failure' }
+      const recordOutcome = async (answer: string, confidence: number | null, reason: string | null) => { outcome = { answer, confidence, reason } }
+      // All terminal branches converge here; persistence deduplicates retries by
+      // inbound event + workflow + node. Never retain provider exception strings.
+      try {
+      const clinic = await createClinicsRepository(sql).findById(clinicId)
+      if (!clinic) throw new Error('clinic_unavailable')
 
       const currentMetadata = async (): Promise<Record<string, unknown> | undefined> => {
         if (!ctx.conversationId) return undefined
@@ -1117,6 +1130,7 @@ function buildExecutors(
       // bot runs before ever calling the model; a true emergency should
       // never wait on (or be talked out of escalating by) an LLM call.
       if (isEmergencyMessage(message)) {
+        await recordOutcome('', null, 'emergency')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'emergency')
         await notify('The AI Agent workflow detected a possible emergency and paused the bot.', ctx)
         ctx['ai_agent_action'] = 'handoff'
@@ -1132,11 +1146,10 @@ function buildExecutors(
       // Ground the agent in the clinic's Docmee Knowledge Base. Retrieval is
       // executed in PostgreSQL (pgvector + FTS) with metadata filters so the
       // worker never loads a clinic's entire KB into memory.
-      const knowledge = createKnowledgeRepository(sql)
-      const learning = createKnowledgeLearningRepository(sql)
       // A provider outage still permits bounded lexical retrieval.
       const queryEmbedding = await cachedKbEmbedding(clinicId, clinic.settings, message).catch(() => [])
       const revision = await knowledge.getClinicRetrievalRevision(clinicId)
+      scope = { ...scope, retrievalRevision: revision }
       let candidates: Awaited<ReturnType<typeof knowledge.searchChunks>>
       {
         const queryKey = kbCacheKey(clinicId, { revision, language, doctorId: contextString(ctx, 'doctor_id') || null }, message)
@@ -1153,29 +1166,13 @@ function buildExecutors(
           return rows
         })
       }
-      const kbMatches = rerankHybridChunks(candidates.map((candidate) => ({
+      kbMatches = rerankHybridChunks(candidates.map((candidate) => ({
         ...candidate,
         similarity: 0,
       })), 5)
-      const citations = kbMatches.map(({ chunkId, documentId, documentVersion }) => ({ chunkId, documentId, documentVersion }))
-      const recordOutcome = async (answer: string, confidence: number | null, handoffReason: string | null) => {
-        const evidence = assessKbAnswer(message, answer, kbMatches.map(match => match.content), confidence ?? undefined)
-        const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
-        const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
-          question: message, answer, citations, relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
-          confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction, risks: evidence.risks, handoffReason })
-        const candidate = result.candidate
-        const settings = await learning.settings(clinicId)
-        if (!handoffReason && settings.autoApprove && candidate?.status === 'pending_review' && candidate.consistencyCount >= 2) {
-          // Repository rechecks every gate, source version, and the setting under lock.
-          const published = await learning.review(clinicId, candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: candidate.revision }).catch(() => null)
-          if (published?.write) {
-            const document = published.write.document
-            try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
-            catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable') }
-          }
-        }
-      }
+      citations = kbMatches.map(({ chunkId, documentId, documentVersion, doctorId, language: sourceLanguage, retrievalRevision, provenance }) => ({ chunkId, documentId, documentVersion,
+        doctorId: doctorId ?? null, language: sourceLanguage ?? null, retrievalRevision,
+        governanceReviewState: typeof provenance?.['governanceReviewState'] === 'string' ? provenance['governanceReviewState'] : 'trusted' }))
       const fallbackKbContext = kbMatches.length
         ? kbMatches.map((match) => `# ${match.title}\n${match.content}`).join('\n\n')
         : ''
@@ -1189,7 +1186,7 @@ function buildExecutors(
       }
       // Revalidate cached sources before sending context to the provider, and again
       // after generation below to detect edits made while the answer was generated.
-      if (citations.length && !await learning.sourcesCurrent(clinicId, citations)) {
+      if (citations.length && !await learning.sourcesCurrent(clinicId, citations, scope)) {
         await recordOutcome('', null, 'stale_or_missing_sources')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'stale_or_missing_sources')
         await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
@@ -1227,8 +1224,9 @@ function buildExecutors(
           }),
           'Workflow AI agent reply',
         )
-      } catch (err) {
-        console.error('[workflow] ai_agent LLM call failed:', err)
+      } catch {
+        await recordOutcome('', null, 'provider_failure')
+        console.error('[workflow] ai_agent provider_failure')
         return 'error'
       }
 
@@ -1237,6 +1235,7 @@ function buildExecutors(
       const matched = scenarios.find((s) => s.id === scenarioId) ?? catchAllReplyScenario(scenarios)
       ctx['ai_agent_matched_scenario'] = matched?.id ?? ''
       if (!matched) {
+        await recordOutcome('', parseAiAnswerConfidence(raw), 'no_match')
         ctx['ai_agent_action'] = 'none'
         return 'no_match'
       }
@@ -1250,9 +1249,10 @@ function buildExecutors(
       }
 
       if (matched.action === 'route') {
+        await recordOutcome('', parseAiAnswerConfidence(raw), 'routed')
         ctx['ai_agent_action'] = 'route'
         if (matched.routeTarget === 'node') {
-          if (!matched.targetNodeId) return 'error'
+          if (!matched.targetNodeId) { await recordOutcome('', null, 'invalid_route'); return 'error' }
           ctx['workflow_route_node_id'] = matched.targetNodeId
           return 'routed_node'
         }
@@ -1295,8 +1295,9 @@ function buildExecutors(
             'Workflow AI agent fallback reply',
           )
           reply = parseAiAgentCompletion(raw).reply
-        } catch (err) {
-          console.error('[workflow] ai_agent fallback LLM call failed:', err)
+        } catch {
+          await recordOutcome('', null, 'provider_failure')
+          console.error('[workflow] ai_agent provider_failure')
           return 'error'
         }
       }
@@ -1317,8 +1318,9 @@ function buildExecutors(
         return 'handoff'
       }
       const confidence = parseAiAnswerConfidence(raw)
-      const evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined)
-      const sourcesCurrent = await learning.sourcesCurrent(clinicId, citations)
+      consistency = await learning.scopedConsistency(clinicId, scope)
+      const evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
+      const sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
       const handoffReason = !sourcesCurrent ? 'stale_or_missing_sources'
         : evidence.groundingScore < 1 ? 'ungrounded_answer'
         : evidence.contradiction !== 'clear' ? 'contradiction_unknown'
@@ -1335,6 +1337,31 @@ function buildExecutors(
       await recordOutcome(reply, confidence, null)
       ctx['ai_agent_action'] = 'reply'
       return 'replied'
+      } catch {
+        // Errors from retrieval, transport or notification are classified, never
+        // copied into telemetry or the workflow failure log.
+        await recordOutcome('', null, 'attempt_failure')
+        return 'error'
+      } finally {
+        const evidence = assessKbAnswer(message, outcome.answer, kbMatches.map(match => match.content), outcome.confidence ?? undefined, consistency)
+        const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
+        const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
+          question: message, answer: outcome.answer, citations, ...scope,
+          relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
+          confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction,
+          risks: evidence.risks, safeContentClass: evidence.safeContentClass, handoffReason: outcome.reason }).catch(() => null)
+        if (result && !result.replayed && !outcome.reason && result.candidate?.status === 'pending_review' && result.candidate.consistencyCount >= 2) {
+          const settings = await learning.settings(clinicId).catch(() => null)
+          if (settings?.autoApprove) {
+            const published = await learning.review(clinicId, result.candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: result.candidate.revision }).catch(() => null)
+            if (published?.write) {
+              const document = published.write.document
+              try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
+              catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable').catch(() => undefined) }
+            }
+          }
+        }
+      }
     },
 
     async requestApproval(node, resumeNodeId, ctx) {

@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { canReviewLearning, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type LearningCandidate, type LearningHistory } from './kbLearning'
+import { canReviewLearning, matchesLearningSearch, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type LearningCandidate, type LearningHistory } from './kbLearning'
 
 const candidate = { id: 'candidate-a', clinicId: 'clinic-a', revision: 7, status: 'pending_review', expiresAt: '2099-01-01T00:00:00Z' } as LearningCandidate
 describe('learning review boundaries', () => {
+  it('searches loaded original questions, answers and staff edits case-insensitively', () => {
+    expect(matchesLearningSearch(' HORARIO ', '¿Cuál es el horario?', 'Open at 8', 'Open at 9')).toBe(true)
+    expect(matchesLearningSearch('open at 9', '¿Cuál es el horario?', 'Open at 8', 'Open at 9')).toBe(true)
+    expect(matchesLearningSearch('price', '¿Cuál es el horario?', null)).toBe(false)
+    expect(matchesLearningSearch(' ', undefined)).toBe(true)
+  })
   it('allows only studio administrators or administrators assigned to the selected clinic', () => {
     expect(canReviewLearning(null, 'clinic-a')).toBe(false)
     expect(canReviewLearning({ role: 'secretary', clinicId: 'clinic-a' }, 'clinic-a')).toBe(false)

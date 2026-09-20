@@ -44,6 +44,14 @@ export function canReviewLearning(user: Pick<AuthUser, 'role' | 'clinicId' | 'cl
 export function scorePercent(value: unknown): string | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? `${Math.round(value * 100)}%` : null
 }
+export function candidateNeedsRevalidation(candidate: LearningCandidate, content: string): boolean {
+  return content !== (candidate.humanEdit ?? candidate.candidateContent)
+    || (candidate.status === 'pending_review' && candidate.humanEdit !== null && candidate.humanEdit !== undefined)
+}
+export function matchesLearningSearch(query: string, ...text: (string | null | undefined)[]): boolean {
+  const normalized = query.trim().toLocaleLowerCase()
+  return !normalized || text.some(value => value?.toLocaleLowerCase().includes(normalized))
+}
 export function reviewUnavailable(candidate: LearningCandidate, now = Date.now()): boolean {
   if (candidate.status === 'pending_review' && !candidate.expiresAt) return true
   return Boolean(candidate.expiresAt && (!Number.isFinite(Date.parse(candidate.expiresAt)) || Date.parse(candidate.expiresAt) <= now))
@@ -70,6 +78,10 @@ export function reviewCommand(clinicId: string, candidate: LearningCandidate, ac
 export const learningCopy = {
   en: {
     title: 'Governed KB learning', intro: 'Answers do not train model weights. Only reviewed, current clinic knowledge becomes a retrievable source.',
+    historicalEvidence: 'Historical evidence for the original generated answer — not validation of edited text',
+    historicalCitations: 'Historical citations — independently verify support for the edited text',
+    revalidation: 'Edited text requires renewed validation. Original confidence, grounding and contradiction checks do not validate this draft. Staff must independently review the exact text before publication.',
+    currentValidation: 'Current candidate validation record', search: 'Search loaded questions and answers', searchHint: 'Searches only the bounded records loaded in this view, not all patient history.',
     policy: 'Automatic publication is off by default. When enabled, only narrowly verified office-opening facts qualify: at least 80% confidence, full grounding, repeated consistency, current sources, and every safety gate. Medical guidance, pricing, policy, conflict, corrections and unknown content require staff review.',
     candidates: 'Candidates', events: 'Answer feedback', gaps: 'Knowledge gaps', settings: 'Learning settings', refresh: 'Refresh', loading: 'Loading…', empty: 'No records in this view.',
     bounded: 'Most recent 50 candidates / 100 feedback events and gaps. Expired evidence is excluded. This is not the complete conversation history.',
@@ -92,6 +104,10 @@ export const learningCopy = {
   },
   es: {
     title: 'Aprendizaje supervisado de la KB', intro: 'Las respuestas no entrenan los pesos del modelo. Solo el conocimiento vigente y revisado de la clínica se convierte en fuente recuperable.',
+    historicalEvidence: 'Evidencia histórica de la respuesta generada original — no valida el texto editado',
+    historicalCitations: 'Citas históricas — verifique de forma independiente el respaldo del texto editado',
+    revalidation: 'El texto editado requiere nueva validación. La confianza, el respaldo y el control de contradicciones originales no validan este borrador. El personal debe revisar de forma independiente el texto exacto antes de publicarlo.',
+    currentValidation: 'Registro de validación del candidato actual', search: 'Buscar en preguntas y respuestas cargadas', searchHint: 'Solo busca en los registros limitados cargados en esta vista, no en todo el historial de pacientes.',
     policy: 'La publicación automática está desactivada por defecto. Al activarla, solo califican datos de apertura verificados: confianza mínima del 80%, respaldo completo, consistencia repetida, fuentes vigentes y todos los controles de seguridad. Orientación médica, precios, políticas, conflictos, correcciones y contenido desconocido requieren revisión del personal.',
     candidates: 'Candidatos', events: 'Comentarios sobre respuestas', gaps: 'Vacíos de conocimiento', settings: 'Ajustes del aprendizaje', refresh: 'Actualizar', loading: 'Cargando…', empty: 'No hay registros en esta vista.',
     bounded: 'Últimos 50 candidatos / 100 comentarios y vacíos. Se excluye evidencia vencida. No es el historial completo de conversaciones.',

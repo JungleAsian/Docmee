@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '@/shared/api/client'
+import { ApiError } from '@/shared/api/client'
+import { captureReviewSession, reviewApi, useReviewGeneration, type ReviewSession } from '@/shared/api/reviewSession'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { trainingInfo } from '@/shared/kbTraining'
-import { learningCopy, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type CandidateStatus, type LearningCandidate, type LearningCitation, type LearningEvidence, type LearningEvent, type LearningGap, type LearningHistory, type LearningSettings, type ReviewCommand, type ReviewResult } from '@/shared/kbLearning'
+import { candidateNeedsRevalidation, learningCopy, matchesLearningSearch, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type CandidateStatus, type LearningCandidate, type LearningCitation, type LearningEvidence, type LearningEvent, type LearningGap, type LearningHistory, type LearningSettings, type ReviewCommand, type ReviewResult } from '@/shared/kbLearning'
 import type { KnowledgeDocument, PanelLanguage } from '@/shared/types'
 
 type Copy = (typeof learningCopy)[PanelLanguage]
@@ -28,8 +29,24 @@ export function EvidenceView({ evidence, copy }: { evidence: LearningEvidence; c
   return <dl className="grid gap-2 text-sm sm:grid-cols-2">{values.map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
 }
 
-function Citations({ citations, documents, copy }: { citations: LearningCitation[]; documents: KnowledgeDocument[]; copy: Copy }) {
-  return <details><summary className="cursor-pointer font-semibold">{copy.citations} ({citations.length})</summary>
+export function CandidateEvidenceView({ candidate, content, copy }: { candidate: LearningCandidate; content: string; copy: Copy }) {
+  const changed = candidateNeedsRevalidation(candidate, content)
+  return <section className="space-y-3" aria-label={copy.currentValidation}>
+    {changed && <p role="alert" className="border border-amber-500 p-3">{copy.revalidation}</p>}
+    <h4 className="font-semibold">{copy.currentValidation}</h4>
+    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+      <div><dt>{copy.confidence}</dt><dd>{changed ? copy.unknown : scorePercent(candidate.confidenceScore) ?? copy.unknown}</dd></div>
+      <div><dt>{copy.grounding}</dt><dd>{content !== (candidate.humanEdit ?? candidate.candidateContent) ? copy.unknown : scorePercent(candidate.groundingScore) ?? copy.unknown}</dd></div>
+      <div><dt>{copy.contradiction}</dt><dd>{changed || !candidate.contradictionFree ? copy.notPassed : copy.passed}</dd></div>
+    </dl>
+    <details><summary>{copy.historicalEvidence}</summary><EvidenceView evidence={candidate.evidence} copy={copy} />
+      <p className="text-sm">{copy.medical}: {candidate.medicalSafetyOk ? copy.passed : copy.notPassed} · {copy.prompt}: {candidate.promptSafetyOk ? copy.passed : copy.notPassed}</p>
+    </details>
+  </section>
+}
+
+function Citations({ citations, documents, copy, label = copy.citations }: { citations: LearningCitation[]; documents: KnowledgeDocument[]; copy: Copy; label?: string }) {
+  return <details><summary className="cursor-pointer font-semibold">{label} ({citations.length})</summary>
     {!citations.length && <p>{copy.noCitations}</p>}
     <ul className="max-h-64 space-y-3 overflow-y-auto p-2 text-xs">{citations.slice(0, 5).map((citation, index) => {
       const source = documents.find(doc => doc.id === citation.documentId && doc.version === citation.documentVersion)
@@ -43,6 +60,13 @@ function Citations({ citations, documents, copy }: { citations: LearningCitation
 }
 
 export default function KbLearningPanel({ clinicId, documents }: { clinicId: string; documents: KnowledgeDocument[] }) {
+  const generation = useReviewGeneration()
+  return <SessionLearningPanel key={`${clinicId}:${generation}`} clinicId={clinicId} documents={documents} />
+}
+
+function SessionLearningPanel({ clinicId, documents }: { clinicId: string; documents: KnowledgeDocument[] }) {
+  const [session] = useState(() => captureReviewSession(clinicId))
+  const api = reviewApi(session)
   const { language } = useI18n()
   const copy = learningCopy[language]
   const qc = useQueryClient()
@@ -51,12 +75,13 @@ export default function KbLearningPanel({ clinicId, documents }: { clinicId: str
   const [selected, setSelected] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [reviewEpoch, setReviewEpoch] = useState(0)
+  const [search, setSearch] = useState('')
   const base = `/clinics/${clinicId}/kb/learning`
-  const key = ['kb-learning', clinicId]
-  const candidates = useQuery({ ...temporaryQuery, queryKey: [...key, 'candidates', status], queryFn: () => api.get<LearningCandidate[]>(`${base}/candidates?status=${status}`), enabled: tab === 'candidates' })
-  const events = useQuery({ ...temporaryQuery, queryKey: [...key, 'events'], queryFn: () => api.get<LearningEvent[]>(`${base}/events`), enabled: tab === 'events' })
-  const gaps = useQuery({ ...temporaryQuery, queryKey: [...key, 'gaps'], queryFn: () => api.get<LearningGap[]>(`${base}/gaps`), enabled: tab === 'gaps' })
-  const settings = useQuery({ ...temporaryQuery, queryKey: [...key, 'settings'], queryFn: () => api.get<LearningSettings>(`${base}/settings`), enabled: tab === 'settings' })
+  const key = ['kb-learning', clinicId, session.generation]
+  const candidates = useQuery({ ...temporaryQuery, queryKey: [...key, 'candidates', status], queryFn: ({ signal }) => api.get<LearningCandidate[]>(`${base}/candidates?status=${status}`, signal), enabled: tab === 'candidates' })
+  const events = useQuery({ ...temporaryQuery, queryKey: [...key, 'events'], queryFn: ({ signal }) => api.get<LearningEvent[]>(`${base}/events`, signal), enabled: tab === 'events' })
+  const gaps = useQuery({ ...temporaryQuery, queryKey: [...key, 'gaps'], queryFn: ({ signal }) => api.get<LearningGap[]>(`${base}/gaps`, signal), enabled: tab === 'gaps' })
+  const settings = useQuery({ ...temporaryQuery, queryKey: [...key, 'settings'], queryFn: ({ signal }) => api.get<LearningSettings>(`${base}/settings`, signal), enabled: tab === 'settings' })
   const refresh = () => { void qc.invalidateQueries({ queryKey: key }); void qc.invalidateQueries({ queryKey: ['kb', clinicId] }) }
   const fail = (error: unknown) => {
     // Remove confirmation and draft state on stale/expired records. The user must
@@ -78,6 +103,9 @@ export default function KbLearningPanel({ clinicId, documents }: { clinicId: str
   })
   const current = candidates.data?.find(candidate => candidate.id === selected && candidate.clinicId === clinicId)
   const active = { candidates, events, gaps, settings }[tab]
+  const visibleCandidates = candidates.data?.slice(0, 50).filter(candidate => matchesLearningSearch(search, candidate.sourceQuestion, candidate.candidateContent, candidate.humanEdit))
+  const visibleEvents = events.data?.slice(0, 100).filter(event => matchesLearningSearch(search, event.question, event.answer))
+  const visibleGaps = gaps.data?.slice(0, 100).filter(gap => matchesLearningSearch(search, gap.question, gap.reason))
   return <section className="clinic-card space-y-4 p-4" aria-label={copy.title}>
     <h2 className="text-lg font-semibold">{copy.title}</h2><p className="text-sm">{copy.intro}</p>
     <p className="border-l-4 border-amber-500 pl-3 text-sm">{copy.policy}</p>
@@ -86,27 +114,29 @@ export default function KbLearningPanel({ clinicId, documents }: { clinicId: str
       <button type="button" className={button} onClick={() => { setSelected(null); setReviewEpoch(value => value + 1); refresh() }}>{copy.refresh}</button>
     </div>
     <p className="text-xs">{copy.bounded}</p>
+    {tab !== 'settings' && <label className="block text-sm">{copy.search}<input type="search" className={field} value={search} onChange={e => { setSearch(e.target.value); setSelected(null) }} /><span className="text-xs">{copy.searchHint}</span></label>}
     {message && <p role="status" className="border border-amber-500 p-3 text-sm">{message}</p>}
     {active.isError ? <p role="alert">{copy.error}</p> : active.isPending ? <p role="status">{copy.loading}</p> : <>
       {tab === 'candidates' && <>
         <label className="block text-sm">{copy.candidates}<select className={field} value={status} onChange={e => { setStatus(e.target.value as CandidateStatus); setSelected(null) }}>{(['pending_review', 'approved', 'rejected', 'superseded'] as const).map(value => <option key={value} value={value}>{copy[value]}</option>)}</select></label>
-        <ul className="max-h-72 space-y-2 overflow-y-auto">{candidates.data?.slice(0, 50).map(candidate => <li key={candidate.id} className="flex items-start justify-between gap-3 border p-3"><p className="line-clamp-3 whitespace-pre-wrap break-words text-sm">{candidate.candidateContent}</p><button className={button} type="button" disabled={review.isPending} onClick={() => setSelected(candidate.id)}>{copy.inspect}</button></li>)}</ul>
-        {!candidates.data?.length && <p>{copy.empty}</p>}
-        {current && <CandidateReview key={`${current.id}:${current.revision}:${current.updatedAt}`} candidate={current} documents={documents} copy={copy} busy={review.isPending || candidates.isFetching} onClose={() => setSelected(null)} onStale={() => fail(new ApiError(409, 'expired_candidate'))} onReview={command => review.mutate(command)} />}
+        <ul className="max-h-72 space-y-2 overflow-y-auto">{visibleCandidates?.map(candidate => <li key={candidate.id} className="flex items-start justify-between gap-3 border p-3"><p className="line-clamp-3 whitespace-pre-wrap break-words text-sm">{candidate.humanEdit ?? candidate.candidateContent}</p><button className={button} type="button" disabled={review.isPending} onClick={() => setSelected(candidate.id)}>{copy.inspect}</button></li>)}</ul>
+        {!visibleCandidates?.length && <p>{copy.empty}</p>}
+        {current && <CandidateReview key={`${current.id}:${current.revision}:${current.updatedAt}`} session={session} candidate={current} documents={documents} copy={copy} busy={review.isPending || candidates.isFetching} onClose={() => setSelected(null)} onStale={() => fail(new ApiError(409, 'expired_candidate'))} onReview={command => review.mutate(command)} />}
       </>}
-      {tab === 'events' && <div className="max-h-[36rem] space-y-3 overflow-y-auto">{!events.data?.length && <p>{copy.empty}</p>}{events.data?.slice(0, 100).map(event => <FeedbackRow key={`${reviewEpoch}:${event.id}:${event.feedback}`} event={event} base={base} documents={documents} copy={copy} onSaved={() => { setMessage(copy.saved); refresh() }} onError={fail} />)}</div>}
-      {tab === 'gaps' && <div className="max-h-[36rem] space-y-3 overflow-y-auto">{!gaps.data?.length && <p>{copy.empty}</p>}{gaps.data?.slice(0, 100).map(gap => <GapRow key={`${reviewEpoch}:${gap.id}:${gap.status}`} gap={gap} base={base} copy={copy} onCandidate={selectReturned} onSaved={refresh} onError={fail} />)}</div>}
-      {tab === 'settings' && settings.data && <SettingsForm key={`${reviewEpoch}:${JSON.stringify(settings.data)}`} value={settings.data} base={base} copy={copy} onSaved={() => { setMessage(copy.saved); refresh() }} onError={fail} />}
+      {tab === 'events' && <div className="max-h-[36rem] space-y-3 overflow-y-auto">{!visibleEvents?.length && <p>{copy.empty}</p>}{visibleEvents?.map(event => <FeedbackRow key={`${reviewEpoch}:${event.id}:${event.feedback}`} session={session} event={event} base={base} documents={documents} copy={copy} onSaved={() => { setMessage(copy.saved); refresh() }} onError={fail} />)}</div>}
+      {tab === 'gaps' && <div className="max-h-[36rem] space-y-3 overflow-y-auto">{!visibleGaps?.length && <p>{copy.empty}</p>}{visibleGaps?.map(gap => <GapRow key={`${reviewEpoch}:${gap.id}:${gap.status}`} session={session} gap={gap} base={base} copy={copy} onCandidate={selectReturned} onSaved={refresh} onError={fail} />)}</div>}
+      {tab === 'settings' && settings.data && <SettingsForm key={`${reviewEpoch}:${JSON.stringify(settings.data)}`} session={session} value={settings.data} base={base} copy={copy} onSaved={() => { setMessage(copy.saved); refresh() }} onError={fail} />}
     </>}
   </section>
 }
 
-function CandidateReview({ candidate, documents, copy, busy, onReview, onClose, onStale }: { candidate: LearningCandidate; documents: KnowledgeDocument[]; copy: Copy; busy: boolean; onReview: (command: ReviewCommand) => void; onClose: () => void; onStale: () => void }) {
+function CandidateReview({ session, candidate, documents, copy, busy, onReview, onClose, onStale }: { session: ReviewSession; candidate: LearningCandidate; documents: KnowledgeDocument[]; copy: Copy; busy: boolean; onReview: (command: ReviewCommand) => void; onClose: () => void; onStale: () => void }) {
+  const api = reviewApi(session)
   const [content, setContent] = useState(candidate.humanEdit || candidate.candidateContent)
   const [confirmed, setConfirmed] = useState(false)
   const [rollbackConfirmed, setRollbackConfirmed] = useState(false)
   const [historyId, setHistoryId] = useState('')
-  const history = useQuery({ ...temporaryQuery, queryKey: ['kb-learning', candidate.clinicId, 'history', candidate.id], queryFn: () => api.get<LearningHistory[]>(`/clinics/${candidate.clinicId}/kb/learning/candidates/${candidate.id}/history`) })
+  const history = useQuery({ ...temporaryQuery, queryKey: ['kb-learning', candidate.clinicId, session.generation, 'history', candidate.id], queryFn: ({ signal }) => api.get<LearningHistory[]>(`/clinics/${candidate.clinicId}/kb/learning/candidates/${candidate.id}/history`, signal) })
   const disabled = busy || reviewUnavailable(candidate) || !['pending_review', 'approved'].includes(candidate.status)
   const sourcesMissing = candidate.supportingChunks.some(citation => !documents.some(doc => doc.id === citation.documentId && doc.version === citation.documentVersion && trainingInfo(doc).lexicalAvailable))
   const submit = (action: ReviewCommand['action']) => {
@@ -123,11 +153,10 @@ function CandidateReview({ candidate, documents, copy, busy, onReview, onClose, 
     <p className="text-xs">{copy.expiry}: {candidate.expiresAt ?? '—'} · {copy.approver}: {candidate.approvedBy ?? '—'} / {candidate.approvedAt ?? '—'}</p>
     <p className="break-words text-xs">{copy.publication}: {candidate.publishedDocumentId ?? '—'} / {candidate.publishedDocumentVersion ?? '—'}</p>
     <details><summary>{copy.question}</summary><p className="whitespace-pre-wrap break-words">{candidate.sourceQuestion}</p></details>
-    <EvidenceView evidence={candidate.evidence} copy={copy} />
-    <p className="text-sm">{copy.medical}: {candidate.medicalSafetyOk ? copy.passed : copy.notPassed} · {copy.prompt}: {candidate.promptSafetyOk ? copy.passed : copy.notPassed}</p>
+    <CandidateEvidenceView candidate={candidate} content={content} copy={copy} />
     <p className="text-sm">{copy.feedback}: {candidate.patientFeedback || copy.unknown} · {copy.consistency}: {candidate.consistencyCount}</p>
     <details><summary>{copy.reasons}</summary><ul>{candidate.gateReasons?.map(reason => <li key={reason}>{reason}</li>)}</ul></details>
-    <Citations citations={candidate.supportingChunks} documents={documents} copy={copy} />
+    <Citations citations={candidate.supportingChunks} documents={documents} copy={copy} label={candidateNeedsRevalidation(candidate, content) ? copy.historicalCitations : copy.citations} />
     {sourcesMissing && <p role="status">{copy.unavailable}. {copy.refresh}</p>}
     <label className="block text-sm">{copy.content}<textarea className={`${field} resize-y`} rows={5} maxLength={12000} value={content} disabled={disabled} onChange={e => { setContent(e.target.value); setConfirmed(false) }} /></label>
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={disabled} onChange={e => setConfirmed(e.target.checked)} />{copy.confirmation}</label>
@@ -150,7 +179,8 @@ function CandidateReview({ candidate, documents, copy, busy, onReview, onClose, 
   </article>
 }
 
-function FeedbackRow({ event, base, copy, documents, onSaved, onError }: { event: LearningEvent; base: string; copy: Copy; documents: KnowledgeDocument[]; onSaved: () => void; onError: (error: unknown) => void }) {
+function FeedbackRow({ session, event, base, copy, documents, onSaved, onError }: { session: ReviewSession; event: LearningEvent; base: string; copy: Copy; documents: KnowledgeDocument[]; onSaved: () => void; onError: (error: unknown) => void }) {
+  const api = reviewApi(session)
   const [feedback, setFeedback] = useState('')
   const mutation = useMutation({ gcTime: 0, retry: false, mutationFn: () => api.post(`${base}/events/${event.id}/feedback`, { feedback }), onSuccess: onSaved, onError })
   return <details className="border p-3 text-sm"><summary className="cursor-pointer break-words">{event.question} · {event.createdAt}</summary>
@@ -161,7 +191,8 @@ function FeedbackRow({ event, base, copy, documents, onSaved, onError }: { event
   </details>
 }
 
-function GapRow({ gap, base, copy, onCandidate, onSaved, onError }: { gap: LearningGap; base: string; copy: Copy; onCandidate: (candidate: LearningCandidate) => void; onSaved: () => void; onError: (error: unknown) => void }) {
+function GapRow({ session, gap, base, copy, onCandidate, onSaved, onError }: { session: ReviewSession; gap: LearningGap; base: string; copy: Copy; onCandidate: (candidate: LearningCandidate) => void; onSaved: () => void; onError: (error: unknown) => void }) {
+  const api = reviewApi(session)
   const [content, setContent] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const create = useMutation({ gcTime: 0, retry: false, mutationFn: () => api.post<LearningCandidate>(`${base}/gaps/${gap.id}/candidate`, { content, staffConfirmed: true }), onSuccess: onCandidate, onError })
@@ -174,7 +205,8 @@ function GapRow({ gap, base, copy, onCandidate, onSaved, onError }: { gap: Learn
   </details>
 }
 
-export function SettingsForm({ value, base, copy, onSaved, onError }: { value: LearningSettings; base: string; copy: Copy; onSaved: () => void; onError: (error: unknown) => void }) {
+export function SettingsForm({ session, value, base, copy, onSaved, onError }: { session: ReviewSession; value: LearningSettings; base: string; copy: Copy; onSaved: () => void; onError: (error: unknown) => void }) {
+  const api = reviewApi(session)
   const [autoApprove, setAutoApprove] = useState(value.autoApprove === true)
   const [threshold, setThreshold] = useState(String(value.groundingThreshold * 100))
   const [retention, setRetention] = useState(String(value.evidenceRetentionHours))

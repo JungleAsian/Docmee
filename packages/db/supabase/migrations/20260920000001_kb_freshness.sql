@@ -16,11 +16,12 @@ ALTER TABLE knowledge_chunks
   ADD COLUMN IF NOT EXISTS document_version INTEGER NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
-UPDATE knowledge_chunks c
-SET document_version = d.version,
-    is_active = (d.status = 'active')
-FROM knowledge_documents d
-WHERE d.id = c.document_id AND d.clinic_id = c.clinic_id;
+-- Pre-migration chunks have no trustworthy version provenance. A document may
+-- already be on v2 while its stored chunks still contain v1 text, so never
+-- relabel those chunks as current evidence. An authoritative write/reindex from
+-- knowledge_documents.content must create fresh, versioned chunks.
+UPDATE knowledge_chunks
+SET is_active = false;
 
 CREATE INDEX IF NOT EXISTS knowledge_chunks_current_retrieval_idx
   ON knowledge_chunks (clinic_id, document_id, document_version, is_active);
@@ -31,10 +32,11 @@ CREATE TABLE IF NOT EXISTS knowledge_retrieval_revisions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Existing approved rows become explicitly retrievable; drafts remain pending.
+-- Preserve existing approval state, but do not manufacture approval for legacy
+-- active rows. With all legacy chunks withdrawn, active documents remain pending
+-- until an authoritative write creates current chunks.
 UPDATE knowledge_documents
-SET approved_at = COALESCE(approved_at, updated_at),
-    indexing_status = CASE
+SET indexing_status = CASE
       WHEN EXISTS (
         SELECT 1 FROM knowledge_chunks c
         WHERE c.document_id = knowledge_documents.id
@@ -48,7 +50,7 @@ SET approved_at = COALESCE(approved_at, updated_at),
           AND c.document_version = knowledge_documents.version
           AND c.is_active = true
           AND c.embedding IS NULL
-          AND NOT ((c.metadata -> 'embedding') ? 'v')
+          AND NOT COALESCE((c.metadata -> 'embedding') ? 'v', false)
       ) THEN 'ready'
       ELSE 'pending'
     END

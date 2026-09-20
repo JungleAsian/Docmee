@@ -64,7 +64,8 @@ async function markDocumentReady(sql: Sql, clinicId: string, documentId: string,
         SELECT 1 FROM knowledge_chunks c
         WHERE c.clinic_id = d.clinic_id AND c.document_id = d.id
           AND c.document_version = d.version AND c.is_active = true
-          AND c.embedding IS NULL AND NOT ((c.metadata -> 'embedding') ? 'v')
+          AND c.embedding IS NULL
+          AND NOT COALESCE((c.metadata -> 'embedding') ? 'v', false)
       )
   `
 }

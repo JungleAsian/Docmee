@@ -108,4 +108,20 @@ describe('processKbEmbedJob — per-clinic isolation (Req 7)', () => {
     expect(readyUpdate?.[0]).toContain('EXISTS')
     expect(readyUpdate?.[0]).toContain('c.is_active = true')
   })
+
+  it('keeps absent embedding metadata and mixed chunks unready while allowing fully embedded chunks', async () => {
+    await processKbEmbedJob(makeJob({
+      clinicId: CLINIC, documentId: 'doc-1', documentVersion: 7,
+    }, 'embed-document'))
+
+    const readySql = String(h.sqlCall.mock.calls.find(([text]) =>
+      String(text).includes("indexing_status = 'ready'"),
+    )?.[0])
+    // Missing metadata (`{}` or SQL NULL) must satisfy the missing-chunk branch.
+    expect(readySql).toMatch(
+      /c\.embedding IS NULL\s+AND NOT COALESCE\(\(c\.metadata -> 'embedding'\) \? 'v', false\)/,
+    )
+    // NOT EXISTS keeps a mixed set unready; only a fully embedded set clears it.
+    expect(readySql).toContain('AND NOT EXISTS')
+  })
 })

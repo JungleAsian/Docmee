@@ -128,6 +128,24 @@ describe('knowledge.repository — freshness retrieval contract', () => {
     expect(queries().some((query) => query.includes('INSERT INTO knowledge_chunks'))).toBe(true)
   })
 
+  it('serializes even the first empty source replacement on the stable clinic row', async () => {
+    const { sql, queries } = fakeSql()
+    await createKnowledgeRepository(sql).replaceSourceDocuments({
+      clinicId: 'clinic-1', source: 'github', documents: [],
+    })
+
+    const clinicLock = queries().findIndex((query) =>
+      query.includes('FROM clinics') && query.includes('FOR UPDATE'),
+    )
+    const sourceRead = queries().findIndex((query) =>
+      query.includes('FROM knowledge_documents') && query.includes('FOR UPDATE'),
+    )
+    const sourceDelete = queries().findIndex((query) => query.includes('DELETE FROM knowledge_documents'))
+    expect(clinicLock).toBeGreaterThanOrEqual(0)
+    expect(sourceRead).toBeGreaterThan(clinicLock)
+    expect(sourceDelete).toBeGreaterThan(sourceRead)
+  })
+
   it('runs lexical retrieval when no vector is available', async () => {
     const { sql, lastQuery, lastValues } = fakeSql()
     await createKnowledgeRepository(sql).searchChunks('horario sábado', [], { clinicId: 'clinic-1' })

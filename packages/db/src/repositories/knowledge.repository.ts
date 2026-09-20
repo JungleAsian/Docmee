@@ -357,6 +357,14 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
 
     async replaceSourceDocuments(data) {
       return sql.begin(async (tx) => {
+        // Source rows may not exist on the first import, so they cannot provide
+        // a serialization point. The owning clinic row is stable and makes
+        // same-clinic source replacements enter this transaction one at a time.
+        await tx`
+          SELECT id FROM clinics
+          WHERE id = ${data.clinicId}
+          FOR UPDATE
+        `
         const existing = await tx<Array<{ id: string }>>`
           SELECT id FROM knowledge_documents
           WHERE clinic_id = ${data.clinicId} AND metadata ->> 'source' = ${data.source}

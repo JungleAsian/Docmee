@@ -436,7 +436,7 @@ export interface KnowledgeDocument {
    *  source/ocr (set by the upload pipeline) drive the Screen 7 source-confidence badge. */
   metadata?: {
     doctorId?: string | null
-    source?: 'document' | 'manual'
+    source?: string
     ocr?: boolean
     format?: string
   } & Record<string, unknown>
@@ -444,6 +444,11 @@ export interface KnowledgeDocument {
    *  Attached by GET /clinics/:id/kb; absent on create/patch responses. */
   chunkCount?: number
   embeddedCount?: number
+  version?: number
+  approvedAt?: string | null
+  effectiveFrom?: string
+  effectiveUntil?: string | null
+  indexingStatus?: 'pending' | 'ready' | 'failed' | 'withdrawn'
   createdAt: string
   updatedAt: string
 }

@@ -1,17 +1,18 @@
 'use client'
 
 // Screen 7 — Knowledge base editor (Admin Studio). Pick a clinic, then create / edit /
-// categorise its entries, upload source documents, and watch each entry's TRAINING
-// STATE (is it indexed and retrievable by the bot?) and SOURCE CONFIDENCE (how much
-// we trust the text given where it came from). Re-index re-embeds the whole clinic KB.
+// categorise entries, review governed learning and inspect provenance. Vector
+// indexing and current approved lexical availability are separate signals.
 import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, API_BASE } from '@/shared/api/client'
-import { authSnapshot } from '@/shared/store/auth'
+import { authSnapshot, useAuthStore } from '@/shared/store/auth'
 import { ClinicSelect } from '@/shared/components/ClinicSelect'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
-import { trainingInfo, sourceInfo, needsReview, type TrainingState } from '@/shared/kbTraining'
+import { trainingInfo, sourceInfo, needsReview, type TrainingState, type KbSource } from '@/shared/kbTraining'
+import { canReviewLearning, learningCopy } from '@/shared/kbLearning'
+import KbLearningPanel from './KbLearningPanel'
 import type { TranslationKey } from '@/shared/i18n'
 import type { DocumentStatus, DocumentType, Doctor, KnowledgeDocument } from '@/shared/types'
 
@@ -30,7 +31,7 @@ const STATUS_LABEL: Record<DocumentStatus, TranslationKey> = {
   draft: 'studio.kb.statusDraft',
   archived: 'studio.kb.statusArchived',
 }
-const STATE_LABEL: Record<TrainingState, TranslationKey> = {
+const STATE_LABEL: Record<Exclude<TrainingState, 'failed' | 'withdrawn'>, TranslationKey> = {
   trained: 'studio.kb.stateTrained',
   training: 'studio.kb.stateTraining',
   queued: 'studio.kb.stateQueued',
@@ -38,6 +39,8 @@ const STATE_LABEL: Record<TrainingState, TranslationKey> = {
 }
 const MAX_UPLOAD_FILES = 5
 const STATE_CLASS: Record<TrainingState, string> = {
+  failed: 'border-red-500 text-red-600 dark:text-red-300',
+  withdrawn: 'border-gray-500 text-gray-500 dark:text-gray-300',
   trained:
     'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
   training:
@@ -130,10 +133,22 @@ function downloadKbCsv(clinicId: string, documents: KnowledgeDocument[]) {
 }
 
 export default function KbPage() {
+  const { t, language } = useI18n()
+  const user = useAuthStore(state => state.user)
+  const { clinicId, switchClinic, canSwitch } = useActiveClinic()
+  if (!clinicId || !canReviewLearning(user, clinicId)) return <div className="clinic-page clinic-page-md space-y-6">
+    <h1 className="text-xl font-bold">{t('studio.kb.title')}</h1>
+    {canSwitch && <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />}
+    <p>{clinicId ? learningCopy[language].notAuthed : t('studio.kb.selectClinic')}</p>
+  </div>
+  // Switching clinic or identity discards all forms, confirmations and pending UI
+  // state. In-flight operations retain the original clinic path and query keys.
+  return <KbWorkspace key={`${user?.id}:${user?.role}:${clinicId}`} clinicId={clinicId} switchClinic={switchClinic} canSwitch={canSwitch} />
+}
+
+function KbWorkspace({ clinicId, switchClinic, canSwitch }: { clinicId: string; switchClinic: (id: string) => void; canSwitch: boolean }) {
   const { t } = useI18n()
   const qc = useQueryClient()
-  const { clinicId, switchClinic } = useActiveClinic()
-  const isSuperuser = authSnapshot().user?.role === 'ia_studio_admin'
   const [reembedDone, setReembedDone] = useState(false)
   const [category, setCategory] = useState<DocumentType | 'all'>('all')
   const [search, setSearch] = useState('')
@@ -141,14 +156,14 @@ export default function KbPage() {
   const key = ['kb', clinicId]
   const query = useQuery({
     queryKey: key,
-    enabled: Boolean(clinicId) && isSuperuser,
+    enabled: Boolean(clinicId),
     queryFn: () => api.get<{ documents: KnowledgeDocument[] }>(`/clinics/${clinicId}/kb`),
   })
 
   // Per-doctor FAQs (Req 30): the clinic's doctors populate the scope selectors.
   const doctorsQuery = useQuery({
     queryKey: ['doctors', clinicId],
-    enabled: Boolean(clinicId) && isSuperuser,
+    enabled: Boolean(clinicId),
     queryFn: () => api.get<{ doctors: Doctor[] }>(`/clinics/${clinicId}/doctors`),
   })
   const doctors = doctorsQuery.data?.doctors ?? []
@@ -157,7 +172,7 @@ export default function KbPage() {
     mutationFn: () => api.post(`/clinics/${clinicId}/kb/reembed`),
     onSuccess: () => {
       setReembedDone(true)
-      setTimeout(() => setReembedDone(false), 3000)
+      void qc.invalidateQueries({ queryKey: ['kb', clinicId] })
     },
   })
 
@@ -174,20 +189,6 @@ export default function KbPage() {
     return scoped.filter((doc) => `${doc.title} ${doc.content}`.toLowerCase().includes(needle))
   }, [documents, category, search])
 
-  if (!isSuperuser) {
-    return (
-      <div className="clinic-page clinic-page-md space-y-6">
-        <div className="clinic-card p-6">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Limited access</p>
-          <h1 className="mt-2 text-xl font-bold">{t('studio.kb.title')}</h1>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Clinic KB is managed by super users. This area is disabled for clinic admins.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="clinic-page clinic-page-md space-y-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -199,7 +200,7 @@ export default function KbPage() {
             </span>
           )}
         </div>
-        <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />
+        {canSwitch && <ClinicSelect value={clinicId} onChange={switchClinic} label={t('studio.usage.selectClinic')} />}
       </div>
 
       {!clinicId ? (
@@ -213,6 +214,7 @@ export default function KbPage() {
         </div>
       ) : (
         <>
+          <KbLearningPanel clinicId={clinicId} documents={documents} />
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -341,10 +343,11 @@ function DocRow({
   doctors: Doctor[]
   queryKey: (string | undefined)[]
 }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
+  const copy = learningCopy[language]
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
-  const invalidate = () => qc.invalidateQueries({ queryKey })
+  const invalidate = () => { void qc.invalidateQueries({ queryKey }); void qc.invalidateQueries({ queryKey: ['kb-learning', clinicId] }) }
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.patch(`/clinics/${clinicId}/kb/${doc.id}`, body),
@@ -357,14 +360,7 @@ function DocRow({
 
   const train = trainingInfo(doc)
   const src = sourceInfo(doc)
-  const stateHint =
-    train.state === 'trained'
-      ? t('studio.kb.stateTrainedHint')
-      : train.state === 'training'
-        ? t('studio.kb.stateTrainingHint', { n: train.embeddedCount, total: train.chunkCount })
-        : train.state === 'queued'
-          ? t('studio.kb.stateQueuedHint')
-          : t('studio.kb.stateNotIndexedHint')
+  const stateHint = `${copy.vector}: ${train.embeddedCount}/${train.chunkCount}`
 
   if (editing) {
     return (
@@ -396,9 +392,9 @@ function DocRow({
           {/* Training state + progress */}
           <span
             className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${STATE_CLASS[train.state]}`}
-            title={stateHint}
+            title={train.state === 'failed' || train.state === 'withdrawn' ? copy[train.state] : stateHint}
           >
-            {t(STATE_LABEL[train.state])}
+            {copy.vector}: {train.state === 'failed' || train.state === 'withdrawn' ? copy[train.state] : t(STATE_LABEL[train.state])}
             {train.chunkCount > 0 && (
               <span className="opacity-70">
                 {train.embeddedCount}/{train.chunkCount}
@@ -446,6 +442,8 @@ function DocRow({
         </div>
 
         <p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-xs text-gray-500">{doc.content}</p>
+        <p className="mt-2 text-xs">{train.lexicalAvailable ? copy.lexical : copy.unavailable} · {copy.version}: {doc.version ?? '—'} · {doc.approvedAt ?? '—'}</p>
+        {doc.metadata?.source === 'governed_learning' && <details className="mt-2 text-xs"><summary>{copy.source}: {copy.governed}</summary><pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words">{JSON.stringify(doc.metadata, null, 2)}</pre></details>}
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -486,11 +484,11 @@ function ConfidenceBadge({
   source,
   confidence,
 }: {
-  source: 'manual' | 'document' | 'ocr'
+  source: KbSource
   confidence: 'high' | 'medium' | 'low'
 }) {
-  const { t } = useI18n()
-  const sourceLabel: Record<typeof source, TranslationKey> = {
+  const { t, language } = useI18n()
+  const sourceLabel: Record<Exclude<KbSource, 'governed_learning' | 'unknown'>, TranslationKey> = {
     manual: 'studio.kb.sourceManual',
     document: 'studio.kb.sourceDocument',
     ocr: 'studio.kb.sourceOcr',
@@ -511,7 +509,7 @@ function ConfidenceBadge({
       className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${cls}`}
       title={`${t(confLabel[confidence])} · ${t('studio.kb.confidenceHint')}`}
     >
-      {t(sourceLabel[source])}
+      {source === 'governed_learning' ? learningCopy[language].governed : source === 'unknown' ? learningCopy[language].unknownSource : t(sourceLabel[source])}
     </span>
   )
 }

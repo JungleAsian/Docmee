@@ -87,8 +87,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           href: '/studio/kb',
           label: t('nav.kb'),
           icon: <NavIcon name="kb" />,
-          disabled: !isSuperuser,
-          disabledReason: 'Clinic KB is managed by super users.',
         },
       ]
 

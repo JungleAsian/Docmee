@@ -130,3 +130,24 @@ Round 1 GREEN evidence:
 - `pnpm --filter @docmee/api test -- src/routes/kb.test.ts src/routes/kb-upload.test.ts src/routes/assistant.test.ts src/routes/jzel.test.ts` -> **4 files, 34 tests passed**.
 - DB, workers, and API package typechecks and lints passed; root pre-commit typecheck/lint passed.
 - Real PostgreSQL/pgvector execution remains the same explicit environment limitation; the pre-existing full-worker date/Redis caveat is unchanged.
+
+## Independent review round 2 fixes
+
+Fix commit: `e3b068f` (`fix(kb): harden migration and index readiness`).
+
+- The freshness migration no longer relabels uncertain pre-migration chunks with the document's current version or manufactures approval. Every legacy chunk is made inactive; only an authoritative current-content write may create eligible versioned chunks. The SQL fixture assertion specifically protects the document-v2/current-text plus legacy-v1/old-chunk case.
+- Migration and worker readiness predicates now use `NOT COALESCE((metadata -> 'embedding') ? 'v', false)`, so absent metadata is missing, a mixed set remains unready, and only a set with no missing current active chunk can become ready.
+- `replaceSourceDocuments` now locks the stable owning clinic row before reading/deleting source documents. This serializes concurrent same-clinic replacements even when the first source snapshot is empty; the local mock proves query and transaction ordering, not live database concurrency.
+
+Round 2 RED evidence:
+
+- DB focused: 3 failures proved the migration promoted uncertain legacy chunks, used NULL-unsafe readiness, and lacked a stable lock for an empty first source import.
+- Worker focused: 1 failure proved the readiness predicate remained NULL-unsafe for absent embedding metadata.
+
+Round 2 GREEN evidence:
+
+- `pnpm --filter @docmee/db test` -> **17 files, 70 tests passed**.
+- `pnpm --filter @docmee/workers test -- src/__tests__/kb-embed.worker.test.ts` -> **1 file, 6 tests passed**.
+- `pnpm --filter @docmee/api test -- src/routes/kb.test.ts src/routes/kb-upload.test.ts src/routes/assistant.test.ts src/routes/jzel.test.ts` -> **4 files, 34 tests passed**.
+- DB, workers, and API package typechecks and lints passed; root pre-commit typecheck/lint passed.
+- PostgreSQL/pgvector migration execution and true concurrent replacement remain unverified because Docker/`psql` were unavailable. The migration test is an explicit SQL artifact assertion, not a claim of database execution. The pre-existing full-worker date/Redis caveat is unchanged.

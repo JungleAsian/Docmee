@@ -246,3 +246,72 @@ After the direct equivalent checks passed, the authorized single-command `git -c
 ### Remaining gates
 
 Fresh independent remediation review; real PostgreSQL migration and legacy-row scrubbing, RLS/JSONB and transaction/concurrency tests; rollout privacy/retention scheduling and backup policy review; provider-format and bilingual owner evaluations of the deliberately narrow coverage; authenticated Task 3 UI and rollback acceptance; version-aware queue retry/reindex verification. No deployment readiness, model learning, live provider behavior or production database validation is asserted.
+
+## Lifecycle and lock-order remediation — 2026-09-20
+
+Source commit: **`975d90000b84a9ca35c1c3e612b24875a8020ac3`** (`fix(kb): isolate expiring drafts and serialize knowledge writers`), based on `11cbb74a51cb04ee0c90ae38eea64f47373d258f`. Eight owned source/test/migration files. This append-only section supersedes the earlier edit-in-place lifecycle and cited-document-before-revision lock descriptions. No UI, dependencies, providers, browser, live database, push, deployment or settings changes occurred. Automatic publication remains default-off.
+
+### Durable approvals, expiring revisions
+
+- Editing an approved candidate now inserts a **different pending candidate ID**, with `previousVersionId` linking the durable approval. The draft copies the published document/version baseline and citations, resets verification evidence, stores no original patient question, and receives the clinic evidence-retention deadline (default 24 hours; existing settings cap 24 hours). The approved candidate and its approved history are not modified by that edit. Identical edit retries deduplicate to the same draft.
+- Draft edits and rejection retain that finite deadline. Abandonment/rejection followed by cleanup deletes the unapproved draft; the existing history foreign key cascades only the draft-owned history. The original approved candidate, approved content, history and published document remain. SQL-boundary lifecycle tests exercise both sequences from initial approval through cleanup, not merely the insert response.
+- Approval/rollback of a candidate with a published target now checks the target's current document version under the shared mutation lock. If a sibling draft or normal document edit changed the target, it rejects `stale_candidate` before writing. This deliberately prevents an old approval or rollback from overwriting a newer target. A reviewer must refresh/reconcile against the latest published version rather than force the stale operation.
+- Migration `20260920000004_kb_learning_draft_lifecycle.sql` repairs the prior edit-in-place state: it forks pending/rejected content and subsequent unapproved history into an expiring draft, restores the original row's last approved content/provenance, and leaves approve/rollback history untouched. The deadline is based on the original draft's first unapproved history timestamp (fallback updated timestamp), not migration execution time. Already-old drafts get no new retention window. Legacy never-approved drafts with NULL expiry receive `created_at + 24 hours`. A check constraint prohibits NULL expiry for pending/rejected rows. No published document is rewritten by the migration.
+- **Task 3 contract:** the edit API returns the new draft identity; the UI must select/refetch that returned ID and use its revision, rather than continue editing the original approved ID. A focused API test verifies the new identity is preserved and no embedding job is queued for an unapproved edit.
+
+### Shared writer protocol and narrowly authorized route correction
+
+`lockKnowledgeMutation` now establishes the order **clinic row → retrieval-revision row → candidate/document work → chunks**, before any KB write lock. The stable clinic row serializes writers even when no retrieval-revision row exists yet. Publication and the caller-owned authoritative writer intentionally re-enter the same locks within one transaction. The revision is still incremented atomically with the document/chunk mutation before commit.
+
+The protocol covers `writeDocument`/`writeKnowledgeDocument`, source replacement, reindex preparation, content/status changes, draft activation, doctor assignment, deletion, legacy document/chunk creation and replacement, and governance metadata/status changes. Legacy document/chunk mutation methods now also bump the retrieval revision once. Existing authoritative multi-document/source writes retain their existing single-revision behavior. Source validation no longer takes cited-document `FOR SHARE` locks before obtaining the revision lock; it checks source eligibility/version/scope while the clinic/revision mutation locks prevent compliant same-clinic writers from changing those facts.
+
+The parent explicitly authorized the narrow `apps/api/src/routes/governance.ts` correction because it previously updated authoritative document metadata/status with raw SQL outside the shared repository protocol. It now calls `updateDocumentGovernance`, which takes the shared locks, preserves metadata merge and exclusion/archive-only status semantics, and increments the retrieval revision. Response, not-found, clinic/role authorization and audit behavior are unchanged and tested. Indexing-result bookkeeping remains single-statement/version-guarded, not an authoritative knowledge mutation; no worker/provider paths were changed.
+
+This is intentionally coarse same-clinic writer serialization, favoring integrity over concurrent KB write throughput. Read-only retrieval remains unlocked. Source-level lock-order checks cover all twelve repository writer entry points plus candidate publication; these checks are not proof of actual PostgreSQL scheduling or absence of every possible cross-table deadlock.
+
+### RED → GREEN and final local verification
+
+All commands ran locally from `docmee-live-runtime-fix`; fixtures are deterministic SQL-boundary fakes and mocked API/agent/worker integrations, not PostgreSQL/provider execution.
+
+| Regression | RED | GREEN |
+| --- | --- | --- |
+| `node node_modules/vitest/vitest.mjs run packages/db/src/__tests__/knowledge-learning.repository.test.ts packages/db/src/__tests__/knowledge.repository.test.ts --silent` | 11:22:48: 11 failed / 56 passed (missing first locks, edited approval retained original ID, stale target not rejected); 11:25:34 expanded legacy/governance/migration checks: 5 failed / 68 passed | 11:23:51: 67/67; 11:26:34: 73/73; final expanded coverage passes |
+| `node node_modules/vitest/vitest.mjs run packages/db/src/__tests__/knowledge.repository.test.ts --silent` | 11:33:07: 3 failed / 30 passed, demonstrating missing revision increments in legacy createDocument/createChunk/replaceChunks | 11:33:58: 33/33 |
+
+The intermediate create-metadata tests assumed the document insert was the last query; they were corrected to inspect the document insert specifically after the new revision increment. Fixture-only failures are not presented as product regressions.
+
+Final focused suite, **11:34:39, exit 0, 12 files / 188 tests passed**, 9.69 seconds:
+
+```powershell
+node node_modules/vitest/vitest.mjs run packages/db/src/__tests__/knowledge-learning.repository.test.ts packages/db/src/__tests__/knowledge.repository.test.ts packages/db/src/__tests__/sensitive-retention.repository.test.ts packages/agents/src/__tests__/kb-governance.test.ts packages/agents/src/__tests__/kb-retriever.test.ts packages/agents/src/__tests__/kb-hybrid-evaluation.test.ts apps/api/src/routes/kb-learning.test.ts apps/api/src/routes/governance-kb.test.ts apps/api/src/routes/assistant.test.ts apps/api/src/routes/jzel.test.ts apps/workers/src/__tests__/workflow-runner-ai-agent.test.ts apps/workers/src/__tests__/workflow-runner-safety.test.ts --silent
+```
+
+These checks also exited 0 during this remediation:
+
+```powershell
+node node_modules/typescript/bin/tsc -p packages/db/tsconfig.json
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --noEmit
+node node_modules/typescript/bin/tsc -p apps/workers/tsconfig.json --noEmit
+node node_modules/eslint/bin/eslint.js packages/db/src apps/api/src/routes/governance.ts apps/api/src/routes/governance-kb.test.ts apps/api/src/routes/kb-learning.test.ts
+git diff --check
+```
+
+Direct hook equivalents from `tools`, both exit 0:
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
+node node_modules/tsx/dist/cli.mjs ./node_modules/eslint/bin/eslint.js .
+```
+
+An ordinary source commit was attempted afterward and reproduced the existing Windows hook-wrapper failure: missing `sed`, `dirname`, `uname`, and `Cannot find module 'C:\Program Files\Git\node_modules\corepack\dist\pnpm.js'`, followed by `Typecheck failed. Commit aborted.` The already-authorized ephemeral per-command `git -c core.hooksPath=<new empty temporary directory> commit ...` override then created the source commit. No persistent hook configuration changed; unrelated untracked artifacts were preserved.
+
+### Explicit remaining PostgreSQL and release gates
+
+No local PostgreSQL harness is available: `psql` is absent and `docker ps` reports the Docker engine pipe unavailable. No container, external database, migrations or services were started. Before accepting database/runtime readiness, run these exact scenarios against an isolated real PostgreSQL fixture:
+
+1. Apply migrations to a baseline containing approved candidates, approved/rollback history, legacy approved→edited pending/rejected rows, and old never-approved NULL-expiry rows. Assert published documents and approved history are unchanged, legacy approved content is restored, pending drafts have independent IDs/deadlines, and the new check rejects a pending NULL-expiry insert.
+2. Approve→edit→abandon and approve→edit→reject, advance fixture deadlines, then execute cleanup. Verify actual FK cascades remove unapproved content/history and preserve original approved provenance. Repeat with configured shorter retention and already-expired legacy drafts.
+3. In two real transactions with lock barriers and bounded `lock_timeout`/`statement_timeout`, race approval and rollback against `writeKnowledgeDocument` edits of cited and target documents, source replacement, governance exclusion and chunk replacement. Exercise both transaction-start orders and both existing/missing revision rows. Assert the second writer blocks at the clinic lock, no `40P01` deadlock occurs, stale evidence/target versions fail closed, and exactly the expected document versions/revisions/chunks commit.
+4. Verify independent clinics can mutate concurrently, same-clinic serialization is acceptable, tenant RLS remains correct, rollback restores atomicity on exceptions, and the migration/cleanup queries have acceptable plans at representative scale.
+
+Fresh independent source review is still required. Prior provider-format, bilingual evaluation, retention scheduling/backups/privacy, Task 3 authenticated UI, stale-edit reconciliation and clinic-owner acceptance gates remain open. This report asserts local source/test readiness only, not deployment or production readiness.

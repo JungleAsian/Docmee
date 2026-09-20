@@ -315,3 +315,44 @@ No local PostgreSQL harness is available: `psql` is absent and `docker ps` repor
 4. Verify independent clinics can mutate concurrently, same-clinic serialization is acceptable, tenant RLS remains correct, rollback restores atomicity on exceptions, and the migration/cleanup queries have acceptable plans at representative scale.
 
 Fresh independent source review is still required. Prior provider-format, bilingual evaluation, retention scheduling/backups/privacy, Task 3 authenticated UI, stale-edit reconciliation and clinic-owner acceptance gates remain open. This report asserts local source/test readiness only, not deployment or production readiness.
+
+## Approved-ancestor rollback correction — 2026-09-20
+
+Source commit: **`25dbef25c43675c6f4dabf1cdb86fcc08faf47c4`** (`fix(kb): restore approved ancestor snapshots safely`), based on report commit `b8684055412d6eb2a6c9101eadafd866b6c844bb`. This bounded correction resolves the fresh-review regression introduced by separating approved candidates from expiring drafts. No UI, migration, dependency, provider, browser, live database, settings, push or deployment actions occurred. Automatic publication remains default-off.
+
+### Corrected lifecycle and contract
+
+For **A approved as document v1 → edit creates B → approve B as v2**, rollback is now invoked against **current candidate B**, using A's approved history ID. The repository looks up an approved/rollback snapshot scoped to the same clinic and document, validates its document version, and walks B's `previousVersionId` ancestry. Every ancestor must belong to the same clinic and published document and have approved/superseded status. Unrelated candidates, siblings, foreign-tenant links, different-document links, unapproved history, missing links, cycles, and chains beyond the bounded traversal fail closed. The existing current-target document version check remains mandatory, so invoking stale A directly still cannot overwrite v2.
+
+The successful rollback publishes A's approved text as **new document v3**, with new rollback history on B. A's candidate and approved history remain untouched. Both the new document metadata and rollback audit evidence record `rollbackSource` containing the source history ID, source candidate ID and original document version. Ordinary subsequent publication clears that document metadata field instead of inheriting stale rollback provenance. Existing source eligibility/revision checks, staff confirmation, sanitization, transactional indexing and unapproved-content scrubbing remain in effect. No additional durable unapproved content is introduced.
+
+No migration is required: the existing previous-version links and approved history already contain the required lineage. The history API remains candidate-specific; Task 3 must follow `previousVersionId` to display ancestor history and submit the selected ancestor history ID against the **current** candidate/revision. This is a UI integration/acceptance gate, not a claim that the UI has already implemented it.
+
+### Regression evidence and local checks
+
+- RED at **11:40:30**: `node node_modules/vitest/vitest.mjs run packages/db/src/__tests__/knowledge-learning.repository.test.ts --silent` exited 1, **5 failed / 44 passed**. The full A→B→rollback sequence failed `not_found`; four adversarial ancestry fixtures reached the later `stale_candidate` check instead of being rejected at the lineage boundary. Those deliberately malformed SQL-boundary fixtures demonstrate missing validation/order, not a proven preexisting PostgreSQL tenant leak.
+- GREEN at **11:41:11**: the same command exited 0, **49/49 passed**. The stateful SQL-boundary sequence exercises actual repository approve/edit/approve/rollback calls, verifies v1→v2→v3 and restored content, and checks original A/history immutability and rollback-source provenance. Six denial variants cover unrelated candidate, foreign history/ancestor, different document, cycle and unapproved snapshot. Existing stale-current-target tests remain passing.
+- API coverage verifies current candidate/revision and ancestor history ID reach the repository, only committed v3 is queued, unrelated history yields 404, and foreign clinic yields 403 without indexing work.
+- Final focused suite at **11:45:34**, exit 0, **12 files / 197 tests passed**, 8.56 seconds, using the same twelve-file command listed in the preceding remediation section. An earlier full run at 11:43:19 also passed 197/197.
+- Initial compiler checks caught TS7022 inference around the ancestry loop; explicit `GovernedCandidate`/array/optional-parent annotations corrected it. All final checks below exited 0:
+
+```powershell
+node node_modules/typescript/bin/tsc -p packages/db/tsconfig.json
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --noEmit
+node node_modules/typescript/bin/tsc -p apps/workers/tsconfig.json --noEmit
+node node_modules/eslint/bin/eslint.js packages/db/src apps/api/src/routes/kb-learning.test.ts
+git diff --check
+```
+
+Direct hook equivalents from `tools` also exited 0:
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
+node node_modules/tsx/dist/cli.mjs ./node_modules/eslint/bin/eslint.js .
+```
+
+The ordinary source commit reproduced the documented Windows hook-wrapper failure (missing `sed`, `dirname`, `uname`, and Corepack module under `C:\Program Files\Git`, ending `Typecheck failed. Commit aborted.`). Only after the direct checks passed, the authorized ephemeral per-command `core.hooksPath` override created the source commit. No persistent configuration changed. Unrelated untracked artifacts were preserved.
+
+### Remaining acceptance gates
+
+The prior explicit live-PostgreSQL migration, lock/concurrency, RLS, cleanup and query-plan gates remain open: no local real-PG harness was available and no external database was contacted. Additionally, run A approve v1→B edit/approve v2→rollback A via B as v3 against isolated PostgreSQL; assert atomic chunk/retrieval-revision replacement, immutable A history, correct provenance, stale-current-target rejection after a competing writer, and rejection of unrelated/cross-clinic ancestry. Test multi-generation history selection in authenticated Task 3 UI. Fresh independent review is required before Task 2 is accepted; these local deterministic tests are not deployment, live concurrency, provider or production acceptance proof.

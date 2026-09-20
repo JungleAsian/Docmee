@@ -151,3 +151,28 @@ Round 2 GREEN evidence:
 - `pnpm --filter @docmee/api test -- src/routes/kb.test.ts src/routes/kb-upload.test.ts src/routes/assistant.test.ts src/routes/jzel.test.ts` -> **4 files, 34 tests passed**.
 - DB, workers, and API package typechecks and lints passed; root pre-commit typecheck/lint passed.
 - PostgreSQL/pgvector migration execution and true concurrent replacement remain unverified because Docker/`psql` were unavailable. The migration test is an explicit SQL artifact assertion, not a claim of database execution. The pre-existing full-worker date/Redis caveat is unchanged.
+
+## Independent review round 3 fixes
+
+Fix commit: `5280a04` (`fix(kb): rebuild current chunks during reindex`).
+
+- `prepareClinicReindex` now locks each eligible approved/current document, withdraws all of its existing chunks, deletes any uncertain same-version rows, and creates new lexical chunks only from the authoritative `knowledge_documents.content`. It sets the rebuilt version to `pending`, returns only queueable `{ id, version }` pairs, and bumps the clinic retrieval revision in the same transaction. Legacy text is never reactivated or relabelled.
+- An authoritative document with no indexable content is set to `failed` with `no_indexable_content` and is not returned for queueing. Independently, an `embed-document` job that finds zero current active chunks sets `no_current_active_chunks`, throws, and cannot mark the document ready.
+- Retrieval now orders by the existing combined relevance score first and uses requested language only as a tie-break. A bounded candidate pool plus repository-side ordering preserves a relevant cross-language result even when more than 40 irrelevant preferred-language rows exist.
+- The API retry regression proves `/kb/reembed` enqueues only the versioned documents returned by the transactional rebuild operation; the route already had the correct boundary and required no production route change.
+
+Round 3 RED evidence:
+
+- `pnpm --filter @docmee/db test -- --run src/__tests__/knowledge.repository.test.ts` initially had **3 failures**: no authoritative chunk rebuild, whitespace-only content was still queueable, and 41 preferred-language irrelevant rows displaced the relevant cross-language answer.
+- `pnpm --filter @docmee/workers test -- src/__tests__/kb-embed.worker.test.ts` initially had **1 failure**: a zero-current-chunk document job resolved successfully instead of persisting failure and throwing.
+- The focused API route regression was green immediately, characterizing the already-correct queue boundary rather than claiming a RED production defect.
+
+Round 3 GREEN evidence:
+
+- `pnpm --filter @docmee/db test` -> **17 files, 73 tests passed**.
+- `pnpm --filter @docmee/workers test -- src/__tests__/kb-embed.worker.test.ts` -> **1 file, 7 tests passed**.
+- `pnpm --filter @docmee/api test -- src/routes/kb.test.ts src/routes/kb-upload.test.ts src/routes/assistant.test.ts src/routes/jzel.test.ts` -> **4 files, 35 tests passed**.
+- DB, workers, and API package typechecks and lints passed; the implementation commit's root pre-commit typecheck/lint passed; `git diff --check` passed.
+- The stateful local repository test simulates an active legacy-v1 old-text chunk, performs the retry rebuild from authoritative v2 content, and then retrieves only v2 text while the legacy row remains inactive. This is mocked transaction/retrieval behavior, not live PostgreSQL proof.
+
+Round 3 operational limit: Docker/`psql` remain unavailable, so PostgreSQL/pgvector execution, planner behavior, and true lock/concurrency semantics remain a deployment gate. The pre-existing full-worker fixed-date and Redis caveat remains unchanged.

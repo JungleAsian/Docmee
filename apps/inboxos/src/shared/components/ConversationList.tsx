@@ -329,7 +329,6 @@ export function ConversationList({
 
   return (
     <div className="relative flex h-full flex-col bg-[var(--crm-bg-color)]">
-      {mediaRepositoryPanel}
       {safetyRows.length > 0 && (
         <button
           type="button"
@@ -426,7 +425,8 @@ export function ConversationList({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {mediaRepositoryPanel}
         {selectedRows.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b border-[var(--crm-border-color)] bg-[var(--crm-hover-bg)] px-3 py-2 text-xs shadow-sm">
             <span className="font-bold text-[var(--crm-primary-color)]">{selectedRows.size} selected</span>

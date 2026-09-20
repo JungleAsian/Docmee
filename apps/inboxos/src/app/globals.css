@@ -990,13 +990,14 @@ body {
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }
 
-  /* Keep the media repository usable without covering the full conversation rail. */
+  /* The repository overlays only the conversation rows, leaving the list controls
+     (including the Open conversations label) visible above it. */
   .crm-media-repository-rail {
-    top: auto !important;
+    top: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
     left: 0 !important;
-    height: 70% !important;
+    height: auto !important;
   }
 
   .dark .crm-inbox-list {

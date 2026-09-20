@@ -20,7 +20,8 @@ import {
   summarizeConversation,
   suggestReplies,
   suggestNextStep,
-  searchKb,
+  expandKbQuery,
+  rerankHybridChunks,
   detectLanguage,
   type AssistantMessage,
   type Language,
@@ -49,15 +50,6 @@ function resolveLanguage(
 function clinicRulesText(clinic: Clinic): string | null {
   const raw = (clinic.settings as { clinicRules?: unknown }).clinicRules
   return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null
-}
-
-function kbThreshold(clinic: Clinic): number {
-  const settings = clinic.settings as Record<string, unknown>
-  const ai = settings['aiAssistant']
-  const nested = ai && typeof ai === 'object' ? (ai as Record<string, unknown>)['kbThreshold'] : undefined
-  const raw = nested ?? settings['kbThreshold']
-  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN
-  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : 0.78
 }
 
 const assistantRoute: FastifyPluginAsync = async (app) => {
@@ -117,16 +109,8 @@ const assistantRoute: FastifyPluginAsync = async (app) => {
       const ai = readAiAssistant(ctx.clinic)
       if (!ai.enabled) return reply.code(409).send({ error: 'assistant_disabled' })
       const language = resolveLanguage(ctx.clinic, ctx.patient, ctx.messages)
-      // Load the clinic's embedded KB chunks once and bind a clinic-scoped searcher —
-      // only when J.zel has KB grounding enabled for this clinic.
-      const chunks = ai.useKb
-        ? await withDb((sql) => {
-            const doctorId = typeof ctx.conversation.metadata['doctorId'] === 'string'
-              ? ctx.conversation.metadata['doctorId'] as string
-              : null
-            return createKnowledgeRepository(sql).listEmbeddedChunks(clinicId, doctorId)
-          })
-        : []
+      const doctorId = typeof ctx.conversation.metadata['doctorId'] === 'string'
+        ? ctx.conversation.metadata['doctorId'] as string : null
       // Hoist out of the closure so ctx.clinic stays narrowed (non-null).
       const clinic = ctx.clinic
       const kbEmbed = resolveEmbed(ai, clinic.settings)
@@ -138,7 +122,13 @@ const assistantRoute: FastifyPluginAsync = async (app) => {
           language,
         },
         {
-          searchKb: ai.useKb ? (query) => searchKb(query, chunks, kbEmbed, kbThreshold(clinic)) : async () => [],
+          searchKb: ai.useKb ? async (query) => {
+            const embedding = await kbEmbed(query).catch(() => [])
+            const rows = await withDb((sql) => createKnowledgeRepository(sql).searchChunks(
+              expandKbQuery(query), embedding, { clinicId, language, doctorId: doctorId ?? undefined }, 40,
+            ))
+            return rerankHybridChunks(rows.map((row) => ({ ...row, similarity: 0 })), 5)
+          } : async () => [],
           complete: bindComplete(ai, clinic.settings),
         },
       )

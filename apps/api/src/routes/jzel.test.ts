@@ -8,8 +8,10 @@ vi.mock('@docmee/db', () => ({
     findById: async () => ({ id: 'c-1', settings: {} }),
   }),
   createKnowledgeRepository: () => ({
-    listEmbeddedChunks: async (_clinicId: string, doctorId?: string | null) => { scopes.embedded.push(doctorId); return [] },
-    listActiveChunks: async (_clinicId: string, doctorId?: string | null) => { scopes.active.push(doctorId); return [] },
+    searchChunks: async (_query: string, _embedding: number[], filters: { clinicId: string; doctorId: string | null }, limit: number) => {
+      expect(filters.clinicId).toBe('c-1'); expect(limit).toBeLessThanOrEqual(40)
+      scopes.embedded.push(filters.doctorId); scopes.active.push(filters.doctorId); return []
+    },
   }),
 }))
 
@@ -18,6 +20,9 @@ vi.mock('@docmee/agents', () => ({
   detectPromptInjection: () => ({ detected: false }),
   screenPromptLeak: () => ({ safe: true }),
   searchKb: async () => [],
+  expandKbQuery: (query: string) => query,
+  detectLanguage: () => 'en',
+  rerankHybridChunks: (rows: unknown[]) => rows,
   wrapUntrustedKb: (value: string) => value,
 }))
 
@@ -76,8 +81,8 @@ describe('Docmee assistant route branding', () => {
     expect(response.statusCode).toBe(409)
     expect(response.json().message).toContain('Docmee needs this clinic’s own AI provider key')
     expect(response.json().message).not.toMatch(/J\.zel|Jzel/i)
-    expect(scopes.embedded).toEqual([null])
-    expect(scopes.active).toEqual([null])
+    expect(scopes.embedded).toEqual([undefined])
+    expect(scopes.active).toEqual([undefined])
   })
 
   it('scopes both embedded and lexical grounding to a selected doctor', async () => {

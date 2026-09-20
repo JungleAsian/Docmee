@@ -20,6 +20,7 @@ export {
   rankChunks,
   rankKeywordChunks,
   rerankHybridChunks,
+  expandKbQuery,
   cosineSimilarity,
   type Embedder,
   type EmbeddedChunk,
@@ -29,6 +30,9 @@ export {
 
 export {
   evaluateKbCandidateGates,
+  assessKbAnswer,
+  deidentifyKbText,
+  type KbAnswerEvidence,
   deriveKbEvidenceScore,
   type KbCandidateGateInput,
   type KbCandidateGateResult,

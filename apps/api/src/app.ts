@@ -18,6 +18,7 @@ import assistantRoute from './routes/assistant.js'
 import jzelRoute from './routes/jzel.js'
 import patientsRoute from './routes/patients.js'
 import kbRoute from './routes/kb.js'
+import kbLearningRoute from './routes/kb-learning.js'
 import notificationsRoute from './routes/notifications.js'
 import calendarRoute from './routes/calendar.js'
 import userRoute from './routes/user.js'
@@ -137,6 +138,7 @@ export async function buildApp() {
   // patients + kb declare their own /clinics/:id/… and /patients/… paths.
   await app.register(patientsRoute)
   await app.register(kbRoute)
+  await app.register(kbLearningRoute)
   // errors declares its own /clinics/:id/errors… paths
   await app.register(errorsRoute)
   // usage + license declare their own /clinics/:id/… and /usage/… paths

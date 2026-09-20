@@ -1,10 +1,8 @@
 // Knowledge-base retrieval for the clinic bot.
 //
-// Embeddings live in knowledge_chunks.metadata.embedding.v (jsonb) rather than a
-// pgvector column (see P02 migration — vector extension is optional), so ranking
-// is done in-process with cosine similarity over the clinic's chunk set. The
-// caller loads the chunks (DB I/O stays in the worker/repository layer) and
-// injects the embedder, so this module stays free of provider dependencies.
+// Runtime callers retrieve bounded, current, clinic-scoped PostgreSQL candidates.
+// Legacy pure cosine helpers remain for compatibility; runtime retrieval does
+// not load every clinic chunk. This module is provider-independent.
 
 /** Embeds query text into a vector — injected (e.g. @docmee/llm's embedText). */
 export type Embedder = (text: string) => Promise<number[]>
@@ -33,17 +31,30 @@ export interface HybridKbCandidate extends KbMatch {
 
 /** Final deterministic reranker for pgvector/FTS candidates. Newer approved
  * versions win ties, while weak candidates remain excluded for fail-closed use. */
-export function rerankHybridChunks(candidates: HybridKbCandidate[], limit = 5): KbMatch[] {
+export function rerankHybridChunks<T extends HybridKbCandidate>(candidates: T[], limit = 5): T[] {
   return candidates
+    .filter(candidate => Number.isFinite(candidate.vectorScore) && Number.isFinite(candidate.lexicalScore))
     .map((candidate) => ({
       ...candidate,
-      similarity: 0.7 * candidate.vectorScore + 0.2 * Math.min(candidate.lexicalScore, 1) +
+      similarity: 0.7 * Math.min(1, Math.max(0, candidate.vectorScore)) + 0.2 * Math.min(Math.max(0, candidate.lexicalScore), 1) +
         0.1 * Math.min(Math.max(candidate.documentVersion ?? 1, 1), 100) / 100,
     }))
     .filter((candidate) => candidate.vectorScore >= 0.78 || candidate.lexicalScore > 0)
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, limit)
-    .map(({ title, content, similarity }) => ({ title, content, similarity }))
+    .sort((a, b) => b.similarity - a.similarity || (Date.parse(b.updatedAt ?? '') || 0) - (Date.parse(a.updatedAt ?? '') || 0))
+    .slice(0, Math.max(1, Math.min(limit, 5)))
+}
+
+/** Small audited clinic vocabulary; expansion is retrieval-only, never evidence. */
+export function expandKbQuery(query: string): string {
+  const words = query.slice(0, 1600).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[\p{L}\p{N}]+/gu) ?? []
+  const groups = [ ['hours', 'horario', 'horarios', 'open', 'opening', 'abierto'], ['appointment', 'booking', 'cita', 'reservar', 'agendar'],
+    ['address', 'location', 'direccion', 'ubicacion'], ['price', 'cost', 'precio', 'costo'], ['doctor', 'medico', 'doctora'], ['acne', 'pimples', 'espinillas'] ]
+  const result = new Set(words)
+  for (const group of groups) if (words.some((word) => group.some((term) => word === term || word.length >= 5 && levenshteinAtMostOne(word, term)))) for (const term of group) result.add(term)
+  // websearch_to_tsquery otherwise ANDs every translated alternative together.
+  // Tokens are sanitized above; user-supplied query operators are never preserved.
+  const stop = new Set(['a','al','and','de','del','el','en','es','for','from','la','las','los','of','que','the','un','una','y','is','what','when'])
+  return [...result].filter(term => !stop.has(term)).slice(0, 100).join(' OR ').slice(0, 2000)
 }
 
 /** Deterministic fallback for active chunks that are not indexed yet. This is

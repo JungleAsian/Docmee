@@ -19,13 +19,15 @@ vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import
   getOAuth2Client: () => ({}),
   detectLanguage: () => 'es',
   searchKb: vi.fn(async () => []),
+  expandKbQuery: (query: string) => query,
+  rerankHybridChunks: (rows: unknown[]) => rows,
   summarizeConversation: vi.fn(async (messages: unknown[]) => ({
     summary: `SUMMARY of ${messages.length} messages`,
   })),
-  suggestReplies: vi.fn(async () => ({
-    suggestions: ['Draft one', 'Draft two'],
-    sources: [{ title: 'Pricing FAQ', similarity: 0.92 }],
-  })),
+  suggestReplies: vi.fn(async (_input: unknown, deps: { searchKb: (query: string) => Promise<unknown> }) => {
+    await deps.searchKb('opening hours')
+    return { suggestions: ['Draft one', 'Draft two'], sources: [{ title: 'Pricing FAQ', similarity: 0.92 }] }
+  }),
   suggestNextStep: vi.fn(async () => ({
     action: 'book_appointment',
     rationale: 'Patient wants a Friday slot.',
@@ -73,8 +75,9 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
     findById: async () => ({ id: 'p-1', metadata: { language: 'es' } }),
   }),
   createKnowledgeRepository: () => ({
-    listEmbeddedChunks: async (_clinicId: string, doctorId?: string | null) => {
-      store.kbScopes.push(doctorId)
+    searchChunks: async (_query: string, _embedding: number[], filters: { clinicId: string; doctorId: string | null }, limit: number) => {
+      expect(filters.clinicId).toBe('c-1'); expect(limit).toBeLessThanOrEqual(40)
+      store.kbScopes.push(filters.doctorId)
       return []
     },
   }),
@@ -152,7 +155,7 @@ describe('internal AI assistant routes', () => {
     const body = JSON.parse(res.body)
     expect(body.suggestions).toEqual(['Draft one', 'Draft two'])
     expect(body.sources).toEqual([{ title: 'Pricing FAQ', similarity: 0.92 }])
-    expect(store.kbScopes).toEqual([null])
+    expect(store.kbScopes).toEqual([undefined])
   })
 
   it('POST /assist/suggestions uses the conversation doctor scope when selected', async () => {

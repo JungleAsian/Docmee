@@ -300,7 +300,12 @@ function boundedLanguagePreference(rows: RankedKnowledgeSearchRow[], limit: numb
     .map(({ relevanceScore: _relevance, languagePreference: _language, ...row }) => row)
 }
 
-export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
+/** Compose the authoritative writer inside a caller-owned transaction. */
+export function writeKnowledgeDocument(tx: TxSql, data: WriteDocumentInput): Promise<DocumentIndexWrite> {
+  return createKnowledgeRepository(tx as unknown as Sql, tx).writeDocument(data)
+}
+
+export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): KnowledgeRepository {
   return {
     async listDocuments(clinicId) {
       return sql<KnowledgeDocument[]>`
@@ -339,7 +344,10 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
     },
 
     async writeDocument(data) {
-      return sql.begin(async (tx) => {
+      const run = transaction
+        ? (fn: (tx: TxSql) => Promise<DocumentIndexWrite>) => fn(transaction)
+        : (fn: (tx: TxSql) => Promise<DocumentIndexWrite>) => sql.begin(fn)
+      return run(async (tx) => {
         const withDoctorScope = (base: Record<string, unknown>) => {
           const metadata = { ...base }
           if (data.doctorId === null) delete metadata.doctorId

@@ -1,5 +1,6 @@
 import type { Sql } from '../client.js'
 import { toJson } from '../client.js'
+import { createKnowledgeLearningRepository } from './knowledge-learning.repository.js'
 
 const SENSITIVE_TRANSIENT_RETENTION_POLICY = 'sensitive-transient-24h'
 
@@ -82,6 +83,7 @@ export function createSensitiveRetentionRepository(sql: Sql): SensitiveRetention
         SELECT COUNT(*)::int AS deleted_count FROM scrubbed
       `
 
+      await createKnowledgeLearningRepository(sql).purgeExpired()
       return {
         webhookEvents: count(webhookEvents[0]),
         knowledgeRetrievalEvents: count(knowledgeRetrievalEvents[0]),

@@ -30,12 +30,8 @@ import {
   toneInstruction,
   detectLanguage,
   rerankHybridChunks,
-  deriveKbEvidenceScore,
-  evaluateKbCandidateGates,
-  searchKb,
-  rankKeywordChunks,
-  scopeKbToMessage,
-  hasDoctorScopedChunks,
+  assessKbAnswer,
+  expandKbQuery,
   isLikelyQuestion,
   knowledgeHandoffNotice,
   type BookingGrid,
@@ -59,7 +55,7 @@ import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
-import { type Job } from '@docmee/queue'
+import { kbEmbedQueue, type Job } from '@docmee/queue'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -76,6 +72,7 @@ import {
   createWorkflowExecutionsRepository,
   createWorkflowApprovalsRepository,
   createKnowledgeRepository,
+  createKnowledgeLearningRepository,
   type Patient,
   type PatientContact,
   type MessageTemplateCategory,
@@ -705,6 +702,8 @@ export function buildAiAgentSystemPrompt(input: {
     [
       'Respond in EXACTLY this format, nothing else:',
       'SCENARIO: <the id of the single best-matching scenario, or NONE if nothing fits>',
+      'CONFIDENCE: <your independent answer confidence from 0 to 1; never use retrieval similarity>',
+      'For a factual REPLY use only complete, unchanged sentences from the supplied current KB. If no exact supported answer exists, select handoff; do not paraphrase or add general knowledge.',
       'REPLY:',
       '<your reply to the patient, in their language — ONLY when the matched scenario is a reply scenario, otherwise leave this blank>',
     ].join('\n'),
@@ -716,6 +715,11 @@ export function buildAiAgentSystemPrompt(input: {
  *  unparseable or `NONE` completion returns a null scenarioId — the caller
  *  treats that as "no match", never as an LLM failure (that's `error`,
  *  reserved for the chatComplete call itself throwing). */
+export function parseAiAnswerConfidence(raw: string): number | null {
+  const match = raw.match(/^CONFIDENCE:\s*(0(?:\.\d+)?|1(?:\.0+)?)\s*$/im)
+  return match ? Number(match[1]) : null
+}
+
 export function parseAiAgentCompletion(raw: string): { scenarioId: string | null; reply: string } {
   const scenarioMatch = raw.match(/SCENARIO:\s*(\S+)/i)
   const scenarioId = scenarioMatch && scenarioMatch[1]!.toUpperCase() !== 'NONE' ? scenarioMatch[1]!.trim() : null
@@ -1129,14 +1133,17 @@ function buildExecutors(
       // executed in PostgreSQL (pgvector + FTS) with metadata filters so the
       // worker never loads a clinic's entire KB into memory.
       const knowledge = createKnowledgeRepository(sql)
-      const queryEmbedding = await cachedKbEmbedding(clinicId, clinic.settings, message)
+      const learning = createKnowledgeLearningRepository(sql)
+      // A provider outage still permits bounded lexical retrieval.
+      const queryEmbedding = await cachedKbEmbedding(clinicId, clinic.settings, message).catch(() => [])
+      const revision = await knowledge.getClinicRetrievalRevision(clinicId)
       let candidates: Awaited<ReturnType<typeof knowledge.searchChunks>>
-      if (typeof knowledge.searchChunks === 'function') {
-        const queryKey = kbCacheKey(clinicId, { language, doctorId: contextString(ctx, 'doctor_id') || null }, message)
+      {
+        const queryKey = kbCacheKey(clinicId, { revision, language, doctorId: contextString(ctx, 'doctor_id') || null }, message)
         const queryHit = kbQueryCache.get(queryKey)
         if (queryHit && queryHit.expires > Date.now()) {
           candidates = queryHit.value
-        } else candidates = await knowledge.searchChunks(message, queryEmbedding, {
+        } else candidates = await knowledge.searchChunks(expandKbQuery(message), queryEmbedding, {
           clinicId,
           language,
           doctorId: contextString(ctx, 'doctor_id') || undefined,
@@ -1145,54 +1152,46 @@ function buildExecutors(
           if (kbQueryCache.size > 500) kbQueryCache.delete(kbQueryCache.keys().next().value as string)
           return rows
         })
-      } else {
-        // Compatibility for older test doubles during rolling deploys; the
-        // production repository always uses the database-side path above.
-        const legacy = await knowledge.listEmbeddedChunks(clinicId)
-        const scoped = hasDoctorScopedChunks(legacy)
-          ? scopeKbToMessage(message, legacy, await createDoctorsRepository(sql).listByClinic(clinicId))
-          : legacy
-        const semantic = await searchKb(message, scoped, resolveEmbedder(clinic.settings))
-        candidates = rankKeywordChunks(message, scoped).map((match) => ({
-          chunkId: '', documentId: '', title: match.title, content: match.content, doctorId: null, language: null,
-          documentVersion: 1, updatedAt: '', vectorScore: match.similarity, lexicalScore: match.similarity,
-        }))
-        for (const match of semantic) if (!candidates.some((candidate) => candidate.content === match.content)) candidates.push({
-          chunkId: '', documentId: '', title: match.title, content: match.content, doctorId: null, language: null,
-          documentVersion: 1, updatedAt: '', vectorScore: match.similarity, lexicalScore: 0,
-        })
       }
-      const kbMatches: KbMatch[] = rerankHybridChunks(candidates.map((candidate) => ({
-        title: candidate.title,
-        content: candidate.content,
+      const kbMatches = rerankHybridChunks(candidates.map((candidate) => ({
+        ...candidate,
         similarity: 0,
-        vectorScore: candidate.vectorScore,
-        lexicalScore: candidate.lexicalScore,
-        documentVersion: candidate.documentVersion,
-        updatedAt: candidate.updatedAt,
       })), 5)
+      const citations = kbMatches.map(({ chunkId, documentId, documentVersion }) => ({ chunkId, documentId, documentVersion }))
+      const recordOutcome = async (answer: string, confidence: number | null, handoffReason: string | null) => {
+        const evidence = assessKbAnswer(message, answer, kbMatches.map(match => match.content), confidence ?? undefined)
+        const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
+        const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
+          question: message, answer, citations, relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
+          confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction, risks: evidence.risks, handoffReason })
+        const candidate = result.candidate
+        const settings = await learning.settings(clinicId)
+        if (!handoffReason && settings.autoApprove && candidate?.status === 'pending_review' && candidate.consistencyCount >= 2) {
+          // Repository rechecks every gate, source version, and the setting under lock.
+          const published = await learning.review(clinicId, candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: candidate.revision }).catch(() => null)
+          if (published?.write) {
+            const document = published.write.document
+            try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
+            catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable') }
+          }
+        }
+      }
       const fallbackKbContext = kbMatches.length
         ? kbMatches.map((match) => `# ${match.title}\n${match.content}`).join('\n\n')
         : ''
       ctx['ai_agent_kb_hit'] = kbMatches.length > 0
-      if (typeof knowledge.recordRetrievalEvent === 'function') await knowledge.recordRetrievalEvent({
-        clinicId,
-        conversationId: ctx.conversationId,
-        query: message,
-        language,
-        filters: { doctorId: contextString(ctx, 'doctor_id') || null },
-        selectedChunks: candidates.slice(0, 5).map((candidate) => ({
-          chunkId: candidate.chunkId,
-          documentId: candidate.documentId,
-          title: candidate.title,
-          vectorScore: candidate.vectorScore,
-          lexicalScore: candidate.lexicalScore,
-          version: candidate.documentVersion,
-        })),
-        handoffReason: isLikelyQuestion(message) && kbMatches.length === 0 ? 'knowledge_gap' : null,
-      }).catch(() => undefined)
       if (isLikelyQuestion(message) && kbMatches.length === 0) {
+        await recordOutcome('', null, 'knowledge_gap')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'knowledge_gap')
+        await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+      // Revalidate cached sources before sending context to the provider, and again
+      // after generation below to detect edits made while the answer was generated.
+      if (citations.length && !await learning.sourcesCurrent(clinicId, citations)) {
+        await recordOutcome('', null, 'stale_or_missing_sources')
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'stale_or_missing_sources')
         await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
@@ -1243,6 +1242,7 @@ function buildExecutors(
       }
 
       if (matched.action === 'handoff') {
+        await recordOutcome('', parseAiAnswerConfidence(raw), 'ai_agent_handoff')
         ctx['ai_agent_action'] = 'handoff'
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'ai_agent_handoff')
         await notify('The AI Agent handed this conversation off to the team.', ctx)
@@ -1272,7 +1272,7 @@ function buildExecutors(
       // for real, so it inherits the same defense-in-depth.
       if (!reply) {
         try {
-          reply = await withWorkflowAiAgentReplyTimeout(
+          raw = await withWorkflowAiAgentReplyTimeout(
             chatComplete({
               provider: agentSettings.provider,
               model: agentSettings.model || defaultChatModel(agentSettings.provider),
@@ -1287,12 +1287,14 @@ function buildExecutors(
                   ? `The patient selected ${preferredLanguage}. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
                   : '',
                 'Use only the supplied Knowledge Base context. If exact details are not in the Knowledge Base, say a secretary can help; never fill gaps from general model knowledge.',
+                'Use only complete, unchanged KB sentences. Return CONFIDENCE: <independent number 0 to 1> then REPLY: followed by the answer. Confidence must assess this answer, not the earlier scenario selection.',
                 fallbackKbContext ? wrapUntrustedKb(fallbackKbContext) : '',
               ].filter(Boolean).join('\n\n'),
               message,
             }),
             'Workflow AI agent fallback reply',
           )
+          reply = parseAiAgentCompletion(raw).reply
         } catch (err) {
           console.error('[workflow] ai_agent fallback LLM call failed:', err)
           return 'error'
@@ -1300,6 +1302,7 @@ function buildExecutors(
       }
       const safety = screenMedicalSafety(reply)
       if (!safety.safe) {
+        await recordOutcome(reply, parseAiAnswerConfidence(raw), 'medical_safety')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
         await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
         ctx['ai_agent_action'] = 'handoff'
@@ -1307,55 +1310,29 @@ function buildExecutors(
       }
       const leak = screenPromptLeak(reply)
       if (!leak.safe) {
+        await recordOutcome(reply, parseAiAnswerConfidence(raw), 'prompt_safety')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
         await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
       }
-      const retrievalEventId = typeof knowledge.recordRetrievalEvent === 'function' ? await knowledge.recordRetrievalEvent({
-        clinicId,
-        conversationId: ctx.conversationId,
-        query: message,
-        language,
-        filters: { doctorId: contextString(ctx, 'doctor_id') || null },
-        selectedChunks: candidates.slice(0, 5).map((candidate) => ({ chunkId: candidate.chunkId, documentId: candidate.documentId, vectorScore: candidate.vectorScore, lexicalScore: candidate.lexicalScore, version: candidate.documentVersion })),
-        answer: reply,
-        confidenceScore: deriveKbEvidenceScore(kbMatches.map((match) => match.similarity)),
-      }).catch(() => '') : ''
-
-      // Retrieval feedback is a governed candidate, never model-weight
-      // learning. First occurrences remain pending_review; auto-approval also
-      // requires repeat consistency and excludes medical/policy content.
-      if (retrievalEventId && kbMatches.length > 0 && typeof knowledge.createKnowledgeCandidate === 'function') {
-        const evidence = deriveKbEvidenceScore(kbMatches.map((match) => match.similarity))
-        const medicalTopic = /\b(acne|acné|dolor|pain|symptom|síntoma|diagnos|medic|treatment|tratamiento|dose|dosis)\b/i.test(`${message} ${reply}`)
-        const policyTopic = /\b(price|pricing|precio|policy|política|refund|reembolso|insurance|seguro)\b/i.test(`${message} ${reply}`)
-        const gate = evaluateKbCandidateGates({
-          confidence: evidence,
-          groundingScore: evidence,
-          medicalSafetyOk: true,
-          promptSafetyOk: true,
-          contradictionFree: true,
-          consistencyCount: 1,
-          patientFeedback: 'unknown',
-          isMedical: medicalTopic,
-          isPolicyOrPricing: policyTopic,
-        })
-        if (gate.eligible) await knowledge.createKnowledgeCandidate({
-          clinicId,
-          retrievalEventId,
-          sourceQuestion: message,
-          candidateContent: reply,
-          confidenceScore: evidence,
-          groundingScore: evidence,
-          medicalSafetyOk: true,
-          promptSafetyOk: true,
-          contradictionFree: true,
-          supportingChunks: kbMatches.slice(0, 5).map((match) => ({ title: match.title, content: match.content, similarity: match.similarity })),
-          originalSource: { provider: agentSettings.provider, model: agentSettings.model || defaultChatModel(agentSettings.provider), gateReasons: gate.reasons, autoApprove: gate.autoApprove },
-        }).catch((error) => console.warn('[workflow] KB candidate persistence failed:', error))
+      const confidence = parseAiAnswerConfidence(raw)
+      const evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined)
+      const sourcesCurrent = await learning.sourcesCurrent(clinicId, citations)
+      const handoffReason = !sourcesCurrent ? 'stale_or_missing_sources'
+        : evidence.groundingScore < 1 ? 'ungrounded_answer'
+        : evidence.contradiction !== 'clear' ? 'contradiction_unknown'
+        : confidence === null || confidence < .8 ? 'low_answer_confidence'
+        : evidence.risks.some(risk => ['prompt_injection','privacy'].includes(risk)) ? 'unsafe_answer' : null
+      if (handoffReason) {
+        await recordOutcome(reply, confidence, handoffReason)
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), handoffReason)
+        await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
       }
       await sendWorkflowMessage(reply, ctx)
+      await recordOutcome(reply, confidence, null)
       ctx['ai_agent_action'] = 'reply'
       return 'replied'
     },

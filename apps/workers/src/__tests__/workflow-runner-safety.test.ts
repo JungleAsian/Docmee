@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   findWorkflow: vi.fn(),
@@ -33,7 +33,11 @@ const h = vi.hoisted(() => ({
   findConversation: vi.fn(),
   updateConversation: vi.fn(),
   chatComplete: vi.fn(),
-  listEmbeddedChunks: vi.fn(),
+  searchChunks: vi.fn(),
+  recordLearning: vi.fn(),
+  learningSettings: vi.fn(),
+  reviewLearning: vi.fn(),
+  sourcesCurrent: vi.fn(),
   queueAdd: vi.fn(),
   end: vi.fn(),
 }))
@@ -69,7 +73,10 @@ vi.mock('@docmee/agents', async () => ({
   detectLanguage: () => 'en',
   searchKb: () => [],
   rankKeywordChunks: () => [],
-  rerankHybridChunks: () => [],
+  rerankHybridChunks: (await import('../../../../packages/agents/src/botbase/kb-retriever.js')).rerankHybridChunks,
+  expandKbQuery: (query: string) => query,
+  assessKbAnswer: (await import('../../../../packages/agents/src/botbase/kb-learning.js')).assessKbAnswer,
+  knowledgeHandoffNotice: () => 'A secretary will help you.',
   isLikelyQuestion: () => false,
   scopeKbToMessage: (_message: string, chunks: unknown[]) => chunks,
   hasDoctorScopedChunks: () => false,
@@ -94,7 +101,7 @@ vi.mock('@docmee/channels', () => ({
 }))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
-vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }) }))
+vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }), kbEmbedQueue: { add: h.queueAdd } }))
 
 vi.mock('@docmee/db', () => ({
   createServiceDbClient: () => ({ end: h.end }),
@@ -126,7 +133,8 @@ vi.mock('@docmee/db', () => ({
   createMessagesRepository: () => ({ create: h.createMessage }),
   createMessageTemplatesRepository: () => ({ findApprovedByCategory: h.findTemplate }),
   createNotificationsRepository: () => ({}),
-  createKnowledgeRepository: () => ({ listEmbeddedChunks: h.listEmbeddedChunks }),
+  createKnowledgeRepository: () => ({ searchChunks: h.searchChunks, getClinicRetrievalRevision: async () => 1, markDocumentIndexFailed: vi.fn() }),
+  createKnowledgeLearningRepository: () => ({ recordAttempt: h.recordLearning, settings: h.learningSettings, review: h.reviewLearning, sourcesCurrent: h.sourcesCurrent }),
 }))
 
 import { processWorkflowRunJob } from '../workflow-runner.worker.js'
@@ -145,6 +153,7 @@ const job = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 10))
   h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published', nodes: [], edges: [] })
   h.transitionRun.mockResolvedValue(true)
   h.scheduleResume.mockResolvedValue(true)
@@ -174,12 +183,56 @@ beforeEach(() => {
   h.createMessage.mockResolvedValue({ id: 'message-1' })
   h.findConversation.mockResolvedValue({ id: 'conversation-1', metadata: {} })
   h.updateConversation.mockResolvedValue({ id: 'conversation-1' })
-  h.chatComplete.mockResolvedValue('SCENARIO: general\nREPLY:\nHello from AI.')
-  h.listEmbeddedChunks.mockResolvedValue([])
+  h.chatComplete.mockResolvedValue('SCENARIO: general\nCONFIDENCE: 0.9\nREPLY:\nHello from AI.')
+  h.searchChunks.mockResolvedValue([{ chunkId: 'kb-chunk', documentId: 'kb-doc', documentVersion: 1, title: 'Welcome', content: 'Hello from AI.', vectorScore: .99, lexicalScore: 1 }])
+  h.recordLearning.mockResolvedValue({ replayed: false, candidate: null })
+  h.learningSettings.mockResolvedValue({ autoApprove: false, groundingThreshold: 1, evidenceRetentionHours: 24 })
+  h.sourcesCurrent.mockResolvedValue(true)
   h.queueAdd.mockResolvedValue(undefined)
 })
+afterEach(() => vi.restoreAllMocks())
 
 describe('processWorkflowRunJob automation ownership', () => {
+  it.each([
+    { reason: 'low_answer_confidence', confidence: 'NaN', answer: 'Hello from AI.', current: true },
+    { reason: 'ungrounded_answer', confidence: '0.99', answer: 'We offer unlimited free care.', current: true },
+    { reason: 'stale_or_missing_sources', confidence: '0.99', answer: 'Hello from AI.', current: false },
+  ])('hands off instead of sending unsupported output: $reason', async ({ reason, confidence, answer, current }) => {
+    h.chatComplete.mockResolvedValue(`SCENARIO: general\nCONFIDENCE: ${confidence}\nREPLY:\n${answer}`)
+    h.sourcesCurrent.mockResolvedValue(current)
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = await exec.aiAgent({ id: 'ai-guard', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `Tell me ${reason}`, conversationId: 'conversation-1' })
+      expect(result).toBe('handoff'); return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason }))
+    expect(h.sendWhatsAppText.mock.calls.every(call => !String(call[3]).includes(answer))).toBe(true)
+    expect(h.reviewLearning).not.toHaveBeenCalled()
+  })
+  it.each([false, true])('uses the runtime auto-approval setting: %s', async autoApprove => {
+    h.learningSettings.mockResolvedValue({ autoApprove, groundingThreshold: 1, evidenceRetentionHours: 24 })
+    h.recordLearning.mockResolvedValue({ replayed: false, candidate: { id: 'candidate', status: 'pending_review', consistencyCount: 2, revision: 2 } })
+    h.reviewLearning.mockResolvedValue({ write: { document: { id: 'published', version: 3 } } })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent({ id: 'ai-toggle', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `Welcome ${autoApprove}`, conversationId: 'conversation-1' })).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.reviewLearning).toHaveBeenCalledTimes(autoApprove ? 1 : 0)
+    if (autoApprove) expect(h.queueAdd).toHaveBeenCalledWith('embed-document', { clinicId: CLINIC, documentId: 'published', documentVersion: 3 })
+  })
+  it('gives separate inbound questions separate evidence keys while retries retain their key', async () => {
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      for (const waMessageId of ['inbound-1', 'inbound-2', 'inbound-2']) await exec.aiAgent(
+        { id: 'ai-evidence', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } },
+        { ...ctx, message: 'Hello', waMessageId, conversationId: 'conversation-1' },
+      )
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    const keys = h.recordLearning.mock.calls.map(call => call[0].eventKey)
+    expect(keys[0]).not.toBe(keys[1]); expect(keys[1]).toBe(keys[2])
+  })
   it('pauses a generic wait at its downstream AI Agent until the next patient message', async () => {
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       const paused = await exec.waitForReply(
@@ -605,7 +658,7 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
-  it.each(['openai', 'claude'])('preserves %s settings in a catch-all fallback reply', async (provider) => {
+  it.each(['openai', 'claude'])('preserves %s settings but hands off an unverified catch-all fallback reply', async (provider) => {
     h.chatComplete
       .mockResolvedValueOnce('SCENARIO: NONE\nREPLY:\n')
       .mockResolvedValueOnce('We offer general dermatology support. Please call the clinic for exact service details.')
@@ -625,7 +678,7 @@ describe('processWorkflowRunJob automation ownership', () => {
             },
           }, { ...ctx, message: 'What services do you offer?', preferred_language: 'English' })
         : 'missing'
-      expect(result).toBe('replied')
+      expect(result).toBe('handoff')
       return [{ status: 'completed' }]
     })
 
@@ -639,7 +692,7 @@ describe('processWorkflowRunJob automation ownership', () => {
       'phone-1',
       'token',
       '15551234567',
-      'We offer general dermatology support. Please call the clinic for exact service details.',
+      'A secretary will help you.',
     )
   })
 

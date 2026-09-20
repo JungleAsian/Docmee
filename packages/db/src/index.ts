@@ -243,3 +243,5 @@ export type {
   WorkflowRunStatus,
   WorkflowEffectStatus,
 } from './repositories/index.js'
+export { createKnowledgeLearningRepository, sanitizeLearningText, learningFingerprint } from './repositories/knowledge-learning.repository.js'
+export type { LearningCitation, LearningSettings, LearningEvidence, GovernedCandidate, LearningAttempt, LearningHistory, LearningReview } from './repositories/knowledge-learning.repository.js'

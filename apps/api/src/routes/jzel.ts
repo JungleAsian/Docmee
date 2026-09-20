@@ -8,7 +8,7 @@
 // `helpContext`, included only when the clinic has Help grounding enabled).
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { createClinicsRepository, createKnowledgeRepository } from '@docmee/db'
-import { capPatientInput, detectPromptInjection, screenPromptLeak, searchKb, wrapUntrustedKb } from '@docmee/agents'
+import { capPatientInput, detectPromptInjection, screenPromptLeak, expandKbQuery, rerankHybridChunks, detectLanguage, wrapUntrustedKb } from '@docmee/agents'
 import { readAiAssistant, resolveChat, resolveEmbed } from '../lib/ai-assistant.js'
 import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
 import { personaForRole } from '../lib/jzel-personas.js'
@@ -52,50 +52,6 @@ function providerNotConfiguredMessage(superuser: boolean): string {
     : 'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.'
 }
 
-function kbThreshold(settings: Record<string, unknown>): number {
-  const ai = settings['aiAssistant']
-  const nested = ai && typeof ai === 'object' ? (ai as Record<string, unknown>)['kbThreshold'] : undefined
-  const raw = nested ?? settings['kbThreshold']
-  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN
-  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : 0.78
-}
-
-function lexicalTerms(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .split(/[^a-z0-9]+/i)
-        .filter((term) => term.length >= 3),
-    ),
-  ]
-}
-
-function searchKbByKeyword(
-  query: string,
-  chunks: Array<{ title: string; content: string }>,
-  limit = 6,
-): Array<{ title: string; content: string; similarity: number }> {
-  const terms = lexicalTerms(query)
-  if (terms.length === 0) return []
-  return chunks
-    .map((chunk) => {
-      const title = chunk.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      const content = chunk.content.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      const score = terms.reduce((sum, term) => {
-        const titleHit = title.includes(term) ? 2 : 0
-        const contentHit = content.includes(term) ? 1 : 0
-        return sum + titleHit + contentHit
-      }, 0)
-      return { title: chunk.title, content: chunk.content, similarity: score / terms.length }
-    })
-    .filter((match) => match.similarity > 0)
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, limit)
-}
-
 async function buildKbGrounding(input: {
   clinicId: string
   message: string
@@ -107,48 +63,19 @@ async function buildKbGrounding(input: {
 }): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none' }> {
   if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none' }
   try {
-    const chunks = await withDb((sql) =>
-      createKnowledgeRepository(sql).listEmbeddedChunks(input.clinicId, input.doctorId ?? null),
-    )
-    if (chunks.length > 0) {
-      const matches = await searchKb(
-        input.message,
-        chunks,
-        resolveEmbed(input.ai, input.settings),
-        kbThreshold(input.settings),
-      )
-      if (matches.length > 0) {
-        return {
-          text: matches.slice(0, 6).map((m) => `# ${m.title}\n${m.content}`).join('\n\n'),
-          matches: matches.length,
-          mode: 'embedded',
-        }
-      }
-    }
-  } catch (err) {
-    input.log.warn(
-      {
-        err,
-        clinicId: input.clinicId,
-        superuser: input.superuser,
-        embedProvider: input.ai.embedProvider,
-      },
-      'jzel embedded kb grounding skipped',
-    )
-  }
-
-  try {
-    const chunks = await withDb((sql) =>
-      createKnowledgeRepository(sql).listActiveChunks(input.clinicId, input.doctorId ?? null),
-    )
-    const matches = searchKbByKeyword(input.message, chunks, 6)
+    const embedding = await resolveEmbed(input.ai, input.settings)(input.message).catch(() => [])
+    const rows = await withDb((sql) => createKnowledgeRepository(sql).searchChunks(
+      expandKbQuery(input.message), embedding,
+      { clinicId: input.clinicId, doctorId: input.doctorId ?? undefined, language: detectLanguage(input.message) }, 40,
+    ))
+    const matches = rerankHybridChunks(rows.map((row) => ({ ...row, similarity: 0 })), 5)
     return {
       text: matches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n'),
       matches: matches.length,
-      mode: matches.length > 0 ? 'keyword' : 'none',
+      mode: matches.length > 0 ? (embedding.length ? 'embedded' : 'keyword') : 'none',
     }
-  } catch (err) {
-    input.log.warn({ err, clinicId: input.clinicId }, 'jzel keyword kb grounding skipped')
+  } catch {
+    input.log.warn({ clinicId: input.clinicId }, 'jzel current KB grounding unavailable')
     return { text: '', matches: 0, mode: 'none' }
   }
 }

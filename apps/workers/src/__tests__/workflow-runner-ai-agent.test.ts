@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { buildAiAgentSystemPrompt, parseAiAgentCompletion } from '../workflow-runner.worker.js'
+import { describe, expect, it, vi } from 'vitest'
+vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: vi.fn() }), kbEmbedQueue: { add: vi.fn() } }))
+import { buildAiAgentSystemPrompt, parseAiAgentCompletion, parseAiAnswerConfidence } from '../workflow-runner.worker.js'
+
+describe('independent answer confidence', () => {
+  it('does not synthesize confidence from missing, malformed or out-of-range output', () => {
+    for (const raw of ['REPLY: hello', 'CONFIDENCE: NaN', 'CONFIDENCE: 80', 'CONFIDENCE: 0.9 hacked']) expect(parseAiAnswerConfidence(raw)).toBeNull()
+    expect(parseAiAnswerConfidence('SCENARIO: general\nCONFIDENCE: 0.85\nREPLY: Open 9.')).toBe(.85)
+  })
+})
 
 describe('buildAiAgentSystemPrompt', () => {
   it('includes the tone instruction for the given communication style', () => {

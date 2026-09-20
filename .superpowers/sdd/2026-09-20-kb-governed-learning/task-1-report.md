@@ -98,7 +98,7 @@ Important boundary: `writeDocument` owns its own DB transaction. For truly atomi
 ## Limitations and operational verification
 
 - Per instruction, no live DB, patient/provider call, push, deployment, or new dependency was used. Docker was unavailable and `psql` was not on `PATH`; migration execution, PostgreSQL/pgvector syntax, planner behavior, and transactional concurrency still require an isolated real PostgreSQL run before deployment.
-- Existing GitHub sync remains on its legacy direct document/chunk path to avoid double-chunk creation and an unrequested sync redesign. Its hard delete removes the document/chunks, but it does not yet increment the new revision; migrate that sync to the writer/revision contract before relying on revision-keyed cache invalidation for GitHub-managed KB content.
+- GitHub sync now builds the complete source snapshot first, then `replaceSourceDocuments` deletes and recreates the source rows plus bumps one clinic revision inside one transaction. An empty source snapshot removes old evidence and still bumps the revision; a transaction failure leaves the prior snapshot/revision intact. Only current-version document jobs are queued, and queue failures persist `failed` status.
 - The legacy `reembed-clinic` worker branch remains compatible, but the governed API retry route now fans out versioned document jobs so readiness/failure is document-visible.
 - Full worker-suite date fixtures and Redis availability are environment/baseline concerns, not owned-code failures.
 - Execution followed the canonical engineering rule's evidence-first, smallest-compatible-change, and verification boundaries in `Projects/11- RULES/ARTEMIS - Engineering and Code Adoption Rules.md`.
@@ -106,3 +106,27 @@ Important boundary: `writeDocument` owns its own DB transaction. For truly atomi
 ## Commit
 
 Implementation commit: `8a45f21` (`feat(kb): enforce current-version retrieval integrity`). This report is committed separately so it can record that immutable implementation SHA.
+
+## Independent review round 1 fixes
+
+Fix commit: `1b11944` (`fix(kb): close retrieval integrity review gaps`).
+
+- Legacy `listEmbeddedChunks` and `listActiveChunks` now take an optional doctor scope with fail-closed `null` behavior. Assistant conversation grounding passes `metadata.doctorId` only when selected; both J.zel embedded and lexical paths pass explicit `null` or the selected doctor.
+- `replaceSourceDocuments` makes GitHub source deletion/replacement/revision invalidation atomic and eliminates direct unversioned chunk jobs.
+- Draft/archived writes create inactive chunks with `withdrawn` index state. Draft upload waits for approval instead of embedding inactive chunks. A combined content+archive patch does not enqueue the withdrawn version.
+- Worker readiness now additionally requires an active, approved, currently effective document and at least one current active chunk.
+- Title/document-type edits increment the clinic retrieval revision transactionally without re-embedding unchanged content.
+
+Round 1 RED evidence:
+
+- DB focused: 3 initial failures for legacy doctor scope, metadata-edit revision, and withdrawn non-active writes; an additional RED proved source replacement was absent.
+- Worker focused: 1 failure proved readiness lacked document eligibility/positive chunk existence.
+- API focused: 6 failures proved assistant/J.zel omitted scope, draft upload queued, and archived content queued.
+
+Round 1 GREEN evidence:
+
+- `pnpm --filter @docmee/db test` -> **16 files, 67 tests passed**.
+- `pnpm --filter @docmee/workers test -- src/__tests__/kb-embed.worker.test.ts` -> **1 file, 5 tests passed**.
+- `pnpm --filter @docmee/api test -- src/routes/kb.test.ts src/routes/kb-upload.test.ts src/routes/assistant.test.ts src/routes/jzel.test.ts` -> **4 files, 34 tests passed**.
+- DB, workers, and API package typechecks and lints passed; root pre-commit typecheck/lint passed.
+- Real PostgreSQL/pgvector execution remains the same explicit environment limitation; the pre-existing full-worker date/Redis caveat is unchanged.

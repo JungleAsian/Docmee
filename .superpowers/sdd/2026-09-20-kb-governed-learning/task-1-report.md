@@ -176,3 +176,27 @@ Round 3 GREEN evidence:
 - The stateful local repository test simulates an active legacy-v1 old-text chunk, performs the retry rebuild from authoritative v2 content, and then retrieves only v2 text while the legacy row remains inactive. This is mocked transaction/retrieval behavior, not live PostgreSQL proof.
 
 Round 3 operational limit: Docker/`psql` remain unavailable, so PostgreSQL/pgvector execution, planner behavior, and true lock/concurrency semantics remain a deployment gate. The pre-existing full-worker fixed-date and Redis caveat remains unchanged.
+
+## Independent review round 4 fixes
+
+Fix commit: `45cccd1` (`fix(kb): rebuild chunks on activation`).
+
+- `updateDocumentStatus(..., 'active')` no longer reactivates stored rows. Inside the status transaction it withdraws every prior chunk, deletes any uncertain row carrying the current version, and creates new active lexical chunks solely from authoritative `knowledge_documents.content`. Empty authoritative content becomes `failed/no_indexable_content`.
+- `approveDraftDocuments` applies the same authoritative rebuild only to documents returned by the `status = 'draft'` update. It no longer runs a clinic-wide update over every active document, so an unrelated active document's withdrawn migration chunk cannot revive.
+- The shared transaction-scoped rebuild helper is also used by `prepareClinicReindex`, keeping activation, approval, and retry on one fail-closed origin rule: stored legacy chunk text is never trusted as rebuild input.
+- Error Review Add-to-KB now calls `writeDocument` with authoritative lexical chunks, enqueues `{ clinicId, documentId, documentVersion }`, and persists `failed/queue_unavailable` on the exact version if enqueueing fails. The response exposes that failed index state.
+- Producer audit: the seven API `embed-document` call sites are GitHub replacement, normal KB create, KB content/status edit, approve-all, reembed, upload, and Error Review Add-to-KB; every emitted job now includes `documentVersion`. The worker's required-version schema therefore receives a source-compatible payload from every repository producer found by `rg -n "embed-document" apps/api/src packages apps/workers/src --glob "*.ts"`.
+
+Round 4 RED evidence:
+
+- `pnpm --filter @docmee/db test -- src/__tests__/knowledge.repository.test.ts` -> **2 expected failures**: direct activation surfaced `legacy old text`, and approve-all surfaced both the intended draft legacy text and an unrelated active document's legacy text.
+- `pnpm --filter @docmee/api test -- src/routes/admin.test.ts` -> **2 expected failures**: Add-to-KB returned 500 because the route still called `createDocument`; both the current-version job contract and persisted queue-failure path were absent.
+
+Round 4 GREEN evidence:
+
+- `pnpm --filter @docmee/db test` -> **17 files, 75 tests passed**.
+- `pnpm --filter @docmee/workers test -- src/__tests__/kb-embed.worker.test.ts` -> **1 file, 7 tests passed**.
+- `pnpm --filter @docmee/api test -- src/routes/admin.test.ts src/routes/kb.test.ts src/routes/kb-upload.test.ts src/routes/assistant.test.ts src/routes/jzel.test.ts` -> **5 files, 47 tests passed**.
+- DB, workers, and API package typechecks and lints passed; root pre-commit typecheck/lint passed; `git diff --check` passed.
+
+Round 4 operational limit: the stateful repository regressions model transaction effects but do not execute PostgreSQL. Docker/`psql` remain unavailable, so real PostgreSQL/pgvector migration execution and lock/concurrency behavior remain an isolated pre-deployment gate. The pre-existing full-worker fixed-date and Redis caveat remains unchanged.

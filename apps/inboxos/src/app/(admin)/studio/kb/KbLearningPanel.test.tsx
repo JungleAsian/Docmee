@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { learningCopy, reviewCommand, type LearningCandidate } from '@/shared/kbLearning'
 import { captureReviewSession } from '@/shared/api/reviewSession'
-import KbLearningPanel, { CandidateEvidenceView, EvidenceView, SettingsForm } from './KbLearningPanel'
+import KbLearningPanel, { CandidateEvidenceView, EvidenceView, ReviewerReadinessChecklist, SettingsForm } from './KbLearningPanel'
 
 vi.stubGlobal('React', React)
 describe('staff learning presentation', () => {
@@ -64,5 +64,14 @@ describe('staff learning presentation', () => {
     expect(markup).toContain('min="1" max="24"')
     expect(markup).toContain('min="80" max="100"')
     client.clear()
+  })
+  it('separates reviewer readiness from automatic approval eligibility', () => {
+    const candidate = { id: 'candidate-a', clinicId: 'clinic-a', revision: 1, status: 'pending_review', expiresAt: '2099-01-01T00:00:00Z', automaticApprovalEligible: false,
+      automaticApprovalReasons: ['repeat_consistency_required'], reviewReadiness: { citationsCurrent: true, confidenceAtLeast80: true, groundingMeetsThreshold: true, safetyClear: true, scopeClear: true, feedbackClear: true, unexpired: true, ready: true, reasons: [] } } as unknown as LearningCandidate
+    const markup = renderToStaticMarkup(<ReviewerReadinessChecklist candidate={candidate} copy={learningCopy.en} />)
+    expect(markup).toContain(learningCopy.en.readyForStaffApproval)
+    expect(markup).toContain(learningCopy.en.notEligibleForAutomaticApproval)
+    expect(markup).toContain(learningCopy.en.readinessCitations)
+    expect(markup).toContain('repeat_consistency_required')
   })
 })

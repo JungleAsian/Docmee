@@ -3,7 +3,7 @@ import Fastify from 'fastify'
 import { signAccessToken } from '../auth/jwt.js'
 const mocks = vi.hoisted(() => ({ list: vi.fn(async () => []), review: vi.fn(), feedback: vi.fn(), add: vi.fn(), failed: vi.fn() }))
 vi.mock('../lib/db.js', () => ({ withDb: (fn: (sql: unknown) => unknown) => fn({}) }))
-vi.mock('@docmee/db', () => ({ createKnowledgeLearningRepository: () => mocks, createKnowledgeRepository: () => ({ markDocumentIndexFailed: mocks.failed }) }))
+vi.mock('@docmee/db', () => ({ rejectionReasons: ['unsupported', 'outdated', 'unsafe', 'duplicate', 'not_clinic_policy', 'other'], createKnowledgeLearningRepository: () => mocks, createKnowledgeRepository: () => ({ markDocumentIndexFailed: mocks.failed }) }))
 vi.mock('@docmee/queue', () => ({ kbEmbedQueue: { add: mocks.add } }))
 import route from './kb-learning.js'
 const auth = (role: 'secretary'|'clinic_admin' = 'clinic_admin', clinicId = 'clinic-a') => ({ authorization: `Bearer ${signAccessToken({ userId: 'reviewer', email: 'reviewer@example.test', clinicId, role })}` })
@@ -23,14 +23,26 @@ describe('learning review authorization and publication', () => {
     expect((await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1, automatic: true, actorId: 'other' })).statusCode).toBe(400)
     expect(mocks.review).not.toHaveBeenCalled()
   })
+  it('requires explicit confirmation before a manual publication reaches the repository', async () => {
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1 })
+    expect(result.statusCode).toBe(400)
+    expect(mocks.review).not.toHaveBeenCalled()
+  })
+  it('requires and forwards a structured rejection reason', async () => {
+    expect((await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'reject', expectedRevision: 1 })).statusCode).toBe(400)
+    mocks.review.mockResolvedValueOnce({ candidate: { id: 'c' }, write: null })
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'reject', expectedRevision: 1, rejectionReason: 'outdated' })
+    expect(result.statusCode).toBe(200)
+    expect(mocks.review).toHaveBeenCalledWith('clinic-a', 'c', expect.objectContaining({ actorId: 'reviewer', rejectionReason: 'outdated' }))
+  })
   it('returns stale review conflict without enqueue', async () => {
     mocks.review.mockRejectedValueOnce(new Error('stale_candidate'))
-    expect((await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1 })).statusCode).toBe(409)
+    expect((await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1, staffConfirmed: true })).statusCode).toBe(409)
     expect(mocks.add).not.toHaveBeenCalled()
   })
   it('returns a review-required error for an unconfirmed generalized fact', async () => {
     mocks.review.mockRejectedValueOnce(new Error('generalized_fact_review_required'))
-    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1 })
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1, staffConfirmed: true })
     expect(result.statusCode).toBe(400)
     expect(result.json().error).toBe('generalized_fact_review_required')
     expect(mocks.add).not.toHaveBeenCalled()
@@ -38,7 +50,7 @@ describe('learning review authorization and publication', () => {
   it('queues only the committed document version and reports enqueue failure', async () => {
     mocks.review.mockResolvedValue({ candidate: { id: 'c', publishedDocumentId: 'doc', publishedDocumentVersion: 4 }, write: { document: { id: 'doc', version: 4 } } })
     mocks.add.mockRejectedValueOnce(new Error('offline'))
-    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1 })
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/c/review', auth(), { action: 'approve', expectedRevision: 1, staffConfirmed: true })
     expect(result.statusCode).toBe(200); expect(result.json().indexing).toBe('failed')
     expect(mocks.add).toHaveBeenCalledWith('embed-document', { clinicId: 'clinic-a', documentId: 'doc', documentVersion: 4 })
     expect(mocks.failed).toHaveBeenCalledWith('clinic-a','doc',4,'queue_unavailable')

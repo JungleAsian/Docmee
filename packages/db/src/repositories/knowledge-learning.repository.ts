@@ -12,10 +12,17 @@ export interface LearningEvidence extends Record<string, unknown>, LearningScope
   contradiction: 'unknown' | 'clear' | 'conflict'; risks: string[]
   safeContentClass?: 'office_hours' | 'unknown'
 }
+export const rejectionReasons = ['unsupported', 'outdated', 'unsafe', 'duplicate', 'not_clinic_policy', 'other'] as const
+export type RejectionReason = typeof rejectionReasons[number]
+export interface ReviewReadiness {
+  citationsCurrent: boolean; confidenceAtLeast80: boolean; groundingMeetsThreshold: boolean
+  safetyClear: boolean; scopeClear: boolean; feedbackClear: boolean; unexpired: boolean
+  ready: boolean; reasons: string[]
+}
 export interface GovernedCandidate extends KnowledgeCandidate {
   revision: number; fingerprint: string; evidence: LearningEvidence; expiresAt: string | null
   publishedDocumentId: string | null; publishedDocumentVersion: number | null; staffConfirmed: boolean
-  gateReasons?: string[]
+  gateReasons?: string[]; reviewReadiness?: ReviewReadiness; automaticApprovalEligible?: boolean; automaticApprovalReasons?: string[]
 }
 export interface LearningAttempt extends LearningEvidence {
   clinicId: string; eventKey: string; question: string; answer: string
@@ -23,12 +30,12 @@ export interface LearningAttempt extends LearningEvidence {
 }
 export interface LearningHistory {
   id: string; candidateId: string; revision: number; action: string; actorId: string | null
-  content: string; citations: LearningCitation[]; evidence: Record<string, unknown>; documentId: string | null; documentVersion: number | null; createdAt: string
+  content: string; citations: LearningCitation[]; evidence: Record<string, unknown>; documentId: string | null; documentVersion: number | null; rejectionReason: RejectionReason | null; rejectionDetail: string | null; createdAt: string
 }
 export interface LearningReview {
   action: 'edit' | 'reject' | 'approve' | 'rollback'
   expectedRevision: number; actorId: string | null; content?: string; staffConfirmed?: boolean
-  historyId?: string; automatic?: boolean
+  historyId?: string; automatic?: boolean; rejectionReason?: RejectionReason; rejectionDetail?: string
 }
 const defaults: LearningSettings = { autoApprove: false, groundingThreshold: 1, evidenceRetentionHours: 24 }
 const score = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null
@@ -48,6 +55,28 @@ export function automaticPublicationReasons(candidate: GovernedCandidate, config
   if (['corrected','escalated'].includes(candidate.patientFeedback)) reasons.push(`patient_${candidate.patientFeedback}`)
   if (candidate.staffConfirmed || candidate.humanEdit) reasons.push('staff_review_required')
   return [...new Set(reasons)]
+}
+/** Staff readiness is descriptive evidence for a reviewer; it never relaxes publication checks. */
+export function reviewerReadiness(candidate: GovernedCandidate, config: LearningSettings, current: boolean, now = Date.now()): ReviewReadiness {
+  const citations = Array.isArray(candidate.supportingChunks) ? candidate.supportingChunks as LearningCitation[] : []
+  const scopes = new Set(citations.map(citation => JSON.stringify({ doctorId: citation.doctorId ?? null, language: citation.language ?? null })))
+  const reasons: string[] = []
+  const citationsCurrent = current
+  const confidenceAtLeast80 = score(Number(candidate.confidenceScore)) !== null && Number(candidate.confidenceScore) >= .8
+  const groundingMeetsThreshold = score(Number(candidate.groundingScore)) !== null && Number(candidate.groundingScore) >= config.groundingThreshold
+  const risks = Array.isArray(candidate.evidence?.risks) ? candidate.evidence.risks : null
+  const safetyClear = candidate.medicalSafetyOk && candidate.promptSafetyOk && risks !== null && risks.length === 0
+  const scopeClear = citations.length === 0 ? Boolean(candidate.staffConfirmed || candidate.humanEdit) : scopes.size === 1
+  const feedbackClear = !['corrected', 'escalated'].includes(candidate.patientFeedback)
+  const unexpired = Boolean(candidate.expiresAt && Number.isFinite(Date.parse(candidate.expiresAt)) && Date.parse(candidate.expiresAt) > now)
+  if (!citationsCurrent) reasons.push('citations_not_current')
+  if (!confidenceAtLeast80) reasons.push('confidence_below_80_percent')
+  if (!groundingMeetsThreshold) reasons.push('grounding_below_configured_threshold')
+  if (!safetyClear) reasons.push('safety_or_risk_review_required')
+  if (!scopeClear) reasons.push('scope_not_clear')
+  if (!feedbackClear) reasons.push('patient_feedback_requires_review')
+  if (!unexpired) reasons.push('evidence_expired')
+  return { citationsCurrent, confidenceAtLeast80, groundingMeetsThreshold, safetyClear, scopeClear, feedbackClear, unexpired, ready: reasons.length === 0, reasons }
 }
 export function learningFingerprint(value: string): string {
   return createHash('sha256').update(value.normalize('NFKC').toLowerCase().trim().replace(/\s+/g, ' ')).digest('hex')
@@ -131,7 +160,12 @@ export function createKnowledgeLearningRepository(sql: Sql) {
       const rows = await sql<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId} AND status = ${status}
         AND (expires_at IS NULL OR expires_at > now()) ORDER BY updated_at DESC LIMIT ${Math.min(100, Math.max(1, limit))}`
       const config = await settings(clinicId)
-      return Promise.all(rows.map(async row => ({ ...row, confidenceScore: Number(row.confidenceScore), groundingScore: Number(row.groundingScore), gateReasons: automaticPublicationReasons(row, config, await sourcesCurrent(sql, clinicId, row.supportingChunks as LearningCitation[], row.evidence)) })))
+      return Promise.all(rows.map(async row => {
+        const candidate = { ...row, confidenceScore: Number(row.confidenceScore), groundingScore: Number(row.groundingScore) }
+        const current = await sourcesCurrent(sql, clinicId, candidate.supportingChunks as LearningCitation[], candidate.evidence)
+        const automaticApprovalReasons = automaticPublicationReasons(candidate, config, current)
+        return { ...candidate, gateReasons: automaticApprovalReasons, reviewReadiness: reviewerReadiness(candidate, config, current), automaticApprovalEligible: automaticApprovalReasons.length === 0, automaticApprovalReasons }
+      }))
     },
     async events(clinicId: string) {
       return sql`SELECT id, candidate_id, question, answer, citations, evidence, feedback, handoff_reason, created_at FROM knowledge_learning_events
@@ -232,6 +266,9 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         if (candidate.expiresAt && Date.parse(candidate.expiresAt) <= Date.now()) throw new Error('expired_candidate')
         if (!input.automatic && !input.actorId) throw new Error('reviewer_required')
         if (input.automatic && input.action !== 'approve') throw new Error('invalid_action')
+        if (input.action === 'approve' && !input.automatic && input.staffConfirmed !== true) throw new Error('staff_confirmation_required')
+        if (input.action === 'reject' && !rejectionReasons.includes(input.rejectionReason as RejectionReason)) throw new Error('rejection_reason_required')
+        if (input.action === 'reject' && input.rejectionReason === 'other' && !input.rejectionDetail?.trim()) throw new Error('rejection_detail_required')
         if (input.action !== 'rollback' && candidate.status !== 'pending_review' && !(input.action === 'edit' && candidate.status === 'approved')) throw new Error('invalid_state')
         let content = candidate.candidateContent
         let confirmed = candidate.staffConfirmed
@@ -242,6 +279,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           if (cleaned.changed) throw new Error('remove_private_information')
           content = cleaned.text; confirmed = input.staffConfirmed === true
         }
+        if (input.action === 'approve' && !input.automatic) confirmed = true
         if (input.action === 'edit' && candidate.status === 'approved') {
           // Durable approval is immutable when drafting. A separately expiring
           // candidate owns all unapproved text/history, including abandoned edits.
@@ -344,8 +382,8 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           source_question_expires_at = CASE WHEN ${publishing} THEN now() ELSE source_question_expires_at END,
           expires_at = CASE WHEN ${publishing} THEN NULL ELSE expires_at END, updated_at = now()
           WHERE clinic_id = ${clinicId} AND id = ${id} RETURNING *`
-        await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, citations, evidence, document_id, document_version)
-          VALUES (${clinicId}, ${id}, ${candidate.revision + 1}, ${input.action}, ${input.actorId}, ${content}, ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson({ ...candidate.evidence, patientFeedback: candidate.patientFeedback, consistencyCount: candidate.consistencyCount, staffConfirmed: confirmed, ...(rollbackSource ? { rollbackSource } : {}) }))}, ${write?.document.id ?? null}, ${write?.document.version ?? null})`
+        await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, citations, evidence, document_id, document_version, rejection_reason, rejection_detail)
+          VALUES (${clinicId}, ${id}, ${candidate.revision + 1}, ${input.action}, ${input.actorId}, ${content}, ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson({ ...candidate.evidence, patientFeedback: candidate.patientFeedback, consistencyCount: candidate.consistencyCount, staffConfirmed: confirmed, ...(rollbackSource ? { rollbackSource } : {}) }))}, ${write?.document.id ?? null}, ${write?.document.version ?? null}, ${input.action === 'reject' ? input.rejectionReason ?? null : null}, ${input.action === 'reject' ? input.rejectionDetail?.trim() || null : null})`
         return { candidate: updated[0]!, write }
       }) as unknown as Promise<{ candidate: GovernedCandidate; write: DocumentIndexWrite | null }>
     },

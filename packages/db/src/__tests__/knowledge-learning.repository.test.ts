@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { Sql } from '../client.js'
-import { createKnowledgeLearningRepository, learningFingerprint, sanitizeLearningText, automaticPublicationReasons, type GovernedCandidate } from '../repositories/knowledge-learning.repository.js'
+import { createKnowledgeLearningRepository, learningFingerprint, sanitizeLearningText, automaticPublicationReasons, reviewerReadiness, type GovernedCandidate } from '../repositories/knowledge-learning.repository.js'
 
 function fake(respond: (query: string, values: unknown[]) => unknown[] = () => []) {
   const queries: string[] = []
@@ -28,6 +28,28 @@ describe('governed learning boundary', () => {
     expect(automaticPublicationReasons(candidate, { ...config, autoApprove: false }, true)).toContain('automatic_publication_disabled')
     expect(automaticPublicationReasons(candidate, config, false)).toContain('stale_or_missing_sources')
   })
+  it('separates staff readiness from strict automatic publication and marks stale evidence', () => {
+    const config = { autoApprove: true, groundingThreshold: .8, evidenceRetentionHours: 24 }
+    const ready = reviewerReadiness({ ...candidate, expiresAt: '2099-01-01' }, config, true)
+    expect(ready.ready).toBe(true)
+    expect(ready.reasons).toEqual([])
+    expect(reviewerReadiness({ ...candidate, expiresAt: '2099-01-01' }, config, false)).toMatchObject({ ready: false, citationsCurrent: false })
+    expect(automaticPublicationReasons({ ...candidate, consistencyCount: 1 }, config, true)).toContain('repeat_consistency_required')
+  })
+  it('blocks manual approval and malformed rejections before creating an audit or document write', async () => {
+    const attempts = [
+      [{ action: 'approve', expectedRevision: 1, actorId: 'admin' }, 'staff_confirmation_required'],
+      [{ action: 'reject', expectedRevision: 1, actorId: 'admin' }, 'rejection_reason_required'],
+      [{ action: 'reject', expectedRevision: 1, actorId: 'admin', rejectionReason: 'other' }, 'rejection_detail_required'],
+    ] as const
+
+    for (const [input, error] of attempts) {
+      const f = fake(q => q.includes('FROM knowledge_candidates') ? [candidate] : [])
+      await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', input)).rejects.toThrow(error)
+      expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
+      expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_learning_history')
+    }
+  })
   it('publishes the document, chunks, revision and audit inside the single review transaction', async () => {
     let begins = 0
     const f = fake(q => q.includes('SELECT * FROM knowledge_candidates') ? [candidate]
@@ -38,7 +60,7 @@ describe('governed learning boundary', () => {
       : q.includes('UPDATE knowledge_candidates') ? [{ ...candidate, status: 'approved', revision: 2 }]
       : [])
     f.sql.begin = (async (fn: (tx: Sql) => unknown) => { begins++; return fn(f.sql) }) as never
-    const result = await createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    const result = await createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin', staffConfirmed: true })
     expect(result.write?.document.id).toBe('published'); expect(begins).toBe(1)
     expect(f.queries.join('\n')).toContain('knowledge_retrieval_revisions')
     expect(f.queries.join('\n')).toContain('knowledge_learning_history')
@@ -132,14 +154,14 @@ describe('governed learning boundary', () => {
       return []
     })
     const repo = createKnowledgeLearningRepository(f.sql)
-    await repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    await repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin', staffConfirmed: true })
     const approved = structuredClone(states.get('candidate')!)
     const approvedHistory = structuredClone(histories)
     const edited = await repo.review('clinic', 'candidate', { action: 'edit', expectedRevision: 2, actorId: 'admin', content: 'Unreviewed draft answer.', staffConfirmed: true })
     expect(edited.candidate.id).toBe('draft')
     expect(edited.candidate.sourceQuestion).toBe('')
     expect(edited.candidate.expiresAt).not.toBeNull()
-    if (disposition === 'reject') await repo.review('clinic', 'draft', { action: 'reject', expectedRevision: 1, actorId: 'admin' })
+    if (disposition === 'reject') await repo.review('clinic', 'draft', { action: 'reject', expectedRevision: 1, actorId: 'admin', rejectionReason: 'outdated' })
     expect(states.get('candidate')).toEqual(approved)
     expect(histories.filter(row => row.candidateId === 'candidate')).toEqual(approvedHistory)
     states.get('draft')!.expiresAt = '2000-01-01'
@@ -159,6 +181,10 @@ describe('governed learning boundary', () => {
     expect(migration).toContain("action NOT IN ('approve', 'rollback')")
     expect(migration).toContain('candidate_content = approved.content')
     expect(migration).not.toContain('DELETE FROM knowledge_learning_history')
+    const reviewerAuditMigration = readFileSync(new URL('../../supabase/migrations/20260920000005_kb_learning_reviewer_audit.sql', import.meta.url), 'utf8')
+    expect(reviewerAuditMigration).toContain('rejection_reason')
+    expect(reviewerAuditMigration).toContain('not_clinic_policy')
+    expect(reviewerAuditMigration).toContain('rejection_detail')
   })
   it('negative patient feedback cannot be overwritten by a later acceptance', async () => {
     const f = fake(q => q.includes('UPDATE knowledge_learning_events') ? [{ candidateId: 'candidate' }] : [])
@@ -179,7 +205,7 @@ describe('governed learning boundary', () => {
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [row]
       : q.includes('SELECT revision') ? [{ revision: change === 'revision_changed' ? 8 : 7 }]
       : q.includes('SELECT c.id') ? [{ id: 'chunk', documentVersion: 2, doctorId: change === 'doctor_reassigned' ? 'doctor-b' : 'doctor-a', language: 'en', governanceReviewState: change === 'governance_excluded' ? 'excluded' : 'trusted' }] : [])
-    await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', actorId: 'admin', expectedRevision: 1 })).rejects.toThrow('stale_sources')
+    await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action: 'approve', actorId: 'admin', expectedRevision: 1, staffConfirmed: true })).rejects.toThrow('stale_sources')
     expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
   })
   it('uses the full retrieval predicate and preserves revision/scope evidence', async () => {
@@ -333,11 +359,11 @@ describe('governed learning boundary', () => {
       return []
     })
     const repo = createKnowledgeLearningRepository(f.sql)
-    await repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    await repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin', staffConfirmed: true })
     const approvedA = structuredClone(states.get('candidate'))
     const snapshotA = structuredClone(histories[0])
     await repo.review('clinic', 'candidate', { action: 'edit', expectedRevision: 2, content: 'We open at 10 AM.', staffConfirmed: true, actorId: 'admin' })
-    await repo.review('clinic', 'draft', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    await repo.review('clinic', 'draft', { action: 'approve', expectedRevision: 1, actorId: 'admin', staffConfirmed: true })
     expect(documentVersion).toBe(2); expect(publishedContent).toBe('We open at 10 AM.')
     const rollback = await repo.review('clinic', 'draft', { action: 'rollback', expectedRevision: 2, historyId: 'history-0', staffConfirmed: true, actorId: 'admin' })
     expect(rollback.write?.document.version).toBe(3)
@@ -372,7 +398,7 @@ describe('governed learning boundary', () => {
       : q.includes('UPDATE knowledge_candidates') ? [state = { ...candidate, status: 'approved', revision: 2 }] : [])
     f.sql.begin = ((fn: (tx: Sql) => unknown) => { const next = tail.then(() => fn(f.sql)); tail = next.catch(() => undefined); return next }) as never
     const repo = createKnowledgeLearningRepository(f.sql)
-    const results = await Promise.all([1, 2].map(() => repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin' })))
+    const results = await Promise.all([1, 2].map(() => repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin', staffConfirmed: true })))
     expect(writes).toBe(1); expect(results.filter(row => row.write).length).toBe(1)
     // Fake serializes transactions; real PostgreSQL lock behavior remains an integration gate.
     expect(f.queries.filter(q => q.includes('FROM clinics')).every(q => q.includes('FOR UPDATE'))).toBe(true)

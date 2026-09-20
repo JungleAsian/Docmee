@@ -19,7 +19,7 @@ describe('learning review boundaries', () => {
     expect(canReviewLearning({ role: 'ia_studio_admin', clinicId: 'clinic-a' }, '')).toBe(false)
   })
   it('captures clinic, current candidate and expected revision, not an ancestor target', () => {
-    expect(reviewCommand('clinic-a', { ...candidate, status: 'approved' }, 'rollback', '', true, 'approved-history')).toEqual({ clinicId: 'clinic-a', candidateId: 'candidate-a', expectedRevision: 7, action: 'rollback', historyId: 'approved-history', staffConfirmed: true })
+    expect(reviewCommand('clinic-a', { ...candidate, status: 'approved' }, 'rollback', '', true, { historyId: 'approved-history' })).toEqual({ clinicId: 'clinic-a', candidateId: 'candidate-a', expectedRevision: 7, action: 'rollback', historyId: 'approved-history', staffConfirmed: true })
   })
   it('blocks cross-clinic, expired and malformed expiry actions', () => {
     expect(() => reviewCommand('clinic-b', candidate, 'edit', 'fact', false)).toThrow('refresh_review')
@@ -40,8 +40,13 @@ describe('learning review boundaries', () => {
     }
   })
   it('rejects actions inconsistent with the reviewed lifecycle', () => {
-    expect(() => reviewCommand('clinic-a', candidate, 'rollback', '', true, 'history')).toThrow('refresh_review')
+    expect(() => reviewCommand('clinic-a', candidate, 'rollback', '', true, { historyId: 'history' })).toThrow('refresh_review')
     for (const action of ['approve', 'reject'] as const) expect(() => reviewCommand('clinic-a', { ...candidate, status: 'approved' }, action, 'fact', true)).toThrow('refresh_review')
+  })
+  it('requires a structured rejection reason and preserves it in the command', () => {
+    expect(() => reviewCommand('clinic-a', candidate, 'reject', '', false)).toThrow('rejection_reason_required')
+    expect(() => reviewCommand('clinic-a', candidate, 'reject', '', false, { rejectionReason: 'other' })).toThrow('rejection_detail_required')
+    expect(reviewCommand('clinic-a', candidate, 'reject', '', false, { rejectionReason: 'outdated' })).toMatchObject({ action: 'reject', rejectionReason: 'outdated' })
   })
   it('never presents missing or invalid evidence as a measured zero', () => {
     for (const score of [null, undefined, NaN, Infinity, -1, 1.01, '0.8']) expect(scorePercent(score)).toBeNull()

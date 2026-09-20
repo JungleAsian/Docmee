@@ -6,7 +6,7 @@ import { ApiError } from '@/shared/api/client'
 import { captureReviewSession, reviewApi, useReviewGeneration, type ReviewSession } from '@/shared/api/reviewSession'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { trainingInfo } from '@/shared/kbTraining'
-import { candidateNeedsRevalidation, learningCopy, matchesLearningSearch, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type CandidateStatus, type LearningCandidate, type LearningCitation, type LearningEvidence, type LearningEvent, type LearningGap, type LearningHistory, type LearningSettings, type ReviewCommand, type ReviewResult } from '@/shared/kbLearning'
+import { candidateNeedsRevalidation, learningCopy, matchesLearningSearch, rejectionReasons, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type CandidateStatus, type LearningCandidate, type LearningCitation, type LearningEvidence, type LearningEvent, type LearningGap, type LearningHistory, type LearningSettings, type RejectionReason, type ReviewCommand, type ReviewResult } from '@/shared/kbLearning'
 import type { KnowledgeDocument, PanelLanguage } from '@/shared/types'
 
 type Copy = (typeof learningCopy)[PanelLanguage]
@@ -42,6 +42,24 @@ export function CandidateEvidenceView({ candidate, content, copy }: { candidate:
     <details><summary>{copy.historicalEvidence}</summary><EvidenceView evidence={candidate.evidence} copy={copy} />
       <p className="text-sm">{copy.medical}: {candidate.medicalSafetyOk ? copy.passed : copy.notPassed} · {copy.prompt}: {candidate.promptSafetyOk ? copy.passed : copy.notPassed}</p>
     </details>
+  </section>
+}
+
+export function ReviewerReadinessChecklist({ candidate, copy }: { candidate: LearningCandidate; copy: Copy }) {
+  const readiness = candidate.reviewReadiness
+  const items: Array<[string, boolean | undefined]> = [
+    [copy.readinessCitations, readiness?.citationsCurrent], [copy.readinessConfidence, readiness?.confidenceAtLeast80],
+    [copy.readinessGrounding, readiness?.groundingMeetsThreshold], [copy.readinessSafety, readiness?.safetyClear],
+    [copy.readinessScope, readiness?.scopeClear], [copy.readinessFeedback, readiness?.feedbackClear], [copy.readinessExpiry, readiness?.unexpired],
+  ]
+  return <section className="space-y-2 border p-3 text-sm" aria-label={copy.staffReadiness}>
+    <h4 className="font-semibold">{readiness?.ready ? copy.readyForStaffApproval : copy.notReadyForStaffApproval}</h4>
+    <p>{copy.staffReadinessHint}</p>
+    <dl className="grid gap-2 sm:grid-cols-2">{items.map(([label, passed]) => <div key={label}><dt>{label}</dt><dd>{passed === true ? copy.passed : passed === false ? copy.notPassed : copy.unknown}</dd></div>)}</dl>
+    {readiness?.reasons?.length ? <details><summary>{copy.readinessReasons}</summary><ul>{readiness.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul></details> : null}
+    <div className="border-t pt-2"><p className="font-semibold">{candidate.automaticApprovalEligible ? copy.eligibleForAutomaticApproval : copy.notEligibleForAutomaticApproval}</p><p>{copy.automaticEligibilityHint}</p>
+      {!candidate.automaticApprovalEligible && <details><summary>{copy.automaticReasons}</summary><ul>{(candidate.automaticApprovalReasons ?? candidate.gateReasons ?? []).map(reason => <li key={reason}>{reason}</li>)}</ul></details>}
+    </div>
   </section>
 }
 
@@ -136,6 +154,8 @@ function CandidateReview({ session, candidate, documents, copy, busy, onReview, 
   const [confirmed, setConfirmed] = useState(false)
   const [rollbackConfirmed, setRollbackConfirmed] = useState(false)
   const [historyId, setHistoryId] = useState('')
+  const [rejectionReason, setRejectionReason] = useState<RejectionReason | ''>('')
+  const [rejectionDetail, setRejectionDetail] = useState('')
   const history = useQuery({ ...temporaryQuery, queryKey: ['kb-learning', candidate.clinicId, session.generation, 'history', candidate.id], queryFn: ({ signal }) => api.get<LearningHistory[]>(`/clinics/${candidate.clinicId}/kb/learning/candidates/${candidate.id}/history`, signal) })
   const disabled = busy || reviewUnavailable(candidate) || !['pending_review', 'approved'].includes(candidate.status)
   const sourcesMissing = candidate.supportingChunks.some(citation => !documents.some(doc => doc.id === citation.documentId && doc.version === citation.documentVersion && trainingInfo(doc).lexicalAvailable))
@@ -143,7 +163,7 @@ function CandidateReview({ session, candidate, documents, copy, busy, onReview, 
     if (disabled) return
     // Recheck expiry at click-time; server rechecks revision, sources and safety.
     try {
-      onReview(reviewCommand(candidate.clinicId, candidate, action, content, action === 'rollback' ? rollbackConfirmed : confirmed, historyId))
+      onReview(reviewCommand(candidate.clinicId, candidate, action, content, action === 'rollback' ? rollbackConfirmed : confirmed, { historyId, rejectionReason: rejectionReason || undefined, rejectionDetail }))
     } catch { onStale() }
   }
   const snapshots = rollbackSnapshots(candidate, history.data ?? [])
@@ -155,19 +175,21 @@ function CandidateReview({ session, candidate, documents, copy, busy, onReview, 
     <details><summary>{copy.question}</summary><p className="whitespace-pre-wrap break-words">{candidate.sourceQuestion}</p></details>
     <CandidateEvidenceView candidate={candidate} content={content} copy={copy} />
     <p className="text-sm">{copy.feedback}: {candidate.patientFeedback || copy.unknown} · {copy.consistency}: {candidate.consistencyCount}</p>
-    <details><summary>{copy.reasons}</summary><ul>{candidate.gateReasons?.map(reason => <li key={reason}>{reason}</li>)}</ul></details>
+    <ReviewerReadinessChecklist candidate={candidate} copy={copy} />
     <Citations citations={candidate.supportingChunks} documents={documents} copy={copy} label={candidateNeedsRevalidation(candidate, content) ? copy.historicalCitations : copy.citations} />
     {sourcesMissing && <p role="status">{copy.unavailable}. {copy.refresh}</p>}
     <label className="block text-sm">{copy.content}<textarea className={`${field} resize-y`} rows={5} maxLength={12000} value={content} disabled={disabled} onChange={e => { setContent(e.target.value); setConfirmed(false) }} /></label>
     <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} disabled={disabled} onChange={e => setConfirmed(e.target.checked)} />{copy.confirmation}</label>
+    <label className="block text-sm">{copy.rejectionReason}<select className={field} value={rejectionReason} disabled={disabled || candidate.status !== 'pending_review'} onChange={e => { setRejectionReason(e.target.value as RejectionReason | ''); setRejectionDetail('') }}><option value="">—</option>{rejectionReasons.map(reason => <option key={reason} value={reason}>{copy[`rejection_${reason}`]}</option>)}</select></label>
+    {rejectionReason === 'other' && <label className="block text-sm">{copy.rejectionDetail}<input className={field} maxLength={1000} value={rejectionDetail} disabled={disabled} onChange={e => setRejectionDetail(e.target.value)} /></label>}
     <div className="flex flex-wrap gap-2">
       <button className={button} type="button" disabled={disabled || !content.trim()} onClick={() => submit('edit')}>{copy.edit}</button>
       <button className={button} type="button" disabled={disabled || candidate.status !== 'pending_review' || !confirmed || !content.trim() || sourcesMissing} onClick={() => submit('approve')}>{copy.approve}</button>
-      <button className={button} type="button" disabled={disabled || candidate.status !== 'pending_review'} onClick={() => submit('reject')}>{copy.reject}</button>
+      <button className={button} type="button" disabled={disabled || candidate.status !== 'pending_review' || !rejectionReason || (rejectionReason === 'other' && !rejectionDetail.trim())} onClick={() => submit('reject')}>{copy.reject}</button>
     </div>
     <details><summary className="font-semibold">{copy.history}</summary><p className="text-xs">{copy.historyLimit}</p>
       {history.isError ? <p role="alert">{copy.error}</p> : history.isPending ? <p>{copy.loading}</p> : <>
-        <ul className="max-h-48 overflow-y-auto text-xs">{history.data?.slice(0, 100).map(row => <li key={row.id} className="border-b py-2">r{row.revision} · {row.action} · {row.actorId ?? '—'} · {row.createdAt}</li>)}</ul>
+        <ul className="max-h-48 overflow-y-auto text-xs">{history.data?.slice(0, 100).map(row => <li key={row.id} className="border-b py-2">r{row.revision} · {row.action} · {row.actorId ?? '—'} · {row.createdAt}{row.rejectionReason ? <> · {copy.rejectionReason}: {copy[`rejection_${row.rejectionReason}`]}{row.rejectionDetail ? ` (${row.rejectionDetail})` : ''}</> : null}</li>)}</ul>
         {candidate.status === 'approved' && <>
           <label className="block text-sm">{copy.rollback}<select className={field} value={historyId} disabled={disabled} onChange={e => { setHistoryId(e.target.value); setRollbackConfirmed(false) }}><option value="">—</option>{snapshots.map(row => <option key={row.id} value={row.id}>r{row.revision} · {copy.version} {row.documentVersion} · {row.createdAt}</option>)}</select></label>
           {snapshot && <><p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-sm">{snapshot.content}</p><Citations citations={snapshot.citations} documents={documents} copy={copy} /></>}

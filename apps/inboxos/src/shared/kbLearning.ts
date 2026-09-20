@@ -1,6 +1,13 @@
 import type { AuthUser } from './types'
 
 export type CandidateStatus = 'pending_review' | 'approved' | 'rejected' | 'superseded'
+export const rejectionReasons = ['unsupported', 'outdated', 'unsafe', 'duplicate', 'not_clinic_policy', 'other'] as const
+export type RejectionReason = typeof rejectionReasons[number]
+export interface ReviewReadiness {
+  citationsCurrent: boolean; confidenceAtLeast80: boolean; groundingMeetsThreshold: boolean
+  safetyClear: boolean; scopeClear: boolean; feedbackClear: boolean; unexpired: boolean
+  ready: boolean; reasons: string[]
+}
 export interface LearningCitation {
   chunkId: string; documentId: string; documentVersion: number
   retrievalRevision?: number; doctorId?: string | null; language?: string | null; governanceReviewState?: string
@@ -18,7 +25,7 @@ export interface LearningCandidate {
   supportingChunks: LearningCitation[]; evidence: LearningEvidence; expiresAt: string | null
   publishedDocumentId: string | null; publishedDocumentVersion: number | null
   approvedBy: string | null; approvedAt: string | null; previousVersionId: string | null
-  gateReasons?: string[]; updatedAt: string
+  gateReasons?: string[]; reviewReadiness?: ReviewReadiness; automaticApprovalEligible?: boolean; automaticApprovalReasons?: string[]; updatedAt: string
 }
 export interface LearningSettings { autoApprove: boolean; groundingThreshold: number; evidenceRetentionHours: number }
 export interface LearningEvent {
@@ -28,11 +35,11 @@ export interface LearningEvent {
 export interface LearningGap { id: string; question: string; reason: string; occurrences: number; status: string; expiresAt: string }
 export interface LearningHistory {
   id: string; candidateId: string; revision: number; action: string; actorId: string | null
-  content: string; citations: LearningCitation[]; documentId: string | null; documentVersion: number | null; createdAt: string
+  content: string; citations: LearningCitation[]; documentId: string | null; documentVersion: number | null; rejectionReason: RejectionReason | null; rejectionDetail: string | null; createdAt: string
 }
 export interface ReviewCommand {
   clinicId: string; candidateId: string; action: 'edit' | 'reject' | 'approve' | 'rollback'
-  expectedRevision: number; content?: string; staffConfirmed?: boolean; historyId?: string
+  expectedRevision: number; content?: string; staffConfirmed?: boolean; historyId?: string; rejectionReason?: RejectionReason; rejectionDetail?: string
 }
 export interface ReviewResult { candidate: LearningCandidate; indexing: 'queued' | 'failed' | 'unchanged' }
 
@@ -63,14 +70,17 @@ export function rollbackSnapshots(candidate: LearningCandidate, history: Learnin
     && Number.isInteger(row.documentVersion) && Number(row.documentVersion) >= 1
     && Number(row.documentVersion) <= Number(candidate.publishedDocumentVersion))
 }
-export function reviewCommand(clinicId: string, candidate: LearningCandidate, action: ReviewCommand['action'], content: string, confirmed: boolean, historyId?: string): ReviewCommand {
+export function reviewCommand(clinicId: string, candidate: LearningCandidate, action: ReviewCommand['action'], content: string, confirmed: boolean, options: { historyId?: string; rejectionReason?: RejectionReason; rejectionDetail?: string } = {}): ReviewCommand {
   if (candidate.clinicId !== clinicId || reviewUnavailable(candidate) || !['pending_review', 'approved'].includes(candidate.status)) throw new Error('refresh_review')
   if ((action === 'rollback' && candidate.status !== 'approved') || (['approve', 'reject'].includes(action) && candidate.status !== 'pending_review')) throw new Error('refresh_review')
   if (['approve', 'rollback'].includes(action) && !confirmed) throw new Error('confirmation_required')
-  if (action === 'rollback' && !historyId) throw new Error('confirmation_required')
+  if (action === 'rollback' && !options.historyId) throw new Error('confirmation_required')
+  if (action === 'reject' && !options.rejectionReason) throw new Error('rejection_reason_required')
+  if (action === 'reject' && options.rejectionReason === 'other' && !options.rejectionDetail?.trim()) throw new Error('rejection_detail_required')
   return { clinicId, candidateId: candidate.id, expectedRevision: candidate.revision, action,
     ...(['edit', 'approve'].includes(action) ? { content: content.trim(), staffConfirmed: confirmed } : {}),
-    ...(action === 'rollback' ? { historyId, staffConfirmed: true } : {}) }
+    ...(action === 'rollback' ? { historyId: options.historyId, staffConfirmed: true } : {}),
+    ...(action === 'reject' ? { rejectionReason: options.rejectionReason, ...(options.rejectionDetail?.trim() ? { rejectionDetail: options.rejectionDetail.trim() } : {}) } : {}) }
 }
 
 // Local, typed EN/ES copy for this bounded review workspace. Raw server reason
@@ -90,7 +100,11 @@ export const learningCopy = {
     relevance: 'Retrieval relevance', confidence: 'Answer confidence', grounding: 'Grounding', contradiction: 'Contradiction check', risks: 'Safety risk flags', unknown: 'Unknown / not measured',
     medical: 'Medical safety', prompt: 'Prompt-injection safety', passed: 'Passed recorded check', notPassed: 'Not established', feedback: 'Patient feedback', consistency: 'Consistent observations',
     citations: 'Supporting citations', noCitations: 'No KB citations. Staff must independently verify this correction.', version: 'Version', scope: 'Doctor / language scope',
-    confirmation: 'I verified this exact fact and the source versions shown, resolved any conflicts, and removed private patient information. I explicitly approve its clinical, pricing or policy accuracy where applicable.',
+    confirmation: 'I reviewed the current evidence and confirm publication of this exact clinic fact. I resolved conflicts and removed private patient information.',
+    staffReadiness: 'Reviewer readiness checklist', readyForStaffApproval: 'Ready for staff approval', notReadyForStaffApproval: 'Needs staff review', staffReadinessHint: 'This checklist describes the current evidence. It is separate from the narrower automatic-publication eligibility below.',
+    readinessCitations: 'Citations are current', readinessConfidence: 'Confidence is at least 80%', readinessGrounding: 'Grounding meets the configured threshold', readinessSafety: 'Safety and risk checks are clear', readinessScope: 'Doctor and language scope is clear', readinessFeedback: 'No correction or escalation feedback', readinessExpiry: 'Evidence has not expired', readinessReasons: 'Staff-readiness issues',
+    eligibleForAutomaticApproval: 'Eligible for automatic approval', notEligibleForAutomaticApproval: 'Not eligible for automatic approval', automaticEligibilityHint: 'Automatic approval remains limited to fully grounded, safe, repeated office-hours facts. It never replaces staff review requirements.', automaticReasons: 'Automatic-approval blockers',
+    rejectionReason: 'Rejection reason', rejectionDetail: 'Explain the other reason', rejection_unsupported: 'Unsupported by current clinic knowledge', rejection_outdated: 'Outdated information', rejection_unsafe: 'Unsafe or sensitive claim', rejection_duplicate: 'Duplicate of existing clinic knowledge', rejection_not_clinic_policy: 'Not clinic policy', rejection_other: 'Other (explanation required)',
     edit: 'Save review draft', approve: 'Approve and publish', reject: 'Reject candidate', history: 'This candidate’s history', historyLimit: 'Only this candidate’s returned history is shown; ancestor history is not loaded.',
     rollback: 'Restore this approved snapshot', rollbackConfirm: 'I reviewed this historical content and its citations and want to republish it as a new version.',
     auto: 'Enable guarded automatic publication', threshold: 'Configured grounding threshold (80–100%)', retention: 'Temporary evidence retention (1–24 hours)', save: 'Save settings',
@@ -116,7 +130,11 @@ export const learningCopy = {
     relevance: 'Relevancia de recuperación', confidence: 'Confianza de la respuesta', grounding: 'Respaldo en fuentes', contradiction: 'Control de contradicciones', risks: 'Alertas de seguridad', unknown: 'Desconocido / no medido',
     medical: 'Seguridad médica', prompt: 'Seguridad frente a inyección de instrucciones', passed: 'Control registrado aprobado', notPassed: 'No establecido', feedback: 'Comentario del paciente', consistency: 'Observaciones consistentes',
     citations: 'Citas de respaldo', noCitations: 'Sin citas de la KB. El personal debe verificar esta corrección de forma independiente.', version: 'Versión', scope: 'Ámbito de médico / idioma',
-    confirmation: 'Verifiqué este dato exacto y las versiones de las fuentes mostradas, resolví conflictos y quité información privada. Apruebo explícitamente su exactitud clínica, de precios o políticas cuando corresponda.',
+    confirmation: 'Revisé la evidencia vigente y confirmo la publicación de este dato exacto de la clínica. Resolví conflictos y quité información privada del paciente.',
+    staffReadiness: 'Lista de preparación para revisión', readyForStaffApproval: 'Listo para aprobación del personal', notReadyForStaffApproval: 'Necesita revisión del personal', staffReadinessHint: 'Esta lista describe la evidencia actual. Es independiente de la elegibilidad más estricta para publicación automática que aparece abajo.',
+    readinessCitations: 'Las citas están vigentes', readinessConfidence: 'La confianza es de al menos 80%', readinessGrounding: 'El respaldo alcanza el umbral configurado', readinessSafety: 'Los controles de seguridad y riesgo están claros', readinessScope: 'El ámbito de médico e idioma está claro', readinessFeedback: 'No hay corrección ni escalamiento', readinessExpiry: 'La evidencia no ha vencido', readinessReasons: 'Problemas de preparación para personal',
+    eligibleForAutomaticApproval: 'Elegible para aprobación automática', notEligibleForAutomaticApproval: 'No es elegible para aprobación automática', automaticEligibilityHint: 'La aprobación automática sigue limitada a datos de horario, repetidos, seguros y con respaldo total. Nunca reemplaza los requisitos de revisión del personal.', automaticReasons: 'Bloqueos de aprobación automática',
+    rejectionReason: 'Motivo de rechazo', rejectionDetail: 'Explique el otro motivo', rejection_unsupported: 'Sin respaldo en conocimiento vigente de la clínica', rejection_outdated: 'Información desactualizada', rejection_unsafe: 'Afirmación insegura o sensible', rejection_duplicate: 'Duplicado de conocimiento existente de la clínica', rejection_not_clinic_policy: 'No corresponde a política de la clínica', rejection_other: 'Otro (requiere explicación)',
     edit: 'Guardar borrador de revisión', approve: 'Aprobar y publicar', reject: 'Rechazar candidato', history: 'Historial de este candidato', historyLimit: 'Solo se muestra el historial devuelto de este candidato; no se carga el de sus antecesores.',
     rollback: 'Restaurar esta versión aprobada', rollbackConfirm: 'Revisé este contenido histórico y sus citas y quiero republicarlo como una nueva versión.',
     auto: 'Activar publicación automática protegida', threshold: 'Umbral configurado de respaldo (80–100%)', retention: 'Retención de evidencia temporal (1–24 horas)', save: 'Guardar ajustes',

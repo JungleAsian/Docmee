@@ -90,7 +90,7 @@ describe('governed learning boundary', () => {
   })
   it.each(['approve', 'rollback'] as const)('refuses %s over a newer target document version', async action => {
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [{ ...candidate, status: action === 'rollback' ? 'approved' : 'pending_review', publishedDocumentId: 'published', publishedDocumentVersion: 2, previousVersionId: 'parent' }]
-      : q.includes('FROM knowledge_learning_history') ? [{ action: 'approve', content: 'We open at 9 AM.' }]
+      : q.includes('FROM knowledge_learning_history') ? [{ id: 'history', candidateId: 'candidate', documentId: 'published', documentVersion: 1, action: 'approve', content: 'We open at 9 AM.' }]
       : q.includes('FROM knowledge_documents') && q.includes('FOR UPDATE') ? [{ id: 'published', version: 3 }] : [])
     await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'candidate', { action, expectedRevision: 1, actorId: 'admin', staffConfirmed: true, historyId: 'history' })).rejects.toThrow('stale_candidate')
     expect(f.queries.join('\n')).not.toContain('UPDATE knowledge_documents')
@@ -287,7 +287,7 @@ describe('governed learning boundary', () => {
   })
   it('revalidates rollback ownership and republishes the historical answer as a new document version', async () => {
     const f = fake(q => q.includes('FROM knowledge_candidates') ? [{ ...candidate, status: 'approved', publishedDocumentId: 'published', publishedDocumentVersion: 2 }]
-      : q.includes('FROM knowledge_learning_history') ? [{ action: 'approve', content: 'Original approved hours.' }]
+      : q.includes('FROM knowledge_learning_history') ? [{ id: 'history', candidateId: 'candidate', documentId: 'published', documentVersion: 1, action: 'approve', content: 'Original approved hours.' }]
       : q.includes('SELECT c.id') ? [sourceRow]
       : q.includes('SELECT metadata') ? [{ metadata: {} }]
       : q.includes('SELECT * FROM knowledge_documents') ? [{ id: 'published', version: 2, status: 'active' }]
@@ -299,6 +299,68 @@ describe('governed learning boundary', () => {
     expect(f.values.flat()).toContain('Original approved hours.')
     expect(f.queries.find(q => q.includes('FROM knowledge_learning_history'))).toContain('clinic_id =')
     expect(f.queries.join('\n')).toContain('embedding = NULL')
+  })
+  it('approves A, forks and approves B, then restores the approved A snapshot through B as document v3', async () => {
+    const states = new Map<string, GovernedCandidate>([['candidate', { ...candidate, clinicId: 'clinic', previousVersionId: null }]])
+    const histories: Array<Record<string, unknown>> = []
+    let documentVersion = 0; let retrievalRevision = 7; let publishedContent = ''
+    const f = fake((q, v) => {
+      if (q.includes('SELECT revision')) return [{ revision: retrievalRevision }]
+      if (q.includes('SELECT * FROM knowledge_candidates')) return q.includes('fingerprint') ? [] : [states.get(String(v[1]))!]
+      if (q.includes('FROM knowledge_learning_history')) return histories.filter(h => h.clinicId === v[0] && h.id === v[q.includes('candidate_id =') ? 2 : 1] && (!q.includes('candidate_id =') || h.candidateId === v[1]))
+      if (q.includes('SELECT c.id')) return [sourceRow]
+      if (q.includes('SELECT metadata')) return [{ metadata: { doctorId: 'doctor', language: 'es' } }]
+      if (q.includes('SELECT * FROM knowledge_documents')) return [{ id: 'published', version: documentVersion, status: 'active', metadata: {} }]
+      if (q.includes('INSERT INTO knowledge_documents') || q.includes('UPDATE knowledge_documents')) {
+        documentVersion++; publishedContent = String(v.find(value => value === 'We open at 9 AM.' || value === 'We open at 10 AM.'))
+        return [{ id: 'published', version: documentVersion }]
+      }
+      if (q.includes('INSERT INTO knowledge_retrieval_revisions')) return [{ revision: ++retrievalRevision }]
+      if (q.includes('INSERT INTO knowledge_chunks')) return [{ id: 'new' }]
+      if (q.includes('INSERT INTO knowledge_candidates')) {
+        const draft = { ...candidate, clinicId: 'clinic', id: 'draft', candidateContent: String(v[1]), sourceQuestion: '', previousVersionId: String(v[8]), publishedDocumentId: String(v[9]), publishedDocumentVersion: Number(v[10]), evidence: v[5], supportingChunks: v[2], humanEdit: String(v[7]), staffConfirmed: true, expiresAt: '2099-01-01' } as GovernedCandidate
+        states.set('draft', draft); return [draft]
+      }
+      if (q.includes('UPDATE knowledge_candidates') && q.includes('RETURNING *')) {
+        const id = String(v.at(-1)); const before = states.get(id)!
+        const next = { ...before, candidateContent: String(v[0]), evidence: v[1], supportingChunks: v[2], humanEdit: v[3], staffConfirmed: v[4], status: v[7], revision: before.revision + 1, publishedDocumentId: v[10], publishedDocumentVersion: v[11], expiresAt: v[14] ? null : before.expiresAt } as GovernedCandidate
+        states.set(id, next); return [next]
+      }
+      if (q.includes('INSERT INTO knowledge_learning_history')) {
+        const draftInsert = q.includes("1, 'edit'")
+        histories.push({ id: `history-${histories.length}`, clinicId: v[0], candidateId: v[1], action: draftInsert ? 'edit' : v[3], content: v[draftInsert ? 3 : 5], documentId: draftInsert ? null : v[8], documentVersion: draftInsert ? null : v[9], evidence: v[draftInsert ? 5 : 7] })
+      }
+      return []
+    })
+    const repo = createKnowledgeLearningRepository(f.sql)
+    await repo.review('clinic', 'candidate', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    const approvedA = structuredClone(states.get('candidate'))
+    const snapshotA = structuredClone(histories[0])
+    await repo.review('clinic', 'candidate', { action: 'edit', expectedRevision: 2, content: 'We open at 10 AM.', staffConfirmed: true, actorId: 'admin' })
+    await repo.review('clinic', 'draft', { action: 'approve', expectedRevision: 1, actorId: 'admin' })
+    expect(documentVersion).toBe(2); expect(publishedContent).toBe('We open at 10 AM.')
+    const rollback = await repo.review('clinic', 'draft', { action: 'rollback', expectedRevision: 2, historyId: 'history-0', staffConfirmed: true, actorId: 'admin' })
+    expect(rollback.write?.document.version).toBe(3)
+    expect(publishedContent).toBe('We open at 9 AM.')
+    expect(states.get('candidate')).toEqual(approvedA)
+    expect(histories[0]).toEqual(snapshotA)
+    expect(histories.at(-1)).toMatchObject({ candidateId: 'draft', action: 'rollback', documentVersion: 3, evidence: { rollbackSource: { historyId: 'history-0', candidateId: 'candidate', documentVersion: 1 } } })
+  })
+  it.each(['foreign_history', 'unrelated_candidate', 'foreign_ancestor', 'different_document', 'cycle', 'unapproved_snapshot'])('denies rollback from %s without publishing', async invalid => {
+    const current = { ...candidate, id: 'current', clinicId: 'clinic', status: 'approved', previousVersionId: 'ancestor', publishedDocumentId: 'published', publishedDocumentVersion: 2 }
+    const history = { id: 'history', candidateId: invalid === 'unrelated_candidate' || invalid === 'cycle' ? 'unrelated' : 'ancestor', documentId: 'published', documentVersion: 1, action: invalid === 'unapproved_snapshot' ? 'edit' : 'approve', content: 'Old approved answer.' }
+    const f = fake((q, v) => {
+      if (q.includes('FROM knowledge_learning_history')) return invalid === 'foreign_history' ? [] : [history]
+      if (q.includes('SELECT * FROM knowledge_candidates')) {
+        if (v[1] === 'current') return [current]
+        return [{ ...current, id: 'ancestor', clinicId: invalid === 'foreign_ancestor' ? 'foreign' : 'clinic', publishedDocumentId: invalid === 'different_document' ? 'other-document' : 'published', previousVersionId: invalid === 'cycle' ? 'current' : null }]
+      }
+      return []
+    })
+    await expect(createKnowledgeLearningRepository(f.sql).review('clinic', 'current', { action: 'rollback', expectedRevision: 1, historyId: 'history', staffConfirmed: true, actorId: 'admin' })).rejects.toThrow('not_found')
+    expect(f.queries.join('\n')).not.toContain('UPDATE knowledge_documents')
+    expect(f.queries.join('\n')).not.toContain('INSERT INTO knowledge_documents')
+    expect(f.queries.find(q => q.includes('FROM knowledge_learning_history'))).toContain('clinic_id =')
   })
   it('serializes concurrent approve retries into one publication', async () => {
     let state = candidate; let writes = 0; let tail: Promise<unknown> = Promise.resolve()

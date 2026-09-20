@@ -235,6 +235,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         if (input.action !== 'rollback' && candidate.status !== 'pending_review' && !(input.action === 'edit' && candidate.status === 'approved')) throw new Error('invalid_state')
         let content = candidate.candidateContent
         let confirmed = candidate.staffConfirmed
+        let rollbackSource: { historyId: string; candidateId: string; documentVersion: number } | undefined
         if (input.action === 'edit' || (input.action === 'approve' && input.content !== undefined && !input.automatic)) {
           if (!input.content?.trim()) throw new Error('content_required')
           const cleaned = sanitizeLearningText(input.content)
@@ -267,9 +268,31 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         }
         if (input.action === 'rollback') {
           if (!input.historyId || input.staffConfirmed !== true || !candidate.publishedDocumentId) throw new Error('rollback_confirmation_required')
-          const history = await tx<LearningHistory[]>`SELECT * FROM knowledge_learning_history WHERE clinic_id = ${clinicId} AND candidate_id = ${id} AND id = ${input.historyId}`
-          if (!history[0] || !['approve','rollback'].includes(history[0].action)) throw new Error('not_found')
-          content = history[0].content; confirmed = true
+          const history = await tx<LearningHistory[]>`SELECT * FROM knowledge_learning_history
+            WHERE clinic_id = ${clinicId} AND id = ${input.historyId}
+              AND document_id = ${candidate.publishedDocumentId} AND action IN ('approve', 'rollback')`
+          const snapshot = history[0]
+          if (!snapshot || !['approve','rollback'].includes(snapshot.action) || snapshot.documentId !== candidate.publishedDocumentId
+            || !Number.isInteger(snapshot.documentVersion) || Number(snapshot.documentVersion) < 1
+            || Number(snapshot.documentVersion) > Number(candidate.publishedDocumentVersion)) throw new Error('not_found')
+          // The current candidate owns the optimistic target version. It may
+          // restore its own approved snapshot or an ancestor's, never a sibling
+          // or arbitrary same-document candidate. The clinic lock protects this
+          // walk; cycles/overlong or broken links fail closed.
+          let ancestor: GovernedCandidate = candidate
+          const visited = new Set([candidate.id])
+          while (ancestor.id !== snapshot.candidateId) {
+            const parentId = ancestor.previousVersionId
+            if (!parentId || visited.has(parentId) || visited.size >= 100) throw new Error('not_found')
+            const parents: GovernedCandidate[] = await tx<GovernedCandidate[]>`SELECT * FROM knowledge_candidates
+              WHERE clinic_id = ${clinicId} AND id = ${parentId} AND published_document_id = ${candidate.publishedDocumentId}`
+            const parent: GovernedCandidate | undefined = parents[0]
+            if (!parent || parent.id !== parentId || parent.clinicId !== clinicId || parent.publishedDocumentId !== candidate.publishedDocumentId
+              || !['approved','superseded'].includes(parent.status)) throw new Error('not_found')
+            visited.add(parentId); ancestor = parent
+          }
+          rollbackSource = { historyId: snapshot.id, candidateId: snapshot.candidateId, documentVersion: snapshot.documentVersion! }
+          content = snapshot.content; confirmed = true
         }
         const publishing = input.action === 'approve' || input.action === 'rollback'
         let write: DocumentIndexWrite | null = null
@@ -300,7 +323,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           }
           if (new Set(scopes.map(s => JSON.stringify(s))).size > 1) throw new Error('mixed_source_scope')
           const scope = scopes[0] ?? { doctorId: null, language: null }
-          write = await writeKnowledgeDocument(tx, { clinicId, id: candidate.publishedDocumentId ?? undefined, doctorId: scope.doctorId, title: 'Reviewed clinic knowledge', content, status: 'active', documentType: 'faq', metadata: { source: 'governed_learning', candidateId: id, approver: input.actorId ?? 'automatic', citations, ...(scope.language ? { language: scope.language } : {}) }, chunks: [{ content, chunkIndex: 0 }] })
+          write = await writeKnowledgeDocument(tx, { clinicId, id: candidate.publishedDocumentId ?? undefined, doctorId: scope.doctorId, title: 'Reviewed clinic knowledge', content, status: 'active', documentType: 'faq', metadata: { source: 'governed_learning', candidateId: id, approver: input.actorId ?? 'automatic', citations, rollbackSource: rollbackSource ?? null, ...(scope.language ? { language: scope.language } : {}) }, chunks: [{ content, chunkIndex: 0 }] })
           // Pending drafts are not durable facts. Keep their audit metadata only.
           await tx`UPDATE knowledge_learning_history SET content = '' WHERE clinic_id = ${clinicId} AND candidate_id = ${id} AND action NOT IN ('approve', 'rollback')`
         }
@@ -322,7 +345,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
           expires_at = CASE WHEN ${publishing} THEN NULL ELSE expires_at END, updated_at = now()
           WHERE clinic_id = ${clinicId} AND id = ${id} RETURNING *`
         await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, citations, evidence, document_id, document_version)
-          VALUES (${clinicId}, ${id}, ${candidate.revision + 1}, ${input.action}, ${input.actorId}, ${content}, ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson({ ...candidate.evidence, patientFeedback: candidate.patientFeedback, consistencyCount: candidate.consistencyCount, staffConfirmed: confirmed }))}, ${write?.document.id ?? null}, ${write?.document.version ?? null})`
+          VALUES (${clinicId}, ${id}, ${candidate.revision + 1}, ${input.action}, ${input.actorId}, ${content}, ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson({ ...candidate.evidence, patientFeedback: candidate.patientFeedback, consistencyCount: candidate.consistencyCount, staffConfirmed: confirmed, ...(rollbackSource ? { rollbackSource } : {}) }))}, ${write?.document.id ?? null}, ${write?.document.version ?? null})`
         return { candidate: updated[0]!, write }
       }) as unknown as Promise<{ candidate: GovernedCandidate; write: DocumentIndexWrite | null }>
     },

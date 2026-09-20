@@ -51,4 +51,20 @@ describe('learning review authorization and publication', () => {
     expect(result.json().candidate).toMatchObject({ id: 'draft', previousVersionId: 'approved', status: 'pending_review' })
     expect(mocks.add).not.toHaveBeenCalled()
   })
+  it('rolls an ancestor history snapshot into the current candidate and enqueues only the committed version', async () => {
+    const historyId = '00000000-0000-4000-8000-000000000001'
+    mocks.review.mockResolvedValueOnce({ candidate: { id: 'current', publishedDocumentId: 'doc', publishedDocumentVersion: 3 }, write: { document: { id: 'doc', version: 3 } } })
+    const result = await inject('/clinics/clinic-a/kb/learning/candidates/current/review', auth(), { action: 'rollback', expectedRevision: 2, historyId, staffConfirmed: true })
+    expect(result.statusCode).toBe(200)
+    expect(mocks.review).toHaveBeenCalledWith('clinic-a', 'current', { action: 'rollback', expectedRevision: 2, historyId, staffConfirmed: true, actorId: 'reviewer' })
+    expect(mocks.add).toHaveBeenCalledWith('embed-document', { clinicId: 'clinic-a', documentId: 'doc', documentVersion: 3 })
+  })
+  it('denies unrelated history and cross-tenant rollback without enqueueing', async () => {
+    const payload = { action: 'rollback', expectedRevision: 2, historyId: '00000000-0000-4000-8000-000000000001', staffConfirmed: true }
+    mocks.review.mockRejectedValueOnce(new Error('not_found'))
+    expect((await inject('/clinics/clinic-a/kb/learning/candidates/current/review', auth(), payload)).statusCode).toBe(404)
+    expect((await inject('/clinics/foreign/kb/learning/candidates/current/review', auth(), payload)).statusCode).toBe(403)
+    expect(mocks.review).toHaveBeenCalledTimes(1)
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
 })

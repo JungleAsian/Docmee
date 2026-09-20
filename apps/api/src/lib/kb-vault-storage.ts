@@ -88,6 +88,14 @@ function timestamp(value = new Date()): string {
   return value.toISOString().replace(/[:.]/g, '-')
 }
 
+/** The vault retains one canonical, portable Markdown source per KB document. */
+export function kbMarkdownFileName(fileName: string): string {
+  const safePath = safeSegment(fileName || 'knowledge')
+  const leaf = safePath.split('/').filter(Boolean).pop() ?? 'knowledge'
+  const stem = leaf.replace(/\.[^.]+$/, '').trim() || 'knowledge'
+  return `${stem}.md`
+}
+
 export function kbVaultEnabled(): boolean {
   return storageEnabled()
 }
@@ -102,8 +110,8 @@ export function kbUploadObjectKey(input: {
   fileName: string
   createdAt?: Date
 }): string {
-  const name = safeSegment(input.fileName || 'knowledge-file')
-  return `${PREFIX}/${input.clinicId}/kb/uploads/${input.documentId}/original/${timestamp(input.createdAt)}/${name}`
+  const name = kbMarkdownFileName(input.fileName)
+  return `${PREFIX}/${input.clinicId}/kb/uploads/${input.documentId}/markdown/${timestamp(input.createdAt)}/${name}`
 }
 
 export function mediaObjectKey(input: { clinicId: string; assetId: string; fileName: string }): string {
@@ -116,7 +124,9 @@ export function kbGithubObjectKey(input: {
   relativePath: string
 }): string {
   const commit = safeSegment(input.commit || 'unknown-commit')
-  const relativePath = safeSegment(input.relativePath || 'knowledge.md')
+  const safePath = safeSegment(input.relativePath || 'knowledge.md')
+  const parent = safePath.split('/').slice(0, -1).join('/')
+  const relativePath = `${parent ? `${parent}/` : ''}${kbMarkdownFileName(safePath)}`
   return `${PREFIX}/${input.clinicId}/kb/github/${commit}/${relativePath}`
 }
 

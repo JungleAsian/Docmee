@@ -29,6 +29,16 @@ export interface TrainDocumentInput {
   maxChunkChars?: number
 }
 
+export interface ConvertDocumentToMarkdownInput extends TrainDocumentInput {
+  /** Original name is used only to give converted documents a useful heading. */
+  fileName?: string
+}
+
+export interface ConvertedMarkdownDocument {
+  markdown: string
+  chunks: TrainedChunk[]
+}
+
 const DEFAULT_MAX_CHARS = 800
 
 /** Map a filename / MIME type to a supported format (defaults to plain text). */
@@ -80,6 +90,45 @@ export async function extractText(buffer: Buffer, format: DocumentFormat): Promi
     case 'faq':
       return buffer.toString('utf-8')
   }
+}
+
+function documentTitle(fileName: string): string {
+  const leaf = fileName.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Knowledge document'
+  const title = leaf
+    .replace(/\.[^.]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return title || 'Knowledge document'
+}
+
+/**
+ * Make extracted text a portable, human-reviewable Markdown source. A supplied
+ * heading is respected; otherwise the original filename becomes the heading.
+ */
+export function toCanonicalMarkdown(input: { fileName?: string; text: string }): string {
+  const text = input.text.replace(/\r\n?/g, '\n').split('\0').join('').trim()
+  if (!text) return ''
+  const body = /^\s*#\s+\S/m.test(text) ? text : `# ${documentTitle(input.fileName ?? '')}\n\n${text}`
+  return `${body.trim()}\n`
+}
+
+/**
+ * Extract an uploaded document once, then retain and train its canonical Markdown
+ * representation. Callers can discard the original bytes after this succeeds.
+ */
+export async function convertDocumentToMarkdown(
+  input: ConvertDocumentToMarkdownInput,
+): Promise<ConvertedMarkdownDocument> {
+  const text = await extractText(input.buffer, input.format)
+  const markdown = toCanonicalMarkdown({ fileName: input.fileName, text })
+  if (!markdown) return { markdown: '', chunks: [] }
+  const chunks = await trainDocument({
+    buffer: Buffer.from(markdown, 'utf-8'),
+    format: 'md',
+    maxChunkChars: input.maxChunkChars,
+  })
+  return { markdown, chunks }
 }
 
 export interface QAPair {

@@ -16,6 +16,7 @@ import { promisify } from 'node:util'
 import { z } from 'zod'
 import { createKnowledgeRepository, createDoctorsRepository } from '@docmee/db'
 import { kbEmbedQueue } from '@docmee/queue'
+import { toCanonicalMarkdown } from '@docmee/agents'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -23,6 +24,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import {
   createKbVaultDownloadUrl,
   kbGithubObjectKey,
+  kbMarkdownFileName,
   kbVaultBucketName,
   kbVaultEnabled,
   uploadKbVaultObject,
@@ -249,9 +251,10 @@ async function syncGithubKb(app: Parameters<FastifyPluginAsync>[0]) {
       const knowledge = createKnowledgeRepository(sql)
       const sourceDocuments: Parameters<typeof knowledge.replaceSourceDocuments>[0]['documents'] = []
       for (const file of files) {
-        const content = (await fs.readFile(file, 'utf8')).trim()
-        if (!content) continue
+        const sourceContent = (await fs.readFile(file, 'utf8')).trim()
+        if (!sourceContent) continue
         const relativePath = path.relative(repoDir, file).replace(/\\/g, '/')
+        const content = toCanonicalMarkdown({ fileName: relativePath, text: sourceContent })
         const vaultKey = kbGithubObjectKey({ clinicId, commit, relativePath })
         const vault = await uploadKbVaultObject({
           key: vaultKey,
@@ -284,7 +287,7 @@ async function syncGithubKb(app: Parameters<FastifyPluginAsync>[0]) {
                     provider: 's3',
                     bucket: vault.bucket,
                     key: vault.key,
-                    fileName: relativePath.split('/').pop() ?? relativePath,
+                    fileName: kbMarkdownFileName(relativePath),
                     contentType: 'text/markdown; charset=utf-8',
                     storedAt: new Date().toISOString(),
                   },

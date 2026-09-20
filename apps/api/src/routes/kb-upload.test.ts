@@ -9,14 +9,14 @@ vi.mock('@docmee/queue', () => ({
   kbEmbedQueue: { add: kbEmbedAdd },
 }))
 
-// trainDocument is the only piece with heavy native deps (pdf-parse/mammoth/OCR);
+// Conversion is the only piece with heavy native deps (pdf-parse/mammoth/OCR);
 // stub it so the test exercises the route's persistence + queueing glue, not the
 // extractor (which has its own unit suite in @docmee/agents). detectFormat/needsOcr
 // keep their real shape so the `ocr` flag in the response is covered.
-const trainDocument = vi.hoisted(() => vi.fn())
+const convertDocumentToMarkdown = vi.hoisted(() => vi.fn())
 vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS,
   getOAuth2Client: () => ({}),
-  trainDocument,
+  convertDocumentToMarkdown,
   detectFormat: (filename: string) => (/\.(png|jpe?g|webp)$/i.test(filename) ? 'image' : 'txt'),
   needsOcr: (format: string) => format === 'image',
 }))
@@ -88,10 +88,10 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
     created.documents.length = 0
     created.chunks.length = 0
     kbEmbedAdd.mockClear()
-    trainDocument.mockResolvedValueOnce([
-      { content: 'chunk one', chunkIndex: 0 },
-      { content: 'chunk two', chunkIndex: 1 },
-    ])
+    convertDocumentToMarkdown.mockResolvedValueOnce({
+      markdown: '# Policy\n\nchunk one\n\nchunk two\n',
+      chunks: [{ content: 'chunk one', chunkIndex: 0 }, { content: 'chunk two', chunkIndex: 1 }],
+    })
 
     const res = await app.inject({
       method: 'POST',
@@ -105,13 +105,19 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
     expect(body.chunks).toBe(2)
     expect(body.status).toBe('draft')
     expect(body.ocr).toBe(false)
+    expect(body.storageFormat).toBe('markdown')
     // Document lands as draft for human review before the bot can retrieve it.
-    expect(created.documents[0]).toMatchObject({ status: 'draft', clinicId: 'c-1' })
+    expect(created.documents[0]).toMatchObject({
+      status: 'draft',
+      clinicId: 'c-1',
+      content: '# Policy\n\nchunk one\n\nchunk two\n',
+      metadata: { importedFormat: 'txt', storageFormat: 'markdown', needsReview: true },
+    })
     expect(kbEmbedAdd).not.toHaveBeenCalled()
   })
 
   it('POST flags OCR for an image document', async () => {
-    trainDocument.mockResolvedValueOnce([{ content: 'scanned text', chunkIndex: 0 }])
+    convertDocumentToMarkdown.mockResolvedValueOnce({ markdown: '# Scan\n\nscanned text\n', chunks: [{ content: 'scanned text', chunkIndex: 0 }] })
     const res = await app.inject({
       method: 'POST',
       url: '/clinics/c-1/kb/upload',
@@ -153,7 +159,7 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
   })
 
   it('POST → 422 when the document yields no extractable content', async () => {
-    trainDocument.mockResolvedValueOnce([])
+    convertDocumentToMarkdown.mockResolvedValueOnce({ markdown: '', chunks: [] })
     const res = await app.inject({
       method: 'POST',
       url: '/clinics/c-1/kb/upload',
@@ -164,7 +170,7 @@ describe('KB document-upload route (P18 Gap #33 — document training)', () => {
   })
 
   it('POST → 422 when extraction throws', async () => {
-    trainDocument.mockRejectedValueOnce(new Error('corrupt pdf'))
+    convertDocumentToMarkdown.mockRejectedValueOnce(new Error('corrupt pdf'))
     const res = await app.inject({
       method: 'POST',
       url: '/clinics/c-1/kb/upload',

@@ -6,6 +6,8 @@ import {
   detectFormat,
   needsOcr,
   trainDocument,
+  toCanonicalMarkdown,
+  convertDocumentToMarkdown,
 } from '../botbase/document-trainer.js'
 
 describe('detectFormat', () => {
@@ -92,5 +94,29 @@ describe('trainDocument', () => {
     const chunks = await trainDocument({ buffer: Buffer.from('fake-image-bytes'), format: 'image' })
     expect(chunks.length).toBeGreaterThan(0)
     expect(chunks[0]?.content).toContain('Horario de atención')
+  })
+})
+
+describe('Markdown conversion', () => {
+  it('turns extracted plain text into a canonical Markdown source', () => {
+    expect(toCanonicalMarkdown({ fileName: 'clinic-policy.pdf', text: 'Open Monday through Friday.' })).toBe(
+      '# clinic policy\n\nOpen Monday through Friday.\n',
+    )
+  })
+
+  it('preserves an existing Markdown heading', () => {
+    expect(toCanonicalMarkdown({ fileName: 'ignored.txt', text: '# Hours\n\n9 AM to 5 PM' })).toBe(
+      '# Hours\n\n9 AM to 5 PM\n',
+    )
+  })
+
+  it('trains the generated Markdown rather than retaining raw input bytes', async () => {
+    const result = await convertDocumentToMarkdown({
+      fileName: 'welcome.txt',
+      buffer: Buffer.from('Welcome to the clinic.', 'utf-8'),
+      format: 'txt',
+    })
+    expect(result.markdown).toBe('# welcome\n\nWelcome to the clinic.\n')
+    expect(result.chunks).toEqual([{ content: '# welcome\n\nWelcome to the clinic.', chunkIndex: 0 }])
   })
 })

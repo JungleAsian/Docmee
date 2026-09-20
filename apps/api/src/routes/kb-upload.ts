@@ -6,7 +6,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import multipart from '@fastify/multipart'
 import { createKnowledgeRepository } from '@docmee/db'
 import { kbEmbedQueue } from '@docmee/queue'
-import { trainDocument, detectFormat, needsOcr } from '@docmee/agents'
+import { convertDocumentToMarkdown, detectFormat, needsOcr } from '@docmee/agents'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
@@ -48,13 +48,18 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
       const format = detectFormat(file.filename, file.mimetype)
       const ocrUsed = needsOcr(format)
 
-      let chunks
+      let converted
       try {
-        chunks = await trainDocument({ buffer, format })
+        converted = await convertDocumentToMarkdown({ buffer, format, fileName: file.filename })
       } catch (err) {
         request.log.error({ err }, 'document training failed')
         return reply.code(422).send({ error: 'Could not extract text from the document' })
+      } finally {
+        // The request buffer is an import-only transient. The canonical Markdown
+        // is now the sole retained representation, so clear original bytes early.
+        buffer.fill(0)
       }
+      const { markdown, chunks } = converted
       if (chunks.length === 0) return reply.code(422).send({ error: 'Document has no extractable content' })
 
       const { document, stored, retrievalRevision } = await withDb(async (sql) => {
@@ -66,10 +71,16 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
         const written = await repo.writeDocument({
           clinicId,
           title: file.filename || 'Uploaded document',
-          content: chunks.map((c) => c.content).join('\n\n'),
+          content: markdown,
           documentType: 'custom',
           status: 'draft',
-          metadata: { source: 'document', format, needsReview: true, ocr: ocrUsed },
+          metadata: {
+            source: 'document',
+            importedFormat: format,
+            storageFormat: 'markdown',
+            needsReview: true,
+            ocr: ocrUsed,
+          },
           chunks: chunks.map((c) => ({
             content: c.content,
             chunkIndex: c.chunkIndex,
@@ -84,8 +95,10 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
         })
         const vault = await uploadKbVaultObject({
           key: vaultKey,
-          body: buffer,
-          contentType: file.mimetype || 'application/octet-stream',
+          // The binary import is intentionally never persisted. Once extraction
+          // succeeds, Markdown is the only retained source object in the vault.
+          body: markdown,
+          contentType: 'text/markdown; charset=utf-8',
           metadata: {
             clinicId,
             documentId: doc.id,
@@ -103,8 +116,8 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
                 provider: 's3',
                 bucket: vault.bucket,
                 key: vault.key,
-                fileName: file.filename || 'uploaded-document',
-                contentType: file.mimetype || 'application/octet-stream',
+                fileName: vault.key.split('/').pop() ?? 'knowledge.md',
+                contentType: 'text/markdown; charset=utf-8',
                 storedAt: new Date().toISOString(),
               },
             })}::jsonb
@@ -126,7 +139,14 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
 
       return reply
         .code(201)
-        .send({ jobId: document.id, chunks: stored.length, status: 'draft', ocr: ocrUsed, retrievalRevision })
+        .send({
+          jobId: document.id,
+          chunks: stored.length,
+          status: 'draft',
+          ocr: ocrUsed,
+          storageFormat: 'markdown',
+          retrievalRevision,
+        })
     },
   )
 }

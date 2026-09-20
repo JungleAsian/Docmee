@@ -56,4 +56,14 @@ describe('KB vault object deletion', () => {
       Key: 'voice-notes/clinic-1/object.png',
     })
   })
+
+  it('uses Markdown-only paths for uploaded and Git-synced KB objects', async () => {
+    const { kbGithubObjectKey, kbUploadObjectKey } = await import('./kb-vault-storage.js')
+
+    expect(kbUploadObjectKey({
+      clinicId: 'clinic-1', documentId: 'doc-1', fileName: 'clinic policy.PDF', createdAt: new Date('2026-01-02T03:04:05.000Z'),
+    })).toBe('voice-notes/clinic-1/kb/uploads/doc-1/markdown/2026-01-02T03-04-05-000Z/clinic_policy.md')
+    expect(kbGithubObjectKey({ clinicId: 'clinic-1', commit: 'abc123', relativePath: 'policies/fees.txt' }))
+      .toBe('voice-notes/clinic-1/kb/github/abc123/policies/fees.md')
+  })
 })

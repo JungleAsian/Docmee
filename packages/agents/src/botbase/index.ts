@@ -74,6 +74,8 @@ export {
 
 export {
   trainDocument,
+  convertDocumentToMarkdown,
+  toCanonicalMarkdown,
   extractText,
   parseFaqPairs,
   looksLikeFaq,
@@ -83,6 +85,8 @@ export {
   type DocumentFormat,
   type TrainedChunk,
   type TrainDocumentInput,
+  type ConvertDocumentToMarkdownInput,
+  type ConvertedMarkdownDocument,
   type QAPair,
 } from './document-trainer.js'
 

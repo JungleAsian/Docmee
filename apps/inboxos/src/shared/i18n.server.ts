@@ -1656,8 +1656,8 @@ const es: Dict = {
   'studio.customFlows.bookingGuideStart': 'Configurar asistente de reservas',
 
   'studio.kb.upload': 'Subir documento',
-  'studio.kb.uploadHint': 'Hasta 5 archivos: PDF, Word, texto, FAQ (Q:/A:) o imagen escaneada (OCR)',
-  'studio.kb.uploadSuccess': 'Documento procesado: {n} fragmentos — pendiente de revisión',
+  'studio.kb.uploadHint': 'Hasta 5 archivos: PDF, Word, texto, FAQ (Q:/A:) o imagen escaneada (OCR). Cada archivo se convierte a Markdown; solo se conserva la fuente .md.',
+  'studio.kb.uploadSuccess': 'Documento convertido a Markdown: {n} fragmentos — pendiente de revisión',
   'studio.kb.uploadBatchSuccess': '{files} documentos procesados: {n} fragmentos - pendientes de revision',
   'studio.kb.uploadMaxFiles': 'Solo se subieron los primeros 5 archivos.',
   'studio.kb.uploadError': 'No se pudo procesar el documento',
@@ -3920,8 +3920,8 @@ const en: Dict = {
   'studio.customFlows.bookingGuideStart': 'Set up booking assistant',
 
   'studio.kb.upload': 'Upload document',
-  'studio.kb.uploadHint': 'Up to 5 files: PDF, Word, text, FAQ (Q:/A:) or scanned image (OCR)',
-  'studio.kb.uploadSuccess': 'Document processed: {n} chunks — pending review',
+  'studio.kb.uploadHint': 'Up to 5 files: PDF, Word, text, FAQ (Q:/A:) or scanned image (OCR). Each file is converted to Markdown; only the .md source is retained.',
+  'studio.kb.uploadSuccess': 'Document converted to Markdown: {n} chunks — pending review',
   'studio.kb.uploadBatchSuccess': '{files} documents processed: {n} chunks - pending review',
   'studio.kb.uploadMaxFiles': 'Only the first 5 files were uploaded.',
   'studio.kb.uploadError': 'Could not process the document',

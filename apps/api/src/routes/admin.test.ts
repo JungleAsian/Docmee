@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
+
+const h = vi.hoisted(() => ({
+  kbEmbedAdd: vi.fn(),
+  writeDocument: vi.fn(),
+  markDocumentIndexFailed: vi.fn(),
+}))
 
 // buildApp wires every route; stub the workspace deps so no real Redis/DB/Google loads.
 vi.mock('@docmee/queue', () => ({
   whatsappInboundQueue: { add: vi.fn() },
-  kbEmbedQueue: { add: vi.fn() },
+  kbEmbedQueue: { add: h.kbEmbedAdd },
 }))
 vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import('../../../../packages/agents/src/workflows/workflow-simulator.js')).SIMULATION_REPLAY_LIMITS, getOAuth2Client: () => ({}) }))
 vi.mock('@docmee/shared', () => ({
@@ -60,7 +66,8 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
   createPatientsRepository: () => ({ list: async () => [] }),
   createMessagesRepository: () => ({}),
   createKnowledgeRepository: () => ({
-    createDocument: async (data: Record<string, unknown>) => ({ id: 'doc-new', ...data }),
+    writeDocument: h.writeDocument,
+    markDocumentIndexFailed: h.markDocumentIndexFailed,
   }),
   createNotificationsRepository: () => ({}),
 }))
@@ -74,6 +81,15 @@ const secretaryToken = signAccessToken({ userId: 'u-1', clinicId: 'c-1', role: '
 const secretaryAuth = { authorization: `Bearer ${secretaryToken}` }
 const clinicAdminToken = signAccessToken({ userId: 'ca-1', clinicId: 'c-1', role: 'clinic_admin', email: 'ca@demo.test' })
 const clinicAdminAuth = { authorization: `Bearer ${clinicAdminToken}` }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  h.writeDocument.mockResolvedValue({
+    document: { id: 'doc-new', version: 4, status: 'active', indexingStatus: 'pending' },
+    chunks: [{ id: 'chunk-new', documentId: 'doc-new', documentVersion: 4 }],
+    retrievalRevision: 7,
+  })
+})
 
 describe('Admin Studio + AssignPanel routes (P09)', () => {
   let app: Awaited<ReturnType<typeof buildApp>>
@@ -143,6 +159,31 @@ describe('Admin Studio + AssignPanel routes (P09)', () => {
     expect(body.document.id).toBe('doc-new')
     expect(body.document.status).toBe('active')
     expect(body.error.status).toBe('resolved')
+    expect(h.writeDocument).toHaveBeenCalledWith(expect.objectContaining({
+      clinicId: 'c-1', title: '¿Atienden domingos?',
+      content: 'Sí, atendemos los domingos de 9 a 14h.', status: 'active',
+      chunks: [{ content: 'Sí, atendemos los domingos de 9 a 14h.', chunkIndex: 0 }],
+    }))
+    expect(h.kbEmbedAdd).toHaveBeenCalledWith('embed-document', {
+      clinicId: 'c-1', documentId: 'doc-new', documentVersion: 4,
+    })
+  })
+
+  it('POST add-to-kb persists a version-scoped index failure when queueing fails', async () => {
+    h.kbEmbedAdd.mockRejectedValueOnce(new Error('queue unavailable'))
+
+    const res = await app.inject({
+      method: 'POST', url: '/clinics/c-1/errors/e-1/add-to-kb', headers: clinicAdminAuth,
+      payload: { title: 'Recovery', content: 'Authoritative answer.' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(h.markDocumentIndexFailed).toHaveBeenCalledWith(
+      'c-1', 'doc-new', 4, 'queue_unavailable',
+    )
+    expect(JSON.parse(res.body).document).toMatchObject({
+      id: 'doc-new', version: 4, indexingStatus: 'failed', indexingError: 'queue_unavailable',
+    })
   })
 
   it('POST add-to-kb for unknown error → 404', async () => {

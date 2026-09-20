@@ -1,4 +1,4 @@
-import type { Sql } from '../client.js'
+import type { Sql, TxSql } from '../client.js'
 import { toJson } from '../client.js'
 import type {
   KnowledgeDocument,
@@ -253,6 +253,35 @@ function chunkDocumentContent(content: string): string[] {
   return chunks
 }
 
+async function rebuildCurrentDocumentChunks(
+  tx: TxSql,
+  clinicId: string,
+  document: Pick<KnowledgeDocument, 'id' | 'content'> & { version?: number },
+): Promise<number> {
+  const version = document.version ?? 1
+  await tx`
+    UPDATE knowledge_chunks
+    SET is_active = false, embedding = NULL, embedding_model = NULL,
+        embedded_at = NULL, metadata = COALESCE(metadata, '{}') - 'embedding'
+    WHERE clinic_id = ${clinicId} AND document_id = ${document.id}
+  `
+  await tx`
+    DELETE FROM knowledge_chunks
+    WHERE clinic_id = ${clinicId} AND document_id = ${document.id}
+      AND document_version = ${version}
+  `
+  const chunks = chunkDocumentContent(document.content)
+  for (const [chunkIndex, content] of chunks.entries()) {
+    await tx`
+      INSERT INTO knowledge_chunks
+        (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
+      VALUES (${document.id}, ${clinicId}, ${content}, ${chunkIndex},
+        ${tx.json(toJson({}))}, ${version}, ${true})
+    `
+  }
+  return chunks.length
+}
+
 type RankedKnowledgeSearchRow = KnowledgeSearchRow & {
   relevanceScore?: number
   languagePreference?: number
@@ -477,33 +506,14 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
         `
         const queueable: Array<{ id: string; version: number }> = []
         for (const document of docs) {
-          await tx`
-            UPDATE knowledge_chunks
-            SET is_active = false, embedding = NULL, embedding_model = NULL,
-                embedded_at = NULL, metadata = COALESCE(metadata, '{}') - 'embedding'
-            WHERE clinic_id = ${clinicId} AND document_id = ${document.id}
-          `
-          await tx`
-            DELETE FROM knowledge_chunks
-            WHERE clinic_id = ${clinicId} AND document_id = ${document.id}
-              AND document_version = ${document.version}
-          `
-          const chunks = chunkDocumentContent(document.content)
-          if (chunks.length === 0) {
+          const chunkCount = await rebuildCurrentDocumentChunks(tx, clinicId, document)
+          if (chunkCount === 0) {
             await tx`
               UPDATE knowledge_documents
               SET indexing_status = 'failed', indexing_error = ${'no_indexable_content'}
               WHERE clinic_id = ${clinicId} AND id = ${document.id} AND version = ${document.version}
             `
             continue
-          }
-          for (const [chunkIndex, content] of chunks.entries()) {
-            await tx`
-              INSERT INTO knowledge_chunks
-                (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
-              VALUES (${document.id}, ${clinicId}, ${content}, ${chunkIndex},
-                ${tx.json(toJson({}))}, ${document.version}, ${true})
-            `
           }
           await tx`
             UPDATE knowledge_documents
@@ -552,11 +562,23 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
           RETURNING *
         `
         if (!rows[0]) throw new Error(`Document not found: ${id}`)
-        await tx`
-          UPDATE knowledge_chunks SET is_active = ${status === 'active'}
-          WHERE clinic_id = ${clinicId} AND document_id = ${id}
-            AND document_version = ${rows[0].version ?? 1}
-        `
+        if (status === 'active') {
+          const chunkCount = await rebuildCurrentDocumentChunks(tx, clinicId, rows[0])
+          if (chunkCount === 0) {
+            await tx`
+              UPDATE knowledge_documents
+              SET indexing_status = 'failed', indexing_error = ${'no_indexable_content'}
+              WHERE clinic_id = ${clinicId} AND id = ${id} AND version = ${rows[0].version ?? 1}
+            `
+            rows[0].indexingStatus = 'failed'
+            rows[0].indexingError = 'no_indexable_content'
+          }
+        } else {
+          await tx`
+            UPDATE knowledge_chunks SET is_active = false
+            WHERE clinic_id = ${clinicId} AND document_id = ${id}
+          `
+        }
         await tx`
           INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
           ON CONFLICT (clinic_id) DO UPDATE
@@ -575,12 +597,19 @@ export function createKnowledgeRepository(sql: Sql): KnowledgeRepository {
           RETURNING *
         `
         if (docs.length > 0) {
-          await tx`
-            UPDATE knowledge_chunks c SET is_active = true
-            FROM knowledge_documents d
-            WHERE c.clinic_id = ${clinicId} AND d.id = c.document_id AND d.clinic_id = c.clinic_id
-              AND c.document_version = d.version AND d.status = 'active'
-          `
+          for (const document of docs) {
+            const chunkCount = await rebuildCurrentDocumentChunks(tx, clinicId, document)
+            if (chunkCount === 0) {
+              await tx`
+                UPDATE knowledge_documents
+                SET indexing_status = 'failed', indexing_error = ${'no_indexable_content'}
+                WHERE clinic_id = ${clinicId} AND id = ${document.id}
+                  AND version = ${document.version ?? 1}
+              `
+              document.indexingStatus = 'failed'
+              document.indexingError = 'no_indexable_content'
+            }
+          }
           await tx`
             INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${clinicId}, 1)
             ON CONFLICT (clinic_id) DO UPDATE

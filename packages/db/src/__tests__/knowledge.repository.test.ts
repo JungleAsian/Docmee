@@ -223,6 +223,85 @@ describe('knowledge.repository — freshness retrieval contract', () => {
     expect(queries().some((query) => query.includes('INSERT INTO knowledge_chunks'))).toBe(false)
   })
 
+  it('activation replaces a withdrawn migration chunk with authoritative current content', async () => {
+    const chunks = [{ documentId: 'doc-v1', version: 1, content: 'legacy old text', active: false }]
+    const { sql } = fakeSql((query, values) => {
+      if (query.includes('UPDATE knowledge_documents SET status')) {
+        return [{ id: 'doc-v1', version: 1, content: 'authoritative current text', status: 'active', metadata: {} }]
+      }
+      if (query.includes('UPDATE knowledge_chunks') && query.includes('is_active = false')) {
+        for (const chunk of chunks) if (chunk.documentId === 'doc-v1') chunk.active = false
+        return []
+      }
+      if (query.includes('UPDATE knowledge_chunks SET is_active = ')) {
+        for (const chunk of chunks) if (chunk.documentId === 'doc-v1' && chunk.version === 1) chunk.active = true
+        return []
+      }
+      if (query.includes('DELETE FROM knowledge_chunks')) {
+        chunks.splice(0, chunks.length, ...chunks.filter((chunk) =>
+          !(chunk.documentId === 'doc-v1' && chunk.version === 1),
+        ))
+        return []
+      }
+      if (query.includes('INSERT INTO knowledge_chunks')) {
+        chunks.push({
+          documentId: String(values[0]), version: Number(values[5]),
+          content: String(values[2]), active: Boolean(values[6]),
+        })
+        return []
+      }
+      return undefined
+    })
+
+    await createKnowledgeRepository(sql).updateDocumentStatus('clinic-1', 'doc-v1', 'active')
+
+    expect(chunks.filter((chunk) => chunk.active).map((chunk) => chunk.content))
+      .toEqual(['authoritative current text'])
+  })
+
+  it('approve-all rebuilds only returned drafts and cannot revive an unrelated active legacy chunk', async () => {
+    const chunks = [
+      { documentId: 'draft-1', version: 1, content: 'draft legacy text', active: false },
+      { documentId: 'active-1', version: 1, content: 'unrelated legacy old text', active: false },
+    ]
+    const { sql } = fakeSql((query, values) => {
+      if (query.includes('UPDATE knowledge_documents') && query.includes("status = 'active'")) {
+        return [{ id: 'draft-1', version: 1, content: 'approved authoritative text', status: 'active', metadata: {} }]
+      }
+      if (query.includes('UPDATE knowledge_chunks c SET is_active = true')) {
+        for (const chunk of chunks) chunk.active = true
+        return []
+      }
+      if (query.includes('UPDATE knowledge_chunks') && query.includes('is_active = false')) {
+        for (const chunk of chunks) if (chunk.documentId === String(values[1])) chunk.active = false
+        return []
+      }
+      if (query.includes('DELETE FROM knowledge_chunks')) {
+        const documentId = String(values[1])
+        const version = Number(values[2])
+        chunks.splice(0, chunks.length, ...chunks.filter((chunk) =>
+          !(chunk.documentId === documentId && chunk.version === version),
+        ))
+        return []
+      }
+      if (query.includes('INSERT INTO knowledge_chunks')) {
+        chunks.push({
+          documentId: String(values[0]), version: Number(values[5]),
+          content: String(values[2]), active: Boolean(values[6]),
+        })
+        return []
+      }
+      return undefined
+    })
+
+    const approved = await createKnowledgeRepository(sql).approveDraftDocuments('clinic-1')
+
+    expect(approved.map((document) => document.id)).toEqual(['draft-1'])
+    expect(chunks.filter((chunk) => chunk.active).map((chunk) => chunk.content))
+      .toEqual(['approved authoritative text'])
+    expect(chunks.find((chunk) => chunk.documentId === 'active-1')?.active).toBe(false)
+  })
+
   it('runs lexical retrieval when no vector is available', async () => {
     const { sql, lastQuery, lastValues } = fakeSql()
     await createKnowledgeRepository(sql).searchChunks('horario sábado', [], { clinicId: 'clinic-1' })

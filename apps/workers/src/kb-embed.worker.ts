@@ -1,7 +1,7 @@
 // Consumes: kb-embed queue. Embeds knowledge-base chunks and persists the vectors.
 // Three job shapes (one processor, branch on job.name):
 //   embed           { chunkId, clinicId, content }  → one chunk
-//   embed-document  { clinicId, documentId }        → all chunks of a document
+//   embed-document  { clinicId, documentId, documentVersion } → current chunks of one version
 //   reembed-clinic  { clinicId }                    → every chunk of the clinic (re-index)
 // Embeds with the clinic's chosen provider (clinic.settings.aiAssistant.embedProvider).
 import { z } from 'zod'

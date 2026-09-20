@@ -42,6 +42,25 @@ function csvCell(value: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
+function chunkKnowledgeContent(content: string): Array<{ content: string; chunkIndex: number }> {
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return []
+  const chunks: string[] = []
+  let current = ''
+  for (const paragraph of normalized.split(/\n{2,}/)) {
+    const next = paragraph.trim()
+    if (!next) continue
+    if (current && `${current}\n\n${next}`.length > 1800) {
+      chunks.push(current)
+      current = next
+    } else {
+      current = current ? `${current}\n\n${next}` : next
+    }
+  }
+  if (current) chunks.push(current)
+  return chunks.map((chunk, chunkIndex) => ({ content: chunk, chunkIndex }))
+}
+
 const errorsRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
 
@@ -138,7 +157,7 @@ const errorsRoute: FastifyPluginAsync = async (app) => {
   // Add-to-KB (Req 29): turn a reviewed error — typically an unanswered question
   // or a bad bot response — into approved clinic knowledge. Creates a KB document,
   // enqueues embedding so the bot can retrieve it, and resolves the error in one
-  // step so the operator's review action is atomic from the UI's perspective.
+  // operator action while preserving visible indexing failure state.
   app.post<{ Params: { id: string; errorId: string } }>(
     '/clinics/:id/errors/:errorId/add-to-kb',
     { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
@@ -152,20 +171,32 @@ const errorsRoute: FastifyPluginAsync = async (app) => {
         const errors = createErrorReviewsRepository(sql)
         const existing = await errors.findById(clinicId, request.params.errorId)
         if (!existing) return null
-        const document = await createKnowledgeRepository(sql).createDocument({
+        const written = await createKnowledgeRepository(sql).writeDocument({
           clinicId,
           title: parsed.data.title,
           content: parsed.data.content,
           documentType: 'faq',
           status: 'active',
           metadata: { source: 'error_review', errorReviewId: existing.id },
+          chunks: chunkKnowledgeContent(parsed.data.content),
         })
         const error = await errors.resolve(clinicId, existing.id, request.user!.userId)
-        return { document, error }
+        return { document: written.document, error }
       })
       if (!result) return reply.code(404).send({ error: 'Error review not found' })
-      // New content must be embedded before the bot can retrieve it.
-      await kbEmbedQueue.add('embed-document', { clinicId, documentId: result.document.id })
+      const documentVersion = result.document.version ?? 1
+      try {
+        await kbEmbedQueue.add('embed-document', {
+          clinicId, documentId: result.document.id, documentVersion,
+        })
+      } catch (err) {
+        await withDb((sql) => createKnowledgeRepository(sql).markDocumentIndexFailed(
+          clinicId, result.document.id, documentVersion, 'queue_unavailable',
+        ))
+        request.log.error({ err, clinicId, documentId: result.document.id }, 'error-review kb indexing queue failed')
+        result.document.indexingStatus = 'failed'
+        result.document.indexingError = 'queue_unavailable'
+      }
       return reply.code(201).send(result)
     },
   )

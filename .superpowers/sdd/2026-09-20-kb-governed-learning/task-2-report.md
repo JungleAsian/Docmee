@@ -181,3 +181,68 @@ packages/db/supabase/migrations/20260920000002_kb_learning_governance.sql
 ```
 
 Before release: independent Task 2 review; real PostgreSQL migration/RLS/JSONB upsert and locking/concurrency tests; rollback/source-scope acceptance; query-plan/performance and bilingual retrieval quality evaluation; authenticated Task 3 UI tests; provider-format behavior and handoff coverage; retention-worker scheduling/backups/privacy review; clinic-owner acceptance of conservative grounding and manual review roles. Automatic publication should remain off until these gates are signed off. No deployment readiness is asserted.
+
+## Independent-review remediation — 2026-09-20
+
+Source commit: **`be2583dc053423a991ee15b91b0e5bebefd97c07`** (`fix(kb): close scoped learning evidence and retention gaps`), based on `d145f83`, 12 owned source/test/migration files. This section supersedes the earlier evidence, fingerprint, contradiction, retention, and terminal-outcome descriptions where they differ. No Task 3 UI, dependency, provider, database, browser, push or deployment operations were performed.
+
+### Six corrected boundaries
+
+1. **Current scoped evidence.** `LearningCitation` retains document/chunk/version plus retrieval revision, doctor, language and governance-review state. `LearningEvidence` retains the query doctor/language/revision. Old evidence without these fields fails closed. Source validation repeats the authoritative active/approved/effective/current-chunk/governance/doctor predicate and compares the captured source scope. It runs before generation and before sending a factual answer, and again during publication. Doctor reassignment, exclusion, version/revision change or missing evidence causes handoff/stale-source rejection, including staff-confirmed approval with stale citations. Language fallback remains permitted; all eligible languages are considered for the consistency check.
+2. **No singleton truth inference.** A single retrieved source body never establishes `contradiction='clear'`. The repository loads at most 101 current scoped chunks, requiring a complete scope of 1–100 chunks and unchanged revision. A deterministic consistency helper recognizes only atomic opening-time assertions and requires every assertion to agree; intra-chunk disagreement or another current conflicting document blocks publication. Unknown prose, mixed facts or an over-limit scope returns `unknown`, never `clear`.
+3. **Positive safe class.** Automatic publication requires `safeContentClass='office_hours'`, verified again from the actual proposed fact rather than trusting the stored class or absence of regex matches. The intentionally narrow grammar accepts only `We open at 9 AM.`, `The clinic opens at 9 AM.`, `Abrimos a las 9 AM.`, or `La clínica abre a las 9 AM.` forms, with a valid 12-hour time and optional minutes. Unknown wording—including English/Spanish medicine instructions and accompaniment/ID policies missed by the older regexes—requires staff review. Other existing gates still apply; confidence must be at least 80%, grounding exactly 1, repeated consistency, current sources, no negative feedback/risk, and the setting enabled. **Automatic publication remains default-off.** This grammar substantially reduces automatic answer coverage: a scope containing normal mixed clinic prose cannot be declared clear by this first conservative verifier. It is not a broad semantic contradiction classifier.
+4. **Ephemeral questions versus durable facts.** New migration `20260920000003_kb_learning_evidence_remediation.sql` gives `source_question` an independent maximum 24-hour expiry, scrubs approved/superseded legacy questions, and removes content from their unapproved history snapshots. Approval clears `source_question` immediately and retains only the reviewed generalized `candidateContent` and approve/rollback history content. Pending/edit snapshots retain audit metadata but their content is cleared on publication. General prose requires explicit staff-confirmed edited content (otherwise HTTP 400 `generalized_fact_review_required`); a narrow verified opening-time fact can use the existing review flow. The missed-name/identifier regression demonstrates that question removal does not depend on regex recognition. Existing events/gaps remain temporary and deidentified on a best-effort basis, not comprehensively anonymous. No claim is made about backup/WAL erasure. Task 3 must render `candidateContent` as the durable fact, never repurpose the ephemeral `sourceQuestion`; approved responses have an empty source question.
+5. **Version/scope-aware dedupe.** The candidate fingerprint now includes the normalized answer and full sorted citations plus query revision/doctor/language. An unchanged answer from a different source version/scope creates independent evidence rather than incrementing consistency against stale citations. Event-key replay dedupe remains unchanged.
+6. **One terminal outcome recorder.** Every AI-agent terminal path converges through a single `finally` recorder: emergency, provider failure, no match, routing, handoff, retrieval/transport failure, and reply. Records remain idempotent by hashed inbound-event/workflow/node key. Provider exceptions are neither logged nor stored as raw text; only fixed reason codes are retained, with empty answers for failure/no-match paths. Publication does not repeat for replayed attempts. Storage outage handling remains best-effort; this is not a transactional outbox or a guarantee of durable telemetry during database failure.
+
+Publication now also locks the existing clinic retrieval-revision row after cited-document locks. Task 1's authoritative writer increments that row before committing, so unrelated edits/new documents cannot commit between a complete-scope consistency check and publication. The writer itself and version-aware embedding queue behavior are unchanged. The candidate carries forward the revision produced by its own approved write so later staff edits/rollback are not invalidated merely by that write; history preserves the original evidence snapshot. Other revision changes still fail closed. PostgreSQL lock ordering/deadlock behavior must be validated with a real database; local tests exercise the SQL contract only.
+
+### RED → GREEN evidence
+
+All commands were run locally from `docmee-live-runtime-fix`; tests use deterministic mocks/fakes, not live PostgreSQL or providers.
+
+| Regression command | RED evidence | GREEN evidence |
+| --- | --- | --- |
+| `node node_modules/vitest/vitest.mjs run packages/agents/src/__tests__/kb-governance.test.ts --silent` | 10:53:47: 8 failed / 18 passed, including singleton inference and missing positive safe classification | 26/26 passed in final run |
+| `node node_modules/vitest/vitest.mjs run packages/db/src/__tests__/knowledge-learning.repository.test.ts --silent` | 10:57:11: 3 failed / 26 passed, exposing missing governance predicate, lost evidence scope and independent question expiry; later 11:06:07 revision-lock regression: 1 failed / 36 passed | 37/37 passed at 11:06:26 and in final run |
+| `node node_modules/vitest/vitest.mjs run apps/workers/src/__tests__/workflow-runner-safety.test.ts --silent` | 10:59:08: 10 failed / 28 passed; provider/no-match had zero outcome records and generation checks lacked scope. This run also contained an emergency-notification mock omission and old generic-answer fixtures incompatible with the intentionally stricter verifier; those fixture issues were corrected. | 38/38 passed in final run |
+
+The early agents run also exposed a stale local DB build (new exported helper unavailable); rebuilding DB resolved that environment issue. An initial worker typecheck exposed overly generic `ReturnType` inference for retrieved chunks; explicit `KnowledgeSearchRow` typing resolved it. These are not counted as functional regression demonstrations. Doctor/governance approval cases were additionally exercised in the final SQL contract suite; no live mutation-race proof is claimed.
+
+Final full command, 11:07:31, exit 0, **11 files / 167 tests passed**, 18.26 seconds:
+
+```powershell
+node node_modules/vitest/vitest.mjs run packages/db/src/__tests__/knowledge-learning.repository.test.ts packages/db/src/__tests__/knowledge.repository.test.ts packages/db/src/__tests__/sensitive-retention.repository.test.ts packages/agents/src/__tests__/kb-governance.test.ts packages/agents/src/__tests__/kb-retriever.test.ts packages/agents/src/__tests__/kb-hybrid-evaluation.test.ts apps/api/src/routes/kb-learning.test.ts apps/api/src/routes/assistant.test.ts apps/api/src/routes/jzel.test.ts apps/workers/src/__tests__/workflow-runner-ai-agent.test.ts apps/workers/src/__tests__/workflow-runner-safety.test.ts --silent
+```
+
+Final compiler checks all exited 0 (completed 11:09):
+
+```powershell
+node node_modules/typescript/bin/tsc -p packages/db/tsconfig.json
+node node_modules/typescript/bin/tsc -p packages/agents/tsconfig.json
+node node_modules/typescript/bin/tsc -p apps/workers/tsconfig.json --noEmit
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --noEmit
+```
+
+Scoped ESLint on the eleven changed TypeScript files and `git diff --check` both exited 0. The direct equivalents of the repository pre-commit hook also passed from `tools`:
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
+node node_modules/tsx/dist/cli.mjs ./node_modules/eslint/bin/eslint.js .
+```
+
+The normal commit hook nevertheless failed in its shell wrapper before checks ran, exactly:
+
+```text
+/c/Users/Mikazuki/nodejs/node-v24.16.0-win-x64/pnpm: line 2: sed: command not found
+/c/Users/Mikazuki/nodejs/node-v24.16.0-win-x64/pnpm: line 2: dirname: command not found
+/c/Users/Mikazuki/nodejs/node-v24.16.0-win-x64/pnpm: line 4: uname: command not found
+Error: Cannot find module 'C:\Program Files\Git\node_modules\corepack\dist\pnpm.js'
+Typecheck failed. Commit aborted.
+```
+
+After the direct equivalent checks passed, the authorized single-command `git -c core.hooksPath=<new empty temporary directory> commit ...` override was used. No persistent hook/configuration change was made, and unrelated untracked artifacts were preserved.
+
+### Remaining gates
+
+Fresh independent remediation review; real PostgreSQL migration and legacy-row scrubbing, RLS/JSONB and transaction/concurrency tests; rollout privacy/retention scheduling and backup policy review; provider-format and bilingual owner evaluations of the deliberately narrow coverage; authenticated Task 3 UI and rollback acceptance; version-aware queue retry/reindex verification. No deployment readiness, model learning, live provider behavior or production database validation is asserted.

@@ -25,6 +25,9 @@ const nodeKinds = new Map<string, WorkflowNode['kind']>([
   ['action.offer_slots', 'action'],
   ['action.offer_slot_menu', 'action'],
   ['action.create_or_reschedule_booking', 'action'],
+  ['action.create_booking', 'action'],
+  ['action.reschedule_booking', 'action'],
+  ['action.cancel_booking', 'action'],
   ['action.transcribe_booking_voice', 'action'],
   ['action.ai_agent', 'action'],
   ['action.end', 'action'],
@@ -210,8 +213,8 @@ export function validateWorkflowDefinition(
     if (node.type === 'action.interactive_menu') {
       const options = parseMenuOptions(node.config)
       const optionSource = String(node.config?.['optionSource'] ?? 'static')
-      const dynamic = optionSource === 'clinic_doctors' || optionSource === 'doctor_services'
-      if (!['static', 'clinic_doctors', 'doctor_services'].includes(optionSource)) {
+      const dynamic = optionSource === 'clinic_doctors' || optionSource === 'doctor_services' || optionSource === 'patient_appointments'
+      if (!['static', 'clinic_doctors', 'doctor_services', 'patient_appointments'].includes(optionSource)) {
         errors.push(`Interactive menu ${node.id} has invalid optionSource "${optionSource}".`)
       }
       // Matches the worker's own default (workflow-runner.worker.ts) and the

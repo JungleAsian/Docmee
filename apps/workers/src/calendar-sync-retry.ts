@@ -37,13 +37,19 @@ export function decideCalendarSyncAction(appt: Pick<Appointment, 'status' | 'goo
   return appt.googleEventId ? 'update' : 'create'
 }
 
-function eventTitle(appt: AppointmentWithNames): string {
-  return formatCalendarBooking({ serviceName: appt.serviceName, patientName: appt.patientName, patientPhone: appt.patientPhone, reason: appt.notes }).title
+function eventDetails(appt: AppointmentWithNames) {
+  return formatCalendarBooking({
+    serviceName: appt.serviceName,
+    patientName: appt.patientName,
+    patientPhone: appt.patientPhone,
+    patientEmail: appt.patientEmail,
+    reason: appt.notes,
+  })
 }
 
-function eventDescription(appt: AppointmentWithNames): string {
-  return formatCalendarBooking({ serviceName: appt.serviceName, patientName: appt.patientName, patientPhone: appt.patientPhone, reason: appt.notes }).description
-}
+function eventTitle(appt: AppointmentWithNames): string { return eventDetails(appt).title }
+
+function eventDescription(appt: AppointmentWithNames): string { return eventDetails(appt).description }
 
 function durationMinutes(appt: Pick<Appointment, 'startTime' | 'endTime'>): number {
   const ms = new Date(appt.endTime).getTime() - new Date(appt.startTime).getTime()
@@ -97,6 +103,7 @@ export async function runCalendarSyncRetry(sql: Sql): Promise<void> {
           date: appt.startTime.slice(0, 10),
           time: appt.startTime.slice(11, 16),
           durationMinutes: durationMinutes(appt),
+          description: eventDescription(appt),
         })
         await appointments.update(appt.clinicId, appt.id, { calendarSyncPending: false, calendarSyncError: null })
       } else {

@@ -22,6 +22,8 @@ function patient(metadata: Record<string, unknown>): Patient {
     id: 'p1',
     clinicId: 'c1',
     fullName: 'Ana',
+    phoneE164: null,
+    email: null,
     status: 'returning',
     notes: null,
     metadata,

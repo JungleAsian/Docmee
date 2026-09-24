@@ -2,6 +2,7 @@ export interface CalendarBookingDetails {
   serviceName?: string | null
   patientName?: string | null
   patientPhone?: string | null
+  patientEmail?: string | null
   reason?: string | null
 }
 
@@ -10,9 +11,10 @@ export function formatCalendarBooking(details: CalendarBookingDetails): { title:
   const service = details.serviceName?.trim() || 'Clinic appointment'
   const patient = details.patientName?.trim() || 'Patient'
   const phone = details.patientPhone?.trim() || 'Not provided'
+  const email = details.patientEmail?.trim() || 'Not provided'
   const reason = details.reason?.trim() || 'Not provided'
   return {
     title: `${service} - ${patient}`,
-    description: `Details:\nPatient phone: ${phone}\nReason for visit: ${reason}`,
+    description: `Details:\nPatient phone: ${phone}\nPatient email: ${email}\nReason for visit: ${reason}`,
   }
 }

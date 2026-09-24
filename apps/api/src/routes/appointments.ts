@@ -87,6 +87,8 @@ const bookSchema = z
   .object({
     patientId: z.string().min(1).optional(),
     patientName: z.string().min(1).max(200).optional(),
+    patientPhone: z.string().trim().min(5).max(32).optional(),
+    patientEmail: z.string().trim().email().max(320).optional(),
     doctorId: z.string().min(1),
     serviceId: z.string().min(1).optional(),
     date: isoDate,
@@ -169,10 +171,6 @@ function durationMinutes(startTime: string | Date, endTime: string | Date): numb
     ? Math.round((end - start) / 60_000)
     : toMin(timeOf(endTime)) - toMin(timeOf(startTime))
   return Math.max(diff, DEFAULT_DURATION_MIN)
-}
-
-function eventTitle(patientName: string | null): string {
-  return patientName ? `Cita: ${patientName}` : 'Cita'
 }
 
 async function clinicCalendar(sql: Parameters<typeof createClinicsRepository>[0], clinicId: string): Promise<CalendarOps | null> {
@@ -344,7 +342,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
     if (!parsed.ok) return
     const clinicId = resolveClinicScope(request, request.params.id)
     if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-    const { patientId, patientName, doctorId, serviceId, date, start, notes, urgent, overbook, overbookingReason } = parsed.data
+    const { patientId, patientName, patientPhone, patientEmail, doctorId, serviceId, date, start, notes, urgent, overbook, overbookingReason } = parsed.data
     if (overbook && !(await isDocmeeExpansionFeatureEnabled('calendarPolicyV2', clinicId))) {
       return reply.code(404).send({ error: 'Not found' })
     }
@@ -369,12 +367,19 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       if (new Date(instantRange.startTime).getTime() <= Date.now()) return { error: 'past' as const }
 
       const patients = createPatientsRepository(sql)
-      const patient = patientName
-        ? await patients.create({ clinicId, fullName: patientName })
+      let patient = patientName
+        ? await patients.create({ clinicId, fullName: patientName, phoneE164: patientPhone, email: patientEmail })
         : await patients.findById(clinicId, patientId!)
       if (!patient) return { error: 'patient' as const }
+      if (!patientName && ((patientPhone && !patient.phoneE164) || (patientEmail && !patient.email))) {
+        patient = await patients.update(clinicId, patient.id, {
+          ...(!patient.phoneE164 && patientPhone ? { phoneE164: patientPhone } : {}),
+          ...(!patient.email && patientEmail ? { email: patientEmail } : {}),
+        })
+      }
       const patientContacts = await patients.listContacts(clinicId, patient.id)
-      const patientPhone = patientContacts.find((contact) => contact.channel === 'whatsapp' && contact.isPrimary)?.contactHandle
+      const calendarPatientPhone = patient.phoneE164
+        ?? patientContacts.find((contact) => contact.channel === 'whatsapp' && contact.isPrimary)?.contactHandle
         ?? patientContacts.find((contact) => contact.channel === 'whatsapp')?.contactHandle
       const serviceName = serviceId ? (await appts.listServices(clinicId)).find((service) => service.id === serviceId)?.name : null
 
@@ -411,7 +416,7 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
       if (calendar) {
         try {
           const googleEventId = await calendar.createEvent({
-            ...formatCalendarBooking({ serviceName, patientName: patient.fullName, patientPhone, reason: notes }),
+            ...formatCalendarBooking({ serviceName, patientName: patient.fullName, patientPhone: calendarPatientPhone, patientEmail: patient.email, reason: notes }),
             date,
             time: start,
             durationMinutes: duration,
@@ -561,9 +566,28 @@ const appointmentsRoute: FastifyPluginAsync = async (app) => {
             return appts.update(clinicId, updated.id, { calendarSyncPending: true })
           }
           try {
+            const patients = createPatientsRepository(sql)
+            const patient = await patients.findById(clinicId, updated.patientId)
+            const patientContacts = patient
+              ? await patients.listContacts(clinicId, patient.id)
+              : []
+            const calendarPatientPhone = patient?.phoneE164 ?? patientContacts.find(
+              (contact) => contact.channel === 'whatsapp' && contact.isPrimary,
+            )?.contactHandle ?? null
+            const serviceName = updated.serviceId
+              ? (await appts.listServices(clinicId)).find((service) => service.id === updated.serviceId)?.name
+              : null
+            const calendarDetails = formatCalendarBooking({
+              serviceName,
+              patientName: patient?.fullName,
+              patientPhone: calendarPatientPhone,
+              patientEmail: patient?.email,
+              reason: updated.notes,
+            })
             await calendar.updateEvent({
               eventId: updated.googleEventId,
-              title: eventTitle(null),
+              title: calendarDetails.title,
+              description: calendarDetails.description,
               date,
               time: start,
               durationMinutes: durationMinutes(updated.startTime, updated.endTime),

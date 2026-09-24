@@ -5,6 +5,8 @@ import type { Patient, PatientContact, PatientStatus, Channel, PatientAutomation
 export interface CreatePatientInput {
   clinicId: string
   fullName?: string
+  phoneE164?: string
+  email?: string
   status?: PatientStatus
   notes?: string
   metadata?: Record<string, unknown>
@@ -12,6 +14,8 @@ export interface CreatePatientInput {
 
 export interface UpdatePatientInput {
   fullName?: string
+  phoneE164?: string
+  email?: string
   status?: PatientStatus
   notes?: string
   metadata?: Record<string, unknown>
@@ -65,10 +69,12 @@ export function createPatientsRepository(sql: Sql): PatientsRepository {
 
     async create(data) {
       const rows = await sql<Patient[]>`
-        INSERT INTO patients (clinic_id, full_name, status, notes, metadata)
+        INSERT INTO patients (clinic_id, full_name, phone_e164, email, status, notes, metadata)
         VALUES (
           ${data.clinicId},
           ${data.fullName ?? null},
+          ${data.phoneE164 ?? null},
+          ${data.email ?? null},
           ${data.status ?? 'new'},
           ${data.notes ?? null},
           ${sql.json(toJson(data.metadata ?? {}))}
@@ -82,6 +88,8 @@ export function createPatientsRepository(sql: Sql): PatientsRepository {
       const rows = await sql<Patient[]>`
         UPDATE patients SET
           full_name = COALESCE(${data.fullName ?? null}, full_name),
+          phone_e164 = COALESCE(${data.phoneE164 ?? null}, phone_e164),
+          email     = COALESCE(${data.email ?? null}, email),
           status    = COALESCE(${data.status   ?? null}, status),
           notes     = COALESCE(${data.notes    ?? null}, notes),
           metadata  = CASE WHEN ${data.metadata !== undefined} THEN ${sql.json(toJson(data.metadata ?? {}))} ELSE metadata END

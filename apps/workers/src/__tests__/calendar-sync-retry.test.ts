@@ -37,10 +37,11 @@ vi.mock('@docmee/agents', () => ({
     serviceName?: string | null
     patientName?: string | null
     patientPhone?: string | null
+    patientEmail?: string | null
     reason?: string | null
   }) => ({
     title: `${details.serviceName?.trim() || 'Clinic appointment'} - ${details.patientName?.trim() || 'Patient'}`,
-    description: `Details:\nPatient phone: ${details.patientPhone?.trim() || 'Not provided'}\nReason for visit: ${
+    description: `Details:\nPatient phone: ${details.patientPhone?.trim() || 'Not provided'}\nPatient email: ${details.patientEmail?.trim() || 'Not provided'}\nReason for visit: ${
       details.reason?.trim() || 'Not provided'
     }`,
   }),
@@ -58,6 +59,8 @@ function candidate(over: Record<string, unknown> = {}) {
     startTime: '2026-07-01T09:00:00',
     endTime: '2026-07-01T09:30:00',
     patientName: 'Ana',
+    patientPhone: '+50255550199',
+    patientEmail: 'ana@example.com',
     doctorName: null,
     calendarSyncAttempts: 0,
     ...over,
@@ -110,6 +113,20 @@ describe('runCalendarSyncRetry', () => {
       calendarSyncPending: false,
       calendarSyncError: null,
     })
+  })
+
+  it('existing event update refreshes the complete patient contact description', async () => {
+    const updateEvent = vi.fn().mockResolvedValue(undefined)
+    h.listCandidates.mockResolvedValue([candidate({ googleEventId: 'evt_existing' })])
+    h.findClinic.mockResolvedValue({ id: 'clinic-1', settings: {}, timezone: 'America/Guatemala' })
+    h.resolveCalendarConfig.mockResolvedValue({ ops: { createEvent: vi.fn(), updateEvent, deleteEvent: vi.fn() } })
+
+    await runCalendarSyncRetry({} as never)
+
+    expect(updateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventId: 'evt_existing',
+      description: expect.stringContaining('Patient email: ana@example.com'),
+    }))
   })
 
   it('cancelled row with no event at all → marked synced without touching Calendar', async () => {

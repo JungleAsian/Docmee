@@ -205,8 +205,18 @@ describe('processConversationJob', () => {
     expect(createInput).toMatchObject({
       clinicId: CLINIC,
       fullName: 'Ana',
+      phoneE164: base.patientWaId,
       status: 'new',
       metadata: { source: 'whatsapp', phone: base.patientWaId, contactHandle: base.patientWaId },
+    })
+  })
+
+  it('backfills missing canonical name and WhatsApp phone for a returning patient', async () => {
+    h.findByContact.mockResolvedValue({ id: PATIENT, status: 'returning', fullName: null, phoneE164: null })
+    await processConversationJob(makeJob({ ...base, messageType: 'text', content: 'hola' }))
+    expect(h.updatePatient).toHaveBeenCalledWith(CLINIC, PATIENT, {
+      fullName: 'Ana',
+      phoneE164: base.patientWaId,
     })
   })
 

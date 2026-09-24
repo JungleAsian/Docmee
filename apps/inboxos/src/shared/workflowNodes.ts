@@ -110,6 +110,30 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     icon: 'calendarPlus',
   },
   {
+    type: 'action.create_booking',
+    kind: 'action',
+    labelKey: 'wf.node.createBooking',
+    descKey: 'wf.desc.createBooking',
+    fields: ['doctorIdField', 'serviceIdField', 'dateField', 'timeField', 'durationMinutes', 'title'],
+    icon: 'calendarPlus',
+  },
+  {
+    type: 'action.reschedule_booking',
+    kind: 'action',
+    labelKey: 'wf.node.rescheduleBooking',
+    descKey: 'wf.desc.rescheduleBooking',
+    fields: ['appointmentIdField', 'dateField', 'timeField'],
+    icon: 'calendar',
+  },
+  {
+    type: 'action.cancel_booking',
+    kind: 'action',
+    labelKey: 'wf.node.cancelBooking',
+    descKey: 'wf.desc.cancelBooking',
+    fields: ['appointmentIdField'],
+    icon: 'calendarCheck',
+  },
+  {
     type: 'action.transcribe_booking_voice',
     kind: 'action',
     labelKey: 'wf.node.transcribeBookingVoice',
@@ -295,6 +319,9 @@ const FIELD_PRODUCERS: Partial<Record<string, FieldProducer>> = {
   // dropdown correct either way.
   'action.offer_slot_menu': { fromConfig: [{ key: 'selectField', fallback: '' }], fixed: ['preferred_date', 'preferred_time'] },
   'action.create_or_reschedule_booking': { fixed: ['appointment_id', 'booking_status'] },
+  'action.create_booking': { fixed: ['appointment_id', 'booking_status'] },
+  'action.reschedule_booking': { fixed: ['appointment_id', 'booking_status'] },
+  'action.cancel_booking': { fixed: ['appointment_id', 'booking_status'] },
   'action.extract_booking_details': {
     csvFromConfig: 'allowedFields',
     fixed: ['needs_review', 'contains_disallowed_medical_content', 'voice_booking_confidence', 'booking_confidence', 'voice_booking_source'],
@@ -362,6 +389,7 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
     { value: 'static', labelKey: 'wf.optionSource.static' },
     { value: 'clinic_doctors', labelKey: 'wf.optionSource.clinicDoctors' },
     { value: 'doctor_services', labelKey: 'wf.optionSource.doctorServices' },
+    { value: 'patient_appointments', labelKey: 'wf.optionSource.patientAppointments' },
   ],
   pickerMode: [
     { value: 'date', labelKey: 'wf.slotMenuMode.date' },
@@ -456,7 +484,7 @@ const FIXED_FIELD_VALUES: Record<string, string[]> = {
   // askAndCapture: `invalid_${validation}` or 'conversation_required'
   capture_error: ['invalid_text', 'invalid_date', 'invalid_time', 'invalid_phone', 'invalid_number', 'invalid_email', 'conversation_required'],
   // createOrRescheduleBooking
-  booking_status: ['created', 'rescheduled'],
+  booking_status: ['created', 'rescheduled', 'cancelled'],
   // extract/transcribe: extraction.confidence is a high/medium/low enum
   voice_booking_confidence: ['high', 'medium', 'low'],
   // extract/transcribe booleans (evalCondition stringifies ctx values, so

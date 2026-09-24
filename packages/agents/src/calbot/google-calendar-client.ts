@@ -314,7 +314,7 @@ export function computeFreeSlots(
 export interface CalendarOps {
   listSlots(date: string): Promise<TimeSlot[]>
   createEvent(params: { title: string; date: string; time: string; durationMinutes: number; description?: string }): Promise<string>
-  updateEvent(params: { eventId: string; title: string; date: string; time: string; durationMinutes: number }): Promise<void>
+  updateEvent(params: { eventId: string; title: string; date: string; time: string; durationMinutes: number; description?: string }): Promise<void>
   deleteEvent(eventId: string): Promise<void>
 }
 
@@ -365,6 +365,8 @@ export function createGoogleCalendarOps(config: GoogleCalendarConfig): CalendarO
         calendarId: config.calendarId,
         eventId: p.eventId,
         requestBody: {
+          summary: p.title,
+          description: p.description,
           start: { dateTime: range.start, timeZone: config.timezone },
           end: { dateTime: range.end, timeZone: config.timezone },
         },

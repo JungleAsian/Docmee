@@ -6,6 +6,10 @@ const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Reco
 const edge = (id: string, source: string, target: string, sourceHandle?: string): WorkflowEdge => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })
 
 describe('validateWorkflowDefinition', () => {
+  it.each(['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking'])('accepts the first-class booking action %s', (type) => {
+    expect(validateWorkflowDefinition([node('booking', 'action', type)], [], { requireTrigger: false })).toEqual([])
+  })
+
   it.each(['typo', 'EMAIL'])('blocks unsupported capture validation %s on publish but preserves drafts', (validation) => {
     const nodes = [node('start', 'trigger', 'trigger.message_keyword'), node('capture', 'action', 'action.ask_capture', { field: 'email', question: 'Your email?', validation }), node('end', 'action', 'action.end')]
     const edges = [edge('a', 'start', 'capture'), edge('b', 'capture', 'end')]
@@ -115,6 +119,21 @@ describe('validateWorkflowDefinition', () => {
         optionSource: 'clinic_doctors',
         field: 'doctor_id',
       }),
+      node('picked', 'action', 'action.end'),
+      node('empty', 'action', 'action.end'),
+    ], [
+      edge('t', 'trigger', 'menu'),
+      edge('selected', 'menu', 'picked', 'selected'),
+      edge('empty', 'menu', 'empty', 'empty'),
+    ], { requireTrigger: true })
+
+    expect(errors).toEqual([])
+  })
+
+  it('accepts patient appointments as a dynamic menu source', () => {
+    const errors = validateWorkflowDefinition([
+      node('trigger', 'trigger', 'trigger.message_keyword'),
+      node('menu', 'action', 'action.interactive_menu', { optionSource: 'patient_appointments' }),
       node('picked', 'action', 'action.end'),
       node('empty', 'action', 'action.end'),
     ], [

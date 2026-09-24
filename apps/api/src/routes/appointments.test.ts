@@ -55,7 +55,7 @@ const store = vi.hoisted(() => ({
     ],
   ]),
   patients: new Map<string, Record<string, unknown>>([
-    ['pat-1', { id: 'pat-1', clinicId: 'c-1', fullName: 'Juan Pérez' }],
+    ['pat-1', { id: 'pat-1', clinicId: 'c-1', fullName: 'Juan Pérez', phoneE164: '+50255550101', email: 'juan@example.com' }],
     ['pat-2', { id: 'pat-2', clinicId: 'c-3', fullName: 'María López' }],
   ]),
   contacts: new Map<string, Record<string, unknown>[]>([
@@ -68,7 +68,9 @@ const store = vi.hoisted(() => ({
   lastListRange: null as null | { from: string; to: string; doctorId?: string },
 }))
 
-vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
+vi.mock('@docmee/db', async () => ({
+  normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
+  rejectionReasons: ['unsupported', 'outdated', 'unsafe', 'duplicate', 'not_clinic_policy', 'other'],
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({
     findById: async (id: string) => {
@@ -103,9 +105,16 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
       const row = store.patients.get(id)
       return row && row.clinicId === clinicId ? row : null
     },
-    create: async ({ clinicId, fullName }: { clinicId: string; fullName: string }) => {
+    create: async ({ clinicId, fullName, phoneE164, email }: { clinicId: string; fullName: string; phoneE164?: string; email?: string }) => {
       const id = `pat-${store.patients.size + 1}`
-      const row = { id, clinicId, fullName }
+      const row = { id, clinicId, fullName, phoneE164: phoneE164 ?? null, email: email ?? null }
+      store.patients.set(id, row)
+      return row
+    },
+    update: async (clinicId: string, id: string, data: Record<string, unknown>) => {
+      const current = store.patients.get(id)
+      if (!current || current.clinicId !== clinicId) throw new Error('Patient not found')
+      const row = { ...current, ...data }
       store.patients.set(id, row)
       return row
     },
@@ -301,6 +310,33 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(appointment.startTime).toBe('2026-06-22T15:00:00.000Z')
     expect(appointment.endTime).toBe('2026-06-22T16:00:00.000Z')
     expect(appointment.status).toBe('pending')
+  })
+
+  it('POST saves a new patient phone and email and includes them in Google Calendar', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/appointments',
+      headers: auth,
+      payload: {
+        patientName: 'Ana Pérez',
+        patientPhone: '+50255550199',
+        patientEmail: 'ana@example.com',
+        doctorId: 'doc-1',
+        date: '2026-07-20',
+        start: '09:00',
+        notes: 'Primera consulta',
+      },
+    })
+    expect(res.statusCode).toBe(201)
+    const { appointment } = JSON.parse(res.body)
+    expect(store.patients.get(appointment.patientId)).toMatchObject({
+      fullName: 'Ana Pérez',
+      phoneE164: '+50255550199',
+      email: 'ana@example.com',
+    })
+    expect(calendarOps.createEvent).toHaveBeenCalledWith(expect.objectContaining({
+      description: expect.stringContaining('Patient email: ana@example.com'),
+    }))
   })
 
   it('GET /slots now hides the just-booked 09:00 slot', async () => {
@@ -526,6 +562,12 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
     expect(appt.startTime).toBe('2026-06-29T15:00:00.000Z')
     expect(appt.endTime).toBe('2026-06-29T16:00:00.000Z') // 60-min duration preserved
     expect(store.events.some((e) => e.eventType === 'rescheduled')).toBe(true)
+    expect(calendarOps.updateEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Limpieza - Juan Pérez',
+        description: expect.stringContaining('Patient email: juan@example.com'),
+      }),
+    )
   })
 
   it('PATCH reschedule rejects an occupied slot and leaves the appointment unchanged', async () => {
@@ -632,7 +674,7 @@ describe('Appointment routes (Screen 2 — Req 9/30)', () => {
       method: 'POST',
       url: '/clinics/c-1/appointments',
       headers: auth,
-      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-07-20', start: '09:00' },
+      payload: { patientId: 'pat-1', doctorId: 'doc-1', date: '2026-07-27', start: '09:00' },
     })
     const id = JSON.parse(created.body).appointment.id
     const res = await app.inject({

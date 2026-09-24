@@ -245,6 +245,32 @@ function contextString(ctx: WorkflowContext, field: string): string {
   return String(ctx[field] ?? '').trim()
 }
 
+const PATIENT_NAME_FIELDS = new Set(['name', 'full_name', 'patient_name'])
+const PATIENT_PHONE_FIELDS = new Set(['phone', 'phone_number', 'phone_e164', 'patient_phone'])
+const PATIENT_EMAIL_FIELDS = new Set(['email', 'patient_email'])
+
+async function persistCapturedPatientIdentity(
+  sql: Sql,
+  clinicId: string,
+  ctx: WorkflowContext,
+  field: string,
+  validation: string,
+  value: string,
+): Promise<void> {
+  if (!ctx.patientId || !value.trim()) return
+  const key = field.trim().toLowerCase()
+  const patients = createPatientsRepository(sql)
+  const patient = await patients.findById(clinicId, ctx.patientId)
+  if (!patient) return
+  const update: { fullName?: string; phoneE164?: string; email?: string } = {}
+  // A validated, explicitly captured identity value is patient-provided and is
+  // therefore newer than a channel profile name or a previously saved value.
+  if (PATIENT_NAME_FIELDS.has(key)) update.fullName = value.trim()
+  if (validation === 'phone' || PATIENT_PHONE_FIELDS.has(key)) update.phoneE164 = value.trim()
+  if (validation === 'email' || PATIENT_EMAIL_FIELDS.has(key)) update.email = value.trim().toLowerCase()
+  if (Object.keys(update).length > 0) await patients.update(clinicId, ctx.patientId, update)
+}
+
 function calendarTokens(value: unknown): { accessToken: string; refreshToken: string; calendarId: string; expiryDate?: number } | null {
   if (!isRecord(value)) return null
   const accessToken = value['accessToken']
@@ -515,6 +541,28 @@ async function loadDynamicMenuItems(
       title: service.name.slice(0, 24),
       ...(service.description ? { description: service.description.slice(0, 72) } : {}),
     }))
+  }
+  if (source === 'patient_appointments') {
+    if (!ctx.patientId) return []
+    const clinic = await createClinicsRepository(sql).findById(clinicId)
+    const timezone = clinic?.timezone || 'UTC'
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+    const terminalStatuses = new Set(['cancelled', 'completed', 'no_show'])
+    return (await createAppointmentsRepository(sql).listByPatient(clinicId, ctx.patientId))
+      .filter((appointment) => !terminalStatuses.has(appointment.status) && Date.parse(appointment.startTime) > Date.now())
+      .sort((left, right) => Date.parse(left.startTime) - Date.parse(right.startTime))
+      .map((appointment) => ({
+        id: appointment.id,
+        title: formatter.format(new Date(appointment.startTime)).slice(0, 24),
+        description: String(appointment.status).replaceAll('_', ' ').slice(0, 72),
+      }))
   }
   return []
 }
@@ -1406,7 +1454,9 @@ function buildExecutors(
       if (existing?.nodeId === node.id && existing.status === 'pending') {
         const reply = contextString(ctx, 'message')
         if (validCapturedReply(existing.validation, reply)) {
-          ctx[existing.field] = existing.validation === 'phone' ? reply.replace(/[\s().-]/g, '') : reply
+          const captured = existing.validation === 'phone' ? reply.replace(/[\s().-]/g, '') : reply
+          ctx[existing.field] = captured
+          await persistCapturedPatientIdentity(sql, clinicId, ctx, existing.field, existing.validation, captured)
           ctx['capture_status'] = 'captured'
           ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = { ...existing, status: 'captured' }
           return
@@ -1428,6 +1478,7 @@ function buildExecutors(
       const validation = String(node.config?.['validation'] ?? 'required')
       const freshInteractiveSelection = typeof ctx['interactiveReplyId'] === 'string' && ctx['interactiveReplyId'].trim().length > 0
       if (currentValue && !freshInteractiveSelection && validCapturedReply(validation, currentValue)) {
+        await persistCapturedPatientIdentity(sql, clinicId, ctx, field, validation, currentValue)
         ctx['capture_status'] = 'captured'
         ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] = {
           nodeId: node.id,
@@ -1754,17 +1805,45 @@ function buildExecutors(
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
       if (!ctx.patientId) throw new Error('A patient is required to create or reschedule a booking')
 
+      const appointments = createAppointmentsRepository(sql)
+      const mode = node.type === 'action.reschedule_booking'
+        ? 'reschedule'
+        : node.type === 'action.create_booking'
+          ? 'create'
+          : String(node.config?.['mode'] ?? 'create')
+      const appointmentId = mode === 'reschedule'
+        ? contextString(ctx, configField(node, 'appointmentIdField', 'appointment_id'))
+        : ''
+      if (mode === 'reschedule' && !appointmentId) {
+        throw new Error('An appointment ID is required to reschedule a booking')
+      }
+      const existingAppointment = appointmentId
+        ? await appointments.findById(clinicId, appointmentId)
+        : null
+      if (mode === 'reschedule') {
+        if (!existingAppointment) throw new Error(`Appointment not found: ${appointmentId}`)
+        if (existingAppointment.patientId !== ctx.patientId) {
+          throw new Error('The selected appointment does not belong to this patient')
+        }
+        if (['cancelled', 'completed', 'no_show'].includes(existingAppointment.status)) {
+          throw new Error(`A ${existingAppointment.status} appointment cannot be rescheduled`)
+        }
+      }
+
       // Direct pick (config.doctorId) wins over the patient's saved choice.
       const doctorValue =
         String(node.config?.['doctorId'] ?? '').trim() ||
         contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
-      const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
+      const doctorId = mode === 'reschedule'
+        ? existingAppointment?.doctorId ?? undefined
+        : await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
       if (doctorValue.trim() && !doctorId) {
         throw new Error(`Could not identify the selected doctor from "${doctorValue}"`)
       }
-      const serviceId =
-        String(node.config?.['serviceId'] ?? '').trim() ||
-        contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
+      const serviceId = mode === 'reschedule'
+        ? existingAppointment?.serviceId ?? ''
+        : String(node.config?.['serviceId'] ?? '').trim() ||
+          contextString(ctx, configField(node, 'serviceIdField', 'service_id'))
       const date = contextString(ctx, configField(node, 'dateField', 'preferred_date'))
       const configuredTimeField = configField(node, 'timeField', 'preferred_time')
       const configuredTime = contextString(ctx, configuredTimeField)
@@ -1782,17 +1861,26 @@ function buildExecutors(
         throw new Error('Booking date or time is missing or invalid')
       }
 
-      const appointments = createAppointmentsRepository(sql)
       const services = await appointments.listServices(clinicId)
       const service = serviceId ? services.find((item) => item.id === serviceId) : undefined
-      if (serviceId) {
+      if (serviceId && mode === 'create') {
         if (!doctorId) throw new Error('A doctor is required when a service is selected')
         const enabledForDoctor = await createDoctorServicesRepository(sql).listServicesForDoctor(clinicId, doctorId)
         if (!selectedDoctorOffersService(enabledForDoctor, serviceId)) {
           throw new Error('The selected service is no longer enabled for this doctor')
         }
       }
-      const duration = boundedInteger(node.config?.['durationMinutes'] ?? service?.durationMinutes, 30, 5, 480)
+      const existingDuration = existingAppointment
+        ? Math.round((Date.parse(existingAppointment.endTime) - Date.parse(existingAppointment.startTime)) / 60_000)
+        : undefined
+      const duration = boundedInteger(
+        mode === 'reschedule'
+          ? existingDuration
+          : node.config?.['durationMinutes'] ?? service?.durationMinutes,
+        30,
+        5,
+        480,
+      )
       const resolvedCalendar = await workflowCalendarConfig(sql, clinic, doctorId || undefined)
       if (!resolvedCalendar) throw new Error('Google Calendar is not connected for this doctor or clinic')
       const calendar = createGoogleCalendarOps(resolvedCalendar.config)
@@ -1804,8 +1892,9 @@ function buildExecutors(
       const calendarDetails = formatCalendarBooking({
         serviceName: serviceName ?? (String(node.config?.['title'] ?? '').trim() || null),
         patientName: patient?.fullName ?? contextString(ctx, 'patient_name'),
-        patientPhone,
-        reason: contextString(ctx, configField(node, 'reasonField', 'reason')),
+        patientPhone: patient?.phoneE164 ?? patientPhone,
+        patientEmail: patient?.email,
+        reason: contextString(ctx, configField(node, 'reasonField', 'reason')) || existingAppointment?.notes,
       })
       const title = calendarDetails.title
       const startTime = `${date}T${time}:00`
@@ -1823,13 +1912,8 @@ function buildExecutors(
       if (!slotsCoverRange(availableSlots, startTime, endTime)) {
         throw new Error('The selected appointment time is no longer available for the required duration')
       }
-      const mode = String(node.config?.['mode'] ?? 'create')
-
       if (mode === 'reschedule') {
-        const appointmentId = contextString(ctx, configField(node, 'appointmentIdField', 'appointment_id'))
-        if (!appointmentId) throw new Error('An appointment ID is required to reschedule a booking')
-        const appointment = await appointments.findById(clinicId, appointmentId)
-        if (!appointment) throw new Error(`Appointment not found: ${appointmentId}`)
+        const appointment = existingAppointment!
         const moved = await appointments.saveWithinCapacity({
           mode: 'reschedule',
           clinicId,
@@ -1848,7 +1932,14 @@ function buildExecutors(
         if (appointment.googleEventId) {
           try {
             await withWorkflowCalendarWriteTimeout(
-              calendar.updateEvent({ eventId: appointment.googleEventId, title, date, time, durationMinutes: duration }),
+              calendar.updateEvent({
+                eventId: appointment.googleEventId,
+                title,
+                description: calendarDetails.description,
+                date,
+                time,
+                durationMinutes: duration,
+              }),
               'Google Calendar event update',
             )
             await appointments.update(clinicId, appointmentId, { calendarSyncPending: false, calendarSyncError: null })
@@ -1897,6 +1988,64 @@ function buildExecutors(
       ctx['appointment_id'] = created.id
       if (googleEventId) ctx['google_event_id'] = googleEventId
       ctx['booking_status'] = 'created'
+    },
+
+    async cancelBooking(node, ctx) {
+      if (!ctx.patientId) throw new Error('A patient is required to cancel a booking')
+      const appointmentId = contextString(ctx, configField(node, 'appointmentIdField', 'appointment_id'))
+      if (!appointmentId) throw new Error('An appointment ID is required to cancel a booking')
+
+      const appointments = createAppointmentsRepository(sql)
+      const appointment = await appointments.findById(clinicId, appointmentId)
+      if (!appointment) throw new Error(`Appointment not found: ${appointmentId}`)
+      if (appointment.patientId !== ctx.patientId) {
+        throw new Error('The selected appointment does not belong to this patient')
+      }
+      if (appointment.status === 'cancelled') {
+        ctx['appointment_id'] = appointmentId
+        ctx['booking_status'] = 'cancelled'
+        return
+      }
+      if (['completed', 'no_show'].includes(appointment.status)) {
+        throw new Error(`A ${appointment.status} appointment cannot be cancelled`)
+      }
+
+      await appointments.update(clinicId, appointmentId, {
+        status: 'cancelled',
+        calendarSyncPending: Boolean(appointment.googleEventId),
+        calendarSyncError: null,
+      })
+      await appointments.addEvent(clinicId, appointmentId, 'cancelled')
+
+      if (appointment.googleEventId) {
+        const clinic = await createClinicsRepository(sql).findById(clinicId)
+        const resolvedCalendar = clinic
+          ? await workflowCalendarConfig(sql, clinic, appointment.doctorId ?? undefined)
+          : null
+        if (resolvedCalendar) {
+          try {
+            const calendar = createGoogleCalendarOps(resolvedCalendar.config)
+            await withWorkflowCalendarWriteTimeout(
+              calendar.deleteEvent(appointment.googleEventId),
+              'Google Calendar event deletion',
+            )
+            await appointments.update(clinicId, appointmentId, {
+              googleEventId: null,
+              calendarSyncPending: false,
+              calendarSyncError: null,
+            })
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            await appointments.update(clinicId, appointmentId, {
+              calendarSyncPending: true,
+              calendarSyncError: message,
+            })
+          }
+        }
+      }
+
+      ctx['appointment_id'] = appointmentId
+      ctx['booking_status'] = 'cancelled'
     },
 
     async scheduleResume(nodeId, ms, context) {

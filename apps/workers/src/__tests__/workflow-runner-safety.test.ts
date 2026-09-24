@@ -4,6 +4,7 @@ const h = vi.hoisted(() => ({
   findWorkflow: vi.fn(),
   findRevision: vi.fn(),
   findPatient: vi.fn(),
+  updatePatient: vi.fn(),
   claimRun: vi.fn(),
   findRun: vi.fn(),
   setRunStatus: vi.fn(),
@@ -24,6 +25,9 @@ const h = vi.hoisted(() => ({
   listSlots: vi.fn(),
   createCalendarEvent: vi.fn(),
   updateCalendarEvent: vi.fn(),
+  deleteCalendarEvent: vi.fn(),
+  listPatientAppointments: vi.fn(),
+  addAppointmentEvent: vi.fn(),
   listAccounts: vi.fn(),
   listContacts: vi.fn(),
   sendWhatsAppText: vi.fn(),
@@ -53,10 +57,10 @@ vi.mock('@docmee/agents', async () => ({
     const trace = await h.runWorkflow(...args)
     return { trace, status: trace.at(-1)?.status === 'paused' ? 'waiting' : 'completed' }
   },
-  createGoogleCalendarOps: () => ({ listSlots: h.listSlots, createEvent: h.createCalendarEvent, updateEvent: h.updateCalendarEvent }),
-  formatCalendarBooking: (details: { serviceName?: string | null; patientName?: string | null; patientPhone?: string | null; reason?: string | null }) => ({
+  createGoogleCalendarOps: () => ({ listSlots: h.listSlots, createEvent: h.createCalendarEvent, updateEvent: h.updateCalendarEvent, deleteEvent: h.deleteCalendarEvent }),
+  formatCalendarBooking: (details: { serviceName?: string | null; patientName?: string | null; patientPhone?: string | null; patientEmail?: string | null; reason?: string | null }) => ({
     title: `${details.serviceName?.trim() || 'Clinic appointment'} - ${details.patientName?.trim() || 'Patient'}`,
-    description: `Details:\nPatient phone: ${details.patientPhone?.trim() || 'Not provided'}\nReason for visit: ${details.reason?.trim() || 'Not provided'}`,
+    description: `Details:\nPatient phone: ${details.patientPhone?.trim() || 'Not provided'}\nPatient email: ${details.patientEmail?.trim() || 'Not provided'}\nReason for visit: ${details.reason?.trim() || 'Not provided'}`,
   }),
   WORKFLOW_CAPTURE_CONTEXT_KEY: 'capture',
   WORKFLOW_MENU_CONTEXT_KEY: 'menu',
@@ -109,7 +113,7 @@ vi.mock('@docmee/db', async () => ({
   ...(await import('../../../../packages/db/src/repositories/knowledge-learning-evidence.js')),
   createServiceDbClient: () => ({ end: h.end }),
   createWorkflowsRepository: () => ({ findById: h.findWorkflow, findRevision: h.findRevision }),
-  createPatientsRepository: () => ({ findById: h.findPatient, listContacts: h.listContacts }),
+  createPatientsRepository: () => ({ findById: h.findPatient, update: h.updatePatient, listContacts: h.listContacts }),
   createWorkflowExecutionsRepository: () => ({
     claimRun: h.claimRun,
     findRun: h.findRun,
@@ -126,12 +130,14 @@ vi.mock('@docmee/db', async () => ({
   createChannelAccountsRepository: () => ({ listByClinic: h.listAccounts }),
   createConversationsRepository: () => ({ findById: h.findConversation, update: h.updateConversation }),
   createDoctorsRepository: () => ({ findById: h.findDoctor, listByClinic: vi.fn(), update: vi.fn() }),
-  createDoctorServicesRepository: () => ({}),
+  createDoctorServicesRepository: () => ({ listServicesForDoctor: vi.fn(async () => []) }),
   createAppointmentsRepository: () => ({
     listServices: h.listServices,
+    listByPatient: h.listPatientAppointments,
     findById: h.findAppointment,
     saveWithinCapacity: h.saveWithinCapacity,
     update: h.updateAppointment,
+    addEvent: h.addAppointmentEvent,
   }),
   createMessagesRepository: () => ({ create: h.createMessage }),
   createMessageTemplatesRepository: () => ({ findApprovedByCategory: h.findTemplate }),
@@ -160,7 +166,7 @@ beforeEach(() => {
   h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published', nodes: [], edges: [] })
   h.transitionRun.mockResolvedValue(true)
   h.scheduleResume.mockResolvedValue(true)
-  h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', metadata: {} })
+  h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', fullName: 'Patient Test', phoneE164: '+15551234567', email: 'patient@example.com', metadata: {} })
   h.claimRun.mockResolvedValue({ id: 'run-1' })
   h.setRunStatus.mockResolvedValue(undefined)
   h.claimEffect.mockResolvedValue({ id: 'effect-1' })
@@ -172,12 +178,18 @@ beforeEach(() => {
     googleCalendarId: 'primary',
   })
   h.listServices.mockResolvedValue([])
-  h.findAppointment.mockResolvedValue({ id: 'appt-existing', googleEventId: null })
+  h.findAppointment.mockResolvedValue({
+    id: 'appt-existing', patientId: PATIENT, doctorId: '44444444-4444-4444-8444-444444444444', serviceId: null,
+    status: 'confirmed', startTime: '2026-09-14T09:00:00.000Z', endTime: '2026-09-14T09:30:00.000Z', googleEventId: null,
+  })
+  h.listPatientAppointments.mockResolvedValue([])
   h.listSlots.mockResolvedValue([{ start: '2026-09-15T09:00:00', end: '2026-09-15T09:30:00' }])
   h.saveWithinCapacity.mockResolvedValue({ ok: true, appointment: { id: 'appt-1' }, clashCount: 0 })
   h.updateAppointment.mockResolvedValue({ id: 'appt-1' })
   h.createCalendarEvent.mockResolvedValue('event-1')
   h.updateCalendarEvent.mockResolvedValue(undefined)
+  h.deleteCalendarEvent.mockResolvedValue(undefined)
+  h.addAppointmentEvent.mockResolvedValue({ id: 'event-cancelled' })
   h.listAccounts.mockResolvedValue([{ channel: 'whatsapp', status: 'active', accountId: 'phone-1', accessTokenEnc: 'token' }])
   h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '15551234567', isPrimary: true }])
   h.sendWhatsAppText.mockResolvedValue('wamid.sent')
@@ -238,6 +250,24 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason }))
     expect(h.sendWhatsAppText.mock.calls.every(call => !String(call[3]).includes(answer))).toBe(true)
     expect(h.reviewLearning).not.toHaveBeenCalled()
+  })
+
+  it('persists a validated patient email captured by a workflow as the newest patient-provided value', async () => {
+    h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', email: 'old@example.com', phoneE164: null, fullName: null, metadata: {} })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.askAndCapture({
+        id: 'capture-email',
+        type: 'action.ask_capture',
+        config: { field: 'patient_email', validation: 'email' },
+      }, {
+        ...ctx,
+        message: 'patient@example.com',
+        capture: { nodeId: 'capture-email', field: 'patient_email', validation: 'email', question: 'Email?', retryQuestion: 'Try again.', attempts: 0, maxAttempts: 3, status: 'pending' },
+      })
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.updatePatient).toHaveBeenCalledWith(CLINIC, PATIENT, { email: 'patient@example.com' })
   })
   it.each([false, true])('uses the runtime auto-approval setting: %s', async autoApprove => {
     h.learningSettings.mockResolvedValue({ autoApprove, groundingThreshold: 1, evidenceRetentionHours: 24 })
@@ -440,6 +470,29 @@ describe('processWorkflowRunJob automation ownership', () => {
 
     expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'create', capacity: 1, allowOverbooking: false,
+    }))
+  })
+
+  it('offers only the current patient future appointments in a dynamic appointment menu', async () => {
+    h.listPatientAppointments.mockResolvedValue([
+      { id: 'future-appt', patientId: PATIENT, status: 'confirmed', startTime: '2026-09-15T09:00:00.000Z', endTime: '2026-09-15T09:30:00.000Z' },
+      { id: 'cancelled-appt', patientId: PATIENT, status: 'cancelled', startTime: '2026-09-16T09:00:00.000Z', endTime: '2026-09-16T09:30:00.000Z' },
+      { id: 'past-appt', patientId: PATIENT, status: 'confirmed', startTime: '2026-09-01T09:00:00.000Z', endTime: '2026-09-01T09:30:00.000Z' },
+    ])
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.sendInteractiveMenu({
+        id: 'appointment-menu',
+        type: 'action.interactive_menu',
+        config: { optionSource: 'patient_appointments', field: 'appointment_id', message: 'Choose an appointment' },
+      }, { ...ctx, conversationId: 'conversation-1' }, 0)
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.listPatientAppointments).toHaveBeenCalledWith(CLINIC, PATIENT)
+    expect(h.sendWhatsAppInteractiveList).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({
+      options: [expect.objectContaining({ id: 'future-appt' })],
     }))
   })
 
@@ -727,16 +780,20 @@ describe('processWorkflowRunJob automation ownership', () => {
   })
 
   it('reschedules workflow bookings through the atomic capacity operation', async () => {
+    h.listSlots.mockResolvedValue([{ start: '2026-09-15T09:00:00', end: '2026-09-15T10:00:00' }])
+    h.findAppointment.mockResolvedValue({
+      id: 'appt-existing', patientId: PATIENT, doctorId: '44444444-4444-4444-8444-444444444444', serviceId: null,
+      status: 'confirmed', startTime: '2026-09-14T09:00:00.000Z', endTime: '2026-09-14T10:00:00.000Z', googleEventId: null,
+    })
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.createOrRescheduleBooking({
         id: 'booking-1',
-        type: 'create_booking',
+        type: 'action.reschedule_booking',
         config: {
-          mode: 'reschedule',
-          doctorId: '44444444-4444-4444-8444-444444444444',
           dateField: 'preferred_date',
           timeField: 'preferred_time',
           appointmentIdField: 'appointment_id',
+          durationMinutes: 30,
         },
       }, {
         ...ctx,
@@ -753,13 +810,49 @@ describe('processWorkflowRunJob automation ownership', () => {
       mode: 'reschedule',
       appointmentId: 'appt-existing',
       startTime: '2026-09-15T09:00:00.000Z',
-      endTime: '2026-09-15T09:30:00.000Z',
+      endTime: '2026-09-15T10:00:00.000Z',
     }))
     expect(h.updateAppointment).not.toHaveBeenCalledWith(
       CLINIC,
       'appt-existing',
       expect.objectContaining({ startTime: expect.any(String) }),
     )
+  })
+
+  it('cancels only the current patient appointment and removes its Google event', async () => {
+    h.findAppointment.mockResolvedValue({
+      id: 'appt-existing', patientId: PATIENT, doctorId: '44444444-4444-4444-8444-444444444444',
+      status: 'confirmed', googleEventId: 'google-event-1',
+    })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const bookingCtx = { ...ctx, appointment_id: 'appt-existing' }
+      await exec.cancelBooking({
+        id: 'cancel-1', type: 'action.cancel_booking', config: { appointmentIdField: 'appointment_id' },
+      }, bookingCtx)
+      expect(bookingCtx.booking_status).toBe('cancelled')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.updateAppointment).toHaveBeenCalledWith(CLINIC, 'appt-existing', expect.objectContaining({ status: 'cancelled' }))
+    expect(h.addAppointmentEvent).toHaveBeenCalledWith(CLINIC, 'appt-existing', 'cancelled')
+    expect(h.deleteCalendarEvent).toHaveBeenCalledWith('google-event-1')
+    expect(h.updateAppointment).toHaveBeenCalledWith(CLINIC, 'appt-existing', expect.objectContaining({ googleEventId: null, calendarSyncPending: false }))
+  })
+
+  it('refuses to cancel another patient appointment', async () => {
+    h.findAppointment.mockResolvedValue({ id: 'appt-other', patientId: 'another-patient', status: 'confirmed', googleEventId: null })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await expect(exec.cancelBooking({
+        id: 'cancel-1', type: 'action.cancel_booking', config: { appointmentIdField: 'appointment_id' },
+      }, { ...ctx, appointment_id: 'appt-other' })).rejects.toThrow(/does not belong to this patient/)
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.updateAppointment).not.toHaveBeenCalled()
   })
 
   it.each(['create', 'reschedule'])('rejects a past workflow %s before capacity or calendar operations', async (mode) => {

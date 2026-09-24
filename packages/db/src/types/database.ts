@@ -176,6 +176,8 @@ export interface Patient {
   id: string
   clinicId: string
   fullName: string | null
+  phoneE164: string | null
+  email: string | null
   status: PatientStatus
   notes: string | null
   metadata: Record<string, unknown>

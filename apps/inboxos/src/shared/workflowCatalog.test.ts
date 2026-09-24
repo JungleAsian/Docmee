@@ -252,7 +252,16 @@ describe('ENUM_FIELD_OPTIONS (Variant / Operator no-code selectors)', () => {
       'static',
       'clinic_doctors',
       'doctor_services',
+      'patient_appointments',
     ])
+  })
+
+  it('exposes first-class create, reschedule, and cancel booking actions', () => {
+    expect(WORKFLOW_NODE_TYPES.map((entry) => entry.type)).toEqual(expect.arrayContaining([
+      'action.create_booking',
+      'action.reschedule_booking',
+      'action.cancel_booking',
+    ]))
   })
 
   it('offers exactly the operators evalCondition actually understands', () => {
@@ -477,7 +486,7 @@ describe('collectFieldValueOptions (dependent Value selector)', () => {
 
   it('offers the fixed vocabularies the worker writes into status fields', () => {
     expect(collectFieldValueOptions([], 'capture_status').map((o) => o.value)).toEqual(['captured', 'pending', 'error'])
-    expect(collectFieldValueOptions([], 'booking_status').map((o) => o.value)).toEqual(['created', 'rescheduled'])
+    expect(collectFieldValueOptions([], 'booking_status').map((o) => o.value)).toEqual(['created', 'rescheduled', 'cancelled'])
     expect(collectFieldValueOptions([], 'voice_booking_confidence').map((o) => o.value)).toEqual(['high', 'medium', 'low'])
     expect(collectFieldValueOptions([], 'needs_review').map((o) => o.value)).toEqual(['true', 'false'])
   })

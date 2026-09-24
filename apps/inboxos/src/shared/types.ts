@@ -195,6 +195,8 @@ export interface Patient {
   id: string
   clinicId: string
   fullName: string | null
+  phoneE164?: string | null
+  email?: string | null
   status: PatientStatus
   notes: string | null
   metadata: Record<string, unknown>
@@ -255,6 +257,8 @@ export interface Appointment {
 // operational calendar renders, returned by GET /clinics/:id/appointments.
 export interface AppointmentWithNames extends Appointment {
   patientName: string | null
+  patientPhone: string | null
+  patientEmail: string | null
   doctorName: string | null
   serviceName: string | null
   serviceDurationMinutes: number | null

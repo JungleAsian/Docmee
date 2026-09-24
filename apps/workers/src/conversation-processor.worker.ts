@@ -283,8 +283,13 @@ export async function processConversationJob(job: Job): Promise<void> {
 
     if (existing) {
       patientId = existing.id
-      if (existing.status === 'new') {
-        await patients.update(clinicId, existing.id, { status: 'returning' })
+      const identityUpdate = {
+        ...(existing.status === 'new' ? { status: 'returning' as const } : {}),
+        ...(!existing.fullName && msg.patientName ? { fullName: msg.patientName } : {}),
+        ...(channel === 'whatsapp' && !existing.phoneE164 ? { phoneE164: msg.patientWaId } : {}),
+      }
+      if (Object.keys(identityUpdate).length > 0) {
+        await patients.update(clinicId, existing.id, identityUpdate)
       }
     } else {
       // Req 10: capture name, phone (the WhatsApp handle is the phone) and source
@@ -292,6 +297,7 @@ export async function processConversationJob(job: Job): Promise<void> {
       const created = await patients.create({
         clinicId,
         fullName: msg.patientName || undefined,
+        phoneE164: channel === 'whatsapp' ? msg.patientWaId : undefined,
         status: 'new',
         metadata: firstContactMetadata(channel, msg.patientWaId),
       })

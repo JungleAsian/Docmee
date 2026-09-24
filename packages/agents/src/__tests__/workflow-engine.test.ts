@@ -58,7 +58,7 @@ describe('runWorkflow — action.handoff_to_secretary', () => {
 })
 
 describe('runWorkflow', () => {
-  it.each(['action.create_or_reschedule_booking', 'action.handoff_to_secretary', 'action.check_availability', 'logic.wait_for_reply'])('does not silently complete %s without an executor', async (type) => {
+  it.each(['action.create_or_reschedule_booking', 'action.create_booking', 'action.reschedule_booking', 'action.cancel_booking', 'action.handoff_to_secretary', 'action.check_availability', 'logic.wait_for_reply'])('does not silently complete %s without an executor', async (type) => {
     const workflow = { nodes: [node('step', type.startsWith('logic.') ? 'logic' : 'action', type)], edges: [] }
     await expect(runWorkflow(workflow, {}, makeExec(), { startNodeId: 'step' })).rejects.toThrow(/unavailable/)
   })
@@ -276,6 +276,20 @@ describe('runWorkflow', () => {
     expect(exec.checkAvailability).toHaveBeenCalledWith(wf.nodes[1], ctx)
     expect(exec.offerSlots).toHaveBeenCalledWith(wf.nodes[2], ctx)
     expect(exec.createOrRescheduleBooking).toHaveBeenCalledWith(wf.nodes[3], ctx)
+  })
+
+  it.each([
+    ['action.create_booking', 'createOrRescheduleBooking'],
+    ['action.reschedule_booking', 'createOrRescheduleBooking'],
+    ['action.cancel_booking', 'cancelBooking'],
+  ] as const)('dispatches %s to its booking executor', async (type, executorName) => {
+    const executor = vi.fn()
+    const exec = makeExec({ [executorName]: executor })
+    const bookingNode = node('booking', 'action', type)
+
+    await runWorkflow({ nodes: [bookingNode], edges: [] }, { patientId: 'patient-1' }, exec, { startNodeId: 'booking' })
+
+    expect(executor).toHaveBeenCalledWith(bookingNode, expect.objectContaining({ patientId: 'patient-1' }))
   })
 
   it('asks, persists at wait, then resumes after a captured reply', async () => {

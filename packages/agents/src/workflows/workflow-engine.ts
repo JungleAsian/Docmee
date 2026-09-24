@@ -195,6 +195,7 @@ export interface WorkflowExecutors {
   checkAvailability?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   offerSlots?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   createOrRescheduleBooking?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
+  cancelBooking?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   askAndCapture?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   extractBookingDetails?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<unknown> | unknown
   classifyIntentConfidence?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<'high' | 'low' | 'error'> | 'high' | 'low' | 'error'
@@ -303,6 +304,9 @@ export async function runWorkflow(
       'action.check_availability': 'checkAvailability',
       'action.offer_slots': 'offerSlots',
       'action.create_or_reschedule_booking': 'createOrRescheduleBooking',
+      'action.create_booking': 'createOrRescheduleBooking',
+      'action.reschedule_booking': 'createOrRescheduleBooking',
+      'action.cancel_booking': 'cancelBooking',
       'action.ask_capture': 'askAndCapture',
       'action.extract_booking_details': 'extractBookingDetails',
       'logic.wait_for_reply': 'waitForReply',
@@ -480,7 +484,12 @@ export async function runWorkflow(
         if (exec.offerSlots) await sideEffect(node, () => Promise.resolve(exec.offerSlots!(node, ctx)))
         break
       case 'action.create_or_reschedule_booking':
+      case 'action.create_booking':
+      case 'action.reschedule_booking':
         if (exec.createOrRescheduleBooking) await sideEffect(node, () => Promise.resolve(exec.createOrRescheduleBooking!(node, ctx)))
+        break
+      case 'action.cancel_booking':
+        if (exec.cancelBooking) await sideEffect(node, () => Promise.resolve(exec.cancelBooking!(node, ctx)))
         break
       case 'action.ask_capture':
         if (exec.askAndCapture) {

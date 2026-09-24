@@ -1108,6 +1108,8 @@ function BookingPanel({
   const [patientId, setPatientId] = useState('')
   const [patientMode, setPatientMode] = useState<'existing' | 'new'>('existing')
   const [newPatientName, setNewPatientName] = useState('')
+  const [newPatientPhone, setNewPatientPhone] = useState('')
+  const [newPatientEmail, setNewPatientEmail] = useState('')
   const [date, setDate] = useState(initialDate)
   const [start, setStart] = useState(initialStart ?? '')
   const [notes, setNotes] = useState('')
@@ -1138,7 +1140,11 @@ function BookingPanel({
       api.post<{ appointment: AppointmentWithNames }>(`/clinics/${clinicId}/appointments`, {
         ...(parallel
           ? buildManualParallelBookingFields({ patientName: parallelPatientName, serviceId, reason: parallelReason })
-          : patientMode === 'new' ? { patientName: newPatientName.trim() } : { patientId }),
+          : patientMode === 'new' ? {
+              patientName: newPatientName.trim(),
+              ...(newPatientPhone.trim() ? { patientPhone: newPatientPhone.trim() } : {}),
+              ...(newPatientEmail.trim() ? { patientEmail: newPatientEmail.trim() } : {}),
+            } : { patientId }),
         doctorId,
         serviceId: serviceId || undefined,
         date,
@@ -1216,14 +1222,40 @@ function BookingPanel({
             )}
           </label>
         ) : (
-          <label className="mt-1 block">
-            <input
-              value={newPatientName}
-              onChange={(e) => setNewPatientName(e.target.value)}
-              placeholder={t('cal.newPatientNamePlaceholder')}
-              className={field}
-            />
-          </label>
+          <div className="mt-1 grid gap-2">
+            <label className="block">
+              <span className="sr-only">{t('cal.newPatientName')}</span>
+              <input
+                value={newPatientName}
+                onChange={(e) => setNewPatientName(e.target.value)}
+                placeholder={t('cal.newPatientNamePlaceholder')}
+                autoComplete="name"
+                className={field}
+              />
+            </label>
+            <label className="block">
+              <span className="sr-only">{t('cal.newPatientPhone')}</span>
+              <input
+                type="tel"
+                value={newPatientPhone}
+                onChange={(e) => setNewPatientPhone(e.target.value)}
+                placeholder={t('cal.newPatientPhonePlaceholder')}
+                autoComplete="tel"
+                className={field}
+              />
+            </label>
+            <label className="block">
+              <span className="sr-only">{t('cal.newPatientEmail')}</span>
+              <input
+                type="email"
+                value={newPatientEmail}
+                onChange={(e) => setNewPatientEmail(e.target.value)}
+                placeholder={t('cal.newPatientEmailPlaceholder')}
+                autoComplete="email"
+                className={field}
+              />
+            </label>
+          </div>
         )}
       </div>}
 

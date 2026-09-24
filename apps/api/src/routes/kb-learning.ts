@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { createKnowledgeLearningRepository, createKnowledgeRepository, rejectionReasons } from '@docmee/db'
+import { createKnowledgeLearningRepository, createKnowledgeRepository } from '@docmee/db'
 import { kbEmbedQueue } from '@docmee/queue'
 import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
@@ -8,6 +8,8 @@ import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const settingsSchema = z.object({ autoApprove: z.boolean(), groundingThreshold: z.number().min(.8).max(1), evidenceRetentionHours: z.number().int().min(1).max(24) }).strict()
+const rejectionReasons = ['unsupported', 'outdated', 'unsafe', 'duplicate', 'not_clinic_policy', 'other'] as const
+
 const reviewSchema = z.object({
   action: z.enum(['edit','reject','approve','rollback']), expectedRevision: z.number().int().positive(), content: z.string().trim().min(1).max(12000).optional(),
   staffConfirmed: z.boolean().optional(), historyId: z.string().uuid().optional(), rejectionReason: z.enum(rejectionReasons).optional(), rejectionDetail: z.string().trim().min(1).max(1000).optional(),

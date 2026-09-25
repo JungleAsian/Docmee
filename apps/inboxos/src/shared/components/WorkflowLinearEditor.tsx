@@ -19,6 +19,7 @@ import { useI18n } from '../hooks/useI18n'
 import type { WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
 import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, branchRows, parseMenuOptionsSafe, changeNodeType, type NodeTypeDef } from '../workflowNodes'
 import { isBranchingNode, resequenceLinearEdges } from '../workflowLinearEdges'
+import { insertControlledKbAgentPreset } from '../workflowAiAgentPreset'
 import { NodeConfigPanel } from './NodeConfigPanel'
 import { WorkflowNodeIcon } from './WorkflowNodeIcon'
 
@@ -62,6 +63,25 @@ export function WorkflowLinearEditor({
   }
 
   const addStep = (def: NodeTypeDef) => {
+    if (def.type === 'action.ai_agent') {
+      const reusableTerminal = bodySteps.at(-1)?.type === 'action.end' ? bodySteps.at(-1) : undefined
+      const preset = insertControlledKbAgentPreset({
+        nodes,
+        edges,
+        position: { x: 0, y: 0 },
+        ...(reusableTerminal ? { terminalNodeId: reusableTerminal.id } : {}),
+      })
+      const existingIds = new Set(nodes.map((node) => node.id))
+      const added = preset.nodes.filter((node) => !existingIds.has(node.id))
+      const nextBody = reusableTerminal
+        ? [...bodySteps.slice(0, -1), ...added, reusableTerminal]
+        : [...bodySteps, ...added]
+      const nextNodes = trigger ? [trigger, ...nextBody] : nextBody
+      const nextSteps = trigger ? [trigger, ...nextBody] : nextBody
+      onChange({ nodes: nextNodes, edges: resequenceLinearEdges(nextSteps, preset.edges) })
+      setAddPickerOpen(false)
+      return
+    }
     const newStep: WfNode = { id: nextNodeId(nodes, def), kind: def.kind, type: def.type, config: {}, x: 0, y: 0 }
     const nextNodes = [...nodes, newStep]
     const nextBody = [...bodySteps, newStep]

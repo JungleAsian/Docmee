@@ -64,6 +64,7 @@ import { NodeConfigPanel } from './NodeConfigPanel'
 import { WorkflowLinearEditor } from './WorkflowLinearEditor'
 import { WorkflowNodeIcon } from './WorkflowNodeIcon'
 import { canConnectWorkflow } from '../workflowConnections'
+import { insertControlledKbAgentPreset } from '../workflowAiAgentPreset'
 import { PencilSimple, CopySimple, TrashSimple } from '@phosphor-icons/react'
 
 const ReactFlow = ReactFlowBase
@@ -1084,6 +1085,18 @@ function WorkflowCanvasInner({
         : dropAt
           ? findFreePosition(nodes, { x: Math.round(dropAt.x - 104), y: Math.round(dropAt.y - 30) })
           : nextNodePosition(nodes)
+      if (def.type === 'action.ai_agent') {
+        const preset = insertControlledKbAgentPreset({
+          nodes,
+          edges,
+          position: at,
+          ...(wire ? { incoming: { source: wire.nodeId, ...(wire.handleId ? { sourceHandle: wire.handleId } : {}) } } : {}),
+        })
+        onChange({ nodes: preset.nodes, edges: preset.edges })
+        setSelectedId(preset.selectedNodeId)
+        setPendingWire(null)
+        return
+      }
       const nextEdges = wire
         ? [...edges, {
             id: `e_${wire.nodeId}_${id}_${wire.handleId ?? 'default'}_${edges.length}`,

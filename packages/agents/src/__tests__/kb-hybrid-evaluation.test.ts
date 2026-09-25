@@ -36,4 +36,15 @@ describe('KB hybrid retrieval evaluation cases', () => {
 
     expect(matches.map((match) => match.title)).toEqual(['Balanced current', 'Location'])
   })
+
+  it('applies a clinic confidence threshold to semantic candidates while retaining exact lexical evidence', () => {
+    const candidates = [
+      { title: 'Semantic only', content: 'Open weekdays', similarity: 0, vectorScore: 0.8, lexicalScore: 0 },
+      { title: 'Exact lexical', content: 'Open weekdays', similarity: 0, vectorScore: 0.65, lexicalScore: 1 },
+    ]
+    const plan = planKbQuery('What are your hours?', { language: 'en' })
+
+    expect(fuseKbCandidates(candidates, plan, 5, 0.85).map((match) => match.title)).toEqual(['Exact lexical'])
+    expect(fuseKbCandidates(candidates, plan, 5, 0.7).map((match) => match.title)).toEqual(['Semantic only', 'Exact lexical'])
+  })
 })

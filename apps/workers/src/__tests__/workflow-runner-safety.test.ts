@@ -90,6 +90,11 @@ vi.mock('@docmee/agents', async () => ({
   hasDoctorScopedChunks: () => false,
   retrieveKbEvidence: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).retrieveKbEvidence,
   clearSharedKbEvidenceCache: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).clearSharedKbEvidenceCache,
+  readGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).readGuardrails,
+  matchesGuardrailTopic: (await import('../../../../packages/agents/src/botbase/guardrails.js')).matchesGuardrailTopic,
+  guardrailDeflection: (await import('../../../../packages/agents/src/botbase/guardrails.js')).guardrailDeflection,
+  guardrailPromptInstructions: (await import('../../../../packages/agents/src/botbase/guardrails.js')).guardrailPromptInstructions,
+  applyReplyGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).applyReplyGuardrails,
 }))
 
 vi.mock('@docmee/shared', async (importOriginal) => ({
@@ -257,6 +262,36 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason }))
     expect(h.sendWhatsAppText.mock.calls.every(call => !String(call[3]).includes(answer))).toBe(true)
     expect(h.reviewLearning).not.toHaveBeenCalled()
+  })
+
+  it('hands off a configured clinic boundary before retrieval or model generation', async () => {
+    h.findClinic.mockResolvedValue({
+      id: CLINIC,
+      name: 'Clinic',
+      timezone: 'UTC',
+      settings: {
+        guardrails: {
+          contentBoundaries: {
+            additionalBlockedTopics: ['insurance appeal'],
+            customDeflectionMessage: { en: 'Our clinic team will help with that request.' },
+          },
+        },
+      },
+    })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent(
+        { id: 'ai-boundary', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } },
+        { ...ctx, message: 'I need an insurance appeal.', conversationId: 'conversation-1' },
+      )).toBe('handoff')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.chatComplete).not.toHaveBeenCalled()
+    expect(h.searchChunks).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'Our clinic team will help with that request.')
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'guardrail_content_boundary' }))
   })
 
   it('persists a validated patient email captured by a workflow as the newest patient-provided value', async () => {

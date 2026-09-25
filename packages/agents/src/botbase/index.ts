@@ -81,6 +81,22 @@ export {
 } from './medical-safety.js'
 
 export {
+  ALWAYS_ON_GUARDRAILS,
+  GUARDRAIL_PRESET_THRESHOLDS,
+  MIN_GUARDRAIL_CONFIDENCE,
+  defaultGuardrails,
+  readGuardrails,
+  guardrailPresetForThreshold,
+  matchesGuardrailTopic,
+  guardrailDeflection,
+  applyReplyGuardrails,
+  guardrailPromptInstructions,
+  type GuardrailPreset,
+  type GuardrailSettings,
+  type LocalizedGuardrailText,
+} from './guardrails.js'
+
+export {
   runClinicBot,
   isEmergencyMessage,
   isLikelyQuestion,

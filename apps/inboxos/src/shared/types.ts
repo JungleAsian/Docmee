@@ -498,6 +498,32 @@ export interface DayHours {
 /** Map of lowercase weekday ('monday' … 'sunday') → hours. Mirrors @docmee/agents. */
 export type BusinessHours = Record<string, DayHours>
 
+export interface GuardrailLocalizedText {
+  es?: string
+  en?: string
+}
+
+export interface GuardrailSettings {
+  version: 1
+  contentBoundaries: {
+    additionalBlockedTopics: string[]
+    customDeflectionMessage?: GuardrailLocalizedText
+  }
+  groundingStrictness: {
+    minKbConfidence: number
+    allowGeneralKnowledgeFallback: false
+  }
+  escalation: {
+    customTriggerKeywords: string[]
+  }
+  toneGuardrails: {
+    maxReplyLength?: number
+    disallowEmojis?: boolean
+    requireDisclaimerFooter?: boolean
+    disclaimerText?: GuardrailLocalizedText
+  }
+}
+
 /** The subset of clinic.settings the Admin Studio reads/writes. All keys optional. */
 export interface ClinicSettings {
   botTone?: BotTone
@@ -537,6 +563,8 @@ export interface ClinicSettings {
   // Screen 12 (AI Assistant section). Per-clinic J.zel config: model, persona,
   // knowledge sources. One clinic = one J.zel.
   aiAssistant?: AiAssistantConfig
+  /** Per-clinic patient-bot controls. Immutable platform safety remains outside this setting. */
+  guardrails?: GuardrailSettings
   // Admin Studio users: per-clinic role permissions and side rail visibility.
   rolePermissions?: Partial<RolePermissions>
   roleMenuVisibility?: Partial<RoleMenuVisibility>

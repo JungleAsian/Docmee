@@ -397,6 +397,49 @@ describe('processAgentJob — explicit human request (#5)', () => {
   })
 })
 
+describe('processAgentJob — clinic guardrails', () => {
+  it('uses clinic escalation keywords to hand off through the existing pause path', async () => {
+    h.findClinic.mockResolvedValue({
+      id: CLINIC,
+      name: 'Clinica',
+      settings: { guardrails: { escalation: { customTriggerKeywords: ['billing dispute'] } } },
+      timezone: 'America/Mexico_City',
+    })
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'I need help with a billing dispute.' }))
+
+    const [, , update] = h.updateConversation.mock.calls[0]
+    expect(update.metadata.handoffReason).toBe('patient_request')
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+  })
+
+  it('deflects a clinic-blocked topic and pauses before workflows or the model', async () => {
+    h.findClinic.mockResolvedValue({
+      id: CLINIC,
+      name: 'Clinica',
+      settings: {
+        guardrails: {
+          contentBoundaries: {
+            additionalBlockedTopics: ['insurance appeal'],
+            customDeflectionMessage: { es: 'El equipo te ayudará con ese tema.' },
+          },
+        },
+      },
+      timezone: 'America/Mexico_City',
+    })
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'Necesito una insurance appeal.' }))
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'El equipo te ayudará con ese tema.')
+    const [, , update] = h.updateConversation.mock.calls[0]
+    expect(update.metadata.handoffReason).toBe('guardrail_content_boundary')
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+  })
+})
+
 describe('processAgentJob — AI conversation orchestration', () => {
   it('keeps a booking request with staff during business hours', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })

@@ -31,6 +31,9 @@ import {
   isOptOutMessage,
   isOptInMessage,
   optInConfirmation,
+  readGuardrails,
+  matchesGuardrailTopic,
+  guardrailDeflection,
   type BusinessHours,
   type ClinicBotConfig,
   type Language,
@@ -799,10 +802,29 @@ export async function processAgentJob(job: Job): Promise<void> {
       return
     }
 
+    const guardrails = readGuardrails(clinic.settings)
+
+    // Clinic-selected content boundaries are deterministic and run before any
+    // workflow or model. They add protection; they never override medical safety,
+    // consent, emergency, or human-ownership rules above.
+    if (sendReply && matchesGuardrailTopic(data.message, guardrails.contentBoundaries.additionalBlockedTopics)) {
+      await sendReply(guardrailDeflection(patientLanguage, guardrails))
+      if (conversation) {
+        await pauseBotForHandoff(sql, data.clinicId, data.conversationId, conversation.metadata, 'guardrail_content_boundary')
+      }
+      await notificationQueue.add('notify', {
+        clinicId: data.clinicId,
+        conversationId: data.conversationId,
+        reason: 'human_handoff',
+        idempotencyKey: `guardrail_content_boundary:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+      })
+      return
+    }
+
     // Explicit "connect me with a human" request (Rev1 #5). Cheap keyword check so
     // an unambiguous request hands off reliably without waiting on the LLM: ack the
     // patient, pause the bot (status ? handoff), and alert a human.
-    if (sendReply && detectHumanRequest(data.message)) {
+    if (sendReply && detectHumanRequest(data.message, guardrails.escalation.customTriggerKeywords)) {
       await sendReply(handoffNotice(patientLanguage))
       if (conversation) {
         await pauseBotForHandoff(sql, data.clinicId, data.conversationId, conversation.metadata, 'patient_request')

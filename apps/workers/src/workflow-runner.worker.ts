@@ -26,6 +26,11 @@ import {
   medicalSafetyDeferral,
   screenPromptLeak,
   promptSafetyDeferral,
+  readGuardrails,
+  matchesGuardrailTopic,
+  guardrailDeflection,
+  guardrailPromptInstructions,
+  applyReplyGuardrails,
   detectLanguage,
   retrieveKbEvidence,
   assessKbAnswer,
@@ -1084,6 +1089,7 @@ function buildExecutors(
       try {
       const clinic = await createClinicsRepository(sql).findById(clinicId)
       if (!clinic) throw new Error('clinic_unavailable')
+      const guardrails = readGuardrails(clinic.settings)
 
       const currentMetadata = async (): Promise<Record<string, unknown> | undefined> => {
         if (!ctx.conversationId) return undefined
@@ -1098,6 +1104,16 @@ function buildExecutors(
         await recordOutcome('', null, 'emergency')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'emergency')
         await notify('The AI Agent workflow detected a possible emergency and paused the bot.', ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+
+      // A clinic boundary is a deterministic, pre-model handoff. It cannot
+      // weaken the emergency, consent, or immutable safety rules surrounding it.
+      if (matchesGuardrailTopic(message, guardrails.contentBoundaries.additionalBlockedTopics)) {
+        await recordOutcome('', null, 'guardrail_content_boundary')
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'guardrail_content_boundary')
+        await sendWorkflowMessage(guardrailDeflection(language, guardrails), ctx)
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
       }
@@ -1122,6 +1138,7 @@ function buildExecutors(
           language,
           retrievalRevision: revision,
         }),
+        minVectorScore: guardrails.groundingStrictness.minKbConfidence,
       })
       scope = { ...scope, retrievalRevision: evidencePack.revision }
       kbMatches = evidencePack.matches
@@ -1166,6 +1183,7 @@ function buildExecutors(
           scenarios,
           kbMatches,
         }),
+        guardrailPromptInstructions(guardrails),
         preferredLanguage
           ? `The patient selected ${preferredLanguage} for this workflow. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
           : '',
@@ -1265,6 +1283,26 @@ function buildExecutors(
       }
       const leak = screenPromptLeak(reply)
       if (!leak.safe) {
+        await recordOutcome(reply, parseAiAnswerConfidence(raw), 'prompt_safety')
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
+        await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+      reply = applyReplyGuardrails(reply, language, guardrails)
+      // A clinic-owned disclaimer is configuration, not model output. Screen
+      // the final composed message as well, so configurable text cannot make
+      // an otherwise safe generated answer bypass the immutable protections.
+      const formattedSafety = screenMedicalSafety(reply)
+      if (!formattedSafety.safe) {
+        await recordOutcome(reply, parseAiAnswerConfidence(raw), 'medical_safety')
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
+        await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
+      }
+      const formattedLeak = screenPromptLeak(reply)
+      if (!formattedLeak.safe) {
         await recordOutcome(reply, parseAiAnswerConfidence(raw), 'prompt_safety')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
         await sendWorkflowMessage(promptSafetyDeferral(language), ctx)

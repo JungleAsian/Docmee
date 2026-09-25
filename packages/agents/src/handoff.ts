@@ -65,9 +65,10 @@ const HUMAN_REQUEST_PATTERNS = [
  * True when the patient explicitly asks to be connected to a human. Used to hand
  * off and pause the bot without waiting on the LLM classifier (#5).
  */
-export function detectHumanRequest(message: string): boolean {
+export function detectHumanRequest(message: string, additionalPatterns: string[] = []): boolean {
   const lower = message.toLowerCase()
-  return HUMAN_REQUEST_PATTERNS.some((p) => lower.includes(p))
+  return [...HUMAN_REQUEST_PATTERNS, ...additionalPatterns]
+    .some((pattern) => pattern.trim().length >= 2 && lower.includes(pattern.trim().toLowerCase()))
 }
 
 /** Patient-facing acknowledgement sent when the bot hands off to a human. */

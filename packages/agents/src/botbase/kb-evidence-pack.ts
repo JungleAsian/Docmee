@@ -32,6 +32,8 @@ export interface RetrieveKbEvidenceInput {
   knowledge: RetrievalKnowledge
   embed: (query: string) => Promise<number[]>
   limit?: number
+  /** Clinic-selected vector-confidence floor. Values are clamped fail-closed. */
+  minVectorScore?: number
   sourcesCurrent?: (citations: KbEvidenceCitation[], revision: number) => Promise<boolean>
 }
 
@@ -48,8 +50,8 @@ function hashQuery(query: string): string {
   return createHash('sha256').update(query, 'utf8').digest('hex')
 }
 
-function buildPack(plan: KbQueryPlan, revision: number, rows: KnowledgeSearchRow[], mode: 'embedded' | 'keyword', cacheHit: boolean, latencyMs: number, limit: number): KbEvidencePack {
-  const matches = fuseKbCandidates(rows.map(row => ({ ...row, similarity: 0 })), plan, limit)
+function buildPack(plan: KbQueryPlan, revision: number, rows: KnowledgeSearchRow[], mode: 'embedded' | 'keyword', cacheHit: boolean, latencyMs: number, limit: number, minVectorScore: number): KbEvidencePack {
+  const matches = fuseKbCandidates(rows.map(row => ({ ...row, similarity: 0 })), plan, limit, minVectorScore)
   return {
     plan,
     revision,
@@ -112,9 +114,10 @@ export async function retrieveKbEvidence(input: RetrieveKbEvidenceInput): Promis
     intent: plan.intent,
   })
   const limit = Math.max(1, Math.min(input.limit ?? 5, 5))
+  const minVectorScore = Math.min(1, Math.max(0.6, input.minVectorScore ?? 0.78))
   const cached = sharedCache.get(key)
   if (cached) {
-    const pack = await validateCurrentness(input, buildPack(plan, revision, cached.rows, cached.mode, true, Math.max(0, Math.round(performance.now() - startedAt)), limit))
+    const pack = await validateCurrentness(input, buildPack(plan, revision, cached.rows, cached.mode, true, Math.max(0, Math.round(performance.now() - startedAt)), limit, minVectorScore))
     await recordMetric(input, pack)
     return pack
   }
@@ -132,7 +135,7 @@ export async function retrieveKbEvidence(input: RetrieveKbEvidenceInput): Promis
     doctorId: plan.doctorId ?? undefined,
   }, 40)
   sharedCache.set(key, { rows, mode })
-  const pack = await validateCurrentness(input, buildPack(plan, revision, rows, mode, false, Math.max(0, Math.round(performance.now() - startedAt)), limit))
+  const pack = await validateCurrentness(input, buildPack(plan, revision, rows, mode, false, Math.max(0, Math.round(performance.now() - startedAt)), limit, minVectorScore))
   await recordMetric(input, pack)
   return pack
 }

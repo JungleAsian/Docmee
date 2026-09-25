@@ -33,7 +33,7 @@ import {
   type IntentProvider,
   type EmbedProvider,
 } from '@/shared/aiAssistant'
-import type { BotLanguage, BotTone, Clinic, ClinicSettings } from '@/shared/types'
+import type { BotLanguage, BotTone, Clinic, ClinicSettings, GuardrailSettings } from '@/shared/types'
 
 const TONES: BotTone[] = ['professional', 'friendly', 'brief']
 const BOT_LANGUAGES: BotLanguage[] = ['auto', 'es', 'en']
@@ -453,6 +453,216 @@ function AiAssistantConfigSection({ clinic }: { clinic: Clinic }) {
   return <AiAssistantSection ai={ai} saving={save.isPending} locked={jzelConfigLocked} onPatch={patchAiAssistant} />
 }
 
+const GUARDRAIL_PRESETS = {
+  strict: 0.85,
+  balanced: 0.78,
+  lenient: 0.7,
+} as const
+
+// Keep this client-safe display list aligned with the server-side manifest in
+// packages/agents/src/botbase/guardrails.ts. Importing that package barrel in
+// a Client Component would also pull its server-only agent dependencies.
+const ALWAYS_ON_GUARDRAIL_IDS = ['grounded', 'medical', 'human', 'prompt'] as const
+
+function defaultGuardrailSettings(): GuardrailSettings {
+  return {
+    version: 1,
+    contentBoundaries: { additionalBlockedTopics: [] },
+    groundingStrictness: { minKbConfidence: GUARDRAIL_PRESETS.balanced, allowGeneralKnowledgeFallback: false },
+    escalation: { customTriggerKeywords: [] },
+    toneGuardrails: {},
+  }
+}
+
+function listToText(items: string[]): string {
+  return items.join(', ')
+}
+
+function textToList(value: string): string[] {
+  return [...new Set(value.split(/[\n,]/).map((item) => item.trim().slice(0, 120)).filter(Boolean))].slice(0, 30)
+}
+
+function GuardrailsSection({ clinic }: { clinic: Clinic }) {
+  const { t } = useI18n()
+  const qc = useQueryClient()
+  const isSuperuser = useAuthStore((s) => s.user?.role === 'ia_studio_admin')
+  const settings = clinic.settings as ClinicSettings
+  const saved = settings.guardrails ?? defaultGuardrailSettings()
+  const [draft, setDraft] = useState<GuardrailSettings>(saved)
+  const [advanced, setAdvanced] = useState(false)
+  const threshold = draft.groundingStrictness.minKbConfidence
+  const preset = Object.entries(GUARDRAIL_PRESETS).find(([, value]) => value === threshold)?.[0] ?? 'custom'
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
+
+  const save = useMutation({
+    mutationFn: () => api.patch(`/clinics/${clinic.id}`, { settings: { ...clinic.settings, guardrails: draft } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clinic', clinic.id] })
+      qc.invalidateQueries({ queryKey: ['clinics'] })
+    },
+  })
+
+  function patch(next: Partial<GuardrailSettings>) {
+    setDraft((current) => ({ ...current, ...next }))
+  }
+
+  return (
+    <CollapsibleSettingsSection title={t('guardrails.title')} contentId="clinic-guardrails-settings">
+      <p className="mb-4 text-xs text-gray-500">{t('guardrails.desc')}</p>
+
+      {isSuperuser && (
+        <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">{t('guardrails.always.title')}</p>
+            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+              {t('guardrails.always.locked')}
+            </span>
+          </div>
+          <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+            {ALWAYS_ON_GUARDRAIL_IDS.map((id) => <li key={id}>- {t(`guardrails.always.${id}` as never)}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <p className="mb-1 text-xs font-medium text-gray-500">{t('guardrails.grounding.label')}</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {Object.entries(GUARDRAIL_PRESETS).map(([name, value]) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => patch({ groundingStrictness: { minKbConfidence: value, allowGeneralKnowledgeFallback: false } })}
+                className={`rounded-lg border p-3 text-left ${preset === name ? 'border-teal-500 bg-teal-50 dark:bg-teal-950' : 'border-gray-200 hover:border-gray-300 dark:border-gray-800'}`}
+              >
+                <p className="text-sm font-semibold">{t(`guardrails.grounding.${name}` as never)}</p>
+                <p className="mt-1 text-xs text-gray-500">{t(`guardrails.grounding.${name}Hint` as never)}</p>
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-gray-400">{t('guardrails.grounding.hint')}</p>
+          {isSuperuser && (
+            <div className="mt-2">
+              <PillToggle checked={advanced} label={t('guardrails.advanced')} onChange={setAdvanced} />
+              {advanced && (
+                <label className="mt-2 block text-xs font-medium text-gray-500">
+                  {t('guardrails.grounding.threshold')}
+                  <input
+                    type="number"
+                    min="0.6"
+                    max="1"
+                    step="0.01"
+                    value={threshold}
+                    onChange={(e) => {
+                      const value = Number(e.target.value)
+                      if (Number.isFinite(value)) patch({ groundingStrictness: { minKbConfidence: Math.min(1, Math.max(0.6, value)), allowGeneralKnowledgeFallback: false } })
+                    }}
+                    className={`${field} mt-1 max-w-40`}
+                  />
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+
+        <label className="block text-xs font-medium text-gray-500">
+          {t('guardrails.boundaries.label')}
+          <textarea
+            rows={2}
+            value={listToText(draft.contentBoundaries.additionalBlockedTopics)}
+            onChange={(e) => patch({ contentBoundaries: { ...draft.contentBoundaries, additionalBlockedTopics: textToList(e.target.value) } })}
+            placeholder={t('guardrails.boundaries.placeholder')}
+            className={`${field} mt-1 resize-y`}
+          />
+          <span className="mt-1 block text-[11px] font-normal text-gray-400">{t('guardrails.boundaries.hint')}</span>
+        </label>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {(['es', 'en'] as const).map((language) => (
+            <label key={language} className="block text-xs font-medium text-gray-500">
+              {t(`guardrails.deflection.${language}` as never)}
+              <textarea
+                rows={2}
+                value={draft.contentBoundaries.customDeflectionMessage?.[language] ?? ''}
+                onChange={(e) => patch({ contentBoundaries: {
+                  ...draft.contentBoundaries,
+                  customDeflectionMessage: { ...draft.contentBoundaries.customDeflectionMessage, [language]: e.target.value },
+                } })}
+                className={`${field} mt-1 resize-y`}
+              />
+            </label>
+          ))}
+        </div>
+
+        <label className="block text-xs font-medium text-gray-500">
+          {t('guardrails.escalation.label')}
+          <textarea
+            rows={2}
+            value={listToText(draft.escalation.customTriggerKeywords)}
+            onChange={(e) => patch({ escalation: { customTriggerKeywords: textToList(e.target.value) } })}
+            placeholder={t('guardrails.escalation.placeholder')}
+            className={`${field} mt-1 resize-y`}
+          />
+          <span className="mt-1 block text-[11px] font-normal text-gray-400">{t('guardrails.escalation.hint')}</span>
+        </label>
+
+        <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+          <p className="mb-3 text-xs font-medium text-gray-500">{t('guardrails.format.title')}</p>
+          <div className="space-y-3">
+            <label className="block text-xs font-medium text-gray-500">
+              {t('guardrails.format.maxLength')}
+              <input
+                type="number"
+                min="100"
+                max="1600"
+                value={draft.toneGuardrails.maxReplyLength ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value === '' ? undefined : Number(e.target.value)
+                  const remainingToneGuardrails = { ...draft.toneGuardrails }
+                  delete remainingToneGuardrails.maxReplyLength
+                  patch({ toneGuardrails: value !== undefined && Number.isFinite(value)
+                    ? { ...remainingToneGuardrails, maxReplyLength: Math.min(1600, Math.max(100, Math.round(value))) }
+                    : remainingToneGuardrails })
+                }}
+                placeholder={t('guardrails.format.maxLengthPlaceholder')}
+                className={`${field} mt-1 max-w-40`}
+              />
+            </label>
+            <PillToggle
+              checked={draft.toneGuardrails.disallowEmojis === true}
+              label={t('guardrails.format.noEmoji')}
+              onChange={(disallowEmojis) => patch({ toneGuardrails: { ...draft.toneGuardrails, disallowEmojis } })}
+            />
+            <PillToggle
+              checked={draft.toneGuardrails.requireDisclaimerFooter === true}
+              label={t('guardrails.format.disclaimer')}
+              onChange={(requireDisclaimerFooter) => patch({ toneGuardrails: { ...draft.toneGuardrails, requireDisclaimerFooter } })}
+            />
+            {draft.toneGuardrails.requireDisclaimerFooter && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {(['es', 'en'] as const).map((language) => (
+                  <label key={language} className="block text-xs font-medium text-gray-500">
+                    {t(`guardrails.disclaimer.${language}` as never)}
+                    <textarea
+                      rows={2}
+                      value={draft.toneGuardrails.disclaimerText?.[language] ?? ''}
+                      onChange={(e) => patch({ toneGuardrails: {
+                        ...draft.toneGuardrails,
+                        disclaimerText: { ...draft.toneGuardrails.disclaimerText, [language]: e.target.value },
+                      } })}
+                      className={`${field} mt-1 resize-y`}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <SaveBar dirty={dirty} pending={save.isPending} saved={save.isSuccess && !dirty} error={save.isError} onSave={() => save.mutate()} />
+    </CollapsibleSettingsSection>
+  )
+}
+
 export default function AiSettingsPage() {
   const { t } = useI18n()
   const { clinicId, switchClinic } = useActiveClinic()
@@ -484,6 +694,7 @@ export default function AiSettingsPage() {
         <>
           <BotToneLanguageSection clinic={clinic} />
           <AiAssistantConfigSection clinic={clinic} />
+          <GuardrailsSection key={clinic.id} clinic={clinic} />
           <AiProvidersPanel clinic={clinic} />
         </>
       )}

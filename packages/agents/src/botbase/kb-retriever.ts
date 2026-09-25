@@ -46,10 +46,15 @@ export interface KbFusionPlan {
 /** Reciprocal-rank fusion keeps lexical exact matches and semantic matches in
  * one deterministic order. Conflicting/superseded evidence is fail-closed and
  * byte-identical facts are collapsed before the answer model sees them. */
-export function fuseKbCandidates<T extends HybridKbCandidate>(candidates: T[], plan: KbFusionPlan = {}, limit = 5): T[] {
+export function fuseKbCandidates<T extends HybridKbCandidate>(
+  candidates: T[],
+  plan: KbFusionPlan = {},
+  limit = 5,
+  minVectorScore = 0.78,
+): T[] {
   const eligible = candidates.filter(candidate =>
     Number.isFinite(candidate.vectorScore) && Number.isFinite(candidate.lexicalScore) &&
-    (candidate.vectorScore >= 0.78 || candidate.lexicalScore > 0) &&
+    (candidate.vectorScore >= minVectorScore || candidate.lexicalScore > 0) &&
     candidate.conflictState !== 'conflicting' && candidate.conflictState !== 'superseded',
   )
   const semanticOrder = [...eligible].sort((a, b) => b.vectorScore - a.vectorScore)

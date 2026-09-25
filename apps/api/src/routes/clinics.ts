@@ -40,6 +40,7 @@ const JZEL_CONFIGURATION_LOCKED = {
   error: 'jzel_configuration_locked',
   message: 'Docmee is hidden for this user. Docmee and AI service configuration is locked.',
 }
+const GUARDRAIL_PRESET_CONFIDENCES = [0.85, 0.78, 0.7] as const
 
 const DEFAULT_ROLE_PERMISSIONS = {
   inbox: ['secretary', 'doctor', 'clinic_admin'],
@@ -105,6 +106,52 @@ function touchesDocmeeConfiguration(settings: unknown): boolean {
   const integrations = settings['integrations']
   if (!isRecord(integrations)) return false
   return Object.keys(integrations).some((provider) => JZEL_AI_INTEGRATIONS.has(provider))
+}
+
+const localizedGuardrailTextSchema = z
+  .object({ es: z.string().trim().max(800).optional(), en: z.string().trim().max(800).optional() })
+  .strict()
+
+const guardrailsSchema = z
+  .object({
+    version: z.literal(1),
+    contentBoundaries: z.object({
+      additionalBlockedTopics: z.array(z.string().trim().min(2).max(120)).max(30),
+      customDeflectionMessage: localizedGuardrailTextSchema.optional(),
+    }).strict(),
+    groundingStrictness: z.object({
+      minKbConfidence: z.number().finite().min(0.6).max(1),
+      allowGeneralKnowledgeFallback: z.literal(false),
+    }).strict(),
+    escalation: z.object({ customTriggerKeywords: z.array(z.string().trim().min(2).max(120)).max(30) }).strict(),
+    toneGuardrails: z.object({
+      maxReplyLength: z.number().int().min(100).max(1600).optional(),
+      disallowEmojis: z.boolean().optional(),
+      requireDisclaimerFooter: z.boolean().optional(),
+      disclaimerText: localizedGuardrailTextSchema.optional(),
+    }).strict(),
+  })
+  .strict()
+
+function guardrailChangedFields(previous: unknown, next: unknown): string[] {
+  const before = isRecord(previous) ? previous : {}
+  const after = isRecord(next) ? next : {}
+  const fields = [
+    'contentBoundaries.additionalBlockedTopics',
+    'contentBoundaries.customDeflectionMessage',
+    'groundingStrictness.minKbConfidence',
+    'escalation.customTriggerKeywords',
+    'toneGuardrails.maxReplyLength',
+    'toneGuardrails.disallowEmojis',
+    'toneGuardrails.requireDisclaimerFooter',
+    'toneGuardrails.disclaimerText',
+  ]
+  return fields.filter((path) => {
+    const [group, key] = path.split('.') as [string, string]
+    const oldGroup = isRecord(before[group]) ? before[group] : {}
+    const newGroup = isRecord(after[group]) ? after[group] : {}
+    return JSON.stringify(oldGroup[key]) !== JSON.stringify(newGroup[key])
+  })
 }
 
 async function isDocmeeConfigurationLocked(
@@ -550,11 +597,23 @@ const clinicsRoute: FastifyPluginAsync = async (app) => {
       if (data.messengerPageAccessToken) data.messengerPageAccessToken = encryptValue(data.messengerPageAccessToken)
       if (data.instagramPageAccessToken) data.instagramPageAccessToken = encryptValue(data.instagramPageAccessToken)
       const isStudioAdmin = request.user?.role === 'ia_studio_admin'
+      const incomingGuardrails = isRecord(data.settings) ? data.settings.guardrails : undefined
+      if (incomingGuardrails !== undefined) {
+        const guardrails = guardrailsSchema.safeParse(incomingGuardrails)
+        if (!guardrails.success) return reply.code(400).send({ error: 'invalid_guardrails' })
+        if (!isStudioAdmin && !GUARDRAIL_PRESET_CONFIDENCES.some((value) => value === guardrails.data.groundingStrictness.minKbConfidence)) {
+          return reply.code(403).send({ error: 'guardrail_advanced_settings_forbidden' })
+        }
+        data.settings = { ...data.settings, guardrails: guardrails.data }
+      }
       const requestedDocmeeConfigChange = touchesDocmeeConfiguration(data.settings)
       const clinic = await withDb(async (sql) => {
         const repo = createClinicsRepository(sql)
         const existing = await repo.findById(clinicId)
         if (!existing) return null
+        const guardrailChanges = incomingGuardrails === undefined
+          ? []
+          : guardrailChangedFields((existing.settings as Record<string, unknown> | null)?.guardrails, incomingGuardrails)
         if (
           requestedDocmeeConfigChange &&
           request.user?.userId &&
@@ -588,6 +647,7 @@ const clinicsRoute: FastifyPluginAsync = async (app) => {
           metadata: {
             changed: Object.keys(parsed.data),
             tokenFieldsChanged: ['messengerPageAccessToken', 'instagramPageAccessToken'].filter((key) => key in parsed.data),
+            ...(guardrailChanges.length ? { guardrails: { changedFields: guardrailChanges } } : {}),
           },
           ipAddress: request.ip,
         })

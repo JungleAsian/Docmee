@@ -13,6 +13,8 @@ const COPY = {
     features: 'All Features',
     version: 'Version',
     openFeature: 'Open feature',
+    viewDetails: 'View details',
+    hideDetails: 'Hide details',
   },
   es: {
     eyebrow: 'GUIA DEL PRODUCTO DOCMEE',
@@ -22,6 +24,8 @@ const COPY = {
     features: 'Todas las funciones',
     version: 'Version',
     openFeature: 'Abrir funcion',
+    viewDetails: 'Ver detalles',
+    hideDetails: 'Ocultar detalles',
   },
 } as const
 
@@ -75,46 +79,62 @@ export function ProductUpdatesPageContent({
       </div>
 
       {activeTab === 'updates' ? (
-        <section aria-label={copy.updates} className="space-y-4">
-          {releases.map((release) => (
-            <article key={release.id} className="border border-slate-700 bg-slate-900/55 p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-100">{release.title[language]}</h2>
-                  <time dateTime={release.publishedAt} className="mt-1 block text-xs text-slate-400">
-                    {formatter.format(new Date(release.publishedAt))}
-                  </time>
-                </div>
-                {release.version && (
-                  <span className="border border-cyan-700 bg-cyan-950/60 px-2 py-1 text-xs font-semibold text-cyan-200">
-                    {copy.version} {release.version}
-                  </span>
-                )}
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-300">{release.summary[language]}</p>
-              <ul className="mt-4 space-y-2 text-sm text-slate-200">
-                {release.highlights.map((highlight) => (
-                  <li key={highlight.en} className="flex gap-2">
-                    <span aria-hidden className="text-cyan-400">•</span>
-                    <span>{highlight[language]}</span>
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
+        <section aria-label={copy.updates}>
+          <ol className="divide-y divide-slate-700 border border-slate-700 bg-slate-900/55">
+            {releases.map((release) => (
+              <li key={release.id}>
+                <article className="grid gap-3 p-4 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6 sm:p-5">
+                  <div className="flex flex-wrap items-center gap-2 sm:block sm:space-y-2">
+                    <time dateTime={release.publishedAt} className="block text-sm text-slate-400">
+                      {formatter.format(new Date(release.publishedAt))}
+                    </time>
+                    {release.version && (
+                      <span className="inline-block border border-cyan-700 bg-cyan-950/60 px-2 py-1 text-xs font-semibold text-cyan-200">
+                        {copy.version} {release.version}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 break-words">
+                    <h2 className="text-base font-semibold text-slate-100">{release.title[language]}</h2>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">{release.summary[language]}</p>
+                    {release.highlights.length > 0 && (
+                      <details className="group mt-2">
+                        <summary className="w-fit cursor-pointer rounded py-2 text-sm font-semibold text-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400">
+                          <span className="group-open:hidden">{copy.viewDetails}</span>
+                          <span className="hidden group-open:inline">{copy.hideDetails}</span>
+                          <span className="sr-only">: {release.title[language]}</span>
+                        </summary>
+                        <ul className="mt-2 list-disc space-y-2 border-t border-slate-700 py-4 pl-5 text-sm leading-6 text-slate-200 marker:text-cyan-400">
+                          {release.highlights.map((highlight) => (
+                            <li key={highlight.en}>{highlight[language]}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                </article>
+              </li>
+            ))}
+          </ol>
         </section>
       ) : (
-        <section aria-label={copy.features} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {features.map((feature) => (
-            <article key={feature.id} className="flex min-h-48 flex-col border border-slate-700 bg-slate-900/55 p-5 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-400">{feature.category[language]}</p>
-              <h2 className="mt-2 text-lg font-semibold text-slate-100">{feature.title[language]}</h2>
-              <p className="mt-2 flex-1 text-sm leading-6 text-slate-300">{feature.description[language]}</p>
-              <Link href={feature.href} className="mt-4 text-sm font-semibold text-cyan-300 hover:text-cyan-200">
-                {copy.openFeature} →
-              </Link>
-            </article>
-          ))}
+        <section aria-label={copy.features}>
+          <ul className="divide-y divide-slate-700 border border-slate-700 bg-slate-900/55">
+            {features.map((feature) => (
+              <li key={feature.id}>
+                <article className="grid items-start gap-3 p-4 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6 sm:p-5 lg:grid-cols-[10rem_minmax(0,1fr)_auto]">
+                  <p className="text-xs font-semibold text-cyan-400">{feature.category[language]}</p>
+                  <div className="min-w-0 break-words">
+                    <h2 className="text-base font-semibold text-slate-100">{feature.title[language]}</h2>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">{feature.description[language]}</p>
+                  </div>
+                  <Link href={feature.href} className="w-fit rounded py-2 text-sm font-semibold text-cyan-300 hover:text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400 sm:col-start-2 lg:col-start-3 lg:py-0">
+                    {copy.openFeature}<span className="sr-only">: {feature.title[language]}</span> <span aria-hidden>→</span>
+                  </Link>
+                </article>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </div>

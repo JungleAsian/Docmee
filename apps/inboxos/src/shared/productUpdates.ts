@@ -35,8 +35,8 @@ export const PRODUCT_UPDATES: ProductUpdate[] = [
       es: 'Ahora es mas facil encontrar las novedades',
     },
     summary: {
-      en: 'See what changed in Docmee and explore the features available to your role from one place.',
-      es: 'Consulta los cambios de Docmee y explora las funciones disponibles para tu rol desde un solo lugar.',
+      en: 'Find release notes, new-update notifications, and a guide to your available features in one place.',
+      es: 'Encuentra notas de versión, avisos de novedades y una guía de tus funciones disponibles en un solo lugar.',
     },
     highlights: [
       {

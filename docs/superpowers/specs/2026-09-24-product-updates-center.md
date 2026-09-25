@@ -30,3 +30,9 @@ The release and feature catalog is version-controlled application content. This 
 - Focused unit tests prove ordering, audience filtering, unseen-release calculation, preference normalization, and the rendered popup content.
 - InboxOS typecheck, lint, tests, i18n validation, and production build pass.
 - Source review confirms both global layouts render the shared control and the current operational notification bell remains unchanged.
+
+## Updates page list revision
+
+The user requested a list or table at `https://app.docmeedevelopment.dev/updates`, with a short change summary before the details. Use compact, responsive list rows in both tabs. Release dates, versions, titles, and localized summaries stay visible; native disclosure controls reveal highlights on demand. Feature rows retain their short descriptions and authorized links. Preserve existing role filtering, notification acknowledgement, and catalog ownership; no backend or dependency changes are needed.
+
+Apply the React, HTML, and CSS development skills to the existing React 19 / Next 15 component. Acceptance: focused product-update tests, type/lint/build checks, and browser verification of collapsed/expanded rows, keyboard controls, and narrow-screen reflow. Publication follows the user's ongoing request to update the existing DOCMEE application, with the previous release retained for rollback. Owner review remains pending.

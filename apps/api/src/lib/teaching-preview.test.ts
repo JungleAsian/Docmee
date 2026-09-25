@@ -85,7 +85,7 @@ describe('workflow teaching preview without delivery or learning writes', () => 
   it('does not show ungrounded, low-confidence or conflicting answers as usable replies', async () => {
     m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.99\nREPLY: We open at 8 AM.')
       .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY: We close at 8 PM.')
-    expect(await run()).toMatchObject({ action: 'handoff', reason: 'ungrounded_answer', answer: '' })
+    expect(await run('Tell me about parking validation')).toMatchObject({ action: 'handoff', reason: 'ungrounded_answer', answer: '' })
     m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.7\nREPLY: We open at 9 AM.')
     expect(await run()).toMatchObject({ reason: 'low_answer_confidence', answer: '' })
     m.consistency.mockResolvedValueOnce({ complete: true, sources: ['We open at 8 AM.'] })
@@ -98,6 +98,23 @@ describe('workflow teaching preview without delivery or learning writes', () => 
     expect(await run()).toMatchObject({ action: 'reply', reason: null, answer: source.content })
     expect(m.complete).toHaveBeenCalledTimes(2)
     expect(m.complete.mock.calls[1]![0].system).toContain('complete, unchanged KB sentences')
+  })
+  it('deterministically extracts a retrieved phone fact when both model answers paraphrase it', async () => {
+    const clinicSource = { ...source, title: 'Clinic information', content: [
+      'Clinic: Derma Paz',
+      'Address: 20 Avenida 1-16 Zona 3',
+      'Phone: 46082715',
+      'Doctor: Dra. Mónica Paz, dermatóloga.',
+    ].join('\n') }
+    m.search.mockResolvedValue([clinicSource])
+    m.consistency.mockResolvedValue({ complete: true, sources: [clinicSource.content] })
+    m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.99\nREPLY: Call us at 4608-2715.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY: The clinic phone number is 46082715.')
+
+    expect(await run('What is the Derma Paz contact phone?')).toMatchObject({
+      action: 'reply', reason: null, answer: 'Phone: 46082715', kbMatches: 1,
+    })
+    expect(m.complete).toHaveBeenCalledTimes(2)
   })
   it('exposes route decisions without executing the workflow or writing learning events', async () => {
     const routed = { ...node, config: { scenarios: [{ id: 'faq', description: 'Route', action: 'route', targetWorkflowId: 'other' }] } }

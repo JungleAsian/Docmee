@@ -2,7 +2,8 @@ import { createKnowledgeRepository, createKnowledgeLearningRepository, type Clin
 import { chatComplete, defaultChatModel } from '@docmee/llm'
 import { buildAiAgentSystemPrompt, parseAiAgentCompletion, parseAiAnswerConfidence, catchAllReplyScenario, aiAgentHandoffReason,
   parseAiAgentScenarios, resolveAiAgentSettings, detectLanguage, isEmergencyMessage, isLikelyQuestion, expandKbQuery,
-  rerankHybridChunks, assessKbAnswer, screenMedicalSafety, screenPromptLeak, buildAiAgentFallbackPrompt, withAiAgentReplyTimeout } from '@docmee/agents'
+  rerankHybridChunks, assessKbAnswer, screenMedicalSafety, screenPromptLeak, buildAiAgentFallbackPrompt, withAiAgentReplyTimeout,
+  extractGroundedKbReply } from '@docmee/agents'
 import { resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion } from '@docmee/agents'
 import { readAiAssistant, resolveEmbed } from './ai-assistant.js'
 import { resolveClinicAiKey } from './clinic-ai-key.js'
@@ -70,8 +71,10 @@ export async function previewTeachingAnswer(sql: Sql, clinic: Clinic, node: Work
       confidence !== null && confidence >= .8 ? answer : '', sources, diagnostics)
   }
   const consistency = await learning.scopedConsistency(clinic.id, scope)
-  let evidence = assessKbAnswer(message, answer, matches.map(m => m.content), confidence ?? undefined, consistency)
-  let reason = aiAgentHandoffReason(evidence, confidence, await learning.sourcesCurrent(clinic.id, citations, scope))
+  const sourceContents = matches.map(m => m.content)
+  let evidence = assessKbAnswer(message, answer, sourceContents, confidence ?? undefined, consistency)
+  let sourcesCurrent = await learning.sourcesCurrent(clinic.id, citations, scope)
+  let reason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
   if (reason === 'ungrounded_answer' && matches.length && !usedGroundedFallback) {
     raw = await complete(buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage,
       matches.map(m => `# ${m.title}\n${m.content}`).join('\n\n'), knowledgePolicy))
@@ -79,8 +82,19 @@ export async function previewTeachingAnswer(sql: Sql, clinic: Clinic, node: Work
     if (!screenMedicalSafety(answer).safe) return result('handoff', 'medical_safety', '', sources, diagnostics)
     if (!screenPromptLeak(answer).safe) return result('handoff', 'prompt_safety', '', sources, diagnostics)
     confidence = parseAiAnswerConfidence(raw)
-    evidence = assessKbAnswer(message, answer, matches.map(m => m.content), confidence ?? undefined, consistency)
-    reason = aiAgentHandoffReason(evidence, confidence, await learning.sourcesCurrent(clinic.id, citations, scope))
+    evidence = assessKbAnswer(message, answer, sourceContents, confidence ?? undefined, consistency)
+    sourcesCurrent = await learning.sourcesCurrent(clinic.id, citations, scope)
+    reason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+  }
+  if (reason === 'ungrounded_answer') {
+    const extracted = extractGroundedKbReply(message, answer, sourceContents)
+    if (extracted) {
+      answer = extracted
+      if (!screenMedicalSafety(answer).safe) return result('handoff', 'medical_safety', '', sources, diagnostics)
+      if (!screenPromptLeak(answer).safe) return result('handoff', 'prompt_safety', '', sources, diagnostics)
+      evidence = assessKbAnswer(message, answer, sourceContents, confidence ?? undefined, consistency)
+      reason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+    }
   }
   return result(reason ? 'handoff' : 'reply', reason, reason ? '' : answer, sources, diagnostics)
 }

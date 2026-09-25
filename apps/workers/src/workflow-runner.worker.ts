@@ -20,7 +20,7 @@ import {
   resolveMenuHandle,
   parseAiAgentScenarios,
   resolveAiAgentSettings,
-  buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt,
+  buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt, extractGroundedKbReply,
   resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion,
   isEmergencyMessage,
   screenMedicalSafety,
@@ -1317,9 +1317,10 @@ function buildExecutors(
         return 'replied'
       }
       consistency = await learning.scopedConsistency(clinicId, scope)
-      let evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
+      const sourceContents = kbMatches.map(match => match.content)
+      let evidence = assessKbAnswer(message, reply, sourceContents, confidence ?? undefined, consistency)
       let sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
-      let handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent)
+      let handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
       if (handoffReason === 'ungrounded_answer' && kbMatches.length && !usedGroundedFallback) {
         try {
           raw = await withWorkflowAiAgentReplyTimeout(
@@ -1356,9 +1357,31 @@ function buildExecutors(
           return 'handoff'
         }
         confidence = parseAiAnswerConfidence(raw)
-        evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
+        evidence = assessKbAnswer(message, reply, sourceContents, confidence ?? undefined, consistency)
         sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
-        handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent)
+        handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+      }
+      if (handoffReason === 'ungrounded_answer') {
+        const extracted = extractGroundedKbReply(message, reply, sourceContents)
+        if (extracted) {
+          reply = extracted
+          if (!screenMedicalSafety(reply).safe) {
+            await recordOutcome(reply, confidence, 'medical_safety')
+            await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
+            await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
+            ctx['ai_agent_action'] = 'handoff'
+            return 'handoff'
+          }
+          if (!screenPromptLeak(reply).safe) {
+            await recordOutcome(reply, confidence, 'prompt_safety')
+            await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
+            await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
+            ctx['ai_agent_action'] = 'handoff'
+            return 'handoff'
+          }
+          evidence = assessKbAnswer(message, reply, sourceContents, confidence ?? undefined, consistency)
+          handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+        }
       }
       if (handoffReason) {
         await recordOutcome(reply, confidence, handoffReason)

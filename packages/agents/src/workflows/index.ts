@@ -51,5 +51,5 @@ export {
 export { validCapturedReply } from './capture-validation.js'
 export { resolveAiAgentSettings } from './ai-agent-settings.js'
 export { buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason,
-  buildAiAgentFallbackPrompt, withAiAgentReplyTimeout, resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion,
+  buildAiAgentFallbackPrompt, withAiAgentReplyTimeout, resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion, extractGroundedKbReply,
   type AiAgentKnowledgePolicy } from './ai-agent-answer.js'

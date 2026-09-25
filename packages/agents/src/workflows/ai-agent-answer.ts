@@ -93,13 +93,68 @@ export function catchAllReplyScenario(scenarios: ReturnType<typeof parseAiAgentS
 }
 
 
-/** Shared last gate for live delivery and the side-effect-free teaching preview. */
-export function aiAgentHandoffReason(evidence: KbAnswerEvidence, confidence: number | null, sourcesCurrent: boolean): string | null {
+/** Shared last gate for live delivery and the side-effect-free teaching preview.
+ * Exact current-source delivery can tolerate an unknown semantic consistency
+ * classification. Publication remains governed by evaluateKbCandidateGates. */
+export function aiAgentHandoffReason(evidence: KbAnswerEvidence, confidence: number | null, sourcesCurrent: boolean,
+  options: { allowExactCurrentSource?: boolean } = {}): string | null {
   return !sourcesCurrent ? 'stale_or_missing_sources'
     : evidence.groundingScore < 1 ? 'ungrounded_answer'
-    : evidence.contradiction !== 'clear' ? 'contradiction_unknown'
+    : evidence.contradiction === 'conflict' || (evidence.contradiction === 'unknown' && !options.allowExactCurrentSource) ? 'contradiction_unknown'
     : confidence === null || confidence < .8 ? 'low_answer_confidence'
-    : evidence.risks.some(risk => ['prompt_injection', 'privacy'].includes(risk)) ? 'unsafe_answer' : null
+    : evidence.risks.some(risk => risk === 'prompt_injection' || (risk === 'privacy' && !options.allowExactCurrentSource)) ? 'unsafe_answer' : null
+}
+
+const ANSWER_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'at', 'can', 'contact', 'could', 'de', 'del', 'do', 'does', 'el', 'en', 'es', 'esta', 'for',
+  'i', 'is', 'la', 'las', 'los', 'me', 'my', 'of', 'please', 'que', 'the', 'their', 'to', 'tu', 'un', 'una', 'what',
+  'when', 'where', 'which', 'who', 'your', 'y',
+])
+
+const FACT_INTENTS = [
+  { question: /\b(phone|telephone|telefono|tel|llamar|call)\b/, answer: /\b(phone|telephone|telefono|tel)\b/ },
+  { question: /\b(address|location|located|direccion|ubicacion|donde)\b/, answer: /\b(address|location|direccion|ubicacion)\b/ },
+  { question: /\b(hours?|schedule|open|close|horario|abre|abren|cierra|cierran)\b/, answer: /\b(hours?|schedule|open|close|horario|abre|abren|cierra|cierran)\b/ },
+  { question: /\b(doctor|doctora|dra|physician|medico|medica|especialista)\b/, answer: /\b(doctor|doctora|dra|physician|medico|medica|especialista)\b/ },
+  { question: /\b(email|e-mail|correo)\b/, answer: /\b(email|e-mail|correo)\b/ },
+] as const
+
+function comparableText(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+
+function answerTokens(value: string): Set<string> {
+  return new Set(comparableText(value).split(/\s+/).filter(token => token.length > 1 && !ANSWER_STOP_WORDS.has(token)))
+}
+
+/** Deterministic final repair for a model that paraphrases a retrieved fact.
+ * It returns a complete source sentence unchanged and refuses unrelated facts. */
+export function extractGroundedKbReply(question: string, candidateAnswer: string, sources: string[]): string | null {
+  const normalizedQuestion = comparableText(question)
+  const intent = FACT_INTENTS.find(item => item.question.test(normalizedQuestion))
+  const questionTokens = answerTokens(question)
+  const candidateTokens = answerTokens(candidateAnswer)
+  const sentences = sources.flatMap(source => source.split(/\n+/).flatMap(line => {
+    const trimmed = line.trim()
+    if (!trimmed) return []
+    // Structured fact lines are already complete units; preserve abbreviations
+    // such as "Dra." instead of cutting a doctor's name in half.
+    if (intent?.answer.test(comparableText(trimmed))) return [trimmed]
+    return trimmed.split(/(?<=[.!?])\s+/).map(sentence => sentence.trim()).filter(Boolean)
+  }))
+  let best: { sentence: string; score: number } | null = null
+  for (const sentence of sentences) {
+    const normalizedSentence = comparableText(sentence)
+    if (!normalizedSentence || (intent && !intent.answer.test(normalizedSentence))) continue
+    const tokens = answerTokens(sentence)
+    const tokenOverlap = [...tokens].filter(token => questionTokens.has(token)).length
+    const questionOverlap = tokenOverlap + (intent ? 1 : 0)
+    if (questionOverlap === 0) continue
+    const candidateOverlap = [...tokens].filter(token => candidateTokens.has(token)).length
+    const score = questionOverlap * 10 + candidateOverlap
+    if (!best || score > best.score) best = { sentence, score }
+  }
+  return best?.sentence ?? null
 }
 
 export function buildAiAgentFallbackPrompt(clinicName: string, instructions: string, preferredLanguage: string, kbContext: string,

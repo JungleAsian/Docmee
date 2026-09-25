@@ -288,6 +288,33 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.sendWhatsAppText.mock.calls.some(call => String(call[3]).includes('starts seeing'))).toBe(false)
   })
 
+  it('deterministically extracts a retrieved phone fact when the grounded repair still paraphrases it', async () => {
+    const clinicSource = [
+      'Clinic: Derma Paz',
+      'Address: 20 Avenida 1-16 Zona 3',
+      'Phone: 46082715',
+      'Doctor: Dra. Mónica Paz, dermatóloga.',
+    ].join('\n')
+    h.searchChunks.mockResolvedValue([{ chunkId: 'kb-clinic', documentId: 'kb-clinic-doc', documentVersion: 1,
+      title: 'Clinic information', content: clinicSource, vectorScore: .99, lexicalScore: 1, retrievalRevision: 1,
+      doctorId: null, language: 'en', provenance: {} }])
+    h.scopedConsistency.mockResolvedValue({ complete: true, sources: [clinicSource] })
+    h.chatComplete.mockResolvedValueOnce('SCENARIO: general\nCONFIDENCE: 0.99\nREPLY:\nCall us at 4608-2715.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY:\nThe clinic phone number is 46082715.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = await exec.aiAgent({ id: 'ai-phone', type: 'action.ai_agent', config: {
+        scenarios: [{ id: 'general', name: 'General', action: 'reply' }],
+      } }, { ...ctx, message: 'What is the Derma Paz contact phone?', conversationId: 'conversation-1' })
+      expect(result).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'Phone: 46082715')
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: null, grounding: 1, contradiction: 'unknown' }))
+  })
+
   it('persists a validated patient email captured by a workflow as the newest patient-provided value', async () => {
     h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', email: 'old@example.com', phoneE164: null, fullName: null, metadata: {} })
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {

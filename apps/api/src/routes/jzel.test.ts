@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   clinicReads: [] as string[],
   systems: [] as string[],
   searchRows: [] as Array<Record<string, unknown>>,
+  chatResponse: 'CONFIDENCE: 0.95\nREPLY:\nok',
   hasKey: false,
   useHelp: false,
   recordAttempt: vi.fn(async () => ({ replayed: false, candidate: null })),
@@ -29,19 +30,50 @@ vi.mock('@docmee/db', () => ({
     },
   }),
   createKnowledgeRepository: () => ({
+    getClinicRetrievalRevision: async () => 1,
     searchChunks: async (_query: string, _embedding: number[], filters: { clinicId: string; doctorId: string | null }, limit: number) => {
       expect(limit).toBeLessThanOrEqual(40)
       state.kbClinics.push(filters.clinicId)
       state.embedded.push(filters.doctorId); state.active.push(filters.doctorId); return state.searchRows
     },
   }),
-  createKnowledgeLearningRepository: () => ({ recordAttempt: state.recordAttempt }),
+  createKnowledgeLearningRepository: () => ({
+    recordAttempt: state.recordAttempt,
+    sourcesCurrent: async () => true,
+  }),
 }))
 
 vi.mock('@docmee/agents', () => ({
   capPatientInput: (value: string) => value,
   detectPromptInjection: () => ({ detected: false }),
   screenPromptLeak: () => ({ safe: true }),
+  screenMedicalSafety: () => ({ safe: true }),
+  medicalSafetyDeferral: () => 'medical handoff',
+  knowledgeHandoffNotice: () => 'knowledge handoff',
+  parseAiAgentCompletion: (raw: string) => ({ scenarioId: null, reply: raw.match(/REPLY:\s*([\s\S]*)$/i)?.[1]?.trim() ?? '' }),
+  parseAiAnswerConfidence: (raw: string) => Number(raw.match(/CONFIDENCE:\s*(\d(?:\.\d+)?)/i)?.[1] ?? NaN) || null,
+  assessKbAnswer: (_question: string, answer: string, sources: string[], confidence?: number) => ({
+    answerConfidence: confidence ?? null,
+    groundingScore: sources.some(source => source.includes(answer)) ? 1 : 0,
+    contradiction: 'clear', risks: [], safeContentClass: 'unknown', verifier: 'extractive-v1',
+  }),
+  aiAgentHandoffReason: (evidence: { groundingScore: number }, confidence: number | null, current: boolean) =>
+    !current ? 'stale' : evidence.groundingScore < 1 ? 'ungrounded' : confidence === null || confidence < .8 ? 'low_confidence' : null,
+  retrieveKbEvidence: async (input: { clinicId: string; doctorId?: string | null; knowledge: { searchChunks: (...args: unknown[]) => unknown } }) => {
+    const matches = await input.knowledge.searchChunks('help me', [], { clinicId: input.clinicId, doctorId: input.doctorId }, 40) as Array<Record<string, unknown>>
+    return {
+      status: matches.length ? 'ready' : 'insufficient_evidence',
+      matches,
+      citations: matches.map((match) => ({
+        chunkId: match['chunkId'], documentId: match['documentId'], documentVersion: match['documentVersion'],
+        doctorId: match['doctorId'] ?? null, language: match['language'] ?? null,
+        retrievalRevision: match['retrievalRevision'] ?? 1, governanceReviewState: 'trusted',
+      })),
+      revision: 1,
+      mode: matches.length ? 'keyword' : 'none',
+      plan: { language: 'en' },
+    }
+  },
   searchKb: async () => [],
   expandKbQuery: (query: string) => query,
   detectLanguage: () => 'en',
@@ -65,7 +97,7 @@ vi.mock('../lib/ai-assistant.js', () => ({
     if (system === 'You are a connectivity check.' && config.model === 'c-2-model') {
       throw new Error('c-2 provider unavailable')
     }
-    return 'ok'
+    return state.chatResponse
   },
   resolveEmbed: () => async () => [],
 }))
@@ -95,10 +127,15 @@ describe('Docmee assistant route branding', () => {
     state.kbClinics.length = 0
     state.clinicReads.length = 0
     state.systems.length = 0
-    state.searchRows = []
+    state.searchRows = [{
+      chunkId: 'default-chunk', documentId: 'default-doc', documentVersion: 1,
+      title: 'KB', content: 'ok', doctorId: null, language: 'en', retrievalRevision: 1,
+      provenance: { governanceReviewState: 'trusted' },
+    }]
     state.hasKey = false
     state.useHelp = false
     state.recordAttempt.mockClear()
+    state.chatResponse = 'CONFIDENCE: 0.95\nREPLY:\nok'
     state.user = {
       userId: 'u-1',
       clinicId: 'c-1',
@@ -123,8 +160,8 @@ describe('Docmee assistant route branding', () => {
     expect(response.statusCode).toBe(409)
     expect(response.json().message).toContain('Docmee needs this clinic’s own AI provider key')
     expect(response.json().message).not.toMatch(/J\.zel|Jzel/i)
-    expect(state.embedded).toEqual([undefined])
-    expect(state.active).toEqual([undefined])
+    expect(state.embedded).toEqual([null])
+    expect(state.active).toEqual([null])
   })
 
   it('scopes both embedded and lexical grounding to a selected doctor', async () => {
@@ -167,6 +204,25 @@ describe('Docmee assistant route branding', () => {
 
     expect(response.statusCode).toBe(200)
     expect(state.systems.at(-1)).toContain('Clinic-specific persona / rules:\nc-2-persona')
+  })
+
+  it('fails closed when the generated answer does not report at least 80% confidence', async () => {
+    state.hasKey = true
+    state.chatResponse = 'CONFIDENCE: 0.62\nREPLY:\nok'
+
+    const response = await app.inject({ method: 'POST', url: '/assist/chat', payload: { message: 'Help me' } })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ reply: 'knowledge handoff', sources: [] })
+  })
+
+  it('returns only the parsed reply and never leaks the confidence envelope', async () => {
+    state.hasKey = true
+
+    const response = await app.inject({ method: 'POST', url: '/assist/chat', payload: { message: 'Help me' } })
+
+    expect(response.json().reply).toBe('ok')
+    expect(response.body).not.toContain('CONFIDENCE:')
   })
 
   it('rejects a clinic selection the operator is not authorized to access', async () => {
@@ -215,6 +271,7 @@ describe('Docmee assistant route branding', () => {
 
   it('records an unanswered question as a governed knowledge gap', async () => {
     state.hasKey = true
+    state.searchRows = []
 
     const response = await app.inject({
       method: 'POST',
@@ -297,6 +354,7 @@ describe('Docmee assistant route branding', () => {
   it('records a true knowledge gap instead of attaching help for the current page', async () => {
     state.hasKey = true
     state.useHelp = true
+    state.searchRows = []
 
     const response = await app.inject({
       method: 'POST',

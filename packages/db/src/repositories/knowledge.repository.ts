@@ -19,6 +19,11 @@ export interface CreateDocumentInput {
   /** Scope this document to a single doctor (Req 30 per-doctor FAQs); stored in
    *  metadata.doctorId. Omit/null for a clinic-wide document. */
   doctorId?: string | null
+  /** Stable identity used to detect newer, conflicting, or superseded facts. */
+  canonicalFactKey?: string
+  /** Source precedence for retrieval. Defaults to doctor for doctor-scoped facts,
+   * otherwise clinic. System authority must be supplied explicitly. */
+  authority?: 'clinic' | 'doctor' | 'system'
   metadata?: Record<string, unknown>
 }
 
@@ -45,6 +50,17 @@ export interface ReplaceSourceDocumentsInput {
   clinicId: string
   source: string
   documents: Array<Omit<WriteDocumentInput, 'clinicId' | 'id'>>
+}
+
+function canonicalFactKey(data: Pick<CreateDocumentInput, 'title' | 'canonicalFactKey' | 'metadata'>): string {
+  const fromMetadata = data.metadata?.['canonicalFactKey']
+  if (typeof data.canonicalFactKey === 'string' && data.canonicalFactKey.trim()) return data.canonicalFactKey.trim()
+  if (typeof fromMetadata === 'string' && fromMetadata.trim()) return fromMetadata.trim()
+  return data.title.trim().toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'untitled'
+}
+
+function documentAuthority(data: Pick<CreateDocumentInput, 'authority' | 'doctorId'>): 'clinic' | 'doctor' | 'system' {
+  return data.authority ?? (data.doctorId ? 'doctor' : 'clinic')
 }
 
 /** A KB chunk paired with its stored embedding, for in-process similarity search. */
@@ -88,6 +104,10 @@ export interface KnowledgeSearchRow {
   effectiveFrom?: string
   effectiveUntil?: string | null
   retrievalRevision?: number
+  canonicalFactKey?: string | null
+  contentHash?: string | null
+  authority?: 'clinic' | 'doctor' | 'system'
+  conflictState?: 'clear' | 'conflicting' | 'superseded' | null
 }
 
 export type KnowledgeCandidateStatus = 'pending_review' | 'approved' | 'rejected' | 'superseded'
@@ -222,6 +242,15 @@ export interface KnowledgeRepository {
     patientFeedback?: 'accepted' | 'corrected' | 'escalated' | 'unknown'
     candidateId?: string | null
   }): Promise<string>
+  recordRetrievalMetric(event: {
+    clinicId: string
+    queryHash: string
+    intent: string
+    resultCount: number
+    latencyMs: number
+    cacheHit: boolean
+    outcome: 'answered' | 'handoff' | 'no_evidence' | 'error'
+  }): Promise<void>
   createChunk(data: CreateChunkInput): Promise<KnowledgeChunk>
   replaceChunks(clinicId: string, documentId: string, chunks: Omit<CreateChunkInput, 'documentId' | 'clinicId'>[]): Promise<KnowledgeChunk[]>
 
@@ -275,9 +304,9 @@ async function rebuildCurrentDocumentChunks(
   for (const [chunkIndex, content] of chunks.entries()) {
     await tx`
       INSERT INTO knowledge_chunks
-        (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
+        (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active, content_hash)
       VALUES (${document.id}, ${clinicId}, ${content}, ${chunkIndex},
-        ${tx.json(toJson({}))}, ${version}, ${true})
+        ${tx.json(toJson({}))}, ${version}, ${true}, md5(${content}))
     `
   }
   return chunks.length
@@ -323,6 +352,36 @@ export async function lockKnowledgeMutation(tx: TxSql, clinicId: string): Promis
   await tx`SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId} FOR UPDATE`
 }
 
+/** Retire every older active owner of the same clinic/scope/fact key.
+ * The clinic lock held by every caller makes ownership transfer deterministic. */
+async function supersedeActiveFactOwners(tx: TxSql, clinicId: string, currentDocumentId: string): Promise<void> {
+  await tx`
+    WITH current_owner AS (
+      SELECT canonical_fact_key, metadata ->> 'doctorId' AS doctor_id
+      FROM knowledge_documents
+      WHERE clinic_id = ${clinicId} AND id = ${currentDocumentId}
+    ), superseded AS (
+      UPDATE knowledge_documents AS previous
+      SET status = 'archived', indexing_status = 'withdrawn', indexing_error = NULL,
+          metadata = COALESCE(previous.metadata, '{}') || jsonb_build_object(
+            'conflictState', 'superseded',
+            'supersededBy', ${currentDocumentId},
+            'supersededAt', now()
+          )
+      FROM current_owner AS current
+      WHERE previous.clinic_id = ${clinicId}
+        AND previous.id <> ${currentDocumentId}
+        AND previous.status = 'active'
+        AND previous.canonical_fact_key = current.canonical_fact_key
+        AND (previous.metadata ->> 'doctorId') IS NOT DISTINCT FROM current.doctor_id
+      RETURNING previous.id
+    )
+    UPDATE knowledge_chunks
+    SET is_active = false
+    WHERE clinic_id = ${clinicId} AND document_id IN (SELECT id FROM superseded)
+  `
+}
+
 /** Compose the authoritative writer inside a caller-owned transaction. */
 export function writeKnowledgeDocument(tx: TxSql, data: WriteDocumentInput): Promise<DocumentIndexWrite> {
   return createKnowledgeRepository(tx as unknown as Sql, tx).writeDocument(data)
@@ -353,7 +412,8 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
           ...(data.doctorId ? { doctorId: data.doctorId } : {}),
         }
         const rows = await tx<KnowledgeDocument[]>`
-          INSERT INTO knowledge_documents (clinic_id, title, content, document_type, status, approved_at, metadata)
+          INSERT INTO knowledge_documents
+            (clinic_id, title, content, document_type, status, approved_at, canonical_fact_key, authority, metadata)
           VALUES (
             ${data.clinicId},
             ${data.title},
@@ -361,10 +421,15 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
             ${data.documentType ?? 'faq'},
             ${data.status       ?? 'draft'},
             CASE WHEN ${data.status ?? 'draft'} = 'active' THEN now() ELSE NULL END,
+            ${canonicalFactKey(data)},
+            ${documentAuthority(data)},
             ${tx.json(toJson(metadata))}
           )
           RETURNING *
         `
+        if ((data.status ?? 'draft') === 'active') {
+          await supersedeActiveFactOwners(tx, data.clinicId, rows[0]!.id)
+        }
         await tx`
           INSERT INTO knowledge_retrieval_revisions (clinic_id, revision) VALUES (${data.clinicId}, 1)
           ON CONFLICT (clinic_id) DO UPDATE
@@ -412,6 +477,8 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
               status = ${nextStatus}, version = ${nextVersion},
               approved_at = CASE WHEN ${nextStatus} = 'active' THEN now() ELSE NULL END,
               indexing_status = ${chunksActive ? 'pending' : 'withdrawn'}, indexing_error = NULL,
+              canonical_fact_key = ${canonicalFactKey(data)},
+              authority = ${documentAuthority({ authority: data.authority ?? current[0].authority, doctorId: data.doctorId })},
               metadata = ${tx.json(toJson(metadata))}
             WHERE clinic_id = ${data.clinicId} AND id = ${data.id}
             RETURNING *
@@ -423,22 +490,28 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
           chunksActive = nextStatus === 'active'
           const rows = await tx<KnowledgeDocument[]>`
             INSERT INTO knowledge_documents
-              (clinic_id, title, content, document_type, status, approved_at, indexing_status, metadata)
+              (clinic_id, title, content, document_type, status, approved_at, indexing_status,
+               canonical_fact_key, authority, metadata)
             VALUES (${data.clinicId}, ${data.title}, ${data.content}, ${data.documentType ?? 'faq'},
               ${nextStatus}, CASE WHEN ${nextStatus} = 'active' THEN now() ELSE NULL END,
-              ${chunksActive ? 'pending' : 'withdrawn'}, ${tx.json(toJson(metadata))})
+              ${chunksActive ? 'pending' : 'withdrawn'}, ${canonicalFactKey(data)},
+              ${documentAuthority(data)}, ${tx.json(toJson(metadata))})
             RETURNING *
           `
           document = rows[0]!
+        }
+        if (chunksActive) {
+          await supersedeActiveFactOwners(tx, data.clinicId, document.id)
         }
         const version = document.version ?? 1
         const chunks: KnowledgeChunk[] = []
         for (const chunk of data.chunks) {
           const rows = await tx<KnowledgeChunk[]>`
             INSERT INTO knowledge_chunks
-              (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
+              (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active, content_hash)
             VALUES (${document.id}, ${data.clinicId}, ${chunk.content}, ${chunk.chunkIndex},
-              ${tx.json(toJson(chunk.metadata ?? {}))}, ${version}, ${chunksActive})
+              ${tx.json(toJson(chunk.metadata ?? {}))}, ${version}, ${chunksActive},
+              ${typeof chunk.metadata?.['contentHash'] === 'string' ? chunk.metadata['contentHash'] : null}::text)
             RETURNING *
           `
           chunks.push(rows[0]!)
@@ -488,21 +561,27 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
           const metadata = { ...(input.metadata ?? {}), source: data.source }
           const documents = await tx<KnowledgeDocument[]>`
             INSERT INTO knowledge_documents
-              (clinic_id, title, content, document_type, status, approved_at, indexing_status, metadata)
+              (clinic_id, title, content, document_type, status, approved_at, indexing_status,
+               canonical_fact_key, authority, metadata)
             VALUES (${data.clinicId}, ${input.title}, ${input.content}, ${input.documentType ?? 'faq'},
               ${status}, CASE WHEN ${status} = 'active' THEN now() ELSE NULL END,
-              ${chunksActive ? 'pending' : 'withdrawn'}, ${tx.json(toJson(metadata))})
+              ${chunksActive ? 'pending' : 'withdrawn'}, ${canonicalFactKey(input)},
+              ${documentAuthority(input)}, ${tx.json(toJson(metadata))})
             RETURNING *
           `
           const document = documents[0]!
+          if (chunksActive) {
+            await supersedeActiveFactOwners(tx, data.clinicId, document.id)
+          }
           const version = document.version ?? 1
           const chunks: KnowledgeChunk[] = []
           for (const chunk of input.chunks) {
             const rows = await tx<KnowledgeChunk[]>`
               INSERT INTO knowledge_chunks
-                (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active)
+                (document_id, clinic_id, content, chunk_index, metadata, document_version, is_active, content_hash)
               VALUES (${document.id}, ${data.clinicId}, ${chunk.content}, ${chunk.chunkIndex},
-                ${tx.json(toJson(chunk.metadata ?? {}))}, ${version}, ${chunksActive})
+                ${tx.json(toJson(chunk.metadata ?? {}))}, ${version}, ${chunksActive},
+                ${typeof chunk.metadata?.['contentHash'] === 'string' ? chunk.metadata['contentHash'] : null}::text)
               RETURNING *
             `
             chunks.push(rows[0]!)
@@ -599,6 +678,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
         `
         if (!rows[0]) throw new Error(`Document not found: ${id}`)
         if (status === 'active') {
+          await supersedeActiveFactOwners(tx, clinicId, id)
           const chunkCount = await rebuildCurrentDocumentChunks(tx, clinicId, rows[0])
           if (chunkCount === 0) {
             await tx`
@@ -654,6 +734,7 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
         `
         if (docs.length > 0) {
           for (const document of docs) {
+            await supersedeActiveFactOwners(tx, clinicId, document.id)
             const chunkCount = await rebuildCurrentDocumentChunks(tx, clinicId, document)
             if (chunkCount === 0) {
               await tx`
@@ -801,6 +882,10 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
                ts_rank_cd(c.search_vector, websearch_to_tsquery('simple', ${query}))::float8 AS lexical_score,
                d.metadata ->> 'source' AS source, d.metadata AS provenance,
                d.effective_from, d.effective_until, clinic_revision.revision AS retrieval_revision,
+               d.canonical_fact_key,
+               COALESCE(c.content_hash, md5(c.content)) AS content_hash,
+               d.authority,
+               COALESCE(d.metadata ->> 'conflictState', 'clear') AS conflict_state,
                CASE WHEN ${filters.language ?? null}::text IS NOT NULL AND
                  lower(COALESCE(d.metadata ->> 'language', c.metadata ->> 'language', '')) = lower(${filters.language ?? null})
                  THEN 1 ELSE 0 END AS language_preference,
@@ -842,6 +927,15 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
       return rows[0]!.id
     },
 
+    async recordRetrievalMetric(event) {
+      await sql`
+        INSERT INTO knowledge_retrieval_metrics
+          (clinic_id, query_hash, intent, result_count, latency_ms, cache_hit, outcome)
+        VALUES (${event.clinicId}, ${event.queryHash}, ${event.intent}, ${event.resultCount},
+          ${event.latencyMs}, ${event.cacheHit}, ${event.outcome})
+      `
+    },
+
     async createKnowledgeCandidate(input) {
       const rows = await sql<KnowledgeCandidate[]>`
         INSERT INTO knowledge_candidates
@@ -869,13 +963,14 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
       return sql.begin(async tx => {
         await lockKnowledgeMutation(tx, data.clinicId)
         const rows = await tx<KnowledgeChunk[]>`
-          INSERT INTO knowledge_chunks (document_id, clinic_id, content, chunk_index, metadata)
+          INSERT INTO knowledge_chunks (document_id, clinic_id, content, chunk_index, metadata, content_hash)
           VALUES (
             ${data.documentId},
             ${data.clinicId},
             ${data.content},
             ${data.chunkIndex},
-            ${tx.json(toJson(data.metadata ?? {}))}
+            ${tx.json(toJson(data.metadata ?? {}))},
+            ${typeof data.metadata?.['contentHash'] === 'string' ? data.metadata['contentHash'] : null}::text
           )
           RETURNING *
         `
@@ -895,13 +990,14 @@ export function createKnowledgeRepository(sql: Sql, transaction?: TxSql): Knowle
         await tx`DELETE FROM knowledge_chunks WHERE clinic_id = ${clinicId} AND document_id = ${documentId}`
         for (const c of chunks) {
           const rows = await tx<KnowledgeChunk[]>`
-            INSERT INTO knowledge_chunks (document_id, clinic_id, content, chunk_index, metadata)
+            INSERT INTO knowledge_chunks (document_id, clinic_id, content, chunk_index, metadata, content_hash)
             VALUES (
               ${documentId},
               ${clinicId},
               ${c.content},
               ${c.chunkIndex},
-              ${tx.json(toJson(c.metadata ?? {}))}
+              ${tx.json(toJson(c.metadata ?? {}))},
+              ${typeof c.metadata?.['contentHash'] === 'string' ? c.metadata['contentHash'] : null}::text
             )
             RETURNING *
           `

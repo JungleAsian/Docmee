@@ -38,6 +38,7 @@ const h = vi.hoisted(() => ({
   updateConversation: vi.fn(),
   chatComplete: vi.fn(),
   searchChunks: vi.fn(),
+  recordRetrievalMetric: vi.fn(),
   recordLearning: vi.fn(),
   learningSettings: vi.fn(),
   reviewLearning: vi.fn(),
@@ -87,6 +88,8 @@ vi.mock('@docmee/agents', async () => ({
   isLikelyQuestion: () => false,
   scopeKbToMessage: (_message: string, chunks: unknown[]) => chunks,
   hasDoctorScopedChunks: () => false,
+  retrieveKbEvidence: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).retrieveKbEvidence,
+  clearSharedKbEvidenceCache: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).clearSharedKbEvidenceCache,
 }))
 
 vi.mock('@docmee/shared', async (importOriginal) => ({
@@ -143,11 +146,12 @@ vi.mock('@docmee/db', async () => ({
   createMessagesRepository: () => ({ create: h.createMessage }),
   createMessageTemplatesRepository: () => ({ findApprovedByCategory: h.findTemplate }),
   createNotificationsRepository: () => ({ create: vi.fn() }),
-  createKnowledgeRepository: () => ({ searchChunks: h.searchChunks, getClinicRetrievalRevision: async () => 1, markDocumentIndexFailed: vi.fn() }),
+  createKnowledgeRepository: () => ({ searchChunks: h.searchChunks, getClinicRetrievalRevision: async () => 1, recordRetrievalMetric: h.recordRetrievalMetric, markDocumentIndexFailed: vi.fn() }),
   createKnowledgeLearningRepository: () => ({ recordAttempt: h.recordLearning, settings: h.learningSettings, review: h.reviewLearning, sourcesCurrent: h.sourcesCurrent, scopedConsistency: h.scopedConsistency }),
 }))
 
 import { processWorkflowRunJob } from '../workflow-runner.worker.js'
+import { clearSharedKbEvidenceCache } from '../../../../packages/agents/src/botbase/kb-evidence-pack.js'
 
 const CLINIC = '11111111-1111-1111-1111-111111111111'
 const WORKFLOW = '22222222-2222-2222-2222-222222222222'
@@ -163,6 +167,7 @@ const job = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearSharedKbEvidenceCache()
   vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 10))
   h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published', nodes: [], edges: [] })
   h.transitionRun.mockResolvedValue(true)
@@ -201,6 +206,7 @@ beforeEach(() => {
   h.updateConversation.mockResolvedValue({ id: 'conversation-1' })
   h.chatComplete.mockResolvedValue('SCENARIO: general\nCONFIDENCE: 0.9\nREPLY:\nWe open at 9 AM.')
   h.searchChunks.mockResolvedValue([{ chunkId: 'kb-chunk', documentId: 'kb-doc', documentVersion: 1, title: 'Hours', content: 'We open at 9 AM.', vectorScore: .99, lexicalScore: 1, retrievalRevision: 1, doctorId: null, language: 'en', provenance: {} }])
+  h.recordRetrievalMetric.mockResolvedValue(undefined)
   h.recordLearning.mockResolvedValue({ replayed: false, candidate: null })
   h.learningSettings.mockResolvedValue({ autoApprove: false, groundingThreshold: 1, evidenceRetentionHours: 24 })
   h.sourcesCurrent.mockResolvedValue(true)

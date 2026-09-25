@@ -10,6 +10,8 @@
 // imported lazily — merely loading the botbase barrel stays cheap and test-safe.
 // Image (scan/photo) documents have no text layer, so they go through OCR (ocr.ts).
 
+import { createHash } from 'node:crypto'
+import { detectLanguage } from './language-detector.js'
 import { ocrImage } from './ocr.js'
 
 export type DocumentFormat = 'pdf' | 'docx' | 'txt' | 'md' | 'faq' | 'image'
@@ -19,6 +21,14 @@ export interface TrainedChunk {
   chunkIndex: number
   /** Present when the chunk came from a parsed Q/A pair. */
   question?: string
+  metadata: {
+    contentHash: string
+    language: 'en' | 'es'
+    tokenCount: number
+    sectionPath: string[]
+    sourceSpan: { startLine: number; endLine: number }
+    canonicalFactKey: string
+  }
 }
 
 export interface TrainDocumentInput {
@@ -39,7 +49,59 @@ export interface ConvertedMarkdownDocument {
   chunks: TrainedChunk[]
 }
 
-const DEFAULT_MAX_CHARS = 800
+const DEFAULT_MAX_CHARS = 2000
+
+function chunkMetadata(content: string, canonicalSource?: string, options?: {
+  sectionPath?: string[]; startLine?: number; endLine?: number
+}): TrainedChunk['metadata'] {
+  const sectionPath = options?.sectionPath ?? [...content.matchAll(/^#{1,6}\s+(.+)$/gm)].map(match => (match[1] ?? '').trim()).filter(Boolean)
+  const normalizedFact = (canonicalSource || sectionPath.at(-1) || content.slice(0, 160))
+    .toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120)
+  return {
+    contentHash: createHash('sha256').update(content, 'utf8').digest('hex'),
+    language: detectLanguage(content),
+    tokenCount: content.trim().split(/\s+/).filter(Boolean).length,
+    sectionPath,
+    sourceSpan: { startLine: options?.startLine ?? 1, endLine: options?.endLine ?? Math.max(1, content.split('\n').length) },
+    canonicalFactKey: normalizedFact || createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 24),
+  }
+}
+
+type MarkdownChunk = { content: string; sectionPath: string[]; startLine: number; endLine: number }
+
+/** Keep a Markdown heading with its body and keep table rows together. Large
+ * sections fall back to the bounded prose splitter, while retaining provenance. */
+function chunkMarkdown(text: string, maxChars: number): MarkdownChunk[] {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  const chunks: MarkdownChunk[] = []
+  const headings: string[] = []
+  let section: string[] = []
+  let startLine = 1
+  const flush = (endLine: number) => {
+    const raw = section.join('\n').trim()
+    if (!raw) return
+    const parts = raw.length <= maxChars ? [raw] : chunkText(raw, maxChars)
+    for (const content of parts) {
+      chunks.push({ content, sectionPath: headings.filter((heading): heading is string => Boolean(heading)), startLine, endLine })
+    }
+    section = []
+  }
+  lines.forEach((line, index) => {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line)
+    if (heading) {
+      flush(index)
+      const level = heading[1]!.length
+      headings.splice(level - 1)
+      headings[level - 1] = heading[2]!.trim()
+      startLine = index + 1
+    }
+    if (section.length === 0 && !heading) startLine = index + 1
+    section.push(line)
+  })
+  flush(lines.length)
+  return chunks
+}
 
 /** Map a filename / MIME type to a supported format (defaults to plain text). */
 export function detectFormat(filename: string, mimeType?: string): DocumentFormat {
@@ -237,9 +299,17 @@ export async function trainDocument(input: TrainDocumentInput): Promise<TrainedC
         content: `Q: ${pair.question}\nA: ${pair.answer}`,
         chunkIndex: i,
         question: pair.question,
+        metadata: chunkMetadata(`Q: ${pair.question}\nA: ${pair.answer}`, pair.question),
       }))
     }
   }
 
-  return chunkText(text, maxChars).map((content, i) => ({ content, chunkIndex: i }))
+  if (input.format === 'md') {
+    return chunkMarkdown(text, maxChars).map((chunk, i) => ({
+      content: chunk.content,
+      chunkIndex: i,
+      metadata: chunkMetadata(chunk.content, undefined, chunk),
+    }))
+  }
+  return chunkText(text, maxChars).map((content, i) => ({ content, chunkIndex: i, metadata: chunkMetadata(content) }))
 }

@@ -27,6 +27,53 @@ export interface HybridKbCandidate extends KbMatch {
   lexicalScore: number
   documentVersion?: number
   updatedAt?: string
+  semanticRank?: number
+  lexicalRank?: number
+  authority?: 'clinic' | 'doctor' | 'system'
+  language?: string | null
+  doctorId?: string | null
+  canonicalFactKey?: string | null
+  contentHash?: string | null
+  conflictState?: 'clear' | 'conflicting' | 'superseded' | null
+}
+
+export interface KbFusionPlan {
+  language?: string | null
+  doctorId?: string | null
+  timeSensitive?: boolean
+}
+
+/** Reciprocal-rank fusion keeps lexical exact matches and semantic matches in
+ * one deterministic order. Conflicting/superseded evidence is fail-closed and
+ * byte-identical facts are collapsed before the answer model sees them. */
+export function fuseKbCandidates<T extends HybridKbCandidate>(candidates: T[], plan: KbFusionPlan = {}, limit = 5): T[] {
+  const eligible = candidates.filter(candidate =>
+    Number.isFinite(candidate.vectorScore) && Number.isFinite(candidate.lexicalScore) &&
+    (candidate.vectorScore >= 0.78 || candidate.lexicalScore > 0) &&
+    candidate.conflictState !== 'conflicting' && candidate.conflictState !== 'superseded',
+  )
+  const semanticOrder = [...eligible].sort((a, b) => b.vectorScore - a.vectorScore)
+  const lexicalOrder = [...eligible].sort((a, b) => b.lexicalScore - a.lexicalScore)
+  const scored = eligible.map((candidate) => {
+    const semanticRank = candidate.semanticRank ?? semanticOrder.indexOf(candidate) + 1
+    const lexicalRank = candidate.lexicalRank ?? lexicalOrder.indexOf(candidate) + 1
+    const languageBoost = plan.language && candidate.language === plan.language ? 0.002 : 0
+    const doctorBoost = plan.doctorId && candidate.doctorId === plan.doctorId ? 0.003 : 0
+    const authorityBoost = candidate.authority === 'doctor' && plan.doctorId ? 0.002 : candidate.authority === 'clinic' ? 0.001 : 0
+    const freshnessBoost = plan.timeSensitive ? Math.min(Math.max(candidate.documentVersion ?? 1, 1), 100) / 100_000 : 0
+    return { candidate, score: 1 / (60 + semanticRank) + 1 / (60 + lexicalRank) + languageBoost + doctorBoost + authorityBoost + freshnessBoost }
+  }).sort((a, b) => b.score - a.score || (Date.parse(b.candidate.updatedAt ?? '') || 0) - (Date.parse(a.candidate.updatedAt ?? '') || 0))
+
+  const seen = new Set<string>()
+  const result: T[] = []
+  for (const { candidate, score } of scored) {
+    const key = candidate.contentHash || `${candidate.title.trim().toLocaleLowerCase()}\u0000${candidate.content.trim().toLocaleLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push({ ...candidate, similarity: score })
+    if (result.length >= Math.max(1, Math.min(limit, 5))) break
+  }
+  return result
 }
 
 /** Final deterministic reranker for pgvector/FTS candidates. Newer approved

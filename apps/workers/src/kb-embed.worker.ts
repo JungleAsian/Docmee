@@ -5,6 +5,7 @@
 //   reembed-clinic  { clinicId }                    → every chunk of the clinic (re-index)
 // Embeds with the clinic's chosen provider (clinic.settings.aiAssistant.embedProvider).
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { type Job } from '@docmee/queue'
 import { createServiceDbClient, toJson } from '@docmee/db'
 import { resolveEmbedder } from './clinic-ai-key.js'
@@ -28,12 +29,16 @@ async function storeEmbedding(
   clinicId: string,
   chunkId: string,
   vector: number[],
+  contentHash: string,
   documentId?: string,
   documentVersion?: number,
 ): Promise<void> {
   await sql`
     UPDATE knowledge_chunks c
-    SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{embedding}', ${sql.json(toJson({ v: vector }))}::jsonb),
+    SET metadata = jsonb_set(
+          jsonb_set(COALESCE(metadata, '{}'), '{embedding}', ${sql.json(toJson({ v: vector }))}::jsonb),
+          '{embeddedContentHash}', to_jsonb(${contentHash}::text)
+        ),
         embedding = ${vector.length === 1536 ? `[${vector.join(',')}]` : null}::vector,
         embedding_model = CASE WHEN ${vector.length === 1536} THEN 'docmee-1536' ELSE NULL END,
         embedded_at = CASE WHEN ${vector.length === 1536} THEN now() ELSE NULL END
@@ -77,16 +82,17 @@ export async function processKbEmbedJob(job: Job): Promise<void> {
     if (job.name === 'reembed-clinic') {
       const { clinicId } = ClinicJob.parse(job.data)
       const embedder = resolveEmbedder(await clinicSettings(sql, clinicId))
-      const chunks = await sql<{ id: string; content: string }[]>`
-        SELECT c.id, c.content, c.document_id, c.document_version
+      const chunks = await sql<{ id: string; content: string; contentHash: string }[]>`
+        SELECT c.id, c.content, c.document_id, c.document_version, COALESCE(c.content_hash, md5(c.content)) AS content_hash
         FROM knowledge_chunks c JOIN knowledge_documents d
           ON d.id = c.document_id AND d.clinic_id = c.clinic_id
         WHERE c.clinic_id = ${clinicId} AND c.is_active = true AND c.document_version = d.version
           AND d.status = 'active' AND d.approved_at IS NOT NULL
           AND d.effective_from <= now() AND (d.effective_until IS NULL OR d.effective_until > now())
+          AND c.metadata ->> 'embeddedContentHash' IS DISTINCT FROM COALESCE(c.content_hash, md5(c.content))
       `
-      for (const c of chunks as Array<{ id: string; content: string; documentId?: string; documentVersion?: number }>) {
-        await storeEmbedding(sql, clinicId, c.id, await embedder(c.content), c.documentId, c.documentVersion)
+      for (const c of chunks as Array<{ id: string; content: string; contentHash: string; documentId?: string; documentVersion?: number }>) {
+        await storeEmbedding(sql, clinicId, c.id, await embedder(c.content), c.contentHash, c.documentId, c.documentVersion)
       }
       return
     }
@@ -95,12 +101,22 @@ export async function processKbEmbedJob(job: Job): Promise<void> {
       const { clinicId, documentId, documentVersion } = DocJob.parse(job.data)
       failureContext = { clinicId, documentId, documentVersion }
       const embedder = resolveEmbedder(await clinicSettings(sql, clinicId))
-      const chunks = await sql<{ id: string; content: string }[]>`
-        SELECT id, content FROM knowledge_chunks
+      const chunks = await sql<{ id: string; content: string; contentHash: string }[]>`
+        SELECT id, content, COALESCE(content_hash, md5(content)) AS content_hash FROM knowledge_chunks
         WHERE clinic_id = ${clinicId} AND document_id = ${documentId}
           AND document_version = ${documentVersion} AND is_active = true
+          AND metadata ->> 'embeddedContentHash' IS DISTINCT FROM COALESCE(content_hash, md5(content))
       `
       if (chunks.length === 0) {
+        const current = await sql<Array<{ exists: boolean }>>`
+          SELECT EXISTS (SELECT 1 FROM knowledge_chunks WHERE clinic_id = ${clinicId} AND document_id = ${documentId}
+            AND document_version = ${documentVersion} AND is_active = true) AS exists
+        `
+        if (current[0]?.exists) {
+          await markDocumentReady(sql, clinicId, documentId, documentVersion)
+          failureContext = undefined
+          return
+        }
         await sql`
           UPDATE knowledge_documents
           SET indexing_status = 'failed', indexing_error = ${'no_current_active_chunks'}
@@ -109,7 +125,7 @@ export async function processKbEmbedJob(job: Job): Promise<void> {
         failureContext = undefined
         throw new Error('KB document has no current active chunks')
       }
-      for (const c of chunks) await storeEmbedding(sql, clinicId, c.id, await embedder(c.content), documentId, documentVersion)
+      for (const c of chunks) await storeEmbedding(sql, clinicId, c.id, await embedder(c.content), c.contentHash, documentId, documentVersion)
       await markDocumentReady(sql, clinicId, documentId, documentVersion)
       return
     }
@@ -120,7 +136,8 @@ export async function processKbEmbedJob(job: Job): Promise<void> {
       failureContext = { clinicId: data.clinicId, documentId: data.documentId, documentVersion: data.documentVersion }
     }
     const embedder = resolveEmbedder(await clinicSettings(sql, data.clinicId))
-    await storeEmbedding(sql, data.clinicId, data.chunkId, await embedder(data.content), data.documentId, data.documentVersion)
+    const contentHash = createHash('sha256').update(data.content, 'utf8').digest('hex')
+    await storeEmbedding(sql, data.clinicId, data.chunkId, await embedder(data.content), contentHash, data.documentId, data.documentVersion)
   } catch (err) {
     if (failureContext) {
       await sql`

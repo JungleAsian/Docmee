@@ -18,6 +18,7 @@ vi.mock('@docmee/agents', async importOriginal => {
 })
 vi.mock('./clinic-ai-key.js', () => ({ resolveClinicAiKey: () => 'test-key' }))
 import { previewTeachingAnswer } from './teaching-preview.js'
+import { clearSharedKbEvidenceCache } from '@docmee/agents'
 
 const clinic = { id: 'clinic', name: 'Test clinic', settings: { aiAssistant: { chatProvider: 'openai' } } } as unknown as Clinic
 const node = { id: 'ai', type: 'action.ai_agent', kind: 'action', x: 0, y: 0,
@@ -28,6 +29,7 @@ const run = (question = 'When do you open?', n = node) => previewTeachingAnswer(
 describe('workflow teaching preview without delivery or learning writes', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    clearSharedKbEvidenceCache()
     m.embed.mockResolvedValue([1, 0])
     m.search.mockResolvedValue([source])
     m.current.mockResolvedValue(true)

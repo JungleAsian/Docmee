@@ -26,6 +26,22 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-09-25-governed-kb-retrieval',
+    publishedAt: '2026-09-25T16:30:00.000Z',
+    version: '2026.09.25.2',
+    audience: 'admin',
+    title: { en: 'More accurate, governed clinic knowledge', es: 'Conocimiento clínico más preciso y controlado' },
+    summary: {
+      en: 'J.zel, workflow AI agents, and answer previews now share one clinic-scoped retrieval and safety contract.',
+      es: 'J.zel, los agentes de IA de los flujos y las vistas previas ahora comparten un único contrato de recuperación y seguridad por clínica.',
+    },
+    highlights: [
+      { en: 'Hybrid semantic and keyword retrieval prioritizes the current language, doctor, authority, and approved source revision.', es: 'La recuperación semántica y por palabras clave prioriza el idioma, el médico, la autoridad y la revisión aprobada actual.' },
+      { en: 'Conflicting, superseded, stale, weak, or ungrounded evidence is withheld and handed to clinic staff instead of being guessed.', es: 'La evidencia conflictiva, reemplazada, desactualizada, débil o sin fundamento se retiene y se deriva al personal de la clínica en lugar de adivinar.' },
+      { en: 'Markdown knowledge is chunked with section provenance, unchanged chunks reuse embeddings, and privacy-safe retrieval metrics support quality reviews.', es: 'El conocimiento Markdown se divide con procedencia por sección, los fragmentos sin cambios reutilizan embeddings y las métricas privadas apoyan las revisiones de calidad.' },
+    ],
+  },
+  {
     id: '2026-09-25-jzel-teaching',
     publishedAt: '2026-09-25T00:00:00.000Z',
     version: '2026.09.25',

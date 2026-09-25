@@ -290,6 +290,25 @@ describe('knowledge.repository — freshness retrieval contract', () => {
       .toEqual(['authoritative current text'])
   })
 
+  it('activation retires older owners of the same scoped canonical fact', async () => {
+    const { sql, queries } = fakeSql((query) => {
+      if (query.includes('UPDATE knowledge_documents SET status')) {
+        return [{ id: 'doc-current', version: 2, content: 'Current hours', status: 'active', metadata: {} }]
+      }
+      return undefined
+    })
+
+    await createKnowledgeRepository(sql).updateDocumentStatus('clinic-1', 'doc-current', 'active')
+
+    const ownershipTransfer = queries().find((query) =>
+      query.includes('WITH current_owner AS')
+      && query.includes("'conflictState', 'superseded'")
+      && query.includes('IS NOT DISTINCT FROM current.doctor_id'),
+    )
+    expect(ownershipTransfer).toBeTruthy()
+    expect(ownershipTransfer).toContain('UPDATE knowledge_chunks')
+  })
+
   it('approve-all rebuilds only returned drafts and cannot revive an unrelated active legacy chunk', async () => {
     const chunks = [
       { documentId: 'draft-1', version: 1, content: 'draft legacy text', active: false },
@@ -352,6 +371,21 @@ describe('knowledge.repository — freshness retrieval contract', () => {
     expect(query).toContain("d.metadata ->> 'doctorId' IS NULL")
     expect(query).toContain('effective_from')
     expect(query).toContain('effective_until')
+    expect(query).toContain('canonical_fact_key')
+    expect(query).toContain('content_hash')
+    expect(query).toContain('authority')
+  })
+
+  it('records retrieval metrics using a query hash and no raw question or answer', async () => {
+    const { sql, lastQuery, lastValues } = fakeSql()
+    await createKnowledgeRepository(sql).recordRetrievalMetric({
+      clinicId: 'clinic-1', queryHash: 'sha256:abc', intent: 'hours', resultCount: 3,
+      latencyMs: 24, cacheHit: true, outcome: 'answered',
+    })
+
+    expect(lastQuery()).toContain('INSERT INTO knowledge_retrieval_metrics')
+    expect(lastValues()).toContain('sha256:abc')
+    expect(lastValues()).not.toContain('What are your hours?')
   })
 
   it('prefers the requested language without filtering out the only valid answer', async () => {

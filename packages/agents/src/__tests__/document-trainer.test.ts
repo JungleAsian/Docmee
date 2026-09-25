@@ -82,7 +82,31 @@ describe('trainDocument', () => {
 
   it('prose-chunks a plain text document', async () => {
     const chunks = await trainDocument({ buffer: Buffer.from('Hello world.', 'utf-8'), format: 'txt' })
-    expect(chunks).toEqual([{ content: 'Hello world.', chunkIndex: 0 }])
+    expect(chunks).toMatchObject([{ content: 'Hello world.', chunkIndex: 0 }])
+    expect(chunks[0]?.metadata).toMatchObject({ language: 'en', tokenCount: 2 })
+    expect(chunks[0]?.metadata.contentHash).toMatch(/^[a-f0-9]{64}$/)
+  })
+
+  it('adds section and canonical fact metadata to Markdown chunks', async () => {
+    const chunks = await trainDocument({
+      buffer: Buffer.from('# Clinic\n\n## Hours\n\nOpen weekdays from 9 to 5.', 'utf-8'),
+      format: 'md',
+    })
+    const hours = chunks.find(chunk => chunk.metadata.sectionPath.includes('Hours'))
+    expect(hours?.metadata.sectionPath).toEqual(['Clinic', 'Hours'])
+    expect(hours?.metadata.sourceSpan).toEqual({ startLine: 3, endLine: 5 })
+    expect(hours?.metadata.canonicalFactKey).toBeTruthy()
+  })
+
+  it('keeps a Markdown table with its heading instead of splitting table rows', async () => {
+    const chunks = await trainDocument({
+      buffer: Buffer.from('## Prices\n\n| Service | Price |\n| --- | --- |\n| Visit | 100 |\n| Follow-up | 50 |', 'utf-8'),
+      format: 'md',
+      maxChunkChars: 200,
+    })
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]?.content).toContain('| Follow-up | 50 |')
+    expect(chunks[0]?.metadata.sectionPath).toEqual(['Prices'])
   })
 
   it('returns no chunks for an empty document', async () => {
@@ -117,6 +141,6 @@ describe('Markdown conversion', () => {
       format: 'txt',
     })
     expect(result.markdown).toBe('# welcome\n\nWelcome to the clinic.\n')
-    expect(result.chunks).toEqual([{ content: '# welcome\n\nWelcome to the clinic.', chunkIndex: 0 }])
+    expect(result.chunks).toMatchObject([{ content: '# welcome\n\nWelcome to the clinic.', chunkIndex: 0 }])
   })
 })

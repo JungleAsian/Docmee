@@ -84,7 +84,7 @@ const kbUploadRoute: FastifyPluginAsync = async (app) => {
           chunks: chunks.map((c) => ({
             content: c.content,
             chunkIndex: c.chunkIndex,
-            metadata: { source: 'document', ...(c.question ? { question: c.question } : {}) },
+            metadata: { source: 'document', ...c.metadata, ...(c.question ? { question: c.question } : {}) },
           })),
         })
         const doc = written.document

@@ -219,7 +219,6 @@ ${context}`,
       }
       return { reply: text, name: ai.name, sources: [
         ...(kb.matches > 0 ? [{ type: 'knowledge_base', count: kb.matches, mode: kb.mode }] : []),
-        ...(help ? [{ type: 'help', source: help.source }] : []),
       ], diagnostics: {
         clinic: { id: clinic.id, name: clinic.name },
         workflowNode: null,

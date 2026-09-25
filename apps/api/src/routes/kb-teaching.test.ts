@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Fastify from 'fastify'
 import { signAccessToken } from '../auth/jwt.js'
-const m = vi.hoisted(() => ({ clinic: vi.fn(), doctor: vi.fn(), draft: vi.fn(), search: vi.fn(async () => []),
-  document: vi.fn(), workflow: vi.fn(), preview: vi.fn(), candidate: vi.fn(), history: vi.fn(async () => []) }))
-vi.mock('../lib/db.js', () => ({ withDb: (fn: (sql: unknown) => unknown) => fn({}) }))
+const m = vi.hoisted(() => ({ clinic: vi.fn(), clinicsDoctors: vi.fn(async () => []), doctor: vi.fn(), draft: vi.fn(), search: vi.fn(async () => []),
+  document: vi.fn(), workflows: vi.fn(async () => []), workflow: vi.fn(), preview: vi.fn(), candidate: vi.fn(), history: vi.fn(async () => []),
+  sql: vi.fn(async () => []) }))
+vi.mock('../lib/db.js', () => ({ withDb: (fn: (sql: unknown) => unknown) => fn(m.sql) }))
 vi.mock('@docmee/db', () => ({
   createClinicsRepository: () => ({ findById: m.clinic }),
-  createDoctorsRepository: () => ({ findById: m.doctor }),
+  createDoctorsRepository: () => ({ findById: m.doctor, listByClinic: m.clinicsDoctors }),
   createKnowledgeRepository: () => ({ findDocument: m.document, searchChunks: m.search }),
   createKnowledgeLearningRepository: () => ({ teachingDraft: m.draft, findCandidate: m.candidate, history: m.history }),
-  createWorkflowsRepository: () => ({ findById: m.workflow }),
+  createWorkflowsRepository: () => ({ findById: m.workflow, listByClinic: m.workflows }),
 }))
 vi.mock('../lib/teaching-preview.js', () => ({ previewTeachingAnswer: m.preview }))
 import route, { teachingAvailability } from './kb-teaching.js'
@@ -65,12 +66,22 @@ describe('J.zel teaching authorization and exact drafts', () => {
     expect(m.preview).not.toHaveBeenCalled()
   })
   it('previews only a server-loaded AI node and reports its saved version', async () => {
-    const node = { id: 'ai', type: 'ai_agent', config: { personality: 'saved' } }
-    m.clinic.mockResolvedValue({ id: 'clinic-a' }); m.workflow.mockResolvedValue({ nodes: [node], documentVersion: 8, status: 'active' })
+    const node = { id: 'ai', type: 'action.ai_agent', config: { personality: 'saved' } }
+    m.clinic.mockResolvedValue({ id: 'clinic-a', name: 'Clinic A' }); m.workflow.mockResolvedValue({ id, name: 'Saved flow', nodes: [node], documentVersion: 8, status: 'published' })
     m.preview.mockResolvedValue({ action: 'handoff', reason: 'knowledge_gap', sent: false })
     const result = await inject('/clinics/clinic-a/kb/teaching/preview', { question: 'Opening hours?', doctorId: null, language: null, workflowId: id, nodeId: 'ai' })
-    expect(result.statusCode).toBe(200); expect(result.json()).toMatchObject({ sent: false, workflowVersion: 8 })
+    expect(result.statusCode).toBe(200); expect(result.json()).toMatchObject({ sent: false, workflowVersion: 8, workflowStatus: 'published',
+      diagnostics: { clinic: { id: 'clinic-a', name: 'Clinic A' }, workflowNode: { workflowId: id, nodeId: 'ai', workflowName: 'Saved flow' } } })
     expect(m.preview.mock.calls[0]![2]).toEqual(node)
+  })
+  it('lists saved action.ai_agent nodes and ignores the obsolete discriminator', async () => {
+    m.clinic.mockResolvedValue({ id: 'clinic-a', name: 'Clinic A' })
+    m.workflows.mockResolvedValue([{ id, name: 'Saved flow', documentVersion: 8, status: 'published', nodes: [
+      { id: 'current', type: 'action.ai_agent' }, { id: 'legacy', type: 'ai_agent' }, { id: 'message', type: 'action.send_message' },
+    ] }])
+    const result = await inject('/clinics/clinic-a/kb/teaching/options')
+    expect(result.statusCode).toBe(200)
+    expect(result.json().nodes).toEqual([{ workflowId: id, nodeId: 'current', name: 'Saved flow · current', version: 8, status: 'published' }])
   })
 })
 describe('teaching completion truthfulness', () => {

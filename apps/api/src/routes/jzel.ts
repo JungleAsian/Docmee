@@ -7,7 +7,7 @@
 // (server-side, embedded) and the Docmee Help content (sent by the client as
 // `helpContext`, included only when the clinic has Help grounding enabled).
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
-import { createClinicsRepository, createKnowledgeRepository } from '@docmee/db'
+import { createClinicsRepository, createKnowledgeRepository, createKnowledgeLearningRepository } from '@docmee/db'
 import { capPatientInput, detectPromptInjection, screenPromptLeak, expandKbQuery, rerankHybridChunks, detectLanguage, wrapUntrustedKb } from '@docmee/agents'
 import { readAiAssistant, resolveChat, resolveEmbed } from '../lib/ai-assistant.js'
 import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
@@ -46,8 +46,13 @@ async function buildKbGrounding(input: {
   settings: Record<string, unknown>
   log: { warn: (data: unknown, message?: string) => void }
   doctorId?: string | null
-}): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none' }> {
-  if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none' }
+}): Promise<{
+  text: string
+  matches: number
+  mode: 'embedded' | 'keyword' | 'none'
+  sources: Array<{ documentId: string; title: string; documentVersion: number }>
+}> {
+  if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none', sources: [] }
   try {
     const embedding = await resolveEmbed(input.ai, input.settings)(input.message).catch(() => [])
     const rows = await withDb((sql) => createKnowledgeRepository(sql).searchChunks(
@@ -59,10 +64,11 @@ async function buildKbGrounding(input: {
       text: matches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n'),
       matches: matches.length,
       mode: matches.length > 0 ? (embedding.length ? 'embedded' : 'keyword') : 'none',
+      sources: matches.map(({ documentId, title, documentVersion }) => ({ documentId, title, documentVersion })),
     }
   } catch {
     input.log.warn({ clinicId: input.clinicId }, 'jzel current KB grounding unavailable')
-    return { text: '', matches: 0, mode: 'none' }
+    return { text: '', matches: 0, mode: 'none', sources: [] }
   }
 }
 
@@ -165,10 +171,38 @@ ${context}`,
       const text = await complete(system, capPatientInput(message), 700, history)
       request.log.info({ clinicId, provider: ai.chatProvider, model: ai.model, inputChars: message.length + historyBudget.chars + kbText.length, outputChars: text.length, durationMs: Date.now() - startedAt }, 'jzel chat usage')
       if (!screenPromptLeak(text).safe) return reply.code(502).send({ error: 'assistant_unsafe_response' })
+      if (kb.matches === 0 && !help) {
+        try {
+          await withDb((sql) => createKnowledgeLearningRepository(sql).recordAttempt({
+            clinicId,
+            eventKey: `jzel:${request.id}`,
+            question: message,
+            answer: text,
+            citations: [],
+            relevance: null,
+            confidence: null,
+            grounding: null,
+            contradiction: 'unknown',
+            risks: injection.detected ? ['prompt_injection'] : [],
+            doctorId: typeof body.doctorId === 'string' ? body.doctorId : null,
+            language: detectLanguage(message),
+            handoffReason: 'jzel_no_source',
+          }))
+        } catch {
+          // Chat remains available if learning telemetry is temporarily unavailable.
+          request.log.warn({ clinicId }, 'jzel knowledge gap recording unavailable')
+        }
+      }
       return { reply: text, name: ai.name, sources: [
         ...(kb.matches > 0 ? [{ type: 'knowledge_base', count: kb.matches, mode: kb.mode }] : []),
         ...(help ? [{ type: 'help', source: help.source }] : []),
-      ] }
+      ], diagnostics: {
+        clinic: { id: clinic.id, name: clinic.name },
+        workflowNode: null,
+        kbMatches: kb.matches,
+        retrievalMode: kb.mode,
+        sources: kb.sources,
+      } }
     } catch (err) {
       request.log.error(
         {

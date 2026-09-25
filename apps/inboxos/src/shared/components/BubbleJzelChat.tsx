@@ -16,8 +16,10 @@ import { canTeachAgent } from '../kbLearning'
 import type { PanelLanguage, PanelRole } from '../types'
 import { TeachAgentPanel } from './jzel-teaching/TeachAgentPanel'
 import { teachingCopy } from './jzel-teaching/copy'
+import { ResponseDiagnostics } from './jzel-teaching/ResponseDiagnostics'
+import type { ResponseDiagnostics as Diagnostics } from './jzel-teaching/types'
 
-type ChatMsg = { role: 'user' | 'assistant'; content: string }
+type ChatMsg = { role: 'user' | 'assistant'; content: string; diagnostics?: Diagnostics }
 
 type PersistedChat = {
   input?: string
@@ -32,8 +34,17 @@ function isChatMsg(value: unknown): value is ChatMsg {
   return (
     (msg.role === 'user' || msg.role === 'assistant') &&
     typeof msg.content === 'string' &&
-    msg.content.length <= 12000
+    msg.content.length <= 12000 &&
+    (msg.diagnostics === undefined || isDiagnostics(msg.diagnostics))
   )
+}
+
+function isDiagnostics(value: unknown): value is Diagnostics {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<Diagnostics>
+  return !!item.clinic && typeof item.clinic.name === 'string' && typeof item.kbMatches === 'number'
+    && (item.retrievalMode === 'embedded' || item.retrievalMode === 'keyword' || item.retrievalMode === 'none')
+    && Array.isArray(item.sources)
 }
 
 function readPersistedChat(key: string): PersistedChat | null {
@@ -186,12 +197,13 @@ export function BubbleJzelChat() {
     setMessages((m) => [...m, { role: 'user', content: msg }])
     setPending(true)
     try {
-      const res = await api.post<{ reply: string; name?: string }>('/assist/chat', {
+      const res = await api.post<{ reply: string; name?: string; diagnostics?: Diagnostics }>('/assist/chat', {
         message: msg,
         history,
         route: pathname,
       })
-      setMessages((m) => [...m, { role: 'assistant', content: res.reply || t('pet.chat.empty') }])
+      setMessages((m) => [...m, { role: 'assistant', content: res.reply || t('pet.chat.empty'),
+        ...(isDiagnostics(res.diagnostics) ? { diagnostics: res.diagnostics } : {}) }])
     } catch (error) {
       setMessages((m) => [
         ...m,
@@ -243,6 +255,9 @@ export function BubbleJzelChat() {
                 className={`text-[13px] crm-message ${m.role === 'user' ? 'crm-message-sent' : 'crm-ai-suggested'}`}
               >
                 <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                {m.role === 'assistant' && m.diagnostics && <div className="mt-2">
+                  <ResponseDiagnostics diagnostics={m.diagnostics} c={teachingCopy[language === 'es' ? 'es' : 'en']} />
+                </div>}
               </div>
             </div>
           ))

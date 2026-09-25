@@ -50,4 +50,6 @@ export {
 } from './workflow-simulator.js'
 export { validCapturedReply } from './capture-validation.js'
 export { resolveAiAgentSettings } from './ai-agent-settings.js'
-export { buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt, withAiAgentReplyTimeout } from './ai-agent-answer.js'
+export { buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason,
+  buildAiAgentFallbackPrompt, withAiAgentReplyTimeout, resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion,
+  type AiAgentKnowledgePolicy } from './ai-agent-answer.js'

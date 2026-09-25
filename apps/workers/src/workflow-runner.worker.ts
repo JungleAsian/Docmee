@@ -21,6 +21,7 @@ import {
   parseAiAgentScenarios,
   resolveAiAgentSettings,
   buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt,
+  resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion,
   isEmergencyMessage,
   screenMedicalSafety,
   medicalSafetyDeferral,
@@ -1095,6 +1096,7 @@ function buildExecutors(
       let citations: LearningCitation[] = []
       let scope: LearningScope = { doctorId: contextString(ctx, 'doctor_id') || null, language }
       let consistency = { complete: false, sources: [] as string[] }
+      let recordLearning = true
       let outcome: { answer: string; confidence: number | null; reason: string | null } = { answer: '', confidence: null, reason: 'attempt_failure' }
       const recordOutcome = async (answer: string, confidence: number | null, reason: string | null) => { outcome = { answer, confidence, reason } }
       // All terminal branches converge here; persistence deduplicates retries by
@@ -1125,6 +1127,9 @@ function buildExecutors(
       const style: BotTone = styleRaw === 'friendly' || styleRaw === 'brief' ? styleRaw : 'professional'
       const personality = String(node.config?.['personality'] ?? '').trim()
       const customInstructions = String(node.config?.['customInstructions'] ?? '').trim()
+      const knowledgePolicy = resolveAiAgentKnowledgePolicy(node.config)
+      const generalEducation = knowledgePolicy === 'clinic_kb_and_general_education'
+        && isSafeGeneralEducationQuestion(message)
 
       // Ground the agent in the clinic's Docmee Knowledge Base. Retrieval is
       // executed in PostgreSQL (pgvector + FTS) with metadata filters so the
@@ -1160,7 +1165,7 @@ function buildExecutors(
         ? kbMatches.map((match) => `# ${match.title}\n${match.content}`).join('\n\n')
         : ''
       ctx['ai_agent_kb_hit'] = kbMatches.length > 0
-      if (isLikelyQuestion(message) && kbMatches.length === 0) {
+      if (isLikelyQuestion(message) && kbMatches.length === 0 && !generalEducation) {
         await recordOutcome('', null, 'knowledge_gap')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'knowledge_gap')
         await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
@@ -1185,6 +1190,7 @@ function buildExecutors(
           style,
           scenarios,
           kbMatches,
+          knowledgePolicy,
         }),
         preferredLanguage
           ? `The patient selected ${preferredLanguage} for this workflow. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.`
@@ -1263,7 +1269,7 @@ function buildExecutors(
               apiKey: resolveClinicAiKey(clinic.settings, agentSettings.provider),
               history: [],
               maxTokens: agentSettings.maxTokens,
-              system: buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage, fallbackKbContext),
+              system: buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage, fallbackKbContext, knowledgePolicy),
               message,
             }),
             'Workflow AI agent fallback reply',
@@ -1292,6 +1298,22 @@ function buildExecutors(
         return 'handoff'
       }
       const confidence = parseAiAnswerConfidence(raw)
+      if (generalEducation && !kbMatches.length) {
+        if (confidence === null || confidence < .8) {
+          await recordOutcome(reply, confidence, 'low_answer_confidence')
+          await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'low_answer_confidence')
+          await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
+          ctx['ai_agent_action'] = 'handoff'
+          return 'handoff'
+        }
+        await sendWorkflowMessage(reply, ctx)
+        await recordOutcome(reply, confidence, null)
+        // General education is model knowledge, not a clinic fact to learn into
+        // the governed KB. Successful answers therefore create no candidate/gap.
+        recordLearning = false
+        ctx['ai_agent_action'] = 'reply'
+        return 'replied'
+      }
       consistency = await learning.scopedConsistency(clinicId, scope)
       const evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
       const sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
@@ -1313,21 +1335,23 @@ function buildExecutors(
         await recordOutcome('', null, 'attempt_failure')
         return 'error'
       } finally {
-        const evidence = assessKbAnswer(message, outcome.answer, kbMatches.map(match => match.content), outcome.confidence ?? undefined, consistency)
-        const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
-        const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
-          question: message, answer: outcome.answer, citations, ...scope,
-          relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
-          confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction,
-          risks: evidence.risks, safeContentClass: evidence.safeContentClass, handoffReason: outcome.reason }).catch(() => null)
-        if (result && !result.replayed && !outcome.reason && result.candidate?.status === 'pending_review' && result.candidate.consistencyCount >= 2) {
-          const settings = await learning.settings(clinicId).catch(() => null)
-          if (settings?.autoApprove) {
-            const published = await learning.review(clinicId, result.candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: result.candidate.revision }).catch(() => null)
-            if (published?.write) {
-              const document = published.write.document
-              try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
-              catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable').catch(() => undefined) }
+        if (recordLearning) {
+          const evidence = assessKbAnswer(message, outcome.answer, kbMatches.map(match => match.content), outcome.confidence ?? undefined, consistency)
+          const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
+          const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
+            question: message, answer: outcome.answer, citations, ...scope,
+            relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
+            confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction,
+            risks: evidence.risks, safeContentClass: evidence.safeContentClass, handoffReason: outcome.reason }).catch(() => null)
+          if (result && !result.replayed && !outcome.reason && result.candidate?.status === 'pending_review' && result.candidate.consistencyCount >= 2) {
+            const settings = await learning.settings(clinicId).catch(() => null)
+            if (settings?.autoApprove) {
+              const published = await learning.review(clinicId, result.candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: result.candidate.revision }).catch(() => null)
+              if (published?.write) {
+                const document = published.write.document
+                try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
+                catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable').catch(() => undefined) }
+              }
             }
           }
         }

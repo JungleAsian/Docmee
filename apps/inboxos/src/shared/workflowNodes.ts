@@ -148,7 +148,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.aiAgent',
     descKey: 'wf.desc.aiAgent',
-    fields: ['agentProvider', 'agentModel', 'agentMaxTokens', 'personality', 'customInstructions', 'communicationStyle', 'scenarios'],
+    fields: ['agentProvider', 'agentModel', 'agentMaxTokens', 'knowledgePolicy', 'personality', 'customInstructions', 'communicationStyle', 'scenarios'],
     icon: 'robot',
   },
   { type: 'action.end', kind: 'action', labelKey: 'wf.node.end', descKey: 'wf.desc.end', fields: [], icon: 'end' },
@@ -430,6 +430,10 @@ export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: strin
     { value: 'professional', labelKey: 'wf.style.professional' },
     { value: 'friendly', labelKey: 'wf.style.friendly' },
     { value: 'brief', labelKey: 'wf.style.brief' },
+  ],
+  knowledgePolicy: [
+    { value: 'strict_kb', labelKey: 'wf.agent.knowledgePolicy.strictKb' },
+    { value: 'clinic_kb_and_general_education', labelKey: 'wf.agent.knowledgePolicy.generalEducation' },
   ],
   agentProvider: [
     { value: 'inherit', labelKey: 'wf.agent.inherit' },

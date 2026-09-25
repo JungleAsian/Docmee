@@ -31,6 +31,7 @@ describe('controlled clinic KB AI Agent preset', () => {
       config: {
         agentProvider: 'inherit',
         agentModel: '',
+        knowledgePolicy: 'strict_kb',
         communicationStyle: 'friendly',
         personality: 'Helpful clinic knowledge assistant',
       },

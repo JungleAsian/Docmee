@@ -19,4 +19,12 @@ export interface TeachingOptions {
 export interface Preview {
   action: string; reason: string | null; answer: string; sent: false; workflowVersion: number; workflowStatus: string
   sources: { documentId: string; title: string; documentVersion: number }[]
+  diagnostics: ResponseDiagnostics
+}
+export interface ResponseDiagnostics {
+  clinic: { id: string; name: string }
+  workflowNode: { workflowId: string; workflowName: string; nodeId: string } | null
+  kbMatches: number
+  retrievalMode: 'embedded' | 'keyword' | 'none'
+  sources: { documentId: string; title: string; documentVersion: number }[]
 }

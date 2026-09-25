@@ -211,6 +211,23 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('processWorkflowRunJob automation ownership', () => {
+  it('uses an explicit node policy for safe general education without learning model knowledge into the clinic KB', async () => {
+    h.searchChunks.mockResolvedValue([])
+    h.chatComplete.mockResolvedValue('SCENARIO: general\nCONFIDENCE: 0.93\nREPLY:\nAlopecia is the medical term for hair loss.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent({ id: 'education', type: 'action.ai_agent', config: {
+        knowledgePolicy: 'clinic_kb_and_general_education',
+        scenarios: [{ id: 'general', name: 'General education', action: 'reply' }],
+      } }, { ...ctx, message: 'What is alopecia?', conversationId: 'conversation-1' })).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'Alopecia is the medical term for hair loss.')
+    expect(h.recordLearning).not.toHaveBeenCalled()
+  })
+
   it.each(['emergency', 'provider_failure', 'no_match'])('records exactly one redacted terminal outcome for %s', async reason => {
     h.isEmergencyMessage.mockReturnValue(reason === 'emergency')
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})

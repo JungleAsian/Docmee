@@ -9,11 +9,18 @@ vi.mock('@docmee/db', async importOriginal => ({
 vi.mock('@docmee/llm', async importOriginal => ({
   ...await importOriginal<typeof import('@docmee/llm')>(), chatComplete: m.complete, embed: m.embed,
 }))
+// The isolated worktree shares installed dependencies with the parent checkout.
+// Overlay the worktree's policy module so this test exercises the code under review.
+vi.mock('@docmee/agents', async importOriginal => {
+  const original = await importOriginal<typeof import('@docmee/agents')>()
+  const policy = await import('../../../../packages/agents/src/workflows/ai-agent-answer.js')
+  return { ...original, ...policy }
+})
 vi.mock('./clinic-ai-key.js', () => ({ resolveClinicAiKey: () => 'test-key' }))
 import { previewTeachingAnswer } from './teaching-preview.js'
 
 const clinic = { id: 'clinic', name: 'Test clinic', settings: { aiAssistant: { chatProvider: 'openai' } } } as unknown as Clinic
-const node = { id: 'ai', type: 'ai_agent', kind: 'action', x: 0, y: 0,
+const node = { id: 'ai', type: 'action.ai_agent', kind: 'action', x: 0, y: 0,
   config: { scenarios: [{ id: 'faq', description: 'general questions', action: 'reply' }] } } as WorkflowNode
 const source = { chunkId: 'chunk', documentId: 'doc', documentVersion: 2, title: 'Hours', content: 'We open at 9 AM.',
   doctorId: 'doctor', language: 'en', retrievalRevision: 4, vectorScore: .95, lexicalScore: .9, updatedAt: '2026-09-01', provenance: { governanceReviewState: 'trusted' } }
@@ -29,14 +36,38 @@ describe('workflow teaching preview without delivery or learning writes', () => 
   })
   it('uses the explicit clinic and doctor and returns current, grounded sources without sends', async () => {
     const result = await run()
-    expect(result).toMatchObject({ action: 'reply', answer: source.content, sent: false, retrievalRevision: 4 })
+    expect(result).toMatchObject({ action: 'reply', answer: source.content, sent: false, retrievalRevision: 4,
+      kbMatches: 1, retrievalMode: 'embedded' })
     expect(result.sources).toEqual([{ documentId: 'doc', title: 'Hours', documentVersion: 2 }])
     expect(m.search).toHaveBeenCalledWith(expect.any(String), [1, 0], { clinicId: 'clinic', doctorId: 'doctor', language: 'en' }, 40)
     expect(m.complete.mock.calls[0]![0]).toMatchObject({ history: [], apiKey: 'test-key', message: 'When do you open?' })
   })
   it('hands off a knowledge gap without provider calls', async () => {
     m.search.mockResolvedValue([])
-    expect(await run()).toMatchObject({ action: 'handoff', reason: 'knowledge_gap', sent: false })
+    expect(await run()).toMatchObject({ action: 'handoff', reason: 'knowledge_gap', sent: false, kbMatches: 0, retrievalMode: 'none' })
+    expect(m.complete).not.toHaveBeenCalled()
+  })
+  it('uses the saved general-education policy for a safe definition question', async () => {
+    m.search.mockResolvedValue([])
+    m.complete.mockResolvedValue('SCENARIO: faq\nCONFIDENCE: 0.92\nREPLY: Alopecia is the medical term for hair loss.')
+    const educationNode = { ...node, config: { ...node.config, knowledgePolicy: 'clinic_kb_and_general_education' } } as WorkflowNode
+    expect(await run('What is alopecia?', educationNode)).toMatchObject({
+      action: 'reply', reason: null, answer: 'Alopecia is the medical term for hair loss.', kbMatches: 0, retrievalMode: 'none',
+    })
+    expect(m.complete.mock.calls[0]![0].system).toContain('general educational question')
+  })
+  it('still hands off clinic facts and personalized medical requests under the education policy', async () => {
+    m.search.mockResolvedValue([])
+    const educationNode = { ...node, config: { ...node.config, knowledgePolicy: 'clinic_kb_and_general_education' } } as WorkflowNode
+    expect(await run('What are your clinic hours?', educationNode)).toMatchObject({ action: 'handoff', reason: 'knowledge_gap' })
+    expect(await run('I am losing my hair. What treatment should I use?', educationNode))
+      .toMatchObject({ action: 'handoff', reason: 'knowledge_gap' })
+    expect(m.complete).not.toHaveBeenCalled()
+  })
+  it('hands emergencies off before retrieval or provider use', async () => {
+    const educationNode = { ...node, config: { ...node.config, knowledgePolicy: 'clinic_kb_and_general_education' } } as WorkflowNode
+    expect(await run('I cannot breathe', educationNode)).toMatchObject({ action: 'handoff', reason: 'emergency' })
+    expect(m.search).not.toHaveBeenCalled()
     expect(m.complete).not.toHaveBeenCalled()
   })
   it('reports provider failure instead of returning a usable answer', async () => {

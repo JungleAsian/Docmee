@@ -7,7 +7,9 @@ const state = vi.hoisted(() => ({
   kbClinics: [] as string[],
   clinicReads: [] as string[],
   systems: [] as string[],
+  searchRows: [] as Array<Record<string, unknown>>,
   hasKey: false,
+  recordAttempt: vi.fn(async () => ({ replayed: false, candidate: null })),
   user: {
     userId: 'u-1',
     clinicId: 'c-1',
@@ -22,16 +24,17 @@ vi.mock('@docmee/db', () => ({
   createClinicsRepository: () => ({
     findById: async (clinicId: string) => {
       state.clinicReads.push(clinicId)
-      return { id: clinicId, settings: {} }
+      return { id: clinicId, name: `Clinic ${clinicId}`, settings: {} }
     },
   }),
   createKnowledgeRepository: () => ({
     searchChunks: async (_query: string, _embedding: number[], filters: { clinicId: string; doctorId: string | null }, limit: number) => {
       expect(limit).toBeLessThanOrEqual(40)
       state.kbClinics.push(filters.clinicId)
-      state.embedded.push(filters.doctorId); state.active.push(filters.doctorId); return []
+      state.embedded.push(filters.doctorId); state.active.push(filters.doctorId); return state.searchRows
     },
   }),
+  createKnowledgeLearningRepository: () => ({ recordAttempt: state.recordAttempt }),
 }))
 
 vi.mock('@docmee/agents', () => ({
@@ -91,7 +94,9 @@ describe('Docmee assistant route branding', () => {
     state.kbClinics.length = 0
     state.clinicReads.length = 0
     state.systems.length = 0
+    state.searchRows = []
     state.hasKey = false
+    state.recordAttempt.mockClear()
     state.user = {
       userId: 'u-1',
       clinicId: 'c-1',
@@ -204,5 +209,63 @@ describe('Docmee assistant route branding', () => {
 
     expect(home.json()).toMatchObject({ status: 'connected', model: 'c-1-model' })
     expect(selected.json()).toMatchObject({ status: 'error', model: 'c-2-model' })
+  })
+
+  it('records an unanswered question as a governed knowledge gap', async () => {
+    state.hasKey = true
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: { message: 'When do you open?' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.recordAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      clinicId: 'c-1',
+      question: 'When do you open?',
+      answer: 'ok',
+      citations: [],
+      handoffReason: 'jzel_no_source',
+      doctorId: null,
+      language: 'en',
+    }))
+    expect(response.json().diagnostics).toEqual({
+      clinic: { id: 'c-1', name: 'Clinic c-1' },
+      workflowNode: null,
+      kbMatches: 0,
+      retrievalMode: 'none',
+      sources: [],
+    })
+  })
+
+  it('reports exact KB sources and does not create a gap when grounded context exists', async () => {
+    state.hasKey = true
+    state.searchRows = [{
+      chunkId: 'chunk-1',
+      documentId: 'doc-1',
+      documentVersion: 3,
+      title: 'Clinic hours',
+      content: 'We open at 9.',
+      doctorId: null,
+      language: 'en',
+      retrievalRevision: 7,
+      provenance: { governanceReviewState: 'trusted' },
+    }]
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: { message: 'When do you open?' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.recordAttempt).not.toHaveBeenCalled()
+    expect(response.json().diagnostics).toMatchObject({
+      clinic: { id: 'c-1', name: 'Clinic c-1' },
+      kbMatches: 1,
+      retrievalMode: 'keyword',
+      sources: [{ documentId: 'doc-1', title: 'Clinic hours', documentVersion: 3 }],
+    })
   })
 })

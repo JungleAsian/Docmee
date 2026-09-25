@@ -60,7 +60,7 @@ const route: FastifyPluginAsync = async app => {
       ORDER BY updated_at DESC LIMIT 201`
     return { clinic: { id: clinic.id, name: clinic.name }, doctors: doctors.map(d => ({ id: d.id, name: d.name })),
       documents: documents.slice(0, 200), documentsTruncated: documents.length > 200,
-      nodes: workflows.flatMap(w => w.nodes.filter(n => n.type === 'ai_agent').map(n => ({ workflowId: w.id, nodeId: n.id,
+      nodes: workflows.flatMap(w => w.nodes.filter(n => n.type === 'action.ai_agent').map(n => ({ workflowId: w.id, nodeId: n.id,
         name: `${w.name} · ${n.id}`, version: w.documentVersion, status: w.status }))) }
   }))
   app.post<{ Params: { id: string } }>(`${base}/drafts`, async (request, reply) => {
@@ -114,10 +114,18 @@ const route: FastifyPluginAsync = async app => {
       if (!clinic) throw new Error('not_found')
       if (body.data.doctorId && !await createDoctorsRepository(sql).findById(clinicId, body.data.doctorId)) throw new Error('not_found')
       const workflow = await createWorkflowsRepository(sql).findById(clinicId, body.data.workflowId)
-      const node = workflow?.nodes.find(n => n.id === body.data.nodeId && n.type === 'ai_agent')
+      const node = workflow?.nodes.find(n => n.id === body.data.nodeId && n.type === 'action.ai_agent')
       if (!workflow || !node) throw new Error('not_found')
       const result = await previewTeachingAnswer(sql, clinic, node, body.data)
-      return { ...result, workflowVersion: workflow.documentVersion, workflowStatus: workflow.status }
+      return { ...result, workflowVersion: workflow.documentVersion, workflowStatus: workflow.status,
+        diagnostics: {
+          clinic: { id: clinic.id, name: clinic.name },
+          workflowNode: { workflowId: workflow.id, workflowName: workflow.name, nodeId: node.id },
+          kbMatches: result.kbMatches,
+          retrievalMode: result.retrievalMode,
+          sources: result.sources,
+        },
+      }
     })
   })
 }

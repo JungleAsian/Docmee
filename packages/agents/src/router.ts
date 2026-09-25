@@ -4,7 +4,7 @@ export type AgentRoute =
   | { agent: 'botbase' }
   | { agent: 'calbot'; action: 'book' | 'reschedule' | 'cancel' | 'status' }
   | { agent: 'alertflow'; reason: 'emergency' | 'human_handoff' }
-  | { agent: 'silence'; reason: 'opted_out' | 'outside_hours' }
+  | { agent: 'silence'; reason: 'opted_out' | 'inside_hours' }
 
 export type ConversationWorkflow = 'booking' | 'human_handoff' | 'inquiry'
 
@@ -45,9 +45,10 @@ export function routeIntent(intent: Intent, context: RouteContext): AgentRoute {
     return { agent: 'alertflow', reason: 'human_handoff' }
   }
 
-  // Outside business hours → stay silent, but still honour explicit opt-out (Decision 1).
-  if (!context.isInsideBusinessHours && intent !== 'stop_optout') {
-    return { agent: 'silence', reason: 'outside_hours' }
+  // During business hours staff own ordinary conversations. Safety, handoff, and
+  // consent remain available above this guard.
+  if (context.isInsideBusinessHours && intent !== 'stop_optout') {
+    return { agent: 'silence', reason: 'inside_hours' }
   }
 
   switch (intent) {
@@ -71,7 +72,7 @@ export function routeIntent(intent: Intent, context: RouteContext): AgentRoute {
  *
  * The classifier supplies semantic judgment; this function remains deterministic
  * so booking continuity, human escalation, and inquiry handling are independently
- * testable. Consent and outside-hours policy remain an explicit pre-workflow gate.
+ * testable. Consent and business-hours policy remain explicit pre-workflow gates.
  */
 export function orchestrateConversation(
   intent: Intent,

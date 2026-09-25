@@ -511,6 +511,9 @@ export interface ClinicSettings {
   // to the built-in default text; see resolveUnmatchedKeywordMessage in
   // apps/workers/src/agent-processor.worker.ts.
   unmatchedKeywordMessage?: { es?: string; en?: string }
+  // Optional closure notice sent before out-of-hours automation. Leaving both
+  // languages blank leaves existing clinics' outbound behavior unchanged.
+  outOfHoursMessage?: { es?: string; en?: string }
   businessHours?: BusinessHours
   bookingGrid?: { startHour: number; endHour: number; slotMinutes: number }
   stalledConversation?: { stallMinutes?: number; reannounceIntervalMinutes?: number; maxReannouncements?: number; closeGraceMinutes?: number }

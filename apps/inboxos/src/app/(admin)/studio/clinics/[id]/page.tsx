@@ -282,12 +282,16 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
   const [rules, setRules] = useState<ClinicRule[]>(persistedRules)
   const [unmatchedEs, setUnmatchedEs] = useState(settings.unmatchedKeywordMessage?.es ?? '')
   const [unmatchedEn, setUnmatchedEn] = useState(settings.unmatchedKeywordMessage?.en ?? '')
+  const [outOfHoursEs, setOutOfHoursEs] = useState(settings.outOfHoursMessage?.es ?? '')
+  const [outOfHoursEn, setOutOfHoursEn] = useState(settings.outOfHoursMessage?.en ?? '')
   const save = useSaveClinic(clinic.id)
 
   const dirty =
     rulesChanged(rules, persistedRules) ||
     unmatchedEs !== (settings.unmatchedKeywordMessage?.es ?? '') ||
-    unmatchedEn !== (settings.unmatchedKeywordMessage?.en ?? '')
+    unmatchedEn !== (settings.unmatchedKeywordMessage?.en ?? '') ||
+    outOfHoursEs !== (settings.outOfHoursMessage?.es ?? '') ||
+    outOfHoursEn !== (settings.outOfHoursMessage?.en ?? '')
 
   useSectionSaveRegistration('bot', t('clinic.section.bot'), dirty, save.isPending, () => onSave())
 
@@ -313,6 +317,7 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
         // (resolveUnmatchedKeywordMessage), so an empty string is a valid,
         // intentional "use the default" value, not an error.
         unmatchedKeywordMessage: { es: unmatchedEs.trim(), en: unmatchedEn.trim() },
+        outOfHoursMessage: { es: outOfHoursEs.trim(), en: outOfHoursEn.trim() },
       },
     })
   }
@@ -416,6 +421,22 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
               rows={2}
               className={`${inputCls} w-full resize-y`}
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Optional closure notice sent before ordinary automation after business hours. */}
+      <div className="mt-4">
+        <p className="mb-1 text-xs font-medium text-gray-500">{t('bot.outOfHours.title')}</p>
+        <p className="mb-2 text-xs text-gray-400">{t('bot.outOfHours.hint')}</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-gray-400">{t('bot.outOfHours.esLabel')}</label>
+            <textarea value={outOfHoursEs} onChange={(e) => setOutOfHoursEs(e.target.value)} placeholder={t('bot.outOfHours.esDefault')} rows={2} className={`${inputCls} w-full resize-y`} />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-gray-400">{t('bot.outOfHours.enLabel')}</label>
+            <textarea value={outOfHoursEn} onChange={(e) => setOutOfHoursEn(e.target.value)} placeholder={t('bot.outOfHours.enDefault')} rows={2} className={`${inputCls} w-full resize-y`} />
           </div>
         </div>
       </div>

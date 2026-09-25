@@ -1,9 +1,8 @@
 ﻿// Consumes: agent queue.
 // Classifies intent, routes to the correct platform agent (P03); the botbase
-// route (general/unclear intent, inside business hours) and the outside-hours
-// silence route both send the same static nudge toward the clinic's structured
-// keyword entry points instead of a free-form LLM answer or a "we're closed"
-// notice. calbot/alertflow routes stay fan-out to their downstream queues.
+// route (general/unclear intent, outside business hours) sends a static nudge
+// toward the clinic's structured keyword entry points. During business hours,
+// staff own ordinary conversations; safety, handoff, and consent stay available.
 import { z } from 'zod'
 import {
   classifyIntent,
@@ -255,6 +254,29 @@ export function resolveUnmatchedKeywordMessage(clinic: Clinic, language: Languag
   }
   const raw = settings.unmatchedKeywordMessage?.[language]
   return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : defaultUnmatchedKeywordMessage(language)
+}
+
+function defaultOutOfHoursMessage(language: Language): string {
+  return language === 'es'
+    ? 'La clínica está cerrada en este momento. Te atenderemos lo antes posible.'
+    : 'The clinic is currently closed. We will assist you as soon as possible.'
+}
+
+/** Studio-configurable closure notice sent before ordinary out-of-hours automation. */
+export function resolveOutOfHoursMessage(clinic: Clinic, language: Language): string {
+  const settings = clinic.settings as {
+    outOfHoursMessage?: { es?: unknown; en?: unknown }
+  }
+  const raw = settings.outOfHoursMessage?.[language]
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : defaultOutOfHoursMessage(language)
+}
+
+function hasConfiguredOutOfHoursMessage(clinic: Clinic): boolean {
+  const configured = (clinic.settings as {
+    outOfHoursMessage?: { es?: unknown; en?: unknown }
+  }).outOfHoursMessage
+  return (typeof configured?.es === 'string' && configured.es.trim() !== '') ||
+    (typeof configured?.en === 'string' && configured.en.trim() !== '')
 }
 
 // Metadata key holding the in-progress flow cursor between turns (Rev1 #28).
@@ -794,6 +816,17 @@ export async function processAgentJob(job: Job): Promise<void> {
       return
     }
 
+    // Staff own ordinary conversations during configured open hours. Deterministic
+    // safety, consent, and direct-handoff rules remain above this point.
+    const insideHours = isInsideBusinessHours(getBusinessHours(clinic), clinic.timezone)
+    let outOfHoursNoticeSent = false
+    const sendOutOfHoursNotice = async () => {
+      if (!outOfHoursNoticeSent && sendReply && hasConfiguredOutOfHoursMessage(clinic)) {
+        await sendReply(resolveOutOfHoursMessage(clinic, patientLanguage))
+        outOfHoursNoticeSent = true
+      }
+    }
+
     // Keep replies inside an active scheduling conversation deterministic. A date
     // or time such as "2026-07-27" / "10:00" is not a fresh intent and must not
     // be reclassified by the general assistant. Safety, consent and explicit
@@ -807,36 +840,42 @@ export async function processAgentJob(job: Job): Promise<void> {
         ? (activeScheduling.action as 'book' | 'reschedule' | 'cancel' | 'status')
         : null
     if (activeSchedulingAction) {
-      await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
+      if (!insideHours) {
+        await sendOutOfHoursNotice()
+        await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
+      }
       return
     }
 
-    // Fire inbound workflows after the safety and consent guards above. A matched
+    // Fire inbound workflows only outside business hours, after the safety and
+    // consent guards above. A matched
     // CONVERSATIONAL workflow (menu / ask & capture / send message…) owns the
     // reply turn: it answers the patient itself, so custom flows and the LLM stay
     // silent this turn. Pure side-effect workflows (tag / notify / approval)
     // remain best-effort and never suppress the reply below.
-    try {
-      const claim = await enqueueInboundWorkflowRuns(sql, data.clinicId, {
-        sourceEventId: data.waMessageId,
-        message: data.message,
-        ...(data.patientId ? { patientId: data.patientId } : {}),
-        ...(data.conversationId ? { conversationId: data.conversationId } : {}),
-      })
-      if (claim.ownsTurn) return
-    } catch (err) {
-      console.error('[agent] workflow trigger enqueue failed:', err)
-    }
+    if (!insideHours) {
+      await sendOutOfHoursNotice()
+      try {
+        const claim = await enqueueInboundWorkflowRuns(sql, data.clinicId, {
+          sourceEventId: data.waMessageId,
+          message: data.message,
+          ...(data.patientId ? { patientId: data.patientId } : {}),
+          ...(data.conversationId ? { conversationId: data.conversationId } : {}),
+        })
+        if (claim.ownsTurn) return
+      } catch (err) {
+        console.error('[agent] workflow trigger enqueue failed:', err)
+      }
 
-    // P18 (Gap #34): custom flows run BEFORE intent classification. A keyword match
-    // runs the clinic's scripted message sequence (and optional terminal action)
-    // and skips the LLM entirely.
-    if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply, sendInteractive, clinic))) {
-      return
+      // P18 (Gap #34): custom flows run before intent classification. A keyword
+      // match runs the clinic's scripted message sequence and skips the LLM.
+      if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply, sendInteractive, clinic))) {
+        return
+      }
+
     }
 
     const patientOptedOut = isPatientOptedOut(patient)
-    const insideHours = isInsideBusinessHours(getBusinessHours(clinic), clinic.timezone)
 
     // Intent provider is per-clinic (Studio ? Automations ? AI Assistant). DeepSeek by
     // default (server key); other providers use the clinic's connected key.
@@ -917,6 +956,7 @@ export async function processAgentJob(job: Job): Promise<void> {
 
     switch (route.agent) {
       case 'calbot':
+        await sendOutOfHoursNotice()
         await schedulingQueue.add('schedule', { ...data, action: route.action })
         break
 
@@ -949,12 +989,9 @@ export async function processAgentJob(job: Job): Promise<void> {
         break
 
       case 'silence':
-        // Outside-hours (and, same as botbase, any other unmatched-keyword turn):
-        // nudge toward the clinic's structured entry points instead of the old
-        // "we're closed, leave your name" notice. Opt-out silence stays fully silent.
-        if (route.reason === 'outside_hours' && sendReply) {
-          await sendReply(resolveUnmatchedKeywordMessage(clinic, patientLanguage))
-        } else if (route.reason === 'opted_out') {
+        // Open-hours routing leaves ordinary messages to staff. Opt-out routing
+        // remains silent after persisting the deterministic preference.
+        if (route.reason === 'opted_out') {
           // An opt-out the keyword guard missed but the classifier caught ? persist
           // it (Req 19) so it sticks, then stay silent.
           await setPatientOptedOut(patients, data.clinicId, patient, true)
@@ -968,13 +1005,10 @@ export async function processAgentJob(job: Job): Promise<void> {
         break
 
       case 'botbase': {
-        // The general AI Q&A fallback (greeting / general_question / out_of_scope
-        // intent, inside business hours -- the only way this route is ever reached)
-        // is replaced with a static nudge toward the clinic's structured entry
-        // points instead of a free-form LLM answer. Emergency, human-handoff,
-        // booking, opt-out and outside-hours routing all happen upstream of this
-        // switch and are completely unaffected.
+        // Closed-hours general intent receives a deterministic entry-point nudge,
+        // never a free-form LLM response.
         if (sendReply) {
+          await sendOutOfHoursNotice()
           await sendReply(resolveUnmatchedKeywordMessage(clinic, patientLanguage))
         } else {
           console.warn(`[agent] no reply transport for clinic ${data.clinicId} on ${data.channel}; cannot reply`)

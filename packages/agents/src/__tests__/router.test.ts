@@ -19,10 +19,17 @@ describe('routeIntent', () => {
     })
   })
 
-  it('outside business hours → silence (except stop_optout)', () => {
-    expect(routeIntent('booking_request', ctx({ isInsideBusinessHours: false }))).toEqual({
+  it('holds regular automation for staff while the clinic is open', () => {
+    expect(routeIntent('booking_request', ctx())).toEqual({
       agent: 'silence',
-      reason: 'outside_hours',
+      reason: 'inside_hours',
+    })
+  })
+
+  it('allows booking automation after the clinic closes', () => {
+    expect(routeIntent('booking_request', ctx({ isInsideBusinessHours: false }))).toEqual({
+      agent: 'calbot',
+      action: 'book',
     })
   })
 
@@ -57,25 +64,32 @@ describe('routeIntent', () => {
   })
 
   it('booking_request → calbot book', () => {
-    expect(routeIntent('booking_request', ctx())).toEqual({ agent: 'calbot', action: 'book' })
+    expect(routeIntent('booking_request', ctx({ isInsideBusinessHours: false }))).toEqual({ agent: 'calbot', action: 'book' })
   })
 
   it('stop_optout (in hours) → silence opted_out', () => {
     expect(routeIntent('stop_optout', ctx())).toEqual({ agent: 'silence', reason: 'opted_out' })
   })
 
-  it('general_question → botbase (default)', () => {
-    expect(routeIntent('general_question', ctx())).toEqual({ agent: 'botbase' })
+  it('holds general questions for staff while the clinic is open', () => {
+    expect(routeIntent('general_question', ctx())).toEqual({
+      agent: 'silence',
+      reason: 'inside_hours',
+    })
+  })
+
+  it('routes general questions to the bot after the clinic closes', () => {
+    expect(routeIntent('general_question', ctx({ isInsideBusinessHours: false }))).toEqual({ agent: 'botbase' })
   })
 })
 
 describe('orchestrateConversation', () => {
   it('maps scheduling intents to the booking workflow', () => {
-    expect(orchestrateConversation('booking_request', ctx())).toEqual({
+    expect(orchestrateConversation('booking_request', ctx({ isInsideBusinessHours: false }))).toEqual({
       workflow: 'booking',
       route: { agent: 'calbot', action: 'book' },
     })
-    expect(orchestrateConversation('reschedule_request', ctx())).toEqual({
+    expect(orchestrateConversation('reschedule_request', ctx({ isInsideBusinessHours: false }))).toEqual({
       workflow: 'booking',
       route: { agent: 'calbot', action: 'reschedule' },
     })
@@ -92,19 +106,23 @@ describe('orchestrateConversation', () => {
     })
   })
 
-  it('maps general conversation to the inquiry workflow', () => {
-    expect(orchestrateConversation('general_question', ctx())).toEqual({
+  it('maps out-of-hours general conversation to the inquiry workflow', () => {
+    expect(orchestrateConversation('general_question', ctx({ isInsideBusinessHours: false }))).toEqual({
       workflow: 'inquiry',
       route: { agent: 'botbase' },
     })
   })
 
-  it('keeps consent and business-hours suppression outside the three workflows', () => {
+  it('keeps consent and open-hours suppression outside the three workflows', () => {
     expect(
       orchestrateConversation('booking_request', ctx({ patientOptedOut: true })),
     ).toEqual({
       workflow: null,
       route: { agent: 'silence', reason: 'opted_out' },
+    })
+    expect(orchestrateConversation('booking_request', ctx())).toEqual({
+      workflow: null,
+      route: { agent: 'silence', reason: 'inside_hours' },
     })
   })
 

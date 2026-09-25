@@ -27,7 +27,7 @@ vi.mock('@docmee/db', () => ({
   createConversationsRepository: vi.fn(),
 }))
 
-import { detectUpsetTone, getClinicBotConfig, resolveUnmatchedKeywordMessage } from '../agent-processor.worker.js'
+import { detectUpsetTone, getClinicBotConfig, resolveOutOfHoursMessage, resolveUnmatchedKeywordMessage } from '../agent-processor.worker.js'
 import type { Clinic } from '@docmee/db'
 
 const clinic = (settings: Record<string, unknown>): Clinic =>
@@ -99,6 +99,18 @@ describe('resolveUnmatchedKeywordMessage', () => {
     expect(resolveUnmatchedKeywordMessage(c, 'en')).toBe(
       'Please start message by sending Menu or Booking.',
     )
+  })
+})
+
+describe('resolveOutOfHoursMessage', () => {
+  it('uses the configured closure notice for the patient language', () => {
+    const c = clinic({ outOfHoursMessage: { es: 'La clínica cerró. Te atenderemos mañana.' } })
+    expect(resolveOutOfHoursMessage(c, 'es')).toBe('La clínica cerró. Te atenderemos mañana.')
+  })
+
+  it('falls back to a safe localized notice when a clinic has not configured one', () => {
+    expect(resolveOutOfHoursMessage(clinic({}), 'es')).toContain('cerrada')
+    expect(resolveOutOfHoursMessage(clinic({}), 'en')).toContain('closed')
   })
 })
 

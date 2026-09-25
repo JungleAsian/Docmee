@@ -46,7 +46,7 @@ vi.mock('@docmee/agents', async () => {
     ...actual,
     runClinicBot: h.runClinicBot,
     searchKb: vi.fn().mockResolvedValue([]),
-    isInsideBusinessHours: vi.fn().mockReturnValue(true),
+    isInsideBusinessHours: vi.fn().mockReturnValue(false),
   }
 })
 

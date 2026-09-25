@@ -190,11 +190,11 @@ describe('processAgentJob — bot interruption rule', () => {
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
   })
 
-  it('replies with the structured-entry-point nudge when the conversation is open', async () => {
+  it('leaves an open conversation to staff during business hours', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     await processAgentJob(makeJob(baseJob))
     expect(h.classifyIntent).toHaveBeenCalledTimes(1)
-    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.runClinicBot).not.toHaveBeenCalled()
   })
 })
@@ -249,7 +249,7 @@ describe('processAgentJob — medical emergency (Req 20)', () => {
     }
   })
 
-  it('an unmatched general message outside business hours gets the structured-entry-point nudge, not the old closed notice', async () => {
+  it('routes a general message to the structured-entry-point nudge outside business hours', async () => {
     const { isInsideBusinessHours } = await import('@docmee/agents')
     const hoursMock = isInsideBusinessHours as ReturnType<typeof vi.fn>
     hoursMock.mockReturnValue(false)
@@ -398,24 +398,48 @@ describe('processAgentJob — explicit human request (#5)', () => {
 })
 
 describe('processAgentJob — AI conversation orchestration', () => {
-  it('routes a booking intent to the deterministic scheduling workflow', async () => {
+  it('keeps a booking request with staff during business hours', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.classifyIntent.mockResolvedValueOnce('booking_request')
 
     await processAgentJob(makeJob({ ...baseJob, message: 'I would like an appointment' }))
 
-    expect(h.schedulingAdd).toHaveBeenCalledWith(
-      'schedule',
-      expect.objectContaining({ action: 'book', conversationId: CONVO }),
-    )
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.runClinicBot).not.toHaveBeenCalled()
     expect(h.updateConversation).toHaveBeenCalledWith(
       CLINIC,
       CONVO,
       expect.objectContaining({
-        metadata: expect.objectContaining({ lastOrchestrationRoute: 'booking' }),
+        metadata: expect.objectContaining({ lastOrchestrationRoute: 'policy_suppressed' }),
       }),
     )
+  })
+
+  it('sends the configured closure notice before queueing an out-of-hours booking', async () => {
+    const { isInsideBusinessHours } = await import('@docmee/agents')
+    const hoursMock = isInsideBusinessHours as ReturnType<typeof vi.fn>
+    hoursMock.mockReturnValue(false)
+    try {
+      h.findClinic.mockResolvedValue({
+        id: CLINIC,
+        name: 'Clinica',
+        settings: { outOfHoursMessage: { es: 'La clinica cerro. Te atendemos manana.' } },
+        timezone: 'America/Mexico_City',
+      })
+      h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+      h.classifyIntent.mockResolvedValueOnce('booking_request')
+
+      await processAgentJob(makeJob({ ...baseJob, message: 'Quiero una cita' }))
+
+      expect(h.sendWhatsAppText.mock.calls[0]![3]).toBe('La clinica cerro. Te atendemos manana.')
+      expect(h.schedulingAdd).toHaveBeenCalledWith(
+        'schedule',
+        expect.objectContaining({ action: 'book', conversationId: CONVO }),
+      )
+    } finally {
+      hoursMock.mockReturnValue(true)
+    }
   })
 
   it('turns an AI-detected handoff into a patient acknowledgement and bot pause', async () => {
@@ -497,7 +521,7 @@ describe('processAgentJob — AI conversation orchestration', () => {
     }
   })
 
-  it('keeps an active booking sticky and bypasses AI reclassification', async () => {
+  it('keeps an active booking with staff during business hours', async () => {
     h.findConversation.mockResolvedValue({
       id: CONVO,
       status: 'open',
@@ -508,13 +532,10 @@ describe('processAgentJob — AI conversation orchestration', () => {
 
     expect(h.classifyIntent).not.toHaveBeenCalled()
     expect(h.runClinicBot).not.toHaveBeenCalled()
-    expect(h.schedulingAdd).toHaveBeenCalledWith(
-      'schedule',
-      expect.objectContaining({ action: 'book', message: '10:30' }),
-    )
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
   })
 
-  it('routes a general question to the structured-entry-point nudge', async () => {
+  it('does not auto-reply to a general question during business hours', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.classifyIntent.mockResolvedValueOnce('general_question')
 
@@ -523,14 +544,13 @@ describe('processAgentJob — AI conversation orchestration', () => {
     // The general/unclear-intent route no longer calls the free-form LLM bot;
     // it sends the static structured-entry-point nudge instead.
     expect(h.runClinicBot).not.toHaveBeenCalled()
-    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
-    expect(h.sendWhatsAppText.mock.calls[0]![3]).toContain('Menú')
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.schedulingAdd).not.toHaveBeenCalled()
     expect(h.updateConversation).toHaveBeenCalledWith(
       CLINIC,
       CONVO,
       expect.objectContaining({
-        metadata: expect.objectContaining({ lastOrchestrationRoute: 'inquiry' }),
+        metadata: expect.objectContaining({ lastOrchestrationRoute: 'policy_suppressed' }),
       }),
     )
   })

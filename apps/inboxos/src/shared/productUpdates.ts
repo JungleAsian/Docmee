@@ -26,6 +26,22 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-09-25-jzel-teaching',
+    publishedAt: '2026-09-25T00:00:00.000Z',
+    version: '2026.09.25',
+    audience: 'admin',
+    title: { en: 'Teach your agent from the assistant', es: 'Enseña a tu agente desde el asistente' },
+    summary: {
+      en: 'Prepare and approve clinic knowledge in Teach the agent, then preview a workflow answer without sending a message.',
+      es: 'Prepara y aprueba información de la clínica en Enseñar al agente y prueba una respuesta del flujo sin enviar mensajes.',
+    },
+    highlights: [
+      { en: 'Choose the clinic, doctor and language. Review the exact entry and related knowledge before confirming.', es: 'Elige la clínica, el médico y el idioma. Revisa la entrada exacta y la información relacionada antes de confirmar.' },
+      { en: 'Track draft, approval and indexing status, reopen recent lessons, and restore earlier approved content.', es: 'Consulta el estado del borrador, la aprobación y la indexación; abre lecciones recientes y restaura contenido aprobado anteriormente.' },
+      { en: 'Test a saved workflow AI node against approved knowledge. The preview reports an answer or handoff without contacting patients.', es: 'Prueba un nodo de IA guardado con información aprobada. La vista previa muestra una respuesta o derivación sin contactar a pacientes.' },
+    ],
+  },
+  {
     id: '2026-09-24-product-updates-center',
     publishedAt: '2026-09-24T12:00:00.000Z',
     version: '2026.09.24',

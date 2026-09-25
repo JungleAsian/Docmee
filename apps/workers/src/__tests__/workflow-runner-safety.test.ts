@@ -49,6 +49,7 @@ const h = vi.hoisted(() => ({
 }))
 
 vi.mock('@docmee/agents', async () => ({
+  ...(await import('../../../../packages/agents/src/workflows/ai-agent-answer.js')),
   resolveAiAgentSettings: (await import('../../../../packages/agents/src/workflows/ai-agent-settings.js')).resolveAiAgentSettings,
   validCapturedReply: (await import('../../../../packages/agents/src/workflows/capture-validation.js')).validCapturedReply,
   validateWorkflowDefinition: () => [],

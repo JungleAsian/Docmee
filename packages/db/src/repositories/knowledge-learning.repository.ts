@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Sql, TxSql } from '../client.js'
 import { toJson } from '../client.js'
 import { lockKnowledgeMutation, writeKnowledgeDocument, type KnowledgeCandidate, type DocumentIndexWrite } from './knowledge.repository.js'
@@ -36,6 +36,10 @@ export interface LearningReview {
   action: 'edit' | 'reject' | 'approve' | 'rollback'
   expectedRevision: number; actorId: string | null; content?: string; staffConfirmed?: boolean
   historyId?: string; automatic?: boolean; rejectionReason?: RejectionReason; rejectionDetail?: string
+}
+export interface TeachingDraftInput {
+  title: string; content: string; doctorId: string | null; language: 'en' | 'es' | null
+  targetDocumentId?: string; targetVersion?: number; actorId: string
 }
 const defaults: LearningSettings = { autoApprove: false, groundingThreshold: 1, evidenceRetentionHours: 24 }
 const score = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null
@@ -146,6 +150,70 @@ export function createKnowledgeLearningRepository(sql: Sql) {
   }
   return {
     settings,
+    async findCandidate(clinicId: string, id: string): Promise<GovernedCandidate | null> {
+      const rows = await sql<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId} AND id = ${id}`
+      return rows[0] ?? null
+    },
+    async teachingDraft(clinicId: string, input: TeachingDraftInput): Promise<GovernedCandidate> {
+      if (!input.actorId || !input.title.trim() || !input.content.trim() || input.content.length > 12000 || input.title.length > 200) throw new Error('content_required')
+      if (sanitizeLearningText(input.content).changed || sanitizeLearningText(input.title).changed) throw new Error('remove_private_information')
+      const config = await settings(clinicId)
+      return sql.begin(async tx => {
+        await lockKnowledgeMutation(tx, clinicId)
+        const revisions = await tx<Array<{ revision: number }>>`SELECT revision FROM knowledge_retrieval_revisions WHERE clinic_id = ${clinicId}`
+        const revision = Number(revisions[0]?.revision ?? 0)
+        if (input.doctorId) {
+          const doctors = await tx`SELECT id FROM doctors WHERE clinic_id = ${clinicId} AND id = ${input.doctorId} AND is_active = true`
+          if (!doctors[0]) throw new Error('not_found')
+        }
+        let parentId: string | null = null
+        let target: (import('../types/index.js').KnowledgeDocument & { version: number }) | undefined
+        if (input.targetDocumentId) {
+          const rows = await tx<Array<import('../types/index.js').KnowledgeDocument & { version: number }>>`SELECT * FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${input.targetDocumentId} FOR UPDATE`
+          target = rows[0]
+          if (!target || target.status !== 'active' || !target.approvedAt || ['excluded', 'archived'].includes(String(target.metadata?.['governanceReviewState']))) throw new Error('not_found')
+          if (!Number.isInteger(input.targetVersion) || target.version !== input.targetVersion) throw new Error('stale_candidate')
+          if (input.title !== target.title) throw new Error('stale_candidate')
+          if ((target.metadata?.['doctorId'] ?? null) !== input.doctorId || (target.metadata?.['language'] ?? null) !== input.language) throw new Error('mixed_source_scope')
+          const parents = await tx<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId}
+            AND published_document_id = ${target.id} AND published_document_version = ${target.version} AND status = 'approved' ORDER BY updated_at DESC LIMIT 1`
+          parentId = parents[0]?.id ?? null
+          if (!parentId) {
+            // Capture the existing approved entry, so the first taught edit can be rolled back too.
+            const baseline = await tx<GovernedCandidate[]>`INSERT INTO knowledge_candidates
+              (clinic_id, source_question, candidate_content, status, confidence_score, grounding_score, fingerprint, evidence, original_source, staff_confirmed, human_edit, published_document_id, published_document_version, expires_at)
+              VALUES (${clinicId}, '', ${target.content}, 'approved', 0, 0, ${learningFingerprint(`baseline:${target.id}:${target.version}`)},
+                ${tx.json(toJson({ doctorId: input.doctorId, language: input.language }))}, ${tx.json(toJson({ source: 'teaching_baseline', title: target.title }))},
+                true, ${target.content}, ${target.id}, ${target.version}, NULL) RETURNING *`
+            parentId = baseline[0]!.id
+            await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, document_id, document_version)
+              VALUES (${clinicId}, ${parentId}, 1, 'approve', ${input.actorId}, ${target.content}, ${target.id}, ${target.version})`
+          }
+        }
+        const duplicates = await tx<Array<{ id: string }>>`SELECT id FROM knowledge_documents WHERE clinic_id = ${clinicId}
+          AND status = 'active' AND approved_at IS NOT NULL
+          AND COALESCE(metadata ->> 'doctorId', '') = ${input.doctorId ?? ''}
+          AND COALESCE(metadata ->> 'language', '') = ${input.language ?? ''}
+          AND lower(regexp_replace(trim(content), '[[:space:]]+', ' ', 'g')) = lower(regexp_replace(trim(${input.content}), '[[:space:]]+', ' ', 'g')) LIMIT 1`
+        if (duplicates.length) throw new Error('duplicate_knowledge')
+        let fingerprint = learningFingerprint(JSON.stringify({ ...input, revision }))
+        const existing = await tx<GovernedCandidate[]>`SELECT * FROM knowledge_candidates WHERE clinic_id = ${clinicId} AND fingerprint = ${fingerprint}`
+        if (existing[0] && (!existing[0].expiresAt || Date.parse(existing[0].expiresAt) > Date.now())) return existing[0]
+        if (existing[0]) fingerprint = learningFingerprint(`${fingerprint}:${randomUUID()}`)
+        const evidence = { relevance: null, confidence: null, grounding: null, contradiction: 'unknown', risks: ['staff_correction'],
+          doctorId: input.doctorId, language: input.language, retrievalRevision: revision }
+        const source = { source: 'jzel_teaching', title: input.title, actorId: input.actorId,
+          targetMetadata: target?.metadata ?? {}, targetType: target?.documentType ?? 'faq' }
+        const rows = await tx<GovernedCandidate[]>`INSERT INTO knowledge_candidates
+          (clinic_id, source_question, candidate_content, status, confidence_score, grounding_score, fingerprint, evidence, original_source, human_edit, previous_version_id, published_document_id, published_document_version, expires_at)
+          VALUES (${clinicId}, '', ${input.content}, 'pending_review', 0, 0, ${fingerprint}, ${tx.json(toJson(evidence))}, ${tx.json(toJson(source))}, ${input.content},
+            ${parentId}, ${target?.id ?? null}, ${target?.version ?? null}, now() + ${config.evidenceRetentionHours} * interval '1 hour') RETURNING *`
+        const candidate = rows[0]!
+        await tx`INSERT INTO knowledge_learning_history (clinic_id, candidate_id, revision, action, actor_id, content, evidence)
+          VALUES (${clinicId}, ${candidate.id}, 1, 'teaching_draft', ${input.actorId}, ${input.content}, ${tx.json(toJson(evidence))})`
+        return candidate
+      }) as unknown as Promise<GovernedCandidate>
+    },
     async updateSettings(clinicId: string, value: LearningSettings) {
       if (typeof value.autoApprove !== 'boolean' || score(value.groundingThreshold) === null || value.groundingThreshold < .8 || !Number.isInteger(value.evidenceRetentionHours) || value.evidenceRetentionHours < 1 || value.evidenceRetentionHours > 24) throw new Error('invalid_settings')
       await sql`INSERT INTO knowledge_learning_settings (clinic_id, auto_approve, grounding_threshold, evidence_retention_hours)
@@ -267,6 +335,8 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         if (!input.automatic && !input.actorId) throw new Error('reviewer_required')
         if (input.automatic && input.action !== 'approve') throw new Error('invalid_action')
         if (input.action === 'approve' && !input.automatic && input.staffConfirmed !== true) throw new Error('staff_confirmation_required')
+        if (candidate.originalSource?.['source'] === 'jzel_teaching' && input.action === 'approve'
+          && input.content !== undefined && input.content !== candidate.candidateContent) throw new Error('stale_candidate')
         if (input.action === 'reject' && !rejectionReasons.includes(input.rejectionReason as RejectionReason)) throw new Error('rejection_reason_required')
         if (input.action === 'reject' && input.rejectionReason === 'other' && !input.rejectionDetail?.trim()) throw new Error('rejection_detail_required')
         if (input.action !== 'rollback' && candidate.status !== 'pending_review' && !(input.action === 'edit' && candidate.status === 'approved')) throw new Error('invalid_state')
@@ -296,7 +366,7 @@ export function createKnowledgeLearningRepository(sql: Sql) {
              fingerprint, evidence, staff_confirmed, human_edit, previous_version_id,
              published_document_id, published_document_version, expires_at)
             VALUES (${clinicId}, '', ${content}, 'pending_review', 0, 0, false, false, false,
-              ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson({ source: 'approved_revision', candidateId: id }))},
+              ${tx.json(toJson(candidate.supportingChunks))}, ${tx.json(toJson(candidate.originalSource?.['source'] === 'jzel_teaching' ? candidate.originalSource : { source: 'approved_revision', candidateId: id }))},
               ${fingerprint}, ${tx.json(toJson(evidence))}, ${confirmed}, ${content}, ${id},
               ${candidate.publishedDocumentId}, ${candidate.publishedDocumentVersion}, now() + ${retention} * interval '1 hour') RETURNING *`
           const draft = drafts[0]!
@@ -335,6 +405,8 @@ export function createKnowledgeLearningRepository(sql: Sql) {
         const publishing = input.action === 'approve' || input.action === 'rollback'
         let write: DocumentIndexWrite | null = null
         if (publishing) {
+          if (candidate.originalSource?.['source'] === 'jzel_teaching' && input.action === 'approve'
+            && !await revisionCurrent(tx, clinicId, candidate.evidence)) throw new Error('stale_sources')
           if (candidate.publishedDocumentId) {
             const target = await tx<Array<{ version: number }>>`SELECT * FROM knowledge_documents WHERE clinic_id = ${clinicId} AND id = ${candidate.publishedDocumentId} FOR UPDATE`
             if (!target[0] || target[0].version !== candidate.publishedDocumentVersion) throw new Error('stale_candidate')
@@ -360,8 +432,12 @@ export function createKnowledgeLearningRepository(sql: Sql) {
             scopes.push({ doctorId: typeof meta['doctorId'] === 'string' ? meta['doctorId'] : null, language: typeof meta['language'] === 'string' ? meta['language'] : null })
           }
           if (new Set(scopes.map(s => JSON.stringify(s))).size > 1) throw new Error('mixed_source_scope')
-          const scope = scopes[0] ?? { doctorId: null, language: null }
-          write = await writeKnowledgeDocument(tx, { clinicId, id: candidate.publishedDocumentId ?? undefined, doctorId: scope.doctorId, title: 'Reviewed clinic knowledge', content, status: 'active', documentType: 'faq', metadata: { source: 'governed_learning', candidateId: id, approver: input.actorId ?? 'automatic', citations, rollbackSource: rollbackSource ?? null, ...(scope.language ? { language: scope.language } : {}) }, chunks: [{ content, chunkIndex: 0 }] })
+          const teaching = candidate.originalSource?.['source'] === 'jzel_teaching'
+          const scope = scopes[0] ?? (teaching ? { doctorId: candidate.evidence.doctorId ?? null, language: candidate.evidence.language ?? null } : { doctorId: null, language: null })
+          const targetMetadata = teaching && candidate.originalSource['targetMetadata'] && typeof candidate.originalSource['targetMetadata'] === 'object' ? candidate.originalSource['targetMetadata'] as Record<string, unknown> : {}
+          const documentType = teaching ? candidate.originalSource['targetType'] : 'faq'
+          if (!['faq', 'policy', 'service_info', 'custom'].includes(String(documentType))) throw new Error('invalid_state')
+          write = await writeKnowledgeDocument(tx, { clinicId, id: candidate.publishedDocumentId ?? undefined, doctorId: scope.doctorId, title: teaching ? String(candidate.originalSource['title']) : 'Reviewed clinic knowledge', content, status: 'active', documentType: documentType as 'faq' | 'policy' | 'service_info' | 'custom', metadata: { ...targetMetadata, source: 'governed_learning', candidateId: id, approver: input.actorId ?? 'automatic', citations, rollbackSource: rollbackSource ?? null, ...(scope.language ? { language: scope.language } : {}) }, chunks: [{ content, chunkIndex: 0 }] })
           // Pending drafts are not durable facts. Keep their audit metadata only.
           await tx`UPDATE knowledge_learning_history SET content = '' WHERE clinic_id = ${clinicId} AND candidate_id = ${id} AND action NOT IN ('approve', 'rollback')`
         }

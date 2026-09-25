@@ -50,3 +50,4 @@ export {
 } from './workflow-simulator.js'
 export { validCapturedReply } from './capture-validation.js'
 export { resolveAiAgentSettings } from './ai-agent-settings.js'
+export { buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt, withAiAgentReplyTimeout } from './ai-agent-answer.js'

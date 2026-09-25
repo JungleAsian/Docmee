@@ -1,0 +1,13 @@
+# J.zel teaching
+
+Objective: let authorized clinic administrators teach reusable clinic knowledge through J.zel, review the exact change, and preview a workflow AI answer without sending messages.
+
+Scope: explicit clinic/doctor/language targeting; editable teaching drafts; duplicate and potential-conflict review; existing governed approval, history, rollback and indexing; truthful readiness; read-only workflow-node preview. Ordinary assistant chat remains separate. No model retraining, automatic publication, appointments or WhatsApp delivery.
+
+Design: teaching stores staff-authored text verbatim as a pending learning candidate. Related KB entries are evidence for review, not a claim that semantic contradictions are exhaustively detected. Updating an entry retains a restorable approved baseline and uses version checks. All mutations enforce clinic access and administrator roles on the server. A preview uses a selected saved AI Agent node, shared prompt/parsing and answer gates, and current KB retrieval; it never executes workflow side effects.
+
+Acceptance: tenant and doctor isolation, confirmation before approval, exact reviewed draft, scope preservation, stale proposal rejection, duplicate detection, history/rollback, indexing failures and readiness, provider failures, preview no-send behavior, state reset on target changes, English/Spanish and responsive keyboard UI. Run relevant DB/API/agent/UI tests, types, lint and build; review the diff before release. Existing publication authorization applies to app.docmeedevelopment.dev. Preserve the preexisting tsconfig change. Source checkpoint: backup/before-jzel-teaching-20260925.
+
+Implementation and local verification: complete. 58 DB tests, 19 API route tests, 7 preview tests, 61 worker tests, 7 release catalog tests and 3 browser tests pass. API, worker and frontend production builds pass; TypeScript and focused ESLint checks pass. Browser tests use mocked API data for desktop approval, preview, rollback, mobile scope reset and Spanish labels. No patient delivery or production KB changes were used for verification. Publication verification and owner review remain pending.
+
+Limits: related-entry checks are bounded lexical matches plus normalized exact duplicate detection; administrators review possible conflicts. Preview uses the selected saved node and approved KB, without conversation history or the full workflow runtime. Existing strict answer checks can still hand off facts outside their supported evidence classes; indexing readiness is not a promise that every question will receive an automated answer. No schema migration or new dependency is required.

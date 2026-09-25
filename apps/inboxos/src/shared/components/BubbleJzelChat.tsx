@@ -13,6 +13,8 @@ import { useAuthStore } from '../store/auth'
 import { useActiveClinic } from '../hooks/useActiveClinic'
 import { ApiError, api } from '../api/client'
 import type { PanelLanguage, PanelRole } from '../types'
+import { TeachAgentPanel } from './jzel-teaching/TeachAgentPanel'
+import { teachingCopy } from './jzel-teaching/copy'
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
@@ -83,6 +85,7 @@ export function BubbleJzelChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
+  const [mode, setMode] = useState<'chat' | 'teach'>('chat')
   const [aiStatus, setAiStatus] = useState<'loading' | 'connected' | 'disconnected' | 'error'>(
     'loading',
   )
@@ -220,6 +223,15 @@ export function BubbleJzelChat() {
         />
       </div>
 
+      {(user.role === 'clinic_admin' || user.role === 'ia_studio_admin') && <div className="flex gap-2 border-b border-[var(--crm-border-color)] p-2">
+        {(['chat', 'teach'] as const).map(value => <button key={value} type="button" aria-pressed={mode === value}
+          onClick={() => setMode(value)} className={`rounded px-3 py-1.5 text-xs font-semibold ${mode === value ? 'bg-[var(--crm-primary-color)] text-white' : 'bg-[var(--crm-hover-bg)]'}`}>
+          {value === 'chat' ? teachingCopy[language === 'es' ? 'es' : 'en'].chat : teachingCopy[language === 'es' ? 'es' : 'en'].mode}
+        </button>)}
+      </div>}
+      {mode === 'teach' && (user.role === 'clinic_admin' || user.role === 'ia_studio_admin')
+        ? <TeachAgentPanel key={`${user.id}:${clinicId}:${language}`} initialClinicId={clinicId} />
+        : <>
       <div ref={scrollRef} className="crm-bubble-messages flex-1 space-y-2 overflow-y-auto">
         {messages.length === 0 ? (
           <p className="text-xs leading-5 text-[var(--crm-text-muted)]">{t('pet.chat.greeting')}</p>
@@ -286,6 +298,7 @@ export function BubbleJzelChat() {
           </button>
         </form>
       </div>
+      </>}
     </div>
   )
 }

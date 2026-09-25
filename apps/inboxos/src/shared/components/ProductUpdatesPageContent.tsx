@@ -49,7 +49,7 @@ export function ProductUpdatesPageContent({
 
   return (
     <div className="clinic-page space-y-6">
-      <section className="docmee-page-hero">
+      <section className="docmee-page-hero docmee-page-hero--text-only">
         <div className="docmee-page-hero-copy">
           <p className="text-[11px] font-semibold tracking-[0.14em] text-cyan-500">{copy.eyebrow}</p>
           <h1>{copy.title}</h1>

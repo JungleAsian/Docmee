@@ -213,6 +213,16 @@ body {
   -webkit-box-orient: vertical;
 }
 
+/* Text-only headers do not need the paragraph offset reserved for a title icon. */
+.docmee-page-hero--text-only {
+  text-align: left;
+}
+
+.docmee-page-hero--text-only p {
+  margin-left: 0;
+  max-width: min(52rem, 100%);
+}
+
 .docmee-page-hero-actions {
   display: flex;
   flex: 0 0 auto;

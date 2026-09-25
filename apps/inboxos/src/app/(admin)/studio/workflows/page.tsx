@@ -18,6 +18,7 @@ import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
 import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate, type WorkflowTemplate } from '@/shared/workflowTemplates'
 import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
 import { layoutWorkflow } from '@/shared/workflowLayout'
+import { cleanGroups, layoutGroupedWorkflow, workflowDocument, type WorkflowCanvasGraph } from '@/shared/components/workflow/LayoutUtils'
 import { publishWorkflow } from '@/shared/workflowPublish'
 import { serializeWorkflowExport, parseWorkflowExport } from '@/shared/workflowImport'
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus } from '@/shared/types'
@@ -545,7 +546,7 @@ function WorkflowEditor({
   // Keep the persisted identity locally after the first save. This lets a new
   // workflow remain open and be saved repeatedly without creating duplicates.
   const [persistedWorkflow, setPersistedWorkflow] = useState<Workflow | undefined>(workflow)
-  const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges } : seedNodes()), [workflow])
+  const seed = useMemo(() => (workflow ? { nodes: workflow.nodes, edges: workflow.edges, groups: workflow.document?.presentation.groups ?? [] } : { ...seedNodes(), groups: [] }), [workflow])
   const [name, setName] = useState(workflow?.name ?? '')
   const status: WorkflowStatus = persistedWorkflow?.status ?? 'draft'
   // Builder mode (Enhanced / Guided) — lifted here so its toggle lives in the
@@ -566,10 +567,11 @@ function WorkflowEditor({
   // Canvas state lives in an undo history; every canvas mutation flows through
   // the single onChange below. Keystroke bursts within 600 ms coalesce into one
   // step so typing a sentence is one undo, not thirty.
-  const [hist, setHist] = useState(() => createHistory({ nodes: seed.nodes, edges: seed.edges }))
+  const [hist, setHist] = useState(() => createHistory({ nodes: seed.nodes, edges: seed.edges, groups: seed.groups }))
   const lastPushAtRef = useRef(0)
   const nodes = hist.present.nodes
   const edges = hist.present.edges
+  const groups = hist.present.groups
   const [importError, setImportError] = useState<string | null>(null)
   const [focusedIssue, setFocusedIssue] = useState<ApiIssue | null>(null)
   const [simulationPaused, setSimulationPaused] = useState(false)
@@ -600,9 +602,12 @@ function WorkflowEditor({
     setSimulationPaused(false)
   }, [simulation])
 
-  const applyCanvasChange = useCallback((next: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => {
+  const applyCanvasChange = useCallback((next: WorkflowCanvasGraph) => {
     const now = Date.now()
-    setHist((h) => (now - lastPushAtRef.current > 600 ? pushHistory(h, next) : replacePresent(h, next)))
+    setHist((h) => {
+      const graph = { ...next, groups: cleanGroups(next.groups ?? h.present.groups, next.nodes) }
+      return now - lastPushAtRef.current > 600 || next.groups ? pushHistory(h, graph) : replacePresent(h, graph)
+    })
     lastPushAtRef.current = now
     setDirty(true)
     setSaved(false)
@@ -610,38 +615,32 @@ function WorkflowEditor({
   }, [resetSimulation])
 
   const undo = useCallback(() => {
-    let changed = false
-    setHist((h) => {
-      const next = undoHistory(h)
-      changed = next !== h
-      return next
-    })
-    if (changed) setDirty(true)
-    if (changed) resetSimulation()
+    if (!canUndo(hist)) return
+    setHist(undoHistory)
+    setDirty(true)
+    setSaved(false)
+    resetSimulation()
     lastPushAtRef.current = 0
-  }, [resetSimulation])
+  }, [hist, resetSimulation])
 
   const redo = useCallback(() => {
-    let changed = false
-    setHist((h) => {
-      const next = redoHistory(h)
-      changed = next !== h
-      return next
-    })
-    if (changed) setDirty(true)
-    if (changed) resetSimulation()
+    if (!canRedo(hist)) return
+    setHist(redoHistory)
+    setDirty(true)
+    setSaved(false)
+    resetSimulation()
     lastPushAtRef.current = 0
-  }, [resetSimulation])
+  }, [hist, resetSimulation])
 
   const autoLayout = useCallback(() => {
-    setHist((h) => pushHistory(h, { nodes: layoutWorkflow(h.present.nodes, h.present.edges), edges: h.present.edges }))
+    setHist((h) => pushHistory(h, { ...h.present, nodes: layoutGroupedWorkflow(h.present.nodes, h.present.edges, h.present.groups) }))
     lastPushAtRef.current = Date.now()
     setDirty(true)
     resetSimulation()
   }, [resetSimulation])
 
   const handleExport = useCallback(() => {
-    const raw = serializeWorkflowExport(name.trim() || t('wf.untitled'), nodes, edges)
+    const raw = serializeWorkflowExport(name.trim() || t('wf.untitled'), nodes, edges, groups)
     const blob = new Blob([raw], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const filename = `${(name.trim() || 'workflow').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'workflow'}.json`
@@ -650,7 +649,7 @@ function WorkflowEditor({
     a.download = filename
     a.click()
     URL.revokeObjectURL(url)
-  }, [name, nodes, edges, t])
+  }, [name, nodes, edges, groups, t])
 
   const handleImportFile = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
@@ -664,7 +663,7 @@ function WorkflowEditor({
         return
       }
       setImportError(null)
-      setHist((h) => pushHistory(h, { nodes: layoutWorkflow(result.nodes, result.edges), edges: result.edges }))
+      setHist((h) => pushHistory(h, { nodes: result.nodes, edges: result.edges, groups: result.groups ?? [] }))
       lastPushAtRef.current = Date.now()
       setDirty(true)
       resetSimulation()
@@ -712,7 +711,7 @@ function WorkflowEditor({
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name: name.trim() || t('wf.untitled'), nodes, edges, ...(persistedWorkflow?.documentVersion ? { expectedVersion: persistedWorkflow.documentVersion } : {}) }
+      const payload = { name: name.trim() || t('wf.untitled'), document: workflowDocument({ nodes, edges, groups }, persistedWorkflow?.document), ...(persistedWorkflow?.documentVersion ? { expectedVersion: persistedWorkflow.documentVersion } : {}) }
       return persistedWorkflow
         ? api.patch<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows/${persistedWorkflow.id}`, payload)
         : api.post<{ workflow: Workflow }>(`/clinics/${clinicId}/workflows`, payload)
@@ -901,6 +900,7 @@ function WorkflowEditor({
         <WorkflowCanvas
           nodes={nodes}
           edges={edges}
+          groups={groups}
           onChange={applyCanvasChange}
           clinicId={clinicId}
           workflowId={persistedWorkflow?.id}

@@ -1,0 +1,32 @@
+.group {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #818cf8;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--crm-workflow-canvas-bg, #1f2937) 92%, #818cf8);
+  color: #e0e7ff;
+  overflow: hidden;
+}
+.group[data-collapsed="true"] { background: #312e81; }
+.selected { outline: 3px solid #c7d2fe; outline-offset: 3px; }
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  width: 100%;
+  min-height: 48px;
+  text-align: start;
+}
+.groupTitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.count { border-radius: 999px; background: #4f46e5; padding: 2px 8px; font-size: 12px; }
+.groupActions { display: flex; gap: 12px; padding: 0 16px; font-size: 12px; }
+.groupActions input { width: 160px; background: transparent; border-bottom: 1px solid #818cf8; }
+.groupActions button { text-decoration: underline; }
+.group button:focus-visible, .group input:focus-visible { outline: 2px solid #c7d2fe; outline-offset: -2px; }
+.group[data-tier="macro"] { background: #6366f1; border-radius: 4px; }
+.group[data-tier="macro"] .groupToggle { height: 100%; }
+.canvas :global(.react-flow__node-workflowGroup) { transition: width 180ms ease, height 180ms ease; }
+@media (prefers-reduced-motion: reduce) {
+  .canvas :global(.react-flow__node-workflowGroup) { transition: none; }
+}

@@ -7,7 +7,7 @@
 // validation (dangling edges, missing successors, option-count caps, etc.)
 // is inherited for free the moment the admin clicks Save — same
 // ApiError.details path any other edit already goes through.
-import type { WorkflowNode, WorkflowEdge } from './types'
+import type { WorkflowNode, WorkflowEdge, WorkflowGroup } from './types'
 
 /** Bumped only if the export shape ever changes incompatibly. */
 const EXPORT_MARKER = 1 as const
@@ -17,6 +17,7 @@ export interface WorkflowExportFile {
   name: string
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
+  groups?: WorkflowGroup[]
 }
 
 /** `clinicId` and `status` are deliberately NOT serialized: a file exported
@@ -25,13 +26,13 @@ export interface WorkflowExportFile {
  *  config (doctor ids, tags, workflow references) generally won't resolve in
  *  the target clinic, so auto-activating would be unsafe. Import always
  *  behaves like creating a brand-new draft. */
-export function serializeWorkflowExport(name: string, nodes: WorkflowNode[], edges: WorkflowEdge[]): string {
-  const file: WorkflowExportFile = { docmeeWorkflowExport: EXPORT_MARKER, name, nodes, edges }
+export function serializeWorkflowExport(name: string, nodes: WorkflowNode[], edges: WorkflowEdge[], groups?: WorkflowGroup[]): string {
+  const file: WorkflowExportFile = { docmeeWorkflowExport: EXPORT_MARKER, name, nodes, edges, ...(groups ? { groups } : {}) }
   return JSON.stringify(file, null, 2)
 }
 
 export type ParseWorkflowExportResult =
-  | { ok: true; name: string; nodes: WorkflowNode[]; edges: WorkflowEdge[] }
+  | { ok: true; name: string; nodes: WorkflowNode[]; edges: WorkflowEdge[]; groups?: WorkflowGroup[] }
   | { ok: false; error: 'wf.import.invalidJson' | 'wf.import.notAWorkflowExport' | 'wf.import.invalidShape' }
 
 function isValidNode(value: unknown): value is WorkflowNode {
@@ -69,11 +70,30 @@ export function parseWorkflowExport(raw: string): ParseWorkflowExportResult {
   const nodes = p['nodes'] as unknown[]
   const edges = p['edges'] as unknown[]
   if (!nodes.every(isValidNode) || !edges.every(isValidEdge)) return { ok: false, error: 'wf.import.invalidShape' }
+  if (p['groups'] !== undefined) {
+    if (!Array.isArray(p['groups'])) return { ok: false, error: 'wf.import.invalidShape' }
+    const nodeIds = new Set(nodes.map((node) => node.id))
+    const ids = new Set(nodeIds)
+    const claimed = new Set<string>()
+    for (const group of p['groups']) {
+      if (!group || typeof group !== 'object' || typeof group.id !== 'string' || !group.id.trim() ||
+        ids.has(group.id) || typeof group.label !== 'string' || !group.label.trim() ||
+        !Array.isArray(group.nodeIds) || !group.nodeIds.length ||
+        (group.collapsed !== undefined && typeof group.collapsed !== 'boolean') ||
+        (group.lane !== undefined && typeof group.lane !== 'string')) return { ok: false, error: 'wf.import.invalidShape' }
+      ids.add(group.id)
+      for (const id of group.nodeIds) {
+        if (!nodeIds.has(id) || claimed.has(id)) return { ok: false, error: 'wf.import.invalidShape' }
+        claimed.add(id)
+      }
+    }
+  }
 
   return {
     ok: true,
     name: typeof p['name'] === 'string' ? p['name'] : '',
     nodes: nodes as WorkflowNode[],
     edges: edges as WorkflowEdge[],
+    ...(p['groups'] !== undefined ? { groups: p['groups'] as WorkflowGroup[] } : {}),
   }
 }

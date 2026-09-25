@@ -702,6 +702,23 @@ export interface WorkflowEdge {
   target: string
   sourceHandle?: string | null
 }
+/** Presentation metadata; groups never become executable workflow steps. */
+export interface WorkflowGroup {
+  id: string
+  label: string
+  nodeIds: string[]
+  collapsed?: boolean
+  lane?: string
+}
+export interface WorkflowDocument {
+  version: 2
+  definition: { nodes: Omit<WorkflowNode, 'x' | 'y'>[]; edges: WorkflowEdge[] }
+  presentation: {
+    nodes: Record<string, { x: number; y: number; width?: number; height?: number }>
+    viewport?: { x: number; y: number; zoom: number }
+    groups?: WorkflowGroup[]
+  }
+}
 export interface Workflow {
   id: string
   clinicId: string
@@ -709,6 +726,7 @@ export interface Workflow {
   status: WorkflowStatus
   /** Increments on both definition and layout edits, for optimistic saves. */
   documentVersion?: number
+  document?: WorkflowDocument
   lifecycleChangedAt?: string | null
   archivedAt?: string | null
   nodes: WorkflowNode[]

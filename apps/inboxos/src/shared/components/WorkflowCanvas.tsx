@@ -7,7 +7,7 @@
 // - Searchable palette with one-line descriptions; dropping a loose connection
 //   on the pane opens the same palette and auto-wires the picked node.
 // - Branch-colored edges with translated labels; hover toolbar on nodes.
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow as ReactFlowBase,
   Background as BackgroundBase,
@@ -16,8 +16,6 @@ import {
   Handle as HandleBase,
   Position,
   MarkerType,
-  BaseEdge,
-  EdgeLabelRenderer,
   ReactFlowProvider,
   useReactFlow,
   useNodesState,
@@ -29,11 +27,16 @@ import {
   type NodeChange,
   type EdgeChange,
   type FinalConnectionState,
-  type EdgeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useI18n } from '../hooks/useI18n'
-import type { PanelLanguage, WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
+import type { PanelLanguage, WorkflowNode as WfNode, WorkflowEdge as WfEdge, WorkflowGroup } from '../types'
+import { CustomGroupNode } from './workflow/CustomGroupNode'
+import { OrthogonalEdge, type RoutedEdgeData } from './workflow/OrthogonalEdge'
+import { useSemanticZoom } from './workflow/SemanticZoom'
+import { cleanGroups, layoutGroupedWorkflow, projectWorkflow, routeProjectedWorkflow, type WorkflowCanvasGraph } from './workflow/LayoutUtils'
+import workflowStyles from './workflow/workflow.module.css'
+
 import {
   WORKFLOW_NODE_TYPES,
   patchWorkflowNodeConfig,
@@ -53,13 +56,11 @@ import {
 } from '../workflowNodes'
 import {
   countWorkflowCrossings,
+  estimateWorkflowNodeSize,
   findFreePosition,
   getSelectedWorkflowPath,
   layoutSelectedBranch,
-  layoutWorkflow,
   nextNodePosition,
-  routeWorkflowEdges,
-  type WorkflowEdgeRoute,
   type WorkflowNodeSizeMap,
 } from '../workflowLayout'
 import { NodeConfigPanel } from './NodeConfigPanel'
@@ -74,88 +75,11 @@ const Background = BackgroundBase
 const Controls = ControlsBase
 const MiniMap = MiniMapBase
 const Handle = HandleBase
+const EMPTY_GROUPS: WorkflowGroup[] = []
 
-type RoutedEdgeData = {
-  route: WorkflowEdgeRoute
-  label?: string
-  color: string
-  dimmed: boolean
-  emphasized: boolean
-  hovered: boolean
-}
+export { orthogonalPath as roundedOrthogonalPath } from './workflow/OrthogonalEdge'
 
-export function roundedOrthogonalPath(points: { x: number; y: number }[], radius = 10): string {
-  const normalized: { x: number; y: number }[] = []
-  for (const point of points) {
-    const last = normalized.at(-1)
-    if (last?.x === point.x && last.y === point.y) continue
-    const beforeLast = normalized.at(-2)
-    if (beforeLast && last && ((beforeLast.x === last.x && last.x === point.x) || (beforeLast.y === last.y && last.y === point.y))) {
-      normalized[normalized.length - 1] = point
-    } else {
-      normalized.push(point)
-    }
-  }
-  if (normalized.length === 0) return ''
-  if (normalized.length === 1) return `M ${normalized[0]!.x} ${normalized[0]!.y}`
-  let path = `M ${normalized[0]!.x} ${normalized[0]!.y}`
-  for (let index = 1; index < normalized.length - 1; index++) {
-    const previous = normalized[index - 1]!
-    const current = normalized[index]!
-    const next = normalized[index + 1]!
-    const incoming = Math.hypot(current.x - previous.x, current.y - previous.y)
-    const outgoing = Math.hypot(next.x - current.x, next.y - current.y)
-    const corner = Math.min(radius, incoming / 2, outgoing / 2)
-    const before = {
-      x: current.x + ((previous.x - current.x) / incoming) * corner,
-      y: current.y + ((previous.y - current.y) / incoming) * corner,
-    }
-    const after = {
-      x: current.x + ((next.x - current.x) / outgoing) * corner,
-      y: current.y + ((next.y - current.y) / outgoing) * corner,
-    }
-    path += ` L ${before.x} ${before.y} Q ${current.x} ${current.y} ${after.x} ${after.y}`
-  }
-  const last = normalized[normalized.length - 1]!
-  return `${path} L ${last.x} ${last.y}`
-}
-
-function WorkflowRouteEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, data }: EdgeProps) {
-  const routed = data as RoutedEdgeData | undefined
-  const template = routed?.route.points ?? []
-  const points = template.map((point, index) => {
-    if (index === 0) return { x: sourceX, y: sourceY }
-    if (index === template.length - 1) return { x: targetX, y: targetY }
-    if (index === 1) return { x: point.x, y: sourceY }
-    if (index === template.length - 2) return { x: point.x, y: targetY }
-    return point
-  })
-  const path = roundedOrthogonalPath(points)
-  const labelX = sourceX + Math.min(64, Math.max(28, (points[1]?.x ?? sourceX + 36) - sourceX))
-  const labelY = sourceY - 14
-
-  return (
-    <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
-      {routed?.label && (
-        <EdgeLabelRenderer>
-          <span
-            className="pointer-events-none absolute rounded bg-gray-950/90 px-1.5 py-0.5 text-[10px] font-medium text-white shadow-sm"
-            style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              opacity: routed.dimmed ? 0.45 : 1,
-              zIndex: routed.hovered ? 10_001 : 1,
-            }}
-          >
-            {routed.label}
-          </span>
-        </EdgeLabelRenderer>
-      )}
-    </>
-  )
-}
-
-const edgeTypes = { workflowRoute: WorkflowRouteEdge }
+const edgeTypes = { workflowRoute: OrthogonalEdge }
 
 export function workflowPathAppearance(hasSelection: boolean, inPath: boolean): {
   nodeOpacity: number
@@ -453,9 +377,22 @@ const TEAL_HANDLE = '!bg-teal-500'
 
 export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
   const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom, edges: allEdges, allTargets, onSetBranchTarget, simulationState } = data
-  const face = nodeFaceText(wf)
   const rows = branchRows(wf)
   const { t } = useI18n()
+  const tier = useSemanticZoom()
+  if (tier !== 'full') {
+    const colors = { trigger: '#16a34a', action: '#2563eb', logic: '#ea580c' }
+    return <div data-zoom-tier={tier} aria-label={String(wf.config.customLabel || label)}
+      className={'relative flex h-20 w-52 items-center gap-3 rounded border-2 px-3 text-sm text-white ' + (selected ? 'ring-4 ring-white' : '')}
+      style={{ background: colors[wf.kind], borderColor: colors[wf.kind] }}>
+      {wf.kind !== 'trigger' && <Handle type="target" position={Position.Left} style={{ opacity: tier === 'macro' ? 0 : 1 }} />}
+      {tier === 'balanced' && <><WorkflowNodeIcon icon={nodeDef(wf.type)?.icon ?? ''} className="h-5 w-5 shrink-0" /><span className="truncate">{String(wf.config.customLabel || label)}</span></>}
+      {rows.map((row, index) => <Handle key={row.key} id={row.key} type="source" position={Position.Right}
+        style={{ top: (index + 1) * 100 / (rows.length + 1) + '%', opacity: tier === 'macro' ? 0 : 1 }} />)}
+      {!rows.length && wf.type !== 'action.end' && <Handle type="source" position={Position.Right} style={{ opacity: tier === 'macro' ? 0 : 1 }} />}
+    </div>
+  }
+  const face = nodeFaceText(wf)
   const targetOf = (handleKey: string | undefined) => allEdges.find((e) => e.source === wf.id && (e.sourceHandle ?? undefined) === handleKey)?.target ?? ''
 
   const cfg = wf.config ?? {}
@@ -566,6 +503,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
 
   return (
     <div
+      data-zoom-tier="full"
       className={`group relative w-52 rounded-lg border-2 px-3 py-2 text-xs shadow-sm transition-shadow ${NODE_KIND_FILL[wf.kind]} ${NODE_KIND_TONE[wf.kind]} ${simulationRing(simulationState)} ${
         selected ? NODE_KIND_RING[wf.kind] : 'hover:shadow-md'
       }`}
@@ -729,7 +667,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
   )
 })
 
-const nodeTypes = { wf: WorkflowNodeView }
+const nodeTypes = { wf: WorkflowNodeView, workflowGroup: CustomGroupNode }
 
 interface PendingWire {
   nodeId: string
@@ -745,6 +683,7 @@ interface WorkflowCanvasFocusIssue {
 function WorkflowCanvasInner({
   nodes,
   edges,
+  groups = EMPTY_GROUPS,
   onChange,
   clinicId,
   workflowId,
@@ -754,7 +693,8 @@ function WorkflowCanvasInner({
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
-  onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
+  groups?: WorkflowGroup[]
+  onChange: (next: WorkflowCanvasGraph) => void
   /** Active clinic — enables entity pickers (doctor list for menu options). */
   clinicId?: string
   /** The workflow currently open — excluded from the AI Agent node's "route
@@ -779,6 +719,35 @@ function WorkflowCanvasInner({
   // which overlapping route is promoted while the operator inspects it.
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [selection, setSelection] = useState<string[]>([])
+  const selectionBeforePointer = useRef<string[]>([])
+  const selectionChanged = useCallback(({ nodes: selectedNodes }: { nodes: Node[] }) => {
+    setSelection((previous) => {
+      const ids = selectedNodes.filter((node) => node.type === 'wf').map((node) => node.id).sort()
+      return previous.join('|') === ids.join('|') ? previous : ids
+    })
+  }, [])
+  const toggleGroup = useCallback((id: string) => {
+    onChange({ nodes, edges, groups: groups.map((group) => group.id === id ? { ...group, collapsed: !group.collapsed } : group) })
+  }, [nodes, edges, groups, onChange])
+  const ungroup = useCallback((id: string) => {
+    onChange({ nodes, edges, groups: groups.filter((group) => group.id !== id) })
+  }, [nodes, edges, groups, onChange])
+  const renameGroup = useCallback((id: string, label: string) => {
+    onChange({ nodes, edges, groups: groups.map((group) => group.id === id ? { ...group, label } : group) })
+  }, [nodes, edges, groups, onChange])
+  const groupSelection = useCallback(() => {
+    const claimed = new Set(groups.flatMap((group) => group.nodeIds))
+    const nodeIds = selection.filter((id) => !claimed.has(id))
+    if (nodeIds.length < 2) return
+    onChange({ nodes, edges, groups: [...groups, {
+      id: 'group-' + crypto.randomUUID(), label: language === 'es' ? 'Nuevo grupo' : 'New group', nodeIds, collapsed: false,
+    }] })
+    setSelectedId(null)
+  }, [nodes, edges, groups, selection, language, onChange])
+  const eligibleSelection = selection.filter((id) => !groups.some((group) => group.nodeIds.includes(id))).length
+  const projection = useMemo(() => projectWorkflow(nodes, edges, groups, measuredSizes), [nodes, edges, groups, measuredSizes])
+  const routeByEdge = useMemo(() => new Map(routeProjectedWorkflow(projection, measuredSizes).map((route) => [route.edgeId, route])), [projection, measuredSizes])
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
 
@@ -849,23 +818,28 @@ function WorkflowCanvasInner({
     const nodeId = focusIssue?.nodeId ?? (focusIssue?.edgeId ? edges.find((edge) => edge.id === focusIssue.edgeId)?.source : undefined)
     if (!nodeId || !nodes.some((node) => node.id === nodeId)) return
     setSelectedId(nodeId)
-    window.setTimeout(() => {
+    const owner = groups.find((group) => group.collapsed && group.nodeIds.includes(nodeId))
+    if (owner) { toggleGroup(owner.id); return }
+    const timer = window.setTimeout(() => {
       void fitView({ nodes: [{ id: nodeId }], duration: 240, padding: 0.35 })
     }, 0)
-  }, [focusIssue, edges, nodes, fitView])
+    return () => window.clearTimeout(timer)
+  }, [focusIssue, edges, nodes, groups, toggleGroup, fitView])
 
   const graph = useMemo(() => {
     const nodeById = new Map(nodes.map((n) => [n.id, n]))
     const allTargets = nodes.map((n) => ({ id: n.id, label: label(n.type) }))
     const selectedPath = selectedId ? getSelectedWorkflowPath(edges, selectedId) : null
-    const routeByEdge = new Map(routeWorkflowEdges(nodes, edges, measuredSizes).map((route) => [route.edgeId, route]))
-    const rfNodes: Node[] = nodes.map((n) => {
+    const rfNodes: Node[] = projection.nodes.map(({ node: n, parentId, position }) => {
       const inPath = selectedPath?.nodeIds.has(n.id) ?? false
       const appearance = workflowPathAppearance(Boolean(selectedPath), inPath)
       return {
         id: n.id,
         type: 'wf',
-        position: { x: n.x, y: n.y },
+        position,
+        parentId,
+        extent: parentId ? 'parent' : undefined,
+        selected: selection.includes(n.id),
         ariaLabel: `${label(n.type)}${inPath ? ` — ${language === 'es' ? 'ruta seleccionada' : 'selected path'}` : ''}`,
         style: { opacity: appearance.nodeOpacity },
         data: {
@@ -891,28 +865,25 @@ function WorkflowCanvasInner({
         },
       }
     })
-    const rfEdges: Edge[] = edges.map((e, order) => {
-      if (mode !== 'enhanced') {
-        // Classic / BotPenguin: plain thin gray beziers, no labels or colored markers.
-        return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: e.sourceHandle ?? undefined,
-          type: 'default',
-          style: { stroke: '#9ca3af', strokeWidth: 1.5 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#9ca3af', width: 14, height: 14 },
-        }
-      }
+    rfNodes.unshift(...projection.groups.map((group): Node => ({
+      id: group.id, type: 'workflowGroup', position: { x: group.x, y: group.y },
+      style: { width: group.width, height: group.height },
+      draggable: true, deletable: false, connectable: false,
+      ariaLabel: group.group.label,
+      data: { group: group.group, sourceHandles: group.sourceHandles, targetHandles: group.targetHandles,
+        onToggle: toggleGroup, onUngroup: ungroup, onRename: renameGroup },
+    })))
+    const rfEdges: Edge[] = projection.edges.map((e, order) => {
+      const original = edges.find((edge) => edge.id === e.id) ?? e
       // The admin's own routing-color override (resolveBranchColor) wins over
       // the tone-based default; a matched real option's own title (branchRows'
       // `label`) wins over the fixed i18n branch label for the same reason —
       // both fall back to the pre-existing generic behavior when the source
       // node can't be found or carries no override.
-      const sourceNode = nodeById.get(e.source)
-      const row = sourceNode && e.sourceHandle ? branchRows(sourceNode).find((r) => r.key === e.sourceHandle) : undefined
-      const color = sourceNode && e.sourceHandle ? resolveBranchColor(sourceNode, e.sourceHandle) : edgeColor(e.sourceHandle)
-      const edgeLabel = e.sourceHandle ? (row?.label ?? t(`wf.branch.${e.sourceHandle}` as Parameters<typeof t>[0])) : undefined
+      const sourceNode = nodeById.get(original.source)
+      const row = sourceNode && original.sourceHandle ? branchRows(sourceNode).find((r) => r.key === original.sourceHandle) : undefined
+      const color = sourceNode && original.sourceHandle ? resolveBranchColor(sourceNode, original.sourceHandle) : edgeColor(original.sourceHandle)
+      const edgeLabel = original.sourceHandle ? (row?.label ?? t(`wf.branch.${original.sourceHandle}` as Parameters<typeof t>[0])) : undefined
       const route = routeByEdge.get(e.id)
       const emphasized = selectedPath?.edgeIds.has(e.id) ?? false
       const dimmed = Boolean(selectedPath && !emphasized)
@@ -928,7 +899,8 @@ function WorkflowCanvasInner({
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle ?? undefined,
-        type: route ? 'workflowRoute' : 'smoothstep',
+        targetHandle: e.targetHandle,
+        type: 'workflowRoute',
         data: route ? { route, label: edgeLabel, color, dimmed, emphasized, hovered } satisfies RoutedEdgeData : undefined,
         style: {
           stroke: color,
@@ -943,7 +915,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, measuredSizes, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
+  }, [nodes, edges, projection, routeByEdge, selection, toggleGroup, ungroup, renameGroup, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -989,9 +961,13 @@ function WorkflowCanvasInner({
           const next = { ...current }
           for (const change of dimensions) {
             if (!change.dimensions || change.dimensions.width <= 0 || change.dimensions.height <= 0) continue
+            const measuredNode = nodes.find((node) => node.id === change.id)
+            if (!measuredNode) continue
             const prior = current[change.id]
             if (prior?.width === change.dimensions.width && prior.height === change.dimensions.height) continue
-            next[change.id] = { width: change.dimensions.width, height: change.dimensions.height }
+            const estimate = estimateWorkflowNodeSize(measuredNode)
+            next[change.id] = { width: Math.max(prior?.width ?? estimate.width, change.dimensions.width), height: Math.max(prior?.height ?? estimate.height, change.dimensions.height) }
+            if (next[change.id]!.width === prior?.width && next[change.id]!.height === prior?.height) continue
             changed = true
           }
           return changed ? next : current
@@ -1006,12 +982,20 @@ function WorkflowCanvasInner({
       onChange({
         nodes: nodes
           .filter((n) => !removedIds.has(n.id))
-          .map((n) => (moved.has(n.id) ? { ...n, x: Math.round(moved.get(n.id)!.x), y: Math.round(moved.get(n.id)!.y) } : n)),
+          .map((n) => {
+            const owner = projection.groups.find((group) => group.group.nodeIds.includes(n.id))
+            const groupPosition = owner && moved.get(owner.id)
+            if (owner && groupPosition) return { ...n, x: Math.round(n.x + groupPosition.x - owner.x), y: Math.round(n.y + groupPosition.y - owner.y) }
+            const position = moved.get(n.id)
+            const displayed = projection.nodes.find((entry) => entry.node.id === n.id)
+            return position && displayed ? { ...n, x: Math.round(n.x + position.x - displayed.position.x), y: Math.round(n.y + position.y - displayed.position.y) } : n
+          }),
+        groups: cleanGroups(groups, nodes.filter((node) => !removedIds.has(node.id))),
         edges: removedIds.size > 0 ? edges.filter((e) => !removedIds.has(e.source) && !removedIds.has(e.target)) : edges,
       })
       if (removedIds.size > 0) setSelectedId((cur) => (cur && removedIds.has(cur) ? null : cur))
     },
-    [onNodesChange, nodes, edges, onChange],
+    [onNodesChange, nodes, edges, groups, projection, onChange],
   )
 
   const crossingCount = useMemo(() => countWorkflowCrossings(nodes, edges, measuredSizes), [nodes, edges, measuredSizes])
@@ -1021,12 +1005,12 @@ function WorkflowCanvasInner({
     setManualLayoutDirty(false)
   }, [selectedId, nodes, edges, measuredSizes, onChange])
   const reduceCrossings = useCallback(() => {
-    onChange({ nodes: layoutWorkflow(nodes, edges, { sizes: measuredSizes }), edges })
+    onChange({ nodes: layoutGroupedWorkflow(nodes, edges, groups, measuredSizes), edges })
     setManualLayoutDirty(false)
     window.requestAnimationFrame(() => {
       void fitView({ duration: 240, padding: 0.25 })
     })
-  }, [nodes, edges, measuredSizes, onChange, fitView])
+  }, [nodes, edges, groups, measuredSizes, onChange, fitView])
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
@@ -1178,14 +1162,14 @@ function WorkflowCanvasInner({
 
   if (mode === 'classic') {
     return (
-      <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+      <div className={workflowStyles.canvas + " relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"}>
         <WorkflowLinearEditor nodes={nodes} edges={edges} onChange={onChange} clinicId={clinicId} workflowId={workflowId} />
       </div>
     )
   }
 
   return (
-    <div className="relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+    <div className={workflowStyles.canvas + " relative flex h-full min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"}>
       {/* Palette */}
       <div className="flex w-12 shrink-0 flex-col items-center border-r border-gray-200 bg-gray-50 py-3 dark:border-gray-800 dark:bg-gray-900">
         <button type="button" aria-expanded={libraryOpen} aria-controls="workflow-node-library" onClick={() => setLibraryOpen((open) => !open)} className="rounded-lg px-3 py-2 text-lg text-cyan-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 dark:text-cyan-300" aria-label={language === 'es' ? 'Biblioteca de nodos' : 'Node library'} title={language === 'es' ? 'Biblioteca de nodos' : 'Node library'}>＋</button>
@@ -1216,6 +1200,7 @@ function WorkflowCanvasInner({
       {/* Canvas */}
       <div
         className="relative min-w-0 flex-1"
+        onPointerDownCapture={() => { selectionBeforePointer.current = selection }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return
           e.preventDefault()
@@ -1234,13 +1219,25 @@ function WorkflowCanvasInner({
           nodes={rfNodes}
           edges={rfEdges}
           onNodesChange={handleNodesChange}
+          onSelectionChange={selectionChanged}
+          multiSelectionKeyCode="Shift"
+          minZoom={0.1}
+          maxZoom={2}
           onEdgesChange={handleEdgesChange}
           onEdgeMouseEnter={handleEdgeMouseEnter}
           onEdgeMouseLeave={handleEdgeMouseLeave}
           onConnect={onConnect}
           isValidConnection={(connection) => canConnectWorkflow(nodes, edges, connection)}
           onConnectEnd={onConnectEnd}
-          onNodeClick={(_event: unknown, node: Node) => setSelectedId(node.id)}
+          onNodeClick={(event: React.MouseEvent, node: Node) => {
+            if (node.type !== 'wf') return
+            if (!event.shiftKey) { setSelectedId(node.id); return }
+            // Preserve the pre-click selection across React Flow's controlled updates.
+            const previous = selectionBeforePointer.current
+            const next = previous.includes(node.id) ? previous.filter((id) => id !== node.id) : [...previous, node.id]
+            setSelection(next)
+            setNodes((current) => current.map((entry) => ({ ...entry, selected: next.includes(entry.id) })))
+          }}
           onPaneClick={() => setSelectedId(null)}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -1266,6 +1263,17 @@ function WorkflowCanvasInner({
           </div>
         )}
 
+        <div className="absolute left-3 top-3 z-10 flex flex-wrap gap-2 rounded-lg border border-gray-600 bg-gray-900/95 p-2 text-xs text-white shadow">
+          <button type="button" onClick={groupSelection} disabled={eligibleSelection < 2}
+            title={language === 'es' ? 'Mayús + clic para seleccionar pasos' : 'Shift-click to select steps'}
+            className="rounded border border-gray-500 px-3 py-2 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+            {language === 'es' ? 'Agrupar selección' : 'Group selection'} ({eligibleSelection})
+          </button>
+          {groups.length > 0 && <button type="button" onClick={() => onChange({ nodes, edges, groups: groups.map((group) => ({ ...group, collapsed: !groups.every((item) => item.collapsed) })) })}
+            className="rounded border border-gray-500 px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+            {groups.every((group) => group.collapsed) ? (language === 'es' ? 'Expandir grupos' : 'Expand groups') : (language === 'es' ? 'Contraer grupos' : 'Collapse groups')}
+          </button>}
+        </div>
         <WorkflowLayoutControls
           selectedId={selectedId}
           crossingCount={crossingCount}
@@ -1334,7 +1342,8 @@ function WorkflowCanvasInner({
 export function WorkflowCanvas(props: {
   nodes: WfNode[]
   edges: WfEdge[]
-  onChange: (next: { nodes: WfNode[]; edges: WfEdge[] }) => void
+  groups?: WorkflowGroup[]
+  onChange: (next: WorkflowCanvasGraph) => void
   /** Active clinic — enables entity pickers (doctor list for menu options). */
   clinicId?: string
   /** The workflow currently open — excluded from the AI Agent node's "route

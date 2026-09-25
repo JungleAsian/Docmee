@@ -1259,6 +1259,7 @@ function buildExecutors(
       // action === 'reply': run the same output-side safety screens the main
       // clinic bot applies before any auto-send — this node can now speak
       // for real, so it inherits the same defense-in-depth.
+      let usedGroundedFallback = false
       if (!reply) {
         try {
           raw = await withWorkflowAiAgentReplyTimeout(
@@ -1275,6 +1276,7 @@ function buildExecutors(
             'Workflow AI agent fallback reply',
           )
           reply = parseAiAgentCompletion(raw).reply
+          usedGroundedFallback = true
         } catch {
           await recordOutcome('', null, 'provider_failure')
           console.error('[workflow] ai_agent provider_failure')
@@ -1297,7 +1299,7 @@ function buildExecutors(
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
       }
-      const confidence = parseAiAnswerConfidence(raw)
+      let confidence = parseAiAnswerConfidence(raw)
       if (generalEducation && !kbMatches.length) {
         if (confidence === null || confidence < .8) {
           await recordOutcome(reply, confidence, 'low_answer_confidence')
@@ -1315,9 +1317,49 @@ function buildExecutors(
         return 'replied'
       }
       consistency = await learning.scopedConsistency(clinicId, scope)
-      const evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
-      const sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
-      const handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent)
+      let evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
+      let sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
+      let handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent)
+      if (handoffReason === 'ungrounded_answer' && kbMatches.length && !usedGroundedFallback) {
+        try {
+          raw = await withWorkflowAiAgentReplyTimeout(
+            chatComplete({
+              provider: agentSettings.provider,
+              model: agentSettings.model || defaultChatModel(agentSettings.provider),
+              baseURL: ai.baseURL?.trim() || undefined,
+              apiKey: resolveClinicAiKey(clinic.settings, agentSettings.provider),
+              history: [],
+              maxTokens: agentSettings.maxTokens,
+              system: buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage, fallbackKbContext, knowledgePolicy),
+              message,
+            }),
+            'Workflow AI agent grounded repair',
+          )
+          reply = parseAiAgentCompletion(raw).reply
+        } catch {
+          await recordOutcome('', null, 'provider_failure')
+          console.error('[workflow] ai_agent provider_failure')
+          return 'error'
+        }
+        if (!screenMedicalSafety(reply).safe) {
+          await recordOutcome(reply, parseAiAnswerConfidence(raw), 'medical_safety')
+          await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
+          await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
+          ctx['ai_agent_action'] = 'handoff'
+          return 'handoff'
+        }
+        if (!screenPromptLeak(reply).safe) {
+          await recordOutcome(reply, parseAiAnswerConfidence(raw), 'prompt_safety')
+          await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
+          await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
+          ctx['ai_agent_action'] = 'handoff'
+          return 'handoff'
+        }
+        confidence = parseAiAnswerConfidence(raw)
+        evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
+        sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
+        handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent)
+      }
       if (handoffReason) {
         await recordOutcome(reply, confidence, handoffReason)
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), handoffReason)

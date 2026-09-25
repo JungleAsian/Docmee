@@ -269,6 +269,24 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.sendWhatsAppText.mock.calls.every(call => !String(call[3]).includes(answer))).toBe(true)
     expect(h.reviewLearning).not.toHaveBeenCalled()
   })
+  it('repairs a paraphrased clinic fact once and sends only the exact grounded source answer', async () => {
+    h.chatComplete.mockResolvedValueOnce('SCENARIO: general\nCONFIDENCE: 0.99\nREPLY:\nThe clinic starts seeing patients at nine.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY:\nWe open at 9 AM.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = await exec.aiAgent({ id: 'ai-repair', type: 'action.ai_agent', config: {
+        scenarios: [{ id: 'general', name: 'General', action: 'reply' }],
+      } }, { ...ctx, message: 'When do you open?', conversationId: 'conversation-1' })
+      expect(result).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.chatComplete).toHaveBeenCalledTimes(2)
+    expect(h.chatComplete.mock.calls[1]![0].system).toContain('complete, unchanged KB sentences')
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'We open at 9 AM.')
+    expect(h.sendWhatsAppText.mock.calls.some(call => String(call[3]).includes('starts seeing'))).toBe(false)
+  })
 
   it('persists a validated patient email captured by a workflow as the newest patient-provided value', async () => {
     h.findPatient.mockResolvedValue({ id: PATIENT, automationMode: 'automated', email: 'old@example.com', phoneE164: null, fullName: null, metadata: {} })

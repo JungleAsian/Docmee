@@ -54,20 +54,33 @@ export async function previewTeachingAnswer(sql: Sql, clinic: Clinic, node: Work
   if (!matched) return result('no_match', 'no_match', '', sources, diagnostics)
   if (matched.action !== 'reply') return result(matched.action, matched.action === 'route' ? 'routed' : 'ai_agent_handoff', '', sources, diagnostics)
   let answer = parsed.reply
+  let usedGroundedFallback = false
   if (!answer) {
     raw = await complete(buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage,
       matches.map(m => `# ${m.title}\n${m.content}`).join('\n\n'), knowledgePolicy))
     answer = parseAiAgentCompletion(raw).reply
+    usedGroundedFallback = true
   }
   if (!screenMedicalSafety(answer).safe) return result('handoff', 'medical_safety', '', sources, diagnostics)
   if (!screenPromptLeak(answer).safe) return result('handoff', 'prompt_safety', '', sources, diagnostics)
-  const confidence = parseAiAnswerConfidence(raw)
+  let confidence = parseAiAnswerConfidence(raw)
   if (generalEducation && !matches.length) {
     return result(confidence !== null && confidence >= .8 ? 'reply' : 'handoff',
       confidence !== null && confidence >= .8 ? null : 'low_answer_confidence',
       confidence !== null && confidence >= .8 ? answer : '', sources, diagnostics)
   }
-  const evidence = assessKbAnswer(message, answer, matches.map(m => m.content), confidence ?? undefined, await learning.scopedConsistency(clinic.id, scope))
-  const reason = aiAgentHandoffReason(evidence, confidence, await learning.sourcesCurrent(clinic.id, citations, scope))
+  const consistency = await learning.scopedConsistency(clinic.id, scope)
+  let evidence = assessKbAnswer(message, answer, matches.map(m => m.content), confidence ?? undefined, consistency)
+  let reason = aiAgentHandoffReason(evidence, confidence, await learning.sourcesCurrent(clinic.id, citations, scope))
+  if (reason === 'ungrounded_answer' && matches.length && !usedGroundedFallback) {
+    raw = await complete(buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage,
+      matches.map(m => `# ${m.title}\n${m.content}`).join('\n\n'), knowledgePolicy))
+    answer = parseAiAgentCompletion(raw).reply
+    if (!screenMedicalSafety(answer).safe) return result('handoff', 'medical_safety', '', sources, diagnostics)
+    if (!screenPromptLeak(answer).safe) return result('handoff', 'prompt_safety', '', sources, diagnostics)
+    confidence = parseAiAnswerConfidence(raw)
+    evidence = assessKbAnswer(message, answer, matches.map(m => m.content), confidence ?? undefined, consistency)
+    reason = aiAgentHandoffReason(evidence, confidence, await learning.sourcesCurrent(clinic.id, citations, scope))
+  }
   return result(reason ? 'handoff' : 'reply', reason, reason ? '' : answer, sources, diagnostics)
 }

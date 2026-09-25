@@ -39,26 +39,12 @@ function hasChatProviderCredential(
   return Boolean(resolveClinicAiKey(settings, ai.chatProvider))
 }
 
-function isSuperuserSession(request: FastifyRequest): boolean {
-  if (request.user?.isGlobalSuperAdmin === true) return true
-  if (request.user?.role !== 'ia_studio_admin') return false
-  const email = request.user.email.trim().toLowerCase()
-  return email === 'docmeedev' || email === 'soporte@docmee.ai'
-}
-
-function providerNotConfiguredMessage(superuser: boolean): string {
-  return superuser
-    ? 'Docmee needs the superuser AI provider key before it can answer. Connect the superuser provider key in Channels & Integrations.'
-    : 'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.'
-}
-
 async function buildKbGrounding(input: {
   clinicId: string
   message: string
   ai: ReturnType<typeof readAiAssistant>
   settings: Record<string, unknown>
   log: { warn: (data: unknown, message?: string) => void }
-  superuser?: boolean
   doctorId?: string | null
 }): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none' }> {
   if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none' }
@@ -81,24 +67,13 @@ async function buildKbGrounding(input: {
 }
 
 async function resolveFloatingJzelRuntime(request: FastifyRequest) {
-  const superuser = isSuperuserSession(request)
-  const clinicId = superuser ? request.user?.clinicId : request.user?.clinicId ?? resolveClinicScope(request)
+  const clinicId = resolveClinicScope(request)
   if (!clinicId) return null
 
   const clinic = await withDb((sql) => createClinicsRepository(sql).findById(clinicId))
-  if (!clinic) return { clinicId, clinic: null, ai: null, superuser }
+  if (!clinic) return { clinicId, clinic: null, ai: null }
 
-  const baseAi = readAiAssistant(clinic)
-  const ai = superuser
-    ? {
-        ...baseAi,
-        // Floating Docmee assistant for platform admins uses the superuser provider and the
-        // superuser home clinic KB, but not the selected clinic agent persona.
-        persona: '',
-      }
-    : baseAi
-
-  return { clinicId, clinic, ai, superuser }
+  return { clinicId, clinic, ai: readAiAssistant(clinic) }
 }
 
 const jzelRoute: FastifyPluginAsync = async (app) => {
@@ -116,7 +91,7 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
 
     const runtime = await resolveFloatingJzelRuntime(request)
     if (!runtime) return reply.code(403).send({ error: 'Forbidden' })
-    const { clinicId, clinic, ai, superuser } = runtime
+    const { clinicId, clinic, ai } = runtime
     if (!clinic || !ai) return reply.code(404).send({ error: 'Clinic not found' })
     if (!ai.enabled) return reply.code(409).send({ error: 'assistant_disabled' })
 
@@ -129,7 +104,6 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
       ai,
       settings: clinic.settings,
       log: request.log,
-      superuser,
       doctorId: typeof body.doctorId === 'string' ? body.doctorId : null,
     })
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, JZEL_MAX_RETRIEVED_CONTEXT_CHARS)) : ''
@@ -177,7 +151,7 @@ ${context}`,
     if (!hasChatProviderCredential(ai, clinic.settings)) {
       return reply.code(409).send({
         error: 'assistant_provider_not_configured',
-        message: providerNotConfiguredMessage(superuser),
+        message: 'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.',
         provider: ai.chatProvider,
         model: ai.model,
       })
@@ -200,7 +174,6 @@ ${context}`,
         {
           err,
           clinicId,
-          superuser,
           provider: ai.chatProvider,
           model: ai.model,
         },
@@ -312,7 +285,7 @@ ${context}`,
   app.get('/health', async (request, reply) => {
     const runtime = await resolveFloatingJzelRuntime(request)
     if (!runtime) return reply.code(403).send({ error: 'Forbidden' })
-    const { clinicId, clinic, ai, superuser } = runtime
+    const { clinicId, clinic, ai } = runtime
     if (!clinic || !ai) return reply.code(404).send({ error: 'Clinic not found' })
 
     const base = { provider: ai.chatProvider, model: ai.model }
@@ -321,7 +294,7 @@ ${context}`,
       return { status: 'disconnected' as const, ...base }
     }
 
-    const cacheKey = superuser ? `superuser:${request.user?.userId ?? clinicId}` : clinicId
+    const cacheKey = clinicId
     const cached = healthCache.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
       return { status: cached.status, ...base, cached: true }
@@ -334,7 +307,7 @@ ${context}`,
     } catch (err) {
       status = 'error'
       request.log.warn(
-        { err, clinicId, superuser, provider: ai.chatProvider, model: ai.model },
+        { err, clinicId, provider: ai.chatProvider, model: ai.model },
         'jzel health check failed',
       )
     }

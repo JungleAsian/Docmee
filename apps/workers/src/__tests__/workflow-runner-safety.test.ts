@@ -299,8 +299,8 @@ describe('processWorkflowRunJob automation ownership', () => {
       title: 'Clinic information', content: clinicSource, vectorScore: .99, lexicalScore: 1, retrievalRevision: 1,
       doctorId: null, language: 'en', provenance: {} }])
     h.scopedConsistency.mockResolvedValue({ complete: true, sources: [clinicSource] })
-    h.chatComplete.mockResolvedValueOnce('SCENARIO: general\nCONFIDENCE: 0.99\nREPLY:\nCall us at 4608-2715.')
-      .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY:\nThe clinic phone number is 46082715.')
+    h.chatComplete.mockResolvedValueOnce('SCENARIO: general\nCONFIDENCE: 0.35\nREPLY:\nCall us at 4608-2715.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.35\nREPLY:\nThe clinic phone number is 46082715.')
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       const result = await exec.aiAgent({ id: 'ai-phone', type: 'action.ai_agent', config: {
         scenarios: [{ id: 'general', name: 'General', action: 'reply' }],

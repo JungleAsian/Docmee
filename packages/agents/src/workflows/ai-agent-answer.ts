@@ -119,6 +119,11 @@ const FACT_INTENTS = [
   { question: /\b(email|e-mail|correo)\b/, answer: /\b(email|e-mail|correo)\b/ },
 ] as const
 
+export function isSupportedClinicFactQuestion(question: string): boolean {
+  const normalizedQuestion = comparableText(question)
+  return FACT_INTENTS.some(item => item.question.test(normalizedQuestion))
+}
+
 function comparableText(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 }

@@ -3,7 +3,7 @@ import { chatComplete, defaultChatModel } from '@docmee/llm'
 import { buildAiAgentSystemPrompt, parseAiAgentCompletion, parseAiAnswerConfidence, catchAllReplyScenario, aiAgentHandoffReason,
   parseAiAgentScenarios, resolveAiAgentSettings, detectLanguage, isEmergencyMessage, isLikelyQuestion, expandKbQuery,
   rerankHybridChunks, assessKbAnswer, screenMedicalSafety, screenPromptLeak, buildAiAgentFallbackPrompt, withAiAgentReplyTimeout,
-  extractGroundedKbReply } from '@docmee/agents'
+  extractGroundedKbReply, isSupportedClinicFactQuestion } from '@docmee/agents'
 import { resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion } from '@docmee/agents'
 import { readAiAssistant, resolveEmbed } from './ai-assistant.js'
 import { resolveClinicAiKey } from './clinic-ai-key.js'
@@ -86,10 +86,14 @@ export async function previewTeachingAnswer(sql: Sql, clinic: Clinic, node: Work
     sourcesCurrent = await learning.sourcesCurrent(clinic.id, citations, scope)
     reason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
   }
-  if (reason === 'ungrounded_answer') {
+  const deterministicFact = isSupportedClinicFactQuestion(message)
+  if (reason === 'ungrounded_answer' || (reason === 'low_answer_confidence' && deterministicFact)) {
     const extracted = extractGroundedKbReply(message, answer, sourceContents)
     if (extracted) {
       answer = extracted
+      // This is an exact current-source selection for a recognized fact intent,
+      // so its delivery confidence no longer depends on the model's paraphrase.
+      if (deterministicFact) confidence = 1
       if (!screenMedicalSafety(answer).safe) return result('handoff', 'medical_safety', '', sources, diagnostics)
       if (!screenPromptLeak(answer).safe) return result('handoff', 'prompt_safety', '', sources, diagnostics)
       evidence = assessKbAnswer(message, answer, sourceContents, confidence ?? undefined, consistency)

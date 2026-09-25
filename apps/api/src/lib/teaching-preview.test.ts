@@ -87,7 +87,7 @@ describe('workflow teaching preview without delivery or learning writes', () => 
       .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY: We close at 8 PM.')
     expect(await run('Tell me about parking validation')).toMatchObject({ action: 'handoff', reason: 'ungrounded_answer', answer: '' })
     m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.7\nREPLY: We open at 9 AM.')
-    expect(await run()).toMatchObject({ reason: 'low_answer_confidence', answer: '' })
+    expect(await run('Tell me about the clinic')).toMatchObject({ reason: 'low_answer_confidence', answer: '' })
     m.consistency.mockResolvedValueOnce({ complete: true, sources: ['We open at 8 AM.'] })
     expect(await run()).toMatchObject({ reason: 'contradiction_unknown', answer: '' })
   })
@@ -108,8 +108,8 @@ describe('workflow teaching preview without delivery or learning writes', () => 
     ].join('\n') }
     m.search.mockResolvedValue([clinicSource])
     m.consistency.mockResolvedValue({ complete: true, sources: [clinicSource.content] })
-    m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.99\nREPLY: Call us at 4608-2715.')
-      .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY: The clinic phone number is 46082715.')
+    m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.35\nREPLY: Call us at 4608-2715.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.35\nREPLY: The clinic phone number is 46082715.')
 
     expect(await run('What is the Derma Paz contact phone?')).toMatchObject({
       action: 'reply', reason: null, answer: 'Phone: 46082715', kbMatches: 1,
@@ -122,11 +122,11 @@ describe('workflow teaching preview without delivery or learning writes', () => 
     expect(m.consistency).not.toHaveBeenCalled()
     // Repository mocks deliberately expose no recordAttempt, messaging, approval or run methods.
   })
-  it('falls back to lexical retrieval during embedding failure and rechecks fallback answer confidence', async () => {
+  it('falls back to lexical retrieval and delivers an exact recognized fact independently of model confidence', async () => {
     m.embed.mockRejectedValueOnce(new Error('offline'))
     m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.99\nREPLY:')
       .mockResolvedValueOnce('CONFIDENCE: 0.5\nREPLY: We open at 9 AM.')
-    expect(await run()).toMatchObject({ reason: 'low_answer_confidence', sent: false })
+    expect(await run()).toMatchObject({ action: 'reply', reason: null, answer: source.content, sent: false })
     expect(m.search.mock.calls[0]![1]).toEqual([])
     expect(m.complete).toHaveBeenCalledTimes(2)
   })

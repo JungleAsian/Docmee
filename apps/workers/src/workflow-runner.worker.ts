@@ -20,7 +20,8 @@ import {
   resolveMenuHandle,
   parseAiAgentScenarios,
   resolveAiAgentSettings,
-  buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt, extractGroundedKbReply,
+  buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt,
+  extractGroundedKbReply, isSupportedClinicFactQuestion,
   resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion,
   isEmergencyMessage,
   screenMedicalSafety,
@@ -1361,10 +1362,14 @@ function buildExecutors(
         sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
         handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
       }
-      if (handoffReason === 'ungrounded_answer') {
+      const deterministicFact = isSupportedClinicFactQuestion(message)
+      if (handoffReason === 'ungrounded_answer' || (handoffReason === 'low_answer_confidence' && deterministicFact)) {
         const extracted = extractGroundedKbReply(message, reply, sourceContents)
         if (extracted) {
           reply = extracted
+          // The delivery answer now comes verbatim from a current source for a
+          // recognized fact intent, independent of the model's paraphrase score.
+          if (deterministicFact) confidence = 1
           if (!screenMedicalSafety(reply).safe) {
             await recordOutcome(reply, confidence, 'medical_safety')
             await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')

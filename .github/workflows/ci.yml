@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # KB migrations require the vector extension in the disposable test DB.
+        image: pgvector/pgvector:0.8.6-pg16-bookworm
         env:
           POSTGRES_DB: docmee
           POSTGRES_USER: postgres

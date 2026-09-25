@@ -7,8 +7,8 @@
 // (server-side, embedded) and the Docmee Help content (sent by the client as
 // `helpContext`, included only when the clinic has Help grounding enabled).
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
-import { createClinicsRepository, createKnowledgeRepository } from '@docmee/db'
-import { capPatientInput, detectPromptInjection, screenPromptLeak, expandKbQuery, rerankHybridChunks, detectLanguage, wrapUntrustedKb } from '@docmee/agents'
+import { createClinicsRepository, createKnowledgeLearningRepository, createKnowledgeRepository, type LearningCitation } from '@docmee/db'
+import { aiAgentHandoffReason, assessKbAnswer, capPatientInput, detectPromptInjection, knowledgeHandoffNotice, medicalSafetyDeferral, parseAiAgentCompletion, parseAiAnswerConfidence, retrieveKbEvidence, screenMedicalSafety, screenPromptLeak, wrapUntrustedKb } from '@docmee/agents'
 import { readAiAssistant, resolveChat, resolveEmbed } from '../lib/ai-assistant.js'
 import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
 import { personaForRole } from '../lib/jzel-personas.js'
@@ -46,23 +46,39 @@ async function buildKbGrounding(input: {
   settings: Record<string, unknown>
   log: { warn: (data: unknown, message?: string) => void }
   doctorId?: string | null
-}): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none' }> {
-  if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none' }
+}): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none'; status: string; revision: number; language: 'en' | 'es'; citations: LearningCitation[] }> {
+  if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none', status: 'disabled', revision: 0, language: 'en', citations: [] }
   try {
-    const embedding = await resolveEmbed(input.ai, input.settings)(input.message).catch(() => [])
-    const rows = await withDb((sql) => createKnowledgeRepository(sql).searchChunks(
-      expandKbQuery(input.message), embedding,
-      { clinicId: input.clinicId, doctorId: input.doctorId ?? undefined, language: detectLanguage(input.message) }, 40,
-    ))
-    const matches = rerankHybridChunks(rows.map((row) => ({ ...row, similarity: 0 })), 5)
+    const pack = await withDb((sql) => {
+      const learning = createKnowledgeLearningRepository(sql)
+      return retrieveKbEvidence({
+        clinicId: input.clinicId,
+        question: input.message,
+        doctorId: input.doctorId,
+        knowledge: createKnowledgeRepository(sql),
+        embed: resolveEmbed(input.ai, input.settings),
+        sourcesCurrent: (citations, revision) => learning.sourcesCurrent(input.clinicId, citations, {
+          doctorId: input.doctorId ?? null, retrievalRevision: revision,
+        }),
+      })
+    })
+    const usable = pack.status === 'ready'
     return {
-      text: matches.map((m) => `# ${m.title}\n${m.content}`).join('\n\n'),
-      matches: matches.length,
-      mode: matches.length > 0 ? (embedding.length ? 'embedded' : 'keyword') : 'none',
+      text: usable ? pack.matches.map((match) => `# ${match.title}\n${match.content}`).join('\n\n') : '',
+      matches: usable ? pack.matches.length : 0,
+      mode: pack.mode,
+      status: pack.status,
+      revision: pack.revision,
+      language: pack.plan.language,
+      citations: pack.matches.map(match => ({
+        chunkId: match.chunkId, documentId: match.documentId, documentVersion: match.documentVersion,
+        doctorId: match.doctorId ?? null, language: match.language ?? null, retrievalRevision: match.retrievalRevision,
+        governanceReviewState: typeof match.provenance?.['governanceReviewState'] === 'string' ? match.provenance['governanceReviewState'] : 'trusted',
+      })),
     }
   } catch {
     input.log.warn({ clinicId: input.clinicId }, 'jzel current KB grounding unavailable')
-    return { text: '', matches: 0, mode: 'none' }
+    return { text: '', matches: 0, mode: 'none', status: 'error', revision: 0, language: 'en', citations: [] }
   }
 }
 
@@ -139,6 +155,11 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
 - If the task has many parts, give the first few steps and ask if they want to continue.
 - Do not end every answer with a generic support offer. Only mention support when the answer is missing or the next step truly requires it.
 
+Grounded response contract:
+- Begin with CONFIDENCE: followed by your independent confidence from 0 to 1.
+- Then write REPLY: on its own line and the user-visible answer below it.
+- Every factual sentence must be copied unchanged from the supplied current context. Do not paraphrase facts or add model knowledge.
+
 ${context}`,
     ]
       .filter(Boolean)
@@ -162,9 +183,36 @@ ${context}`,
       if (injection.detected) request.log.warn({ clinicId, pattern: injection.patternId }, 'jzel prompt injection detected')
       const complete = resolveChat(ai, clinic.settings)
       const startedAt = Date.now()
-      const text = await complete(system, capPatientInput(message), 700, history)
+      const raw = await complete(system, capPatientInput(message), 700, history)
+      const text = parseAiAgentCompletion(raw).reply
+      const confidence = parseAiAnswerConfidence(raw)
       request.log.info({ clinicId, provider: ai.chatProvider, model: ai.model, inputChars: message.length + historyBudget.chars + kbText.length, outputChars: text.length, durationMs: Date.now() - startedAt }, 'jzel chat usage')
-      if (!screenPromptLeak(text).safe) return reply.code(502).send({ error: 'assistant_unsafe_response' })
+      if (!text || !screenPromptLeak(text).safe) return reply.code(502).send({ error: 'assistant_unsafe_response' })
+      if (!screenMedicalSafety(text).safe) return { reply: medicalSafetyDeferral(kb.language), name: ai.name, sources: [] }
+      if (ai.useKb && kb.status !== 'ready') {
+        return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [] }
+      }
+      const evidenceSources = [
+        ...(kb.text ? [kb.text] : []),
+        ...(help ? [help.text] : []),
+      ]
+      const evidence = assessKbAnswer(message, text, evidenceSources, confidence ?? undefined)
+      // The shared evidence pack has already rejected current canonical conflicts;
+      // this promotes that governed result into the common answer gate without
+      // pretending the narrow office-hours grammar verified arbitrary prose.
+      const governedEvidence = { ...evidence, contradiction: kb.status === 'conflicting_sources' ? 'conflict' as const : 'clear' as const }
+      if (kb.citations.length) {
+        const current = await withDb((sql) => createKnowledgeLearningRepository(sql).sourcesCurrent(clinicId, kb.citations, {
+          doctorId: typeof body.doctorId === 'string' ? body.doctorId : null,
+          language: kb.language,
+          retrievalRevision: kb.revision,
+        }))
+        const handoffReason = aiAgentHandoffReason(governedEvidence, confidence, current)
+        if (handoffReason) return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [] }
+      } else {
+        const handoffReason = aiAgentHandoffReason(governedEvidence, confidence, true)
+        if (handoffReason) return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [] }
+      }
       return { reply: text, name: ai.name, sources: [
         ...(kb.matches > 0 ? [{ type: 'knowledge_base', count: kb.matches, mode: kb.mode }] : []),
         ...(help ? [{ type: 'help', source: help.source }] : []),

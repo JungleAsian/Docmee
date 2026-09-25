@@ -9,7 +9,8 @@ const h = vi.hoisted(() => ({
   embedText: vi.fn(),
   sqlCall: vi.fn(),
   end: vi.fn(),
-  selectedChunks: [{ id: 'chunk-1', content: 'current text' }] as Array<{ id: string; content: string }>,
+  selectedChunks: [{ id: 'chunk-1', content: 'current text', contentHash: 'hash-current' }] as Array<{ id: string; content: string; contentHash: string }>,
+  currentExists: false,
 }))
 
 vi.mock('@docmee/llm', () => ({
@@ -22,9 +23,10 @@ vi.mock('@docmee/db', () => {
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?')
     h.sqlCall(text, values)
-    if (text.includes('SELECT id, content FROM knowledge_chunks')) {
+    if (text.includes('SELECT id, content') && text.includes('FROM knowledge_chunks')) {
       return Promise.resolve(h.selectedChunks)
     }
+    if (text.includes('SELECT EXISTS')) return Promise.resolve([{ exists: h.currentExists }])
     return Promise.resolve([])
   }) as unknown as { json: (v: unknown) => unknown; end: () => void }
   sql.json = (v: unknown) => ({ __json: v })
@@ -44,7 +46,8 @@ const makeJob = (data: unknown, name = 'embed') => ({ data, name }) as never
 
 beforeEach(() => {
   vi.clearAllMocks()
-  h.selectedChunks = [{ id: 'chunk-1', content: 'current text' }]
+  h.selectedChunks = [{ id: 'chunk-1', content: 'current text', contentHash: 'hash-current' }]
+  h.currentExists = false
   h.embedText.mockResolvedValue([0.1, 0.2, 0.3])
 })
 
@@ -125,6 +128,18 @@ describe('processKbEmbedJob — per-clinic isolation (Req 7)', () => {
     )
     // NOT EXISTS keeps a mixed set unready; only a fully embedded set clears it.
     expect(readySql).toContain('AND NOT EXISTS')
+  })
+
+  it('reuses unchanged embedded chunks without calling the provider again', async () => {
+    h.selectedChunks = []
+    h.currentExists = true
+
+    await processKbEmbedJob(makeJob({
+      clinicId: CLINIC, documentId: 'doc-1', documentVersion: 7,
+    }, 'embed-document'))
+
+    expect(h.embedText).not.toHaveBeenCalled()
+    expect(h.sqlCall.mock.calls.some(([text]) => String(text).includes("indexing_status = 'ready'"))).toBe(true)
   })
 
   it('fails a document job with zero current active chunks without marking it ready', async () => {

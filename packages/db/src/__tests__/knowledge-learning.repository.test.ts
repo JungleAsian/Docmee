@@ -337,6 +337,7 @@ describe('governed learning boundary', () => {
       if (q.includes('SELECT c.id')) return [sourceRow]
       if (q.includes('SELECT metadata')) return [{ metadata: { doctorId: 'doctor', language: 'es' } }]
       if (q.includes('SELECT * FROM knowledge_documents')) return [{ id: 'published', version: documentVersion, status: 'active', metadata: {} }]
+      if (q.includes('WITH current_owner AS')) return []
       if (q.includes('INSERT INTO knowledge_documents') || q.includes('UPDATE knowledge_documents')) {
         documentVersion++; publishedContent = String(v.find(value => value === 'We open at 9 AM.' || value === 'We open at 10 AM.'))
         return [{ id: 'published', version: documentVersion }]

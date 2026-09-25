@@ -570,6 +570,8 @@ export interface KnowledgeDocument {
   documentType: DocumentType
   status: DocumentStatus
   metadata: Record<string, unknown>
+  canonicalFactKey?: string | null
+  authority?: 'clinic' | 'doctor' | 'system'
   version?: number
   approvedAt?: string | null
   effectiveFrom?: string
@@ -587,6 +589,7 @@ export interface KnowledgeChunk {
   content: string
   chunkIndex: number
   metadata: Record<string, unknown>
+  contentHash?: string | null
   documentVersion?: number
   isActive?: boolean
   createdAt: string

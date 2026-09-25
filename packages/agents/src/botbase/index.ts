@@ -20,13 +20,38 @@ export {
   rankChunks,
   rankKeywordChunks,
   rerankHybridChunks,
+  fuseKbCandidates,
   expandKbQuery,
   cosineSimilarity,
   type Embedder,
   type EmbeddedChunk,
   type KbMatch,
   type HybridKbCandidate,
+  type KbFusionPlan,
 } from './kb-retriever.js'
+
+export {
+  planKbQuery,
+  type KbIntent,
+  type KbRiskClass,
+  type KbQueryScope,
+  type KbQueryPlan,
+} from './kb-query-plan.js'
+
+export {
+  createKbRetrievalCache,
+  kbRetrievalCacheKey,
+  type KbRetrievalCache,
+  type KbRetrievalCacheKeyInput,
+} from './kb-retrieval-cache.js'
+
+export {
+  retrieveKbEvidence,
+  clearSharedKbEvidenceCache,
+  type RetrieveKbEvidenceInput,
+  type KbEvidencePack,
+  type KbEvidenceCitation,
+} from './kb-evidence-pack.js'
 
 export {
   evaluateKbCandidateGates,

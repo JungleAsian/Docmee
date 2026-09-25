@@ -27,9 +27,8 @@ import {
   screenPromptLeak,
   promptSafetyDeferral,
   detectLanguage,
-  rerankHybridChunks,
+  retrieveKbEvidence,
   assessKbAnswer,
-  expandKbQuery,
   isLikelyQuestion,
   knowledgeHandoffNotice,
   type BookingGrid,
@@ -81,23 +80,6 @@ import {
   type LearningScope,
 } from '@docmee/db'
 
-const KB_CACHE_TTL_MS = 30_000
-const kbEmbeddingCache = new Map<string, { expires: number; value: number[] }>()
-const kbQueryCache = new Map<string, { expires: number; value: KnowledgeSearchRow[] }>()
-
-function kbCacheKey(clinicId: string, settings: unknown, query: string): string {
-  return createHash('sha256').update(`${clinicId}:${JSON.stringify(settings)}:${query.trim().toLocaleLowerCase()}`).digest('hex')
-}
-
-async function cachedKbEmbedding(clinicId: string, settings: unknown, query: string): Promise<number[]> {
-  const key = kbCacheKey(clinicId, settings, query)
-  const hit = kbEmbeddingCache.get(key)
-  if (hit && hit.expires > Date.now()) return hit.value
-  const value = await resolveEmbedder(settings)(query)
-  kbEmbeddingCache.set(key, { expires: Date.now() + KB_CACHE_TTL_MS, value })
-  if (kbEmbeddingCache.size > 500) kbEmbeddingCache.delete(kbEmbeddingCache.keys().next().value as string)
-  return value
-}
 import {
   WorkflowRunJobSchema,
   scheduleWorkflowResume,
@@ -1126,33 +1108,31 @@ function buildExecutors(
       const personality = String(node.config?.['personality'] ?? '').trim()
       const customInstructions = String(node.config?.['customInstructions'] ?? '').trim()
 
-      // Ground the agent in the clinic's Docmee Knowledge Base. Retrieval is
-      // executed in PostgreSQL (pgvector + FTS) with metadata filters so the
-      // worker never loads a clinic's entire KB into memory.
+      // All AI surfaces use the same clinic/revision-bound retrieval contract.
       // A provider outage still permits bounded lexical retrieval.
-      const queryEmbedding = await cachedKbEmbedding(clinicId, clinic.settings, message).catch(() => [])
-      const revision = await knowledge.getClinicRetrievalRevision(clinicId)
-      scope = { ...scope, retrievalRevision: revision }
-      let candidates: Awaited<ReturnType<typeof knowledge.searchChunks>>
-      {
-        const queryKey = kbCacheKey(clinicId, { revision, language, doctorId: contextString(ctx, 'doctor_id') || null }, message)
-        const queryHit = kbQueryCache.get(queryKey)
-        if (queryHit && queryHit.expires > Date.now()) {
-          candidates = queryHit.value
-        } else candidates = await knowledge.searchChunks(expandKbQuery(message), queryEmbedding, {
-          clinicId,
+      const evidencePack = await retrieveKbEvidence({
+        clinicId,
+        question: message,
+        language,
+        doctorId: contextString(ctx, 'doctor_id') || null,
+        knowledge,
+        embed: resolveEmbedder(clinic.settings),
+        sourcesCurrent: (sourceCitations, revision) => learning.sourcesCurrent(clinicId, sourceCitations, {
+          doctorId: contextString(ctx, 'doctor_id') || null,
           language,
-          doctorId: contextString(ctx, 'doctor_id') || undefined,
-        }, 40).then((rows) => {
-          kbQueryCache.set(queryKey, { expires: Date.now() + KB_CACHE_TTL_MS, value: rows })
-          if (kbQueryCache.size > 500) kbQueryCache.delete(kbQueryCache.keys().next().value as string)
-          return rows
-        })
+          retrievalRevision: revision,
+        }),
+      })
+      scope = { ...scope, retrievalRevision: evidencePack.revision }
+      kbMatches = evidencePack.matches
+      if (evidencePack.status === 'conflicting_sources' || evidencePack.status === 'stale_sources') {
+        const retrievalHandoffReason = evidencePack.status === 'stale_sources' ? 'stale_or_missing_sources' : evidencePack.status
+        await recordOutcome('', null, retrievalHandoffReason)
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), retrievalHandoffReason)
+        await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
+        ctx['ai_agent_action'] = 'handoff'
+        return 'handoff'
       }
-      kbMatches = rerankHybridChunks(candidates.map((candidate) => ({
-        ...candidate,
-        similarity: 0,
-      })), 5)
       citations = kbMatches.map(({ chunkId, documentId, documentVersion, doctorId, language: sourceLanguage, retrievalRevision, provenance }) => ({ chunkId, documentId, documentVersion,
         doctorId: doctorId ?? null, language: sourceLanguage ?? null, retrievalRevision,
         governanceReviewState: typeof provenance?.['governanceReviewState'] === 'string' ? provenance['governanceReviewState'] : 'trusted' }))

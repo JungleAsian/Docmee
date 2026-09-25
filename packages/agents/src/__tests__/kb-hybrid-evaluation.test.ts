@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { rankKeywordChunks, rerankHybridChunks } from '../botbase/kb-retriever.js'
+import { fuseKbCandidates, rankKeywordChunks, rerankHybridChunks } from '../botbase/kb-retriever.js'
+import { planKbQuery } from '../botbase/kb-query-plan.js'
 
 describe('KB hybrid retrieval evaluation cases', () => {
   const cases = [
@@ -23,5 +24,16 @@ describe('KB hybrid retrieval evaluation cases', () => {
 
   it('returns no result for ungrounded text so the caller can hand off', () => {
     expect(rerankHybridChunks([{ title: 'KB', content: 'answer', similarity: 0, vectorScore: 0.2, lexicalScore: 0 }])).toEqual([])
+  })
+
+  it('fuses semantic and lexical ranks, rejects conflicts, and deduplicates identical facts', () => {
+    const matches = fuseKbCandidates([
+      { title: 'Semantic only', content: 'Open weekdays', similarity: 0, vectorScore: 0.92, lexicalScore: 0, semanticRank: 1, lexicalRank: 9, canonicalFactKey: 'hours', contentHash: 'current' },
+      { title: 'Balanced current', content: 'Open weekdays', similarity: 0, vectorScore: 0.88, lexicalScore: 0.8, semanticRank: 2, lexicalRank: 1, canonicalFactKey: 'hours', contentHash: 'current' },
+      { title: 'Conflicting', content: 'Open every day', similarity: 0, vectorScore: 0.99, lexicalScore: 1, semanticRank: 1, lexicalRank: 1, canonicalFactKey: 'hours', contentHash: 'conflict', conflictState: 'conflicting' },
+      { title: 'Location', content: 'Main Street', similarity: 0, vectorScore: 0.86, lexicalScore: 0.6, semanticRank: 3, lexicalRank: 2, canonicalFactKey: 'location', contentHash: 'location' },
+    ], planKbQuery('What are your hours?', { language: 'en' }))
+
+    expect(matches.map((match) => match.title)).toEqual(['Balanced current', 'Location'])
   })
 })

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Fastify from 'fastify'
 import { signAccessToken } from '../auth/jwt.js'
 const m = vi.hoisted(() => ({ clinic: vi.fn(), clinicsDoctors: vi.fn(async () => []), doctor: vi.fn(), draft: vi.fn(), search: vi.fn(async () => []),
-  document: vi.fn(), workflows: vi.fn(async () => []), workflow: vi.fn(), preview: vi.fn(), candidate: vi.fn(), history: vi.fn(async () => []),
+  document: vi.fn(), workflows: vi.fn(async () => [] as unknown[]), workflow: vi.fn(), preview: vi.fn(), candidate: vi.fn(), history: vi.fn(async () => []),
   sql: vi.fn(async () => []) }))
 vi.mock('../lib/db.js', () => ({ withDb: (fn: (sql: unknown) => unknown) => fn(m.sql) }))
 vi.mock('@docmee/db', () => ({

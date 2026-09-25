@@ -387,6 +387,24 @@ describe('knowledge.repository — freshness retrieval contract', () => {
     expect(rows).toHaveLength(40)
     expect(rows[0]?.chunkId).toBe('es-relevant')
   })
+
+  it('normalizes bigint retrieval revisions returned by postgres before validation', async () => {
+    const row = {
+      chunkId: 'chunk-1', documentId: 'doc-1', title: 'Clinic contact',
+      content: 'Call 555-0100.', doctorId: null, language: null, documentVersion: 1,
+      updatedAt: '2026-09-25T00:00:00.000Z', vectorScore: 0, lexicalScore: 1,
+      relevanceScore: 0.25, languagePreference: 0,
+      retrievalRevision: '50' as unknown as number,
+    }
+    const { sql } = fakeSql((query) => query.includes('FROM knowledge_chunks') ? [row] : undefined)
+
+    const [result] = await createKnowledgeRepository(sql).searchChunks(
+      'clinic contact', [], { clinicId: 'clinic-1' }, 5,
+    )
+
+    expect(result?.retrievalRevision).toBe(50)
+    expect(typeof result?.retrievalRevision).toBe('number')
+  })
 })
 
 describe('knowledge.repository — Screen 7 (training state + entry editor)', () => {

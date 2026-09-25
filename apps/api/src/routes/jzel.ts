@@ -4,8 +4,7 @@
 // One clinic = one Docmee assistant. The persona is chosen automatically from the logged-in
 // user's role; the model + clinic persona + knowledge toggles come from
 // clinic.settings.aiAssistant. Answers are grounded in the clinic Knowledge Base
-// (server-side, embedded) and the Docmee Help content (sent by the client as
-// `helpContext`, included only when the clinic has Help grounding enabled).
+// and a bounded, server-owned Docmee Help catalog when those sources are enabled.
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { createClinicsRepository, createKnowledgeRepository, createKnowledgeLearningRepository } from '@docmee/db'
 import { capPatientInput, detectPromptInjection, screenPromptLeak, expandKbQuery, rerankHybridChunks, detectLanguage, wrapUntrustedKb } from '@docmee/agents'
@@ -16,7 +15,7 @@ import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth } from '../middleware/auth.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
-import { helpForJzelRoute } from '../lib/jzel-help.js'
+import { helpForJzelQuestion } from '../lib/jzel-help.js'
 import { isWithinJzelTotalBudget, JZEL_MAX_MESSAGE_CHARS, JZEL_MAX_RETRIEVED_CONTEXT_CHARS, validateJzelHistory } from '../lib/jzel-input-budget.js'
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
@@ -114,9 +113,13 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
     })
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, JZEL_MAX_RETRIEVED_CONTEXT_CHARS)) : ''
 
-    // ── Help grounding (sent by the client; cap to keep the prompt bounded) ──
+    // ── Help grounding (bounded and selected from the server-owned catalog) ──
     const help =
-      ai.useHelp ? helpForJzelRoute(body.route) : null
+      ai.useHelp ? helpForJzelQuestion(message, body.route) : null
+    const diagnosticSources = [
+      ...kb.sources,
+      ...(help ? [{ documentId: `docmee-help:${help.id}`, title: help.source, documentVersion: 1 }] : []),
+    ]
 
     const context =
       [
@@ -201,7 +204,7 @@ ${context}`,
         workflowNode: null,
         kbMatches: kb.matches,
         retrievalMode: kb.mode,
-        sources: kb.sources,
+        sources: diagnosticSources,
       } }
     } catch (err) {
       request.log.error(
@@ -250,7 +253,7 @@ ${context}`,
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, 6000)) : ''
 
     const help =
-      ai.useHelp ? helpForJzelRoute(body.route) : null
+      ai.useHelp ? helpForJzelQuestion(message, body.route) : null
     const context =
       [
         kbText ? `## Clinic Knowledge Base\n${kbText}` : '',

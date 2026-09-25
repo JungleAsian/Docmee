@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   systems: [] as string[],
   searchRows: [] as Array<Record<string, unknown>>,
   hasKey: false,
+  useHelp: false,
   recordAttempt: vi.fn(async () => ({ replayed: false, candidate: null })),
   user: {
     userId: 'u-1',
@@ -54,7 +55,7 @@ vi.mock('../lib/ai-assistant.js', () => ({
     name: 'Docmee',
     persona: `${clinic.id}-persona`,
     useKb: true,
-    useHelp: false,
+    useHelp: state.useHelp,
     chatProvider: clinic.id === 'c-2' ? 'openai' : 'claude',
     embedProvider: 'openai',
     model: `${clinic.id}-model`,
@@ -96,6 +97,7 @@ describe('Docmee assistant route branding', () => {
     state.systems.length = 0
     state.searchRows = []
     state.hasKey = false
+    state.useHelp = false
     state.recordAttempt.mockClear()
     state.user = {
       userId: 'u-1',
@@ -267,5 +269,49 @@ describe('Docmee assistant route branding', () => {
       retrievalMode: 'keyword',
       sources: [{ documentId: 'doc-1', title: 'Clinic hours', documentVersion: 3 }],
     })
+  })
+
+  it('uses question-aware product help, reports its source, and does not create a knowledge gap', async () => {
+    state.hasKey = true
+    state.useHelp = true
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: {
+        message: 'How do I check channel status and integrations?',
+        route: '/studio/workflows',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.systems.at(-1)).toContain('Admin Studio > Channels')
+    expect(state.recordAttempt).not.toHaveBeenCalled()
+    expect(response.json().diagnostics.sources).toEqual([{
+      documentId: 'docmee-help:channels-integrations',
+      title: 'Channels & Integrations',
+      documentVersion: 1,
+    }])
+  })
+
+  it('records a true knowledge gap instead of attaching help for the current page', async () => {
+    state.hasKey = true
+    state.useHelp = true
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: {
+        message: "What is the clinic's parking validation policy?",
+        route: '/studio/workflows',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.systems.at(-1)).not.toContain('## Docmee Help')
+    expect(state.recordAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      question: "What is the clinic's parking validation policy?",
+      handoffReason: 'jzel_no_source',
+    }))
   })
 })

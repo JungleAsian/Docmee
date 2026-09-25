@@ -298,7 +298,18 @@ function boundedLanguagePreference(rows: RankedKnowledgeSearchRow[], limit: numb
       return Date.parse(right.updatedAt ?? '') - Date.parse(left.updatedAt ?? '')
     })
     .slice(0, limit)
-    .map(({ relevanceScore: _relevance, languagePreference: _language, ...row }) => row)
+    .map(({ relevanceScore: _relevance, languagePreference: _language, ...row }) => {
+      // postgres.js intentionally returns int8/bigint values as strings. Normalize
+      // the retrieval revision at the repository boundary so freshness checks do
+      // not reject a current source because "50" !== 50.
+      const revision = row.retrievalRevision === undefined ? undefined : Number(row.retrievalRevision)
+      return {
+        ...row,
+        retrievalRevision: revision !== undefined && Number.isInteger(revision) && revision >= 0
+          ? revision
+          : undefined,
+      }
+    })
 }
 
 /**

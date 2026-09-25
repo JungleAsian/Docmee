@@ -6,6 +6,21 @@ const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Reco
 const edge = (id: string, source: string, target: string, sourceHandle?: string): WorkflowEdge => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })
 
 describe('validateWorkflowDefinition', () => {
+  it.each(['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking'])('requires complete unambiguous %s result routes', (type) => {
+    const nodes = [node('start', 'trigger', 'trigger.message_keyword'), node('book', 'action', type, { resultRouting: 'branches' }), node('end', 'action', 'action.end')]
+    const edges = [edge('start', 'start', 'book'), ...['success', 'pending', 'error'].map((handle) => edge(handle, 'book', 'end', handle))]
+    expect(validateWorkflowDefinition(nodes, edges, { requireTrigger: true })).toEqual([])
+    expect(validateWorkflowDefinition(nodes, edges.filter((item) => item.id !== 'error'), { requireTrigger: true }).join(' ')).toMatch(/error/)
+    expect(validateWorkflowDefinition(nodes, [...edges, edge('duplicate', 'book', 'end', 'success')], { requireTrigger: true }).join(' ')).toMatch(/success/)
+  })
+
+  it.each([undefined, '', '   '])('blocks an unset capture destination on publish (%s) while preserving drafts', (field) => {
+    const nodes = [node('start', 'trigger', 'trigger.message_keyword'), node('capture', 'action', 'action.ask_capture', { field, question: 'Your name?', validation: 'text' }), node('end', 'action', 'action.end')]
+    const edges = [edge('a', 'start', 'capture'), edge('b', 'capture', 'end')]
+    expect(validateWorkflowDefinition(nodes, edges)).toEqual([])
+    expect(validateWorkflowDefinition(nodes, edges, { requireTrigger: true }).join('\n')).toContain('Save answer as')
+  })
+
   it.each(['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking'])('accepts the first-class booking action %s', (type) => {
     expect(validateWorkflowDefinition([node('booking', 'action', type)], [], { requireTrigger: false })).toEqual([])
   })

@@ -158,10 +158,28 @@ export function validateWorkflowDefinition(
     // malformed IDs/types/edges above, but reserve executable-graph requirements
     // for activation and worker load.
     if (!requireTrigger) continue
+    if (node.type === 'action.ask_capture' && !String(node.config?.['field'] ?? '').trim()) {
+      errors.push(`Capture node ${node.id} has no destination field. Choose "Save answer as" (patient name, phone, email, reason, or a custom field) before publishing.`)
+    }
     if (node.type === 'action.ask_capture' && !CAPTURE_VALIDATIONS.some((mode) => mode === (node.config?.['validation'] ?? 'required'))) {
       errors.push(`Capture node ${node.id} has invalid validation. Choose text, date, time, phone, number, email, or yes_no.`)
     }
     const next = outgoing.get(node.id) ?? []
+    const bookingAction = ['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking', 'action.create_or_reschedule_booking'].includes(node.type)
+    const bookingBranches = bookingAction && node.config?.['resultRouting'] === 'branches'
+    if (bookingAction && !['single', 'branches'].includes(String(node.config?.['resultRouting'] ?? 'single'))) {
+      errors.push(`Booking node ${node.id} has invalid result routing. Choose single or branches.`)
+    }
+    if (bookingBranches) {
+      for (const handle of ['success', 'pending', 'error']) {
+        if (next.filter((edge) => edge.sourceHandle === handle).length !== 1) {
+          errors.push(`Booking node ${node.id} requires exactly one ${handle} branch. Connect it to a next step; use a secretary handoff for errors.`)
+        }
+      }
+      if (next.some((edge) => !['success', 'pending', 'error'].includes(edge.sourceHandle ?? ''))) {
+        errors.push(`Booking node ${node.id} has an unknown handle. Use success, pending, or error.`)
+      }
+    }
     if (node.type === 'action.end' && next.length > 0) {
       errors.push(`The end node ${node.id} has ${next.length} outgoing edge${next.length === 1 ? '' : 's'}, but an end node must be a dead end (cannot have outgoing edges). Delete the edge(s) leaving this node.`)
     }
@@ -172,6 +190,7 @@ export function validateWorkflowDefinition(
       node.type !== 'action.interactive_menu' &&
       node.type !== 'action.offer_slot_menu' &&
       node.type !== 'action.ai_agent' &&
+      !bookingBranches &&
       next.length !== 1
     ) {
       errors.push(

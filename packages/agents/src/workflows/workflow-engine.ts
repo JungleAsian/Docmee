@@ -486,11 +486,34 @@ export async function runWorkflow(
       case 'action.create_or_reschedule_booking':
       case 'action.create_booking':
       case 'action.reschedule_booking':
-        if (exec.createOrRescheduleBooking) await sideEffect(node, () => Promise.resolve(exec.createOrRescheduleBooking!(node, ctx)))
+      case 'action.cancel_booking': {
+        let invoked = false
+        try {
+          await sideEffect(node, async () => {
+            ctx['calendar_sync_pending'] = false
+            if (node.type === 'action.cancel_booking') await exec.cancelBooking!(node, ctx)
+            else await exec.createOrRescheduleBooking!(node, ctx)
+            invoked = true
+          })
+          if (cfg['resultRouting'] === 'branches') {
+            // A deduplicated effect may not restore its output context. Do not
+            // announce success from stale answers after an interrupted run.
+            handle = !invoked ? 'error' : ctx['calendar_sync_pending'] === true ? 'pending' : 'success'
+            if (!invoked) ctx['booking_status'] = 'needs_attention'
+          }
+        } catch (error) {
+          if (typeof error === 'object' && error !== null && 'suppressWorkflow' in error) throw error
+          if (cfg['resultRouting'] !== 'branches') throw error
+          // An error may include an uncertain provider outcome. Never retry the
+          // operation here or expose provider details in a patient message.
+          ctx['booking_status'] = 'needs_attention'
+          handle = 'error'
+        }
+        if (handle && !edges.some((edge) => edge.source === node.id && edge.sourceHandle === handle)) {
+          throw new Error(`Booking node ${node.id} has no ${handle} route`)
+        }
         break
-      case 'action.cancel_booking':
-        if (exec.cancelBooking) await sideEffect(node, () => Promise.resolve(exec.cancelBooking!(node, ctx)))
-        break
+      }
       case 'action.ask_capture':
         if (exec.askAndCapture) {
           if (isPendingCaptureResume(node)) await exec.askAndCapture(node, ctx)

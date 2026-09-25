@@ -56,6 +56,15 @@ function durationMinutes(appt: Pick<Appointment, 'startTime' | 'endTime'>): numb
   return Math.max(5, Math.round(ms / 60_000))
 }
 
+function localAppointmentTime(startTime: string, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(startTime))
+  const value = (type: string) => parts.find((part) => part.type === type)!.value
+  return { date: `${value('year')}-${value('month')}-${value('day')}`, time: `${value('hour')}:${value('minute')}` }
+}
+
 export async function runCalendarSyncRetry(sql: Sql): Promise<void> {
   const appointments = createAppointmentsRepository(sql)
   const clinics = createClinicsRepository(sql)
@@ -90,8 +99,7 @@ export async function runCalendarSyncRetry(sql: Sql): Promise<void> {
       if (action === 'create') {
         const eventId = await calendar.createEvent({
           title: eventTitle(appt),
-          date: appt.startTime.slice(0, 10),
-          time: appt.startTime.slice(11, 16),
+          ...localAppointmentTime(appt.startTime, clinic.timezone || 'UTC'),
           durationMinutes: durationMinutes(appt),
           description: eventDescription(appt),
         })
@@ -100,8 +108,7 @@ export async function runCalendarSyncRetry(sql: Sql): Promise<void> {
         await calendar.updateEvent({
           eventId: appt.googleEventId!,
           title: eventTitle(appt),
-          date: appt.startTime.slice(0, 10),
-          time: appt.startTime.slice(11, 16),
+          ...localAppointmentTime(appt.startTime, clinic.timezone || 'UTC'),
           durationMinutes: durationMinutes(appt),
           description: eventDescription(appt),
         })

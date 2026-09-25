@@ -36,6 +36,8 @@ import { useI18n } from '../hooks/useI18n'
 import type { PanelLanguage, WorkflowNode as WfNode, WorkflowEdge as WfEdge } from '../types'
 import {
   WORKFLOW_NODE_TYPES,
+  patchWorkflowNodeConfig,
+  initialWorkflowNodeConfig,
   nodeDef,
   NODE_KIND_TONE,
   NODE_KIND_BADGE,
@@ -1106,7 +1108,7 @@ function WorkflowCanvasInner({
           }]
         : edges
       onChange({
-        nodes: [...nodes, { id, kind: def.kind, type: def.type, config: {}, x: Math.round(at.x), y: Math.round(at.y) }],
+        nodes: [...nodes, { id, kind: def.kind, type: def.type, config: initialWorkflowNodeConfig(def.type), x: Math.round(at.x), y: Math.round(at.y) }],
         edges: nextEdges,
       })
       setSelectedId(id)
@@ -1118,7 +1120,7 @@ function WorkflowCanvasInner({
   const patchConfig = useCallback(
     (key: string, value: string) => {
       if (!selected) return
-      onChange({ nodes: nodes.map((n) => (n.id === selected.id ? { ...n, config: { ...n.config, [key]: value } } : n)), edges })
+      onChange({ nodes: nodes.map((n) => (n.id === selected.id ? patchWorkflowNodeConfig(n, key, value) : n)), edges })
     },
     [selected, nodes, edges, onChange],
   )

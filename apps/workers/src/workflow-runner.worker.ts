@@ -74,6 +74,7 @@ import {
   createKnowledgeRepository,
   createKnowledgeLearningRepository,
   type Patient,
+  type Appointment,
   type PatientContact,
   type MessageTemplateCategory,
   type Clinic,
@@ -258,7 +259,7 @@ async function persistCapturedPatientIdentity(
   value: string,
 ): Promise<void> {
   if (!ctx.patientId || !value.trim()) return
-  const key = field.trim().toLowerCase()
+  const key = field.trim().toLowerCase().replace(/\s+/g, '_')
   const patients = createPatientsRepository(sql)
   const patient = await patients.findById(clinicId, ctx.patientId)
   if (!patient) return
@@ -851,6 +852,7 @@ class WorkflowEffectReconciliationRequired extends Error {
 }
 
 class WorkflowAutomationSuppressed extends Error {
+  readonly suppressWorkflow = true
   constructor() {
     super('Workflow automation suppressed because the patient is human-only')
   }
@@ -1753,10 +1755,23 @@ function buildExecutors(
     async checkAvailability(node, ctx) {
       const clinic = await createClinicsRepository(sql).findById(clinicId)
       if (!clinic) throw new Error(`Clinic not found: ${clinicId}`)
+      // An explicit appointment field makes this a rescheduling search. Never
+      // reuse a doctor/service left over from a different booking conversation.
+      const appointmentField = String(node.config?.['appointmentIdField'] ?? '').trim()
+      let original: Appointment | null = null
+      if (appointmentField) {
+        const id = contextString(ctx, appointmentField)
+        if (!id || !ctx.patientId) throw new Error('Select an appointment before checking rescheduling availability')
+        original = await createAppointmentsRepository(sql).findById(clinicId, id)
+        if (!original || original.patientId !== ctx.patientId) throw new Error('The selected appointment does not belong to this patient')
+        if (['cancelled', 'completed', 'no_show'].includes(original.status)) throw new Error('This appointment cannot be rescheduled')
+        ctx['doctor_id'] = original.doctorId ?? ''
+        ctx['service_id'] = original.serviceId ?? ''
+      }
       // A node may pin a specific clinic doctor (config.doctorId, chosen from a
       // dropdown) instead of reading the patient's saved choice. Direct pick
       // wins; otherwise fall back to the saved-answer field (unchanged behavior).
-      const doctorValue =
+      const doctorValue = original ? original.doctorId ?? '' :
         String(node.config?.['doctorId'] ?? '').trim() ||
         contextString(ctx, configField(node, 'doctorIdField', 'doctor_id'))
       const doctorId = await resolveWorkflowDoctorId(sql, clinicId, doctorValue)
@@ -1776,10 +1791,18 @@ function buildExecutors(
       const resolved = await workflowCalendarConfig(sql, clinic, doctorId)
       if (!resolved) throw new Error('Google Calendar is not connected for this doctor or clinic')
       const availableDays = resolved.doctor?.availableDays
-      const slots = excludePastSlots(
+      let slots = excludePastSlots(
         (await Promise.all(dates.map((date) => listSlotsForDate(resolved.config, availableDays, date)))).flat(),
         nowLocalIso(timezone),
       )
+      if (original) {
+        const durationMs = new Date(original.endTime).getTime() - new Date(original.startTime).getTime()
+        if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error('The selected appointment duration is invalid')
+        slots = slots.filter((slot) => {
+          const end = new Date(Date.parse(slot.start + 'Z') + durationMs).toISOString().slice(0, 19)
+          return slotsCoverRange(slots, slot.start, end)
+        })
+      }
       ctx[configField(node, 'slotsField', 'available_slots')] = slots
       ctx['availability_count'] = slots.length
     },
@@ -1889,12 +1912,18 @@ function buildExecutors(
       const patientPhone = patientContacts.find((contact) => contact.channel === 'whatsapp' && contact.isPrimary)?.contactHandle
         ?? patientContacts.find((contact) => contact.channel === 'whatsapp')?.contactHandle
       const serviceName = serviceId ? (await appointments.listServices(clinicId)).find((service) => service.id === serviceId)?.name : null
+      // Preserve the existing reason on a move. A prior booking's context may
+      // still be present when the patient selects a different appointment.
+      const reason = mode === 'reschedule'
+        ? existingAppointment?.notes ?? null
+        : contextString(ctx, configField(node, 'reasonField', 'reason')) ||
+          contextString(ctx, 'appointment_reason') || contextString(ctx, 'Appointment reason') || null
       const calendarDetails = formatCalendarBooking({
         serviceName: serviceName ?? (String(node.config?.['title'] ?? '').trim() || null),
         patientName: patient?.fullName ?? contextString(ctx, 'patient_name'),
         patientPhone: patient?.phoneE164 ?? patientPhone,
         patientEmail: patient?.email,
-        reason: contextString(ctx, configField(node, 'reasonField', 'reason')) || existingAppointment?.notes,
+        reason,
       })
       const title = calendarDetails.title
       const startTime = `${date}T${time}:00`
@@ -1914,6 +1943,7 @@ function buildExecutors(
       }
       if (mode === 'reschedule') {
         const appointment = existingAppointment!
+        ctx['calendar_sync_pending'] = true
         const moved = await appointments.saveWithinCapacity({
           mode: 'reschedule',
           clinicId,
@@ -1943,6 +1973,7 @@ function buildExecutors(
               'Google Calendar event update',
             )
             await appointments.update(clinicId, appointmentId, { calendarSyncPending: false, calendarSyncError: null })
+            ctx['calendar_sync_pending'] = false
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             await appointments.update(clinicId, appointmentId, { calendarSyncPending: true, calendarSyncError: message })
@@ -1969,10 +2000,12 @@ function buildExecutors(
         startTime: instantRange.startTime,
         endTime: instantRange.endTime,
         bookingOrigin: 'workflow',
+        notes: reason ?? undefined,
         metadata: { source: 'workflow', preferredDate: date, preferredTime: time },
       })
       if (!saved.ok) throw new Error('The selected appointment time is no longer available')
       const created = saved.appointment
+      ctx['calendar_sync_pending'] = true
       let googleEventId: string | null = null
       try {
         googleEventId = await withWorkflowCalendarWriteTimeout(
@@ -1980,6 +2013,7 @@ function buildExecutors(
           'Google Calendar event creation',
         )
         await appointments.update(clinicId, created.id, { status: 'confirmed', googleEventId, calendarSyncPending: false, calendarSyncError: null })
+        ctx['calendar_sync_pending'] = false
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         await appointments.update(clinicId, created.id, { status: 'confirmed', calendarSyncPending: true, calendarSyncError: message })
@@ -2002,6 +2036,7 @@ function buildExecutors(
         throw new Error('The selected appointment does not belong to this patient')
       }
       if (appointment.status === 'cancelled') {
+        ctx['calendar_sync_pending'] = Boolean(appointment.googleEventId)
         ctx['appointment_id'] = appointmentId
         ctx['booking_status'] = 'cancelled'
         return
@@ -2010,6 +2045,7 @@ function buildExecutors(
         throw new Error(`A ${appointment.status} appointment cannot be cancelled`)
       }
 
+      ctx['calendar_sync_pending'] = Boolean(appointment.googleEventId)
       await appointments.update(clinicId, appointmentId, {
         status: 'cancelled',
         calendarSyncPending: Boolean(appointment.googleEventId),
@@ -2034,6 +2070,7 @@ function buildExecutors(
               calendarSyncPending: false,
               calendarSyncError: null,
             })
+            ctx['calendar_sync_pending'] = false
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             await appointments.update(clinicId, appointmentId, {

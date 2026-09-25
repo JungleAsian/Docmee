@@ -11,6 +11,51 @@ import {
 } from '../workflows/workflow-engine.js'
 import type { WorkflowNode, WorkflowEdge } from '@docmee/db'
 
+describe('booking result routing', () => {
+  it.each(['success', 'deduplicated', 'suppressed'])('handles a %s booking without replay or false success', async (outcome) => {
+    const workflow = {
+      nodes: [node('start', 'trigger', 'trigger.message_keyword'), node('book', 'action', 'action.cancel_booking', { resultRouting: 'branches' }), node('done', 'action', 'action.end'), node('help', 'action', 'action.end')],
+      edges: [edge('start', 'book'), edge('book', 'done', 'success'), edge('book', 'help', 'error'), edge('book', 'help', 'pending')],
+    }
+    const cancel = vi.fn()
+    const exec = makeExec({
+      cancelBooking: cancel,
+      runSideEffect: async (_node, _ctx, invoke) => {
+        if (outcome === 'suppressed') throw Object.assign(new Error('Human-only'), { suppressWorkflow: true })
+        if (outcome === 'deduplicated') return undefined as never
+        return invoke()
+      },
+    })
+    if (outcome === 'suppressed') {
+      await expect(runWorkflow(workflow, {}, exec)).rejects.toThrow('Human-only')
+    } else {
+      const trace = await runWorkflow(workflow, {}, exec)
+      expect(trace.at(-1)?.nodeId).toBe(outcome === 'success' ? 'done' : 'help')
+    }
+    expect(cancel).toHaveBeenCalledTimes(outcome === 'success' ? 1 : 0)
+  })
+
+  it.each(['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking'])('routes %s failures to a configured handoff without a success message', async (type) => {
+    const workflow = {
+      nodes: [node('start', 'trigger', 'trigger.message_keyword'), node('book', 'action', type, { resultRouting: 'branches' }), node('done', 'action', 'action.end'), node('help', 'action', 'action.end')],
+      edges: [edge('start', 'book'), edge('book', 'done', 'success'), edge('book', 'help', 'error'), edge('book', 'help', 'pending')],
+    }
+    const fail = vi.fn().mockRejectedValue(new Error('Capacity changed'))
+    const trace = await runWorkflow(workflow, {}, makeExec({ createOrRescheduleBooking: fail, cancelBooking: fail }))
+    expect(trace.at(-1)?.nodeId).toBe('help')
+    expect(fail).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes a saved booking with outstanding Google sync through pending', async () => {
+    const workflow = {
+      nodes: [node('start', 'trigger', 'trigger.message_keyword'), node('book', 'action', 'action.reschedule_booking', { resultRouting: 'branches' }), node('done', 'action', 'action.end'), node('pending', 'action', 'action.end')],
+      edges: [edge('start', 'book'), edge('book', 'done', 'success'), edge('book', 'pending', 'pending')],
+    }
+    const trace = await runWorkflow(workflow, {}, makeExec({ createOrRescheduleBooking: (_node, ctx) => { ctx.calendar_sync_pending = true } }))
+    expect(trace.at(-1)?.nodeId).toBe('pending')
+  })
+})
+
 const node = (
   id: string,
   kind: WorkflowNode['kind'],

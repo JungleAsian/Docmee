@@ -1446,7 +1446,11 @@ function ManagePanel({
           {urgent && <UrgentTag />}
           <SourceTag source={sourceOf(appt)} />
         </div>
-        {appt.notes && <p className="mt-2 text-xs text-gray-400">{appt.notes}</p>}
+        <dl className="mt-2 space-y-1 break-words text-xs">
+          <div><dt className="inline font-medium">{t('cal.patientPhone')}: </dt><dd className="inline">{appt.patientPhone || t('cal.notProvided')}</dd></div>
+          <div><dt className="inline font-medium">{t('cal.patientEmail')}: </dt><dd className="inline">{appt.patientEmail || t('cal.notProvided')}</dd></div>
+          <div><dt className="inline font-medium">{t('cal.notes')}: </dt><dd className="inline whitespace-pre-wrap">{appt.notes || t('cal.notProvided')}</dd></div>
+        </dl>
       </div>
 
       {/* Lifecycle actions */}

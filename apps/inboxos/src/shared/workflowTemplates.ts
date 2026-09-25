@@ -383,7 +383,64 @@ function dynamicBookingTemplate(multipleDoctors: boolean): WorkflowTemplate {
   }
 }
 
+/** Separate lifecycle operations with an explicit patient confirmation before a write. */
+export function appointmentManagementTemplate(): WorkflowTemplate {
+  const nodes = [
+    n('manage_trigger', 'trigger', 'trigger.message_keyword', { keywords: 'cambiar cita,cancelar cita,reschedule appointment,cancel appointment' }, 40, 80),
+    n('manage_choose', 'action', 'action.interactive_menu', {
+      optionSource: 'patient_appointments', field: 'appointment_id', variant: 'list',
+      message: 'Selecciona la cita que deseas gestionar.',
+    }, 320, 80),
+    n('manage_action', 'action', 'action.interactive_menu', {
+      field: 'appointment_action', variant: 'button', message: '¿Qué deseas hacer con esta cita?',
+      options: [{ optionId: 'move', title: 'Cambiar fecha' }, { optionId: 'cancel', title: 'Cancelar cita' }],
+    }, 620, 80),
+    n('manage_availability', 'action', 'action.check_availability', { appointmentIdField: 'appointment_id', dateField: 'reschedule_search_date', days: 7 }, 920, 40),
+    n('manage_date', 'action', 'action.offer_slot_menu', { pickerMode: 'date', selectField: 'preferred_date', message: 'Selecciona la nueva fecha.' }, 1220, 40),
+    n('manage_time', 'action', 'action.offer_slot_menu', { pickerMode: 'time', dateField: 'preferred_date', selectField: 'preferred_time', message: 'Selecciona la nueva hora.' }, 1520, 40),
+    n('manage_confirm_move', 'action', 'action.interactive_menu', {
+      field: 'confirm_move', variant: 'button', message: '¿Confirmas el cambio a la fecha y hora que acabas de seleccionar?',
+      options: [{ optionId: 'confirm', title: 'Confirmar cambio' }, { optionId: 'keep', title: 'Mantener cita' }],
+    }, 1820, 40),
+    n('manage_move', 'action', 'action.reschedule_booking', { resultRouting: 'branches', appointmentIdField: 'appointment_id', dateField: 'preferred_date', timeField: 'preferred_time' }, 2120, 40),
+    n('manage_confirm_cancel', 'action', 'action.interactive_menu', {
+      field: 'confirm_cancel', variant: 'button', message: '¿Confirmas que deseas cancelar la cita seleccionada?',
+      options: [{ optionId: 'confirm', title: 'Sí, cancelar cita' }, { optionId: 'keep', title: 'Mantener cita' }],
+    }, 920, 480),
+    n('manage_cancel', 'action', 'action.cancel_booking', { resultRouting: 'branches', appointmentIdField: 'appointment_id' }, 1220, 480),
+    n('manage_moved', 'action', 'action.send_message', { text: 'Tu cita fue cambiada a la fecha y hora seleccionadas.' }, 2420, 40),
+    n('manage_cancelled', 'action', 'action.send_message', { text: 'Tu cita fue cancelada.' }, 1520, 480),
+    n('manage_pending', 'action', 'action.send_message', { text: 'Guardamos el cambio en tu cita. La actualización del calendario está pendiente; la clínica puede revisarla.' }, 2420, 300),
+    n('manage_notify_pending', 'action', 'action.notify_secretary', {}, 2720, 300),
+    n('manage_help_message', 'action', 'action.send_message', { text: 'Necesitamos revisar tu solicitud. La secretaría te ayudará a confirmar el estado de tu cita.' }, 1820, 700),
+    n('manage_handoff', 'action', 'action.handoff_to_secretary', {}, 2120, 700),
+    n('manage_empty', 'action', 'action.send_message', { text: 'No encontramos citas futuras disponibles para gestionar. La secretaría puede ayudarte.' }, 620, 850),
+    n('manage_kept', 'action', 'action.send_message', { text: 'Tu cita permanece sin cambios.' }, 1520, 1000),
+    n('manage_end', 'action', 'action.end', {}, 3020, 700),
+  ]
+  const edges = [
+    e('manage_trigger', 'manage_choose'),
+    e('manage_choose', 'manage_action', 'selected'), e('manage_choose', 'manage_empty', 'empty'),
+    e('manage_action', 'manage_availability', 'move'), e('manage_action', 'manage_confirm_cancel', 'cancel'),
+    e('manage_availability', 'manage_date'),
+    e('manage_date', 'manage_time', 'selected'), e('manage_date', 'manage_help_message', 'empty'),
+    e('manage_time', 'manage_confirm_move', 'selected'), e('manage_time', 'manage_help_message', 'empty'),
+    e('manage_confirm_move', 'manage_move', 'confirm'), e('manage_confirm_move', 'manage_kept', 'keep'),
+    e('manage_confirm_cancel', 'manage_cancel', 'confirm'), e('manage_confirm_cancel', 'manage_kept', 'keep'),
+    e('manage_move', 'manage_moved', 'success'), e('manage_cancel', 'manage_cancelled', 'success'),
+    ...['manage_move', 'manage_cancel'].flatMap((id) => [e(id, 'manage_pending', 'pending'), e(id, 'manage_help_message', 'error')]),
+    ...['manage_choose', 'manage_action', 'manage_date', 'manage_time', 'manage_confirm_move', 'manage_confirm_cancel']
+      .flatMap((id) => [e(id, 'manage_choose', 'restart'), e(id, 'manage_help_message', 'livechat')]),
+    ...['manage_action', 'manage_confirm_move', 'manage_confirm_cancel'].map((id) => e(id, id, 'default')),
+    e('manage_empty', 'manage_handoff'), e('manage_help_message', 'manage_handoff'),
+    e('manage_pending', 'manage_notify_pending'),
+    ...['manage_moved', 'manage_cancelled', 'manage_notify_pending', 'manage_handoff', 'manage_kept'].map((id) => e(id, 'manage_end')),
+  ]
+  return { key: 'appointment_management', nameKey: 'wf.tpl.appointmentManagementName', descKey: 'wf.tpl.appointmentManagementDesc', nodes, edges }
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  appointmentManagementTemplate(),
   safeAppointmentAssistantTemplate(),
   dynamicBookingTemplate(false),
   dynamicBookingTemplate(true),

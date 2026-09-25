@@ -20,6 +20,7 @@ import type { WorkflowNode as WfNode, Doctor, MessageTemplate, Service, Workflow
 import {
   nodeDef,
   FIELD_REFERENCE_KEYS,
+  PATIENT_CAPTURE_FIELDS,
   collectWorkflowFields,
   collectWorkflowTags,
   collectFieldValueOptions,
@@ -321,9 +322,12 @@ export function NodeConfigPanel({
           .map((tag) => ({ value: tag, label: humanize(tag) }))
         return [...canonical, ...extra]
       }
-      return availableFields.map((f) => ({ value: f, label: humanize(f) }))
+      return availableFields.map((f) => {
+        const canonical = PATIENT_CAPTURE_FIELDS.find((item) => item.value === f)
+        return { value: f, label: canonical ? t(canonical.labelKey) : humanize(f) }
+      })
     },
-    [availableFields, availableTags, language],
+    [availableFields, availableTags, language, t],
   )
 
   return (

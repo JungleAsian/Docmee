@@ -207,7 +207,7 @@ beforeEach(() => {
   h.scopedConsistency.mockResolvedValue({ complete: true, sources: ['We open at 9 AM.'] })
   h.queueAdd.mockResolvedValue(undefined)
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('processWorkflowRunJob automation ownership', () => {
   it.each(['emergency', 'provider_failure', 'no_match'])('records exactly one redacted terminal outcome for %s', async reason => {
@@ -450,6 +450,21 @@ describe('processWorkflowRunJob automation ownership', () => {
 
     expect(h.sendWhatsAppInteractiveList).not.toHaveBeenCalled()
     expect(h.createMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['reason', 'appointment_reason', 'Appointment reason'])('persists the captured %s so calendar retries retain it', async (reasonField) => {
+    h.createCalendarEvent.mockRejectedValueOnce(new Error('Calendar unavailable'))
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.createOrRescheduleBooking({
+        id: 'booking-reason', type: 'action.create_booking',
+        config: { doctorId: '44444444-4444-4444-8444-444444444444' },
+      }, { ...ctx, preferred_date: '2026-09-15', preferred_time: '09:00', [reasonField]: 'Follow-up consultation' })
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.saveWithinCapacity).toHaveBeenCalledWith(expect.objectContaining({ notes: 'Follow-up consultation' }))
+    expect(h.createCalendarEvent).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining('Reason for visit: Follow-up consultation') }))
+    expect(h.updateAppointment).toHaveBeenCalledWith(CLINIC, expect.any(String), expect.objectContaining({ calendarSyncPending: true }))
   })
 
   it('creates workflow bookings through the atomic capacity operation with overbooking disabled', async () => {
@@ -783,7 +798,7 @@ describe('processWorkflowRunJob automation ownership', () => {
     h.listSlots.mockResolvedValue([{ start: '2026-09-15T09:00:00', end: '2026-09-15T10:00:00' }])
     h.findAppointment.mockResolvedValue({
       id: 'appt-existing', patientId: PATIENT, doctorId: '44444444-4444-4444-8444-444444444444', serviceId: null,
-      status: 'confirmed', startTime: '2026-09-14T09:00:00.000Z', endTime: '2026-09-14T10:00:00.000Z', googleEventId: null,
+      status: 'confirmed', startTime: '2026-09-14T09:00:00.000Z', endTime: '2026-09-14T10:00:00.000Z', googleEventId: 'event-original', notes: 'Original consultation',
     })
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
       await exec.createOrRescheduleBooking({
@@ -798,6 +813,7 @@ describe('processWorkflowRunJob automation ownership', () => {
       }, {
         ...ctx,
         appointment_id: 'appt-existing',
+        reason: 'Stale reason from another booking',
         preferred_date: '2026-09-15',
         preferred_time: '09:00',
       })
@@ -817,7 +833,45 @@ describe('processWorkflowRunJob automation ownership', () => {
       'appt-existing',
       expect.objectContaining({ startTime: expect.any(String) }),
     )
+    expect(h.updateCalendarEvent).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'event-original', durationMinutes: 60, description: expect.stringContaining('Original consultation') }))
+    expect(h.updateCalendarEvent.mock.calls[0]?.[0].description).not.toContain('Stale reason')
   })
+
+  it('keeps a failed Google cancellation pending after the Docmee cancellation is saved', async () => {
+    h.findAppointment.mockResolvedValue({ id: 'appt-existing', patientId: PATIENT, status: 'confirmed', doctorId: '44444444-4444-4444-8444-444444444444', googleEventId: 'event-original' })
+    h.deleteCalendarEvent.mockRejectedValue(new Error('Calendar unavailable'))
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const bookingCtx = { ...ctx, appointment_id: 'appt-existing' }
+      await exec.cancelBooking({ id: 'cancel', type: 'action.cancel_booking', config: {} }, bookingCtx)
+      expect(bookingCtx.calendar_sync_pending).toBe(true)
+      expect(bookingCtx.booking_status).toBe('cancelled')
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.updateAppointment).toHaveBeenCalledWith(CLINIC, 'appt-existing', expect.objectContaining({ status: 'cancelled', calendarSyncPending: true }))
+    expect(h.updateAppointment).toHaveBeenCalledWith(CLINIC, 'appt-existing', expect.objectContaining({ calendarSyncError: 'Calendar unavailable' }))
+  })
+
+  it('loads rescheduling availability for the original doctor and full appointment duration', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-10T00:00:00Z'))
+    h.findAppointment.mockResolvedValue({ id: 'appt-existing', patientId: PATIENT, doctorId: '44444444-4444-4444-8444-444444444444', serviceId: 'service-original', status: 'confirmed', startTime: '2026-09-14T09:00:00.000Z', endTime: '2026-09-14T10:00:00.000Z' })
+    h.listSlots.mockResolvedValue([
+      { start: '2026-09-15T09:00:00', end: '2026-09-15T09:30:00' },
+      { start: '2026-09-15T09:30:00', end: '2026-09-15T10:00:00' },
+    ])
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const bookingCtx = { ...ctx, appointment_id: 'appt-existing', doctor_id: 'stale-doctor', preferred_date: '2026-09-15' }
+      await exec.checkAvailability({ id: 'availability', type: 'action.check_availability', config: { appointmentIdField: 'appointment_id', days: 1 } }, bookingCtx)
+      expect(bookingCtx.doctor_id).toBe('44444444-4444-4444-8444-444444444444')
+      expect(bookingCtx.service_id).toBe('service-original')
+      expect(bookingCtx.available_slots).toEqual([{ start: '2026-09-15T09:00:00', end: '2026-09-15T09:30:00' }])
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.findAppointment).toHaveBeenCalledWith(CLINIC, 'appt-existing')
+  })
+
 
   it('cancels only the current patient appointment and removes its Google event', async () => {
     h.findAppointment.mockResolvedValue({

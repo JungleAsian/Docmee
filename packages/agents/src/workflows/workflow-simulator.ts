@@ -174,7 +174,10 @@ export async function simulateWorkflow(
     } else {
       const source = String(node.config?.optionSource ?? 'static')
       // Explicitly synthetic fixtures: never query clinic data in a dry run.
-      items = empty(node) ? [] : source === 'clinic_doctors' ? [{ id: 'mock-doctor-1', title: 'Mock doctor' }] : [{ id: 'mock-service-1', title: 'Mock service' }]
+      items = empty(node) ? []
+        : source === 'clinic_doctors' ? [{ id: 'mock-doctor-1', title: 'Mock doctor' }]
+        : source === 'patient_appointments' ? [{ id: 'mock-appointment-1', title: 'Mock appointment' }]
+        : [{ id: 'mock-service-1', title: 'Mock service' }]
     }
     return items.slice(Math.max(0, page) * size, (Math.max(0, page) + 1) * size)
   }
@@ -211,7 +214,12 @@ export async function simulateWorkflow(
         ctx.availability_count = slots.length
       }),
       offerSlots: (node) => provider(node),
-      createOrRescheduleBooking: (node) => provider(node, () => { ctx.bookingStatus = 'mocked' }),
+      createOrRescheduleBooking: (node) => provider(node, () => {
+        ctx.booking_status = node.type === 'action.reschedule_booking' || node.config?.mode === 'reschedule' ? 'rescheduled' : 'created'
+        ctx.calendar_sync_pending = false
+        ctx.appointment_id = ctx.appointment_id || 'simulated-appointment'
+      }),
+      cancelBooking: (node) => provider(node, () => { ctx.booking_status = 'cancelled'; ctx.calendar_sync_pending = false }),
       askAndCapture: (node) => {
         provider(node)
         const existing = ctx[WORKFLOW_CAPTURE_CONTEXT_KEY] as WorkflowCaptureState | undefined

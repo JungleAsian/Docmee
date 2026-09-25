@@ -73,7 +73,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.checkAvailability',
     descKey: 'wf.desc.checkAvailability',
-    fields: ['doctorIdField', 'dateField', 'days', 'slotsField'],
+    fields: ['appointmentIdField', 'doctorIdField', 'dateField', 'days', 'slotsField'],
     icon: 'calendarCheck',
   },
   {
@@ -106,6 +106,8 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
       'timeField',
       'durationMinutes',
       'title',
+      'reasonField',
+      'resultRouting',
     ],
     icon: 'calendarPlus',
   },
@@ -114,7 +116,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.createBooking',
     descKey: 'wf.desc.createBooking',
-    fields: ['doctorIdField', 'serviceIdField', 'dateField', 'timeField', 'durationMinutes', 'title'],
+    fields: ['doctorIdField', 'serviceIdField', 'dateField', 'timeField', 'durationMinutes', 'title', 'reasonField', 'resultRouting'],
     icon: 'calendarPlus',
   },
   {
@@ -122,7 +124,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.rescheduleBooking',
     descKey: 'wf.desc.rescheduleBooking',
-    fields: ['appointmentIdField', 'dateField', 'timeField'],
+    fields: ['appointmentIdField', 'dateField', 'timeField', 'resultRouting'],
     icon: 'calendar',
   },
   {
@@ -130,7 +132,7 @@ export const WORKFLOW_NODE_TYPES: NodeTypeDef[] = [
     kind: 'action',
     labelKey: 'wf.node.cancelBooking',
     descKey: 'wf.desc.cancelBooking',
-    fields: ['appointmentIdField'],
+    fields: ['appointmentIdField', 'resultRouting'],
     icon: 'calendarCheck',
   },
   {
@@ -253,6 +255,7 @@ export const NODE_KIND_FILL: Record<WorkflowNodeKind, string> = {
  *  i18n key (not a message) so the caller renders it via `t()`. */
 export function nodeHasIssue(node: WorkflowNode): string | undefined {
   const cfg = node.config ?? {}
+  if (node.type === 'action.ask_capture' && !String(cfg.field ?? '').trim()) return 'wf.issue.captureNoField'
   if (node.type === 'action.interactive_menu') {
     const options = parseMenuOptionsSafe(cfg.options)
     if (String(cfg.optionSource ?? 'static') === 'static' && options.length === 0) return 'wf.issue.menuNoOptions'
@@ -290,12 +293,36 @@ export const FIELD_REFERENCE_KEYS = new Set([
   'serviceIdField',
   'timeField',
   'appointmentIdField',
+  'reasonField',
   'selectField',
 ])
 
 /** Context fields present on every run regardless of graph shape (see the
  *  WorkflowContext base interface in workflow-engine.ts). */
 const BASE_WORKFLOW_FIELDS = ['message', 'patientId', 'conversationId', 'appointmentId', 'transcript']
+
+/** Stable destinations; labels may be translated without changing saved keys. */
+export const PATIENT_CAPTURE_FIELDS = [
+  { value: 'patient_name', labelKey: 'wf.capture.patientName', validation: 'text' },
+  { value: 'patient_phone', labelKey: 'wf.capture.patientPhone', validation: 'phone' },
+  { value: 'patient_email', labelKey: 'wf.capture.patientEmail', validation: 'email' },
+  { value: 'reason', labelKey: 'wf.capture.reason', validation: 'text' },
+] as const
+
+/** Update related capture settings atomically in both controlled editors. */
+export function patchWorkflowNodeConfig(node: WorkflowNode, key: string, value: string): WorkflowNode {
+  const destination = node.type === 'action.ask_capture' && key === 'field'
+    ? PATIENT_CAPTURE_FIELDS.find((field) => field.value === value)
+    : undefined
+  return { ...node, config: { ...node.config, [key]: value, ...(destination ? { validation: destination.validation } : {}) } }
+}
+
+export function initialWorkflowNodeConfig(type: string): Record<string, unknown> {
+  if (type === 'action.reschedule_booking') return { resultRouting: 'branches', appointmentIdField: 'appointment_id', dateField: 'preferred_date', timeField: 'preferred_time' }
+  if (type === 'action.cancel_booking') return { resultRouting: 'branches', appointmentIdField: 'appointment_id' }
+  if (type === 'action.create_booking') return { resultRouting: 'branches', doctorIdField: 'doctor_id', serviceIdField: 'service_id', dateField: 'preferred_date', timeField: 'preferred_time', reasonField: 'reason' }
+  return {}
+}
 
 interface FieldProducer {
   /** Field names this node type always writes under a fixed key. */
@@ -318,10 +345,10 @@ const FIELD_PRODUCERS: Partial<Record<string, FieldProducer>> = {
   // preferred_date or preferred_time; offering both keeps the no-code
   // dropdown correct either way.
   'action.offer_slot_menu': { fromConfig: [{ key: 'selectField', fallback: '' }], fixed: ['preferred_date', 'preferred_time'] },
-  'action.create_or_reschedule_booking': { fixed: ['appointment_id', 'booking_status'] },
-  'action.create_booking': { fixed: ['appointment_id', 'booking_status'] },
-  'action.reschedule_booking': { fixed: ['appointment_id', 'booking_status'] },
-  'action.cancel_booking': { fixed: ['appointment_id', 'booking_status'] },
+  'action.create_or_reschedule_booking': { fixed: ['appointment_id', 'booking_status', 'calendar_sync_pending'] },
+  'action.create_booking': { fixed: ['appointment_id', 'booking_status', 'calendar_sync_pending'] },
+  'action.reschedule_booking': { fixed: ['appointment_id', 'booking_status', 'calendar_sync_pending'] },
+  'action.cancel_booking': { fixed: ['appointment_id', 'booking_status', 'calendar_sync_pending'] },
   'action.extract_booking_details': {
     csvFromConfig: 'allowedFields',
     fixed: ['needs_review', 'contains_disallowed_medical_content', 'voice_booking_confidence', 'booking_confidence', 'voice_booking_source'],
@@ -343,7 +370,7 @@ const FIELD_PRODUCERS: Partial<Record<string, FieldProducer>> = {
  * exists. Sorted alphabetically; deduped.
  */
 export function collectWorkflowFields(nodes: WorkflowNode[]): string[] {
-  const fields = new Set(BASE_WORKFLOW_FIELDS)
+  const fields = new Set([...BASE_WORKFLOW_FIELDS, ...PATIENT_CAPTURE_FIELDS.map((field) => field.value)])
   for (const node of nodes) {
     const producer = FIELD_PRODUCERS[node.type]
     if (!producer) continue
@@ -381,6 +408,10 @@ export function collectWorkflowTags(nodes: WorkflowNode[]): string[] {
  *  dropdown (no "custom" escape hatch; the engine only understands these
  *  exact values). `labelKey` resolves through the shared i18n dictionary. */
 export const ENUM_FIELD_OPTIONS: Record<string, { value: string; labelKey: string }[]> = {
+  resultRouting: [
+    { value: 'single', labelKey: 'wf.resultRouting.single' },
+    { value: 'branches', labelKey: 'wf.resultRouting.branches' },
+  ],
   variant: [
     { value: 'list', labelKey: 'wf.variant.list' },
     { value: 'button', labelKey: 'wf.variant.button' },
@@ -484,7 +515,8 @@ const FIXED_FIELD_VALUES: Record<string, string[]> = {
   // askAndCapture: `invalid_${validation}` or 'conversation_required'
   capture_error: ['invalid_text', 'invalid_date', 'invalid_time', 'invalid_phone', 'invalid_number', 'invalid_email', 'conversation_required'],
   // createOrRescheduleBooking
-  booking_status: ['created', 'rescheduled', 'cancelled'],
+  booking_status: ['created', 'rescheduled', 'cancelled', 'needs_attention'],
+  calendar_sync_pending: ['true', 'false'],
   // extract/transcribe: extraction.confidence is a high/medium/low enum
   voice_booking_confidence: ['high', 'medium', 'low'],
   // extract/transcribe booleans (evalCondition stringifies ctx values, so
@@ -692,6 +724,15 @@ export function branchRows(wf: WorkflowNode): { key: string; tone: string; label
         { key: 'true', tone: 'emerald' },
         { key: 'false', tone: 'red' },
       ]
+    case 'action.create_booking':
+    case 'action.reschedule_booking':
+    case 'action.cancel_booking':
+    case 'action.create_or_reschedule_booking':
+      return cfg.resultRouting === 'branches' ? [
+        { key: 'success', tone: 'emerald' },
+        { key: 'pending', tone: 'amber' },
+        { key: 'error', tone: 'red' },
+      ] : []
     case 'logic.ai_classify_intent':
       return [
         { key: 'high', tone: 'emerald' },

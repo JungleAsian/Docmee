@@ -5,6 +5,7 @@ import { isBranchingNode, resequenceLinearEdges } from './workflowLinearEdges'
 import { TAG_TYPES } from './tagTypes'
 import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate } from './workflowTemplates'
 import type { WorkflowNode } from './types'
+import { initialWorkflowNodeConfig, patchWorkflowNodeConfig } from './workflowNodes'
 
 const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Record<string, unknown> = {}): WorkflowNode => ({
   id,
@@ -16,6 +17,10 @@ const node = (id: string, kind: WorkflowNode['kind'], type: string, config: Reco
 })
 
 describe('workflow trigger catalog', () => {
+  it('offers canonical contact destinations before any capture nodes exist', () => {
+    expect(collectWorkflowFields([])).toEqual(expect.arrayContaining(['patient_name', 'patient_phone', 'patient_email', 'reason']))
+  })
+
   it('only advertises triggers that the worker can produce', () => {
     expect(
       WORKFLOW_NODE_TYPES.filter((node) => node.kind === 'trigger').map((node) => node.type),
@@ -36,6 +41,30 @@ describe('workflow trigger catalog', () => {
 })
 
 describe('workflow template validation', () => {
+  it('publishes the appointment management template with confirmation and all result routes', () => {
+    const template = WORKFLOW_TEMPLATES.find((item) => item.key === 'appointment_management')!
+    expect(validateWorkflowDefinition(template.nodes, template.edges, { requireTrigger: true })).toEqual([])
+    for (const id of ['manage_move', 'manage_cancel']) {
+      expect(template.edges.filter((edge) => edge.source === id).map((edge) => edge.sourceHandle).sort()).toEqual(['error', 'pending', 'success'])
+      const incoming = template.edges.filter((edge) => edge.target === id)
+      expect(incoming).toHaveLength(1)
+      expect(incoming[0]?.sourceHandle).toBe('confirm')
+    }
+  })
+
+  it.each(['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking'])('new %s exposes all result paths but existing nodes remain linear', (type) => {
+    expect(branchRows(node('new', 'action', type, initialWorkflowNodeConfig(type))).map((row) => row.key)).toEqual(['success', 'pending', 'error'])
+    expect(branchRows(node('old', 'action', type))).toEqual([])
+  })
+
+  it('selecting a contact destination sets its validation atomically and warns about missing destinations', () => {
+    const capture = node('capture', 'action', 'action.ask_capture', { question: 'Email?', validation: 'text' })
+    expect(nodeHasIssue(capture)).toBe('wf.issue.captureNoField')
+    const updated = patchWorkflowNodeConfig(capture, 'field', 'patient_email')
+    expect(updated.config).toMatchObject({ field: 'patient_email', validation: 'email', question: 'Email?' })
+    expect(nodeHasIssue(updated)).toBeUndefined()
+  })
+
   it('validates the guided_whatsapp_booking template without errors', () => {
     const template = WORKFLOW_TEMPLATES.find((t) => t.key === 'guided_whatsapp_booking')
     expect(template).toBeDefined()
@@ -182,7 +211,7 @@ describe('workflow template validation', () => {
 
 describe('collectWorkflowFields (no-code Field selector)', () => {
   it('always offers the base context fields even for an empty workflow', () => {
-    expect(collectWorkflowFields([])).toEqual(['appointmentId', 'conversationId', 'message', 'patientId', 'transcript'])
+    expect(collectWorkflowFields([])).toEqual(['appointmentId', 'conversationId', 'message', 'patientId', 'patient_email', 'patient_name', 'patient_phone', 'reason', 'transcript'])
   })
 
   it('offers a field a node writes under its own config-named key', () => {
@@ -486,7 +515,7 @@ describe('collectFieldValueOptions (dependent Value selector)', () => {
 
   it('offers the fixed vocabularies the worker writes into status fields', () => {
     expect(collectFieldValueOptions([], 'capture_status').map((o) => o.value)).toEqual(['captured', 'pending', 'error'])
-    expect(collectFieldValueOptions([], 'booking_status').map((o) => o.value)).toEqual(['created', 'rescheduled', 'cancelled'])
+    expect(collectFieldValueOptions([], 'booking_status').map((o) => o.value)).toEqual(['created', 'rescheduled', 'cancelled', 'needs_attention'])
     expect(collectFieldValueOptions([], 'voice_booking_confidence').map((o) => o.value)).toEqual(['high', 'medium', 'low'])
     expect(collectFieldValueOptions([], 'needs_review').map((o) => o.value)).toEqual(['true', 'false'])
   })

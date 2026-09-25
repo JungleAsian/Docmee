@@ -73,6 +73,16 @@ beforeEach(() => {
 })
 
 describe('runCalendarSyncRetry', () => {
+  it.each([null, 'event-existing'])('retries the appointment at its clinic-local time (event %s)', async (googleEventId) => {
+    const createEvent = vi.fn().mockResolvedValue('new-event')
+    const updateEvent = vi.fn().mockResolvedValue(undefined)
+    h.listCandidates.mockResolvedValue([candidate({ googleEventId, startTime: '2026-07-01T15:00:00.000Z', endTime: '2026-07-01T15:30:00.000Z' })])
+    h.findClinic.mockResolvedValue({ id: 'clinic-1', settings: {}, timezone: 'America/Guatemala' })
+    h.resolveCalendarConfig.mockResolvedValue({ ops: { createEvent, updateEvent, deleteEvent: vi.fn() } })
+    await runCalendarSyncRetry({} as never)
+    expect(googleEventId ? updateEvent : createEvent).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-07-01', time: '09:00' }))
+  })
+
   it('no calendar connected yet → row stays pending, no error recorded, no crash', async () => {
     h.listCandidates.mockResolvedValue([candidate()])
     h.findClinic.mockResolvedValue({ id: 'clinic-1', settings: {}, timezone: 'America/Guatemala' })

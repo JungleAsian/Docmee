@@ -21,6 +21,7 @@ import { WORKFLOW_NODE_TYPES, nodeDef, NODE_KIND_TONE, NODE_KIND_BADGE, branchRo
 import { isBranchingNode, resequenceLinearEdges } from '../workflowLinearEdges'
 import { insertControlledKbAgentPreset } from '../workflowAiAgentPreset'
 import { NodeConfigPanel } from './NodeConfigPanel'
+import { patchWorkflowNodeConfig, initialWorkflowNodeConfig } from '../workflowNodes'
 import { WorkflowNodeIcon } from './WorkflowNodeIcon'
 
 const TRIGGER_DEFS = WORKFLOW_NODE_TYPES.filter((d) => d.kind === 'trigger')
@@ -82,7 +83,7 @@ export function WorkflowLinearEditor({
       setAddPickerOpen(false)
       return
     }
-    const newStep: WfNode = { id: nextNodeId(nodes, def), kind: def.kind, type: def.type, config: {}, x: 0, y: 0 }
+    const newStep: WfNode = { id: nextNodeId(nodes, def), kind: def.kind, type: def.type, config: initialWorkflowNodeConfig(def.type), x: 0, y: 0 }
     const nextNodes = [...nodes, newStep]
     const nextBody = [...bodySteps, newStep]
     const nextSteps = trigger ? [trigger, ...nextBody] : nextBody
@@ -114,7 +115,7 @@ export function WorkflowLinearEditor({
   }
 
   const patchNodeConfig = (id: string, key: string, value: string) => {
-    onChange({ nodes: nodes.map((n) => (n.id === id ? { ...n, config: { ...n.config, [key]: value } } : n)), edges })
+    onChange({ nodes: nodes.map((n) => (n.id === id ? patchWorkflowNodeConfig(n, key, value) : n)), edges })
   }
 
   const changeStepType = (id: string, newType: string) => {

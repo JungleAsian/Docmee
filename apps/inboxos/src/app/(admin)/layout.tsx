@@ -15,6 +15,7 @@ import { HELP_UI, L } from '@/shared/help/content'
 import { Breadcrumbs } from '@/shared/components/Breadcrumbs'
 import { PlatformBackButton } from '@/shared/components/PlatformBackButton'
 import { PushOptIn } from '@/shared/components/PushOptIn'
+import { ProductUpdatesControl } from '@/shared/components/ProductUpdatesControl'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
 import { DocmeeLoader } from '@/shared/components/DocmeeLoader'
 import { AppFooter } from '@/shared/components/AppFooter'
@@ -137,6 +138,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           items: [
             { href: '/inbox', label: t('nav.backToInbox'), icon: <NavIcon name="inbox" /> },
             { href: '/help', label: L(HELP_UI.navHelp, language), icon: <NavIcon name="help" /> },
+            { href: '/updates', label: t('nav.productUpdates'), icon: <NavIcon name="updates" /> },
           ],
         },
       ]
@@ -239,6 +241,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </div>
               )}
             </div>
+            <ProductUpdatesControl />
             <PushOptIn />
             {user && (
               <div className="crm-user-profile">

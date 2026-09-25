@@ -23,6 +23,7 @@ const uiPreferencesSchema = z.object({
   railExpanded: z.boolean().optional(),
   conversationListExpanded: z.boolean().optional(),
   imageBannersVisible: z.boolean().optional(),
+  lastSeenProductUpdateId: z.string().trim().min(1).max(128).nullable().optional(),
 }).strict()
 
 const alertCategoriesSchema = z.object(

@@ -5,6 +5,7 @@ export interface UserUiPreferences {
   railExpanded: boolean
   conversationListExpanded: boolean
   imageBannersVisible: boolean
+  lastSeenProductUpdateId: string | null
 }
 
 export const DEFAULT_USER_UI_PREFERENCES: UserUiPreferences = {
@@ -17,6 +18,7 @@ export const DEFAULT_USER_UI_PREFERENCES: UserUiPreferences = {
   railExpanded: false,
   conversationListExpanded: true,
   imageBannersVisible: true,
+  lastSeenProductUpdateId: null,
 }
 
 function strings(value: unknown): string[] | null {
@@ -37,6 +39,10 @@ function stringMap(value: unknown): Record<string, string[]> | null {
 
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
 function appendMissing(saved: string[], allowed: readonly string[]): string[] {
@@ -60,6 +66,7 @@ export function normalizeUserUiPreferences(raw: unknown): UserUiPreferences {
     railExpanded: bool(input.railExpanded, DEFAULT_USER_UI_PREFERENCES.railExpanded),
     conversationListExpanded: bool(input.conversationListExpanded, DEFAULT_USER_UI_PREFERENCES.conversationListExpanded),
     imageBannersVisible: bool(input.imageBannersVisible, DEFAULT_USER_UI_PREFERENCES.imageBannersVisible),
+    lastSeenProductUpdateId: nonEmptyString(input.lastSeenProductUpdateId),
   }
 }
 

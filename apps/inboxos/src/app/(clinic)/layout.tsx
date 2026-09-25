@@ -18,6 +18,7 @@ import { ClinicBackButton } from '@/shared/components/ClinicBackButton'
 import { Sidebar, type NavGroup, type NavLink } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { NotificationBell } from '@/shared/components/NotificationBell'
+import { ProductUpdatesControl } from '@/shared/components/ProductUpdatesControl'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
 import { ClinicSwitcher } from '@/shared/components/ClinicSwitcher'
 import { DocmeeLoader } from '@/shared/components/DocmeeLoader'
@@ -37,6 +38,7 @@ const CLINIC_PAGE_LABELS: Array<[string, TranslationKey]> = [
   ['/calendar', 'nav.calendar'],
   ['/waitlist', 'nav.waitlist'],
   ['/help', 'nav.help'],
+  ['/updates', 'nav.productUpdates'],
   ['/analytics', 'nav.analytics'],
   ['/qos', 'nav.qos'],
   ['/reports', 'nav.reports'],
@@ -115,6 +117,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
     if (can(role, 'inbox') && show('alerts')) workspace.push({ href: '/alerts', label: t('nav.alerts'), icon: <NavIcon name="alerts" /> })
     if (can(role, 'calendar') && show('waitlist')) workspace.push({ href: '/waitlist', label: t('nav.waitlist'), icon: <NavIcon name="clock" /> })
     workspace.push({ href: '/help', label: t('nav.help'), icon: <NavIcon name="help" /> })
+    workspace.push({ href: '/updates', label: t('nav.productUpdates'), icon: <NavIcon name="updates" /> })
 
     const insights: NavLink[] = []
     // Req 40: the advanced analytics dashboard is additionally gated behind a
@@ -232,6 +235,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
                 </div>
               )}
             </div>
+            <ProductUpdatesControl />
             <NotificationBell />
             {user && (
               <div className="crm-user-profile">

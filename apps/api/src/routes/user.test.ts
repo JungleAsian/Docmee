@@ -10,6 +10,7 @@ vi.mock('@docmee/agents', async () => ({ SIMULATION_REPLAY_LIMITS: (await import
 const store = vi.hoisted(() => ({
   // endpoint -> { userId, clinicId, userEmail, p256dh, auth }
   subs: new Map<string, Record<string, unknown>>(),
+  uiPrefs: new Map<string, Record<string, unknown>>([['u-1', {}]]),
 }))
 
 vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../../../../packages/db/src/workflows/workflow-lifecycle.js')).normalizeWorkflowStatus,
@@ -27,7 +28,14 @@ vi.mock('@docmee/db', async () => ({ normalizeWorkflowStatus: (await import('../
     },
   }),
   // Touched by other routes registered in buildApp, but never invoked here.
-  createUsersRepository: () => ({}),
+  createUsersRepository: () => ({
+    getUiPreferences: async (_clinicId: string, userId: string) => store.uiPrefs.get(userId) ?? null,
+    setUiPreferences: async (userId: string, preferences: Record<string, unknown>) => {
+      if (!store.uiPrefs.has(userId)) return false
+      store.uiPrefs.set(userId, preferences)
+      return true
+    },
+  }),
 }))
 
 import { buildApp } from '../app.js'
@@ -121,5 +129,29 @@ describe('Web Push subscription routes (Req 39)', () => {
     expect(ok.statusCode).toBe(200)
     expect(JSON.parse(ok.body).removed).toBe(true)
     expect(store.subs.has(ENDPOINT)).toBe(false)
+  })
+
+  it('persists the acknowledged product update in the existing UI preferences', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/user/ui-preferences',
+      headers: auth,
+      payload: { lastSeenProductUpdateId: '2026-09-24-product-updates-center' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).preferences.lastSeenProductUpdateId).toBe('2026-09-24-product-updates-center')
+    expect(store.uiPrefs.get('u-1')?.['lastSeenProductUpdateId']).toBe('2026-09-24-product-updates-center')
+  })
+
+  it('rejects empty product-update acknowledgement identifiers', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/user/ui-preferences',
+      headers: auth,
+      payload: { lastSeenProductUpdateId: '   ' },
+    })
+
+    expect(res.statusCode).toBe(400)
   })
 })

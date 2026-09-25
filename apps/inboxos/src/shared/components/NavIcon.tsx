@@ -33,6 +33,7 @@ const ICONS: Record<string, Icon> = {
   users: Users,
   doctors: FirstAidKit,
   channels: Megaphone,
+  updates: Megaphone,
   integrations: LinkSimple,
   quickReplies: ChatCircleDots,
   templates: ListChecks,

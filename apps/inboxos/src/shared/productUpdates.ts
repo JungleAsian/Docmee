@@ -30,10 +30,10 @@ export const PRODUCT_UPDATES: ProductUpdate[] = [
     publishedAt: '2026-09-25T00:00:00.000Z',
     version: '2026.09.25',
     audience: 'admin',
-    title: { en: 'Teach your agent from the assistant', es: 'Enseña a tu agente desde el asistente' },
+    title: { en: 'Train J.zel from the assistant', es: 'Entrena a J.zel desde el asistente' },
     summary: {
-      en: 'Prepare and approve clinic knowledge in Teach the agent, then preview a workflow answer without sending a message.',
-      es: 'Prepara y aprueba información de la clínica en Enseñar al agente y prueba una respuesta del flujo sin enviar mensajes.',
+      en: 'Prepare and approve clinic knowledge in Train J.zel, then preview a workflow answer without sending a message.',
+      es: 'Prepara y aprueba información de la clínica en Entrenar a J.zel y prueba una respuesta del flujo sin enviar mensajes.',
     },
     highlights: [
       { en: 'Choose the clinic, doctor and language. Review the exact entry and related knowledge before confirming.', es: 'Elige la clínica, el médico y el idioma. Revisa la entrada exacta y la información relacionada antes de confirmar.' },

@@ -1,6 +1,6 @@
 export const teachingCopy = {
   en: {
-    mode: 'Teach the agent', chat: 'Chat', clinic: 'Teaching clinic', doctor: 'Doctor', allDoctors: 'Whole clinic',
+    mode: 'Train J.zel', chat: 'Chat', clinic: 'Teaching clinic', doctor: 'Doctor', allDoctors: 'Whole clinic',
     recent: 'Recent lessons in this scope', resume: 'Open lesson',
     language: 'Knowledge language', allLanguages: 'Any language', intro: 'Write a clinic fact or correction. A draft stays private until you review and approve it.',
     title: 'Entry title', content: 'What should the agent know?', target: 'Add or update', newEntry: 'Add a new entry',
@@ -34,7 +34,7 @@ export const teachingCopy = {
     } as Record<string, string>,
   },
   es: {
-    mode: 'Enseñar al agente', chat: 'Chat', clinic: 'Clínica de destino', doctor: 'Doctor', allDoctors: 'Toda la clínica',
+    mode: 'Entrenar a J.zel', chat: 'Chat', clinic: 'Clínica de destino', doctor: 'Doctor', allDoctors: 'Toda la clínica',
     recent: 'Lecciones recientes en este alcance', resume: 'Abrir lección',
     language: 'Idioma del conocimiento', allLanguages: 'Cualquier idioma', intro: 'Escribe un dato o una corrección de la clínica. El borrador no se publica hasta que lo revises y apruebes.',
     title: 'Título de la entrada', content: '¿Qué debe saber el agente?', target: 'Añadir o actualizar', newEntry: 'Añadir una entrada',

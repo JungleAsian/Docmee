@@ -28,7 +28,7 @@ export function teachingAvailability(candidate: { status: string; publishedDocum
 
 const route: FastifyPluginAsync = async app => {
   app.addHook('preHandler', requireAuth)
-  app.addHook('preHandler', requireRole('clinic_admin', 'ia_studio_admin'))
+  app.addHook('preHandler', requireRole('ia_studio_admin'))
   app.addHook('preHandler', async (request, reply) => {
     if (!resolveClinicScope(request, (request.params as { id: string }).id)) return reply.code(403).send({ error: 'Forbidden' })
   })

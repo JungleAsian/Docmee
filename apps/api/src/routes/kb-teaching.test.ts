@@ -14,7 +14,7 @@ vi.mock('@docmee/db', () => ({
 vi.mock('../lib/teaching-preview.js', () => ({ previewTeachingAnswer: m.preview }))
 import route, { teachingAvailability } from './kb-teaching.js'
 const id = '00000000-0000-4000-8000-000000000001'
-const auth = (role: 'secretary'|'clinic_admin'|'ia_studio_admin' = 'clinic_admin') =>
+const auth = (role: 'secretary'|'clinic_admin'|'ia_studio_admin' = 'ia_studio_admin') =>
   ({ authorization: `Bearer ${signAccessToken({ userId: 'reviewer', email: 'reviewer@example.test', clinicId: 'clinic-a', role })}` })
 async function inject(path: string, payload?: object, headers: Record<string, string> = auth()) {
   const app = Fastify(); await app.register(route)
@@ -24,11 +24,11 @@ async function inject(path: string, payload?: object, headers: Record<string, st
 const draft = { title: 'Opening hours', content: 'We open at 9 AM.', doctorId: null, language: 'en' }
 describe('J.zel teaching authorization and exact drafts', () => {
   beforeEach(() => { vi.clearAllMocks(); m.draft.mockResolvedValue({ id: 'draft', status: 'pending_review' }) })
-  it('rejects anonymous, secretary and foreign-clinic writes before repository access', async () => {
+  it('rejects anonymous and every non-superuser before repository access', async () => {
     const url = '/clinics/clinic-a/kb/teaching/drafts'
     expect((await inject(url, draft, {})).statusCode).toBe(401)
     expect((await inject(url, draft, auth('secretary'))).statusCode).toBe(403)
-    expect((await inject('/clinics/clinic-b/kb/teaching/drafts', draft)).statusCode).toBe(403)
+    expect((await inject(url, draft, auth('clinic_admin'))).statusCode).toBe(403)
     expect(m.draft).not.toHaveBeenCalled()
   })
   it('uses the explicit selected clinic for superusers and the authenticated actor', async () => {

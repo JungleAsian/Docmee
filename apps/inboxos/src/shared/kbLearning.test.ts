@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canReviewLearning, matchesLearningSearch, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type LearningCandidate, type LearningHistory } from './kbLearning'
+import { canReviewLearning, canTeachAgent, matchesLearningSearch, reviewCommand, reviewUnavailable, rollbackSnapshots, scorePercent, type LearningCandidate, type LearningHistory } from './kbLearning'
 
 const candidate = { id: 'candidate-a', clinicId: 'clinic-a', revision: 7, status: 'pending_review', expiresAt: '2099-01-01T00:00:00Z' } as LearningCandidate
 describe('learning review boundaries', () => {
@@ -17,6 +17,13 @@ describe('learning review boundaries', () => {
     expect(canReviewLearning({ role: 'clinic_admin', clinicId: 'clinic-a', clinicIds: ['clinic-b'] }, 'clinic-b')).toBe(true)
     expect(canReviewLearning({ role: 'ia_studio_admin', clinicId: 'clinic-a' }, 'clinic-b')).toBe(true)
     expect(canReviewLearning({ role: 'ia_studio_admin', clinicId: 'clinic-a' }, '')).toBe(false)
+  })
+  it('allows only studio administrators to teach the agent', () => {
+    expect(canTeachAgent(null)).toBe(false)
+    expect(canTeachAgent({ role: 'secretary' })).toBe(false)
+    expect(canTeachAgent({ role: 'doctor' })).toBe(false)
+    expect(canTeachAgent({ role: 'clinic_admin' })).toBe(false)
+    expect(canTeachAgent({ role: 'ia_studio_admin' })).toBe(true)
   })
   it('captures clinic, current candidate and expected revision, not an ancestor target', () => {
     expect(reviewCommand('clinic-a', { ...candidate, status: 'approved' }, 'rollback', '', true, { historyId: 'approved-history' })).toEqual({ clinicId: 'clinic-a', candidateId: 'candidate-a', expectedRevision: 7, action: 'rollback', historyId: 'approved-history', staffConfirmed: true })

@@ -43,6 +43,10 @@ export interface ReviewCommand {
 }
 export interface ReviewResult { candidate: LearningCandidate; indexing: 'queued' | 'failed' | 'unchanged' }
 
+export function canTeachAgent(user: Pick<AuthUser, 'role'> | null | undefined): boolean {
+  return user?.role === 'ia_studio_admin'
+}
+
 export function canReviewLearning(user: Pick<AuthUser, 'role' | 'clinicId' | 'clinicIds'> | null | undefined, clinicId: string): boolean {
   if (!user || !clinicId) return false
   return user.role === 'ia_studio_admin'

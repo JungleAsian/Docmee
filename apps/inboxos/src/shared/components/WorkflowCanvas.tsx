@@ -839,7 +839,6 @@ function WorkflowCanvasInner({
         position,
         parentId,
         extent: parentId ? 'parent' : undefined,
-        selected: selection.includes(n.id),
         ariaLabel: `${label(n.type)}${inPath ? ` — ${language === 'es' ? 'ruta seleccionada' : 'selected path'}` : ''}`,
         style: { opacity: appearance.nodeOpacity },
         data: {
@@ -915,7 +914,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, projection, routeByEdge, selection, toggleGroup, ungroup, renameGroup, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
+  }, [nodes, edges, projection, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -1215,6 +1214,8 @@ function WorkflowCanvasInner({
           addNode(def, undefined, screenToFlowPosition({ x: e.clientX, y: e.clientY }))
         }}
       >
+        {/* React Flow applies selection through handleNodesChange. Keeping
+            selection out of the derived graph prevents a setNodes loop. */}
         <ReactFlow
           nodes={rfNodes}
           edges={rfEdges}

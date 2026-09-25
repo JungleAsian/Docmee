@@ -272,7 +272,6 @@ describe('Docmee assistant route branding', () => {
   })
 
   it('uses question-aware product help, reports its source, and does not create a knowledge gap', async () => {
-    state.hasKey = true
     state.useHelp = true
 
     const response = await app.inject({
@@ -285,7 +284,8 @@ describe('Docmee assistant route branding', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(state.systems.at(-1)).toContain('Admin Studio > Channels')
+    expect(response.json().reply).toContain('Channels & Integrations: open Admin Studio > Channels')
+    expect(state.systems).toEqual([])
     expect(state.recordAttempt).not.toHaveBeenCalled()
     expect(response.json().diagnostics.sources).toEqual([{
       documentId: 'docmee-help:channels-integrations',

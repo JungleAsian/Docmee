@@ -116,9 +116,12 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
     // ── Help grounding (bounded and selected from the server-owned catalog) ──
     const help =
       ai.useHelp ? helpForJzelQuestion(message, body.route) : null
+    const helpDiagnosticSource = help
+      ? { documentId: `docmee-help:${help.id}`, title: help.source, documentVersion: 1 }
+      : null
     const diagnosticSources = [
       ...kb.sources,
-      ...(help ? [{ documentId: `docmee-help:${help.id}`, title: help.source, documentVersion: 1 }] : []),
+      ...(helpDiagnosticSource ? [helpDiagnosticSource] : []),
     ]
 
     const context =
@@ -130,6 +133,24 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
         .join('\n\n') || '(No Knowledge Base or Help content is available for this question.)'
     if (!isWithinJzelTotalBudget(message, historyBudget.chars, context)) {
       return reply.code(413).send({ error: 'input_too_large' })
+    }
+
+    // Product guidance comes from a small server-owned catalog. Return the
+    // selected article directly so stale chat history or provider variance
+    // cannot replace authoritative help with a generic fallback.
+    if (help) {
+      return {
+        reply: help.text,
+        name: ai.name,
+        sources: [{ type: 'help', source: help.source }],
+        diagnostics: {
+          clinic: { id: clinic.id, name: clinic.name },
+          workflowNode: null,
+          kbMatches: kb.matches,
+          retrievalMode: kb.mode,
+          sources: [helpDiagnosticSource],
+        },
+      }
     }
 
     const clinicPersona = ai.persona.trim()

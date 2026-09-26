@@ -597,6 +597,10 @@ const clinicsRoute: FastifyPluginAsync = async (app) => {
       if (data.messengerPageAccessToken) data.messengerPageAccessToken = encryptValue(data.messengerPageAccessToken)
       if (data.instagramPageAccessToken) data.instagramPageAccessToken = encryptValue(data.instagramPageAccessToken)
       const isStudioAdmin = request.user?.role === 'ia_studio_admin'
+      const incomingAiAssistant = isRecord(data.settings) ? data.settings.aiAssistant : undefined
+      if (isRecord(incomingAiAssistant) && incomingAiAssistant.chatProvider === 'claude_cli' && !isStudioAdmin) {
+        return reply.code(403).send({ error: 'claude_cli_superuser_required' })
+      }
       const incomingGuardrails = isRecord(data.settings) ? data.settings.guardrails : undefined
       if (incomingGuardrails !== undefined) {
         const guardrails = guardrailsSchema.safeParse(incomingGuardrails)

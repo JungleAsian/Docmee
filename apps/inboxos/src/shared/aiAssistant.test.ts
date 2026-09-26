@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EMBED_PROVIDERS, readAiAssistant } from './aiAssistant.js'
+import { CHAT_PROVIDERS, EMBED_PROVIDERS, readAiAssistant } from './aiAssistant.js'
 
 describe('Docmee assistant configuration', () => {
   it('uses the current product name for new clinic configurations', () => {
@@ -10,6 +10,12 @@ describe('Docmee assistant configuration', () => {
     expect(readAiAssistant({ aiAssistant: { name: 'J.zel' } } as never).name).toBe('Docmee')
     expect(readAiAssistant({ aiAssistant: { name: 'J.Zel' } } as never).name).toBe('J.Zel')
     expect(readAiAssistant({ aiAssistant: { name: 'J.zel Dental' } } as never).name).toBe('J.zel Dental')
+  })
+
+  it('recognizes the managed Claude CLI setting without changing the default', () => {
+    expect(readAiAssistant({ aiAssistant: { chatProvider: 'claude_cli' } } as never).chatProvider).toBe('claude_cli')
+    expect(CHAT_PROVIDERS.map((provider) => provider.id)).toContain('claude_cli')
+    expect(readAiAssistant({ aiAssistant: { intentProvider: 'claude_cli' } } as never).intentProvider).toBe('deepseek')
   })
 
   it('keeps the valid local default selectable', () => {

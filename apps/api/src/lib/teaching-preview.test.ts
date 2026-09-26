@@ -67,6 +67,12 @@ describe('workflow teaching preview without delivery or learning writes', () => 
     expect(m.consistency).not.toHaveBeenCalled()
     // Repository mocks deliberately expose no recordAttempt, messaging, approval or run methods.
   })
+  it('fails closed instead of using the staff-only CLI transport for a patient preview', async () => {
+    const cliClinic = { ...clinic, settings: { aiAssistant: { chatProvider: 'claude_cli' } } } as Clinic
+    const result = await previewTeachingAnswer({} as Sql, cliClinic, node, { question: 'When do you open?', doctorId: 'doctor', language: 'en' })
+    expect(result).toMatchObject({ action: 'handoff', reason: 'managed_cli_not_available', answer: '', sent: false })
+    expect(m.complete).not.toHaveBeenCalled()
+  })
   it('falls back to lexical retrieval during embedding failure and rechecks fallback answer confidence', async () => {
     m.embed.mockRejectedValueOnce(new Error('offline'))
     m.complete.mockResolvedValueOnce('SCENARIO: faq\nCONFIDENCE: 0.99\nREPLY:')

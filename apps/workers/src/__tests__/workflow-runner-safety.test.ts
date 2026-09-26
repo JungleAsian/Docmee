@@ -236,6 +236,16 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason, answer: '' }))
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain('secret-token')
   })
+  it('hands off before generation when the clinic selects the staff-only managed CLI', async () => {
+    h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinic', timezone: 'UTC', settings: { aiAssistant: { chatProvider: 'claude_cli' } } })
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent({ id: 'managed-cli', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: 'hours?', conversationId: 'conversation-1' })).toBe('handoff')
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.chatComplete).not.toHaveBeenCalled()
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'managed_cli_not_available', answer: '' }))
+  })
   it.each(['doctor_reassigned', 'governance_excluded'])('rechecks scope after generation for %s', async reason => {
     h.sourcesCurrent.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {

@@ -1189,6 +1189,13 @@ function buildExecutors(
           : '',
       ].filter(Boolean).join('\n\n')
       const ai = (clinic.settings as { aiAssistant?: { chatProvider?: string; model?: string; baseURL?: string } }).aiAssistant ?? {}
+      if (ai.chatProvider === 'claude_cli') {
+        await recordOutcome('', null, 'managed_cli_not_available')
+        ctx['ai_agent_action'] = 'handoff'
+        await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'managed_cli_not_available')
+        await notify('The AI Agent requires a team handoff.', ctx)
+        return 'handoff'
+      }
       const agentSettings = resolveAiAgentSettings(node.config ?? {}, ai)
       let raw: string
       try {

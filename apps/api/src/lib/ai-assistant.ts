@@ -8,6 +8,7 @@ import {
   defaultChatModel,
   embed,
   type ChatProvider,
+  type ManagedChatProvider,
   type IntentProvider,
   type EmbedProvider,
 } from '@docmee/llm'
@@ -15,12 +16,12 @@ import { resolveClinicAiKey } from './clinic-ai-key.js'
 
 // Claude model menu (used when chatProvider === 'claude'); other providers take a free-text model.
 export const AI_MODELS = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5']
-export const CHAT_PROVIDERS: ChatProvider[] = ['claude', 'openai', 'custom', 'gemini']
+export const CHAT_PROVIDERS: ManagedChatProvider[] = ['claude', 'claude_cli', 'openai', 'custom', 'gemini']
 
 export interface AiAssistantConfig {
   enabled: boolean
   /** Chat backend: claude | openai | custom (OpenAI-compatible) | gemini. */
-  chatProvider: ChatProvider
+  chatProvider: ManagedChatProvider
   /** Model id for the chosen provider. */
   model: string
   /** Base URL for the 'custom' provider (OpenAI-compatible endpoint). */
@@ -38,12 +39,12 @@ export interface AiAssistantConfig {
   kbThreshold: number
 }
 
-function validProvider(v: unknown): v is ChatProvider {
-  return v === 'claude' || v === 'openai' || v === 'custom' || v === 'gemini'
+function validProvider(v: unknown): v is ManagedChatProvider {
+  return v === 'claude' || v === 'claude_cli' || v === 'openai' || v === 'custom' || v === 'gemini'
 }
 
 function validIntentProvider(v: unknown): v is IntentProvider {
-  return v === 'deepseek' || validProvider(v)
+  return v === 'deepseek' || (v !== 'claude_cli' && validProvider(v))
 }
 
 function validEmbedProvider(v: unknown): v is EmbedProvider {
@@ -62,7 +63,7 @@ export function readAiAssistant(clinic: Clinic): AiAssistantConfig {
   const model =
     typeof raw.model === 'string' && raw.model.trim() !== ''
       ? raw.model.trim()
-      : defaultChatModel(chatProvider)
+      : defaultChatModel(chatProvider === 'claude_cli' ? 'claude' : chatProvider)
   return {
     enabled: raw.enabled !== false,
     chatProvider,
@@ -90,11 +91,14 @@ type Complete = (
  * Raw provider-dispatched `complete()` for this clinic (no persona prepend): picks
  * the clinic's chat provider + model + key (Integrations → env fallback) + baseURL.
  */
-export function resolveChat(cfg: AiAssistantConfig, settings: unknown): Complete {
-  const apiKey = resolveClinicAiKey(settings, cfg.chatProvider)
+export function resolveChat(cfg: AiAssistantConfig, settings: unknown, clinicId?: string, allowClaudeCli = false): Complete {
+  const useManagedCli = cfg.chatProvider === 'claude_cli'
+  const provider: ChatProvider = useManagedCli ? 'claude' : cfg.chatProvider as ChatProvider
+  const apiKey = useManagedCli ? undefined : resolveClinicAiKey(settings, provider)
   return (system, userMessage, maxTokens, history) =>
     chatComplete({
-      provider: cfg.chatProvider,
+      provider,
+      transport: useManagedCli ? 'claude_cli' : undefined,
       system,
       message: userMessage,
       history: history ?? [],
@@ -102,6 +106,8 @@ export function resolveChat(cfg: AiAssistantConfig, settings: unknown): Complete
       apiKey,
       model: cfg.model,
       baseURL: cfg.baseURL,
+      clinicId,
+      allowClaudeCli,
     })
 }
 

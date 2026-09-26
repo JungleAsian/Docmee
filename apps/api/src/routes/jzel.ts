@@ -11,6 +11,7 @@ import { createClinicsRepository, createKnowledgeLearningRepository, createKnowl
 import { aiAgentHandoffReason, assessKbAnswer, capPatientInput, detectPromptInjection, knowledgeHandoffNotice, medicalSafetyDeferral, parseAiAgentCompletion, parseAiAnswerConfidence, retrieveKbEvidence, screenMedicalSafety, screenPromptLeak, wrapUntrustedKb } from '@docmee/agents'
 import { readAiAssistant, resolveChat, resolveEmbed } from '../lib/ai-assistant.js'
 import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
+import { isClaudeCliAvailable } from '@docmee/llm'
 import { personaForRole } from '../lib/jzel-personas.js'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -36,7 +37,9 @@ function hasChatProviderCredential(
   ai: ReturnType<typeof readAiAssistant>,
   settings: unknown,
 ): boolean {
-  return Boolean(resolveClinicAiKey(settings, ai.chatProvider))
+  return ai.chatProvider === 'claude_cli'
+    ? isClaudeCliAvailable()
+    : Boolean(resolveClinicAiKey(settings, ai.chatProvider))
 }
 
 async function buildKbGrounding(input: {
@@ -181,7 +184,7 @@ ${context}`,
     try {
       const injection = detectPromptInjection(message)
       if (injection.detected) request.log.warn({ clinicId, pattern: injection.patternId }, 'jzel prompt injection detected')
-      const complete = resolveChat(ai, clinic.settings)
+      const complete = resolveChat(ai, clinic.settings, clinicId, true)
       const startedAt = Date.now()
       const raw = await complete(system, capPatientInput(message), 700, history)
       const text = parseAiAgentCompletion(raw).reply
@@ -295,7 +298,7 @@ ${context}`,
             'Docmee needs this clinic’s own AI provider key before it can answer. Add a clinic-specific provider key in Integrations or AI Assistant settings.',
         })
       }
-      const complete = resolveChat(ai, clinic.settings)
+      const complete = resolveChat(ai, clinic.settings, clinicId, true)
       const text = await complete(system, message, 500, [])
       return {
         ok: true,
@@ -350,7 +353,7 @@ ${context}`,
 
     let status: 'connected' | 'error' = 'connected'
     try {
-      const complete = resolveChat(ai, clinic.settings)
+      const complete = resolveChat(ai, clinic.settings, clinicId, true)
       await complete('You are a connectivity check.', 'ping', 1, [])
     } catch (err) {
       status = 'error'

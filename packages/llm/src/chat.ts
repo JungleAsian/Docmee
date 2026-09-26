@@ -7,14 +7,18 @@
 import OpenAI from 'openai'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { claudeComplete } from './providers/claude.js'
+import { claudeCliComplete } from './providers/claude-cli.js'
 
 export type ChatProvider = 'claude' | 'openai' | 'custom' | 'gemini'
+export type ManagedChatProvider = ChatProvider | 'claude_cli'
 export interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
 }
 export interface ChatOpts {
   provider: ChatProvider
+  /** Staff gateway only; patient paths must never set this transport. */
+  transport?: 'claude_cli'
   system: string
   message: string
   history?: ChatTurn[]
@@ -23,6 +27,10 @@ export interface ChatOpts {
   model: string
   /** Base URL for the 'custom' (OpenAI-compatible) provider. */
   baseURL?: string
+  /** Explicit boundary: only approved staff routes may use the shared CLI. */
+  allowClaudeCli?: boolean
+  /** Required for the managed CLI's per-clinic capacity accounting. */
+  clinicId?: string
 }
 
 const DEFAULT_CHAT_MODEL: Record<ChatProvider, string> = {
@@ -39,6 +47,7 @@ export function defaultChatModel(provider: ChatProvider): string {
 
 /** Provider-agnostic chat completion. Returns the assistant's text. */
 export async function chatComplete(opts: ChatOpts): Promise<string> {
+  if (opts.transport === 'claude_cli') return claudeCliComplete(opts)
   if (process.env['LLM_STUB'] === 'true') return 'STUB_RESPONSE'
   switch (opts.provider) {
     case 'openai':

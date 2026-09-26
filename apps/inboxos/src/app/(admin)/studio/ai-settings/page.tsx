@@ -197,11 +197,13 @@ function AiAssistantSection({
   ai,
   saving,
   locked,
+  allowClaudeCli,
   onPatch,
 }: {
   ai: AiAssistantConfig
   saving: boolean
   locked: boolean
+  allowClaudeCli: boolean
   onPatch: (next: Partial<AiAssistantConfig>) => void
 }) {
   const { t } = useI18n()
@@ -220,7 +222,7 @@ function AiAssistantSection({
   // Switching provider resets the model to that provider's default and clears the
   // base URL for non-custom providers (auto-saved immediately).
   function changeProvider(p: ChatProvider) {
-    if (locked) return
+    if (locked || (!allowClaudeCli && p === 'claude_cli')) return
     const nextModel = DEFAULT_CHAT_MODEL[p]
     const nextBaseURL = p === 'custom' ? baseURL : ''
     setModel(nextModel)
@@ -267,7 +269,7 @@ function AiAssistantSection({
             onChange={(e) => changeProvider(e.target.value as ChatProvider)}
             className={`${field} mt-1`}
           >
-            {CHAT_PROVIDERS.map((p) => (
+            {CHAT_PROVIDERS.filter((p) => allowClaudeCli || p.id !== 'claude_cli' || ai.chatProvider === 'claude_cli').map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label} — {p.hint}
               </option>
@@ -433,6 +435,7 @@ function AiAssistantSection({
 function AiAssistantConfigSection({ clinic }: { clinic: Clinic }) {
   const qc = useQueryClient()
   const jzelConfigLocked = useAuthStore((s) => s.user?.jzelEnabled === false)
+  const isSuperuser = useAuthStore((s) => s.user?.role === 'ia_studio_admin')
   const settings = clinic.settings as ClinicSettings
   const ai = readAiAssistant(settings)
 
@@ -445,12 +448,15 @@ function AiAssistantConfigSection({ clinic }: { clinic: Clinic }) {
     },
   })
 
+  const cliConfigurationLocked = !isSuperuser && ai.chatProvider === 'claude_cli'
+  const aiConfigurationLocked = jzelConfigLocked || cliConfigurationLocked
+
   function patchAiAssistant(next: Partial<AiAssistantConfig>) {
-    if (jzelConfigLocked) return
+    if (aiConfigurationLocked) return
     save.mutate(next)
   }
 
-  return <AiAssistantSection ai={ai} saving={save.isPending} locked={jzelConfigLocked} onPatch={patchAiAssistant} />
+  return <AiAssistantSection ai={ai} saving={save.isPending} locked={aiConfigurationLocked} allowClaudeCli={isSuperuser} onPatch={patchAiAssistant} />
 }
 
 const GUARDRAIL_PRESETS = {

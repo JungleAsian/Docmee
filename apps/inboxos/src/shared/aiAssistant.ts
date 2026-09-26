@@ -6,15 +6,16 @@
 // Keep pure (no I/O) so it stays trivially testable.
 import type { ClinicSettings } from './types'
 
-export type ChatProvider = 'claude' | 'openai' | 'custom' | 'gemini'
+export type ChatProvider = 'claude' | 'claude_cli' | 'openai' | 'custom' | 'gemini'
 /** Intent-classification backends. DeepSeek is the default; chat providers can also classify. */
-export type IntentProvider = 'deepseek' | ChatProvider
+export type IntentProvider = 'deepseek' | Exclude<ChatProvider, 'claude_cli'>
 /** KB embedding backends (Anthropic has no embeddings, so Claude/DeepSeek are excluded). */
 export type EmbedProvider = 'local' | 'openai' | 'gemini' | 'custom'
 
 /** Chat providers a clinic can pick for J.zel, in menu order. */
 export const CHAT_PROVIDERS: { id: ChatProvider; label: string; hint: string }[] = [
   { id: 'claude', label: 'Claude (Anthropic)', hint: 'Default' },
+  { id: 'claude_cli', label: 'Claude CLI (Docmee managed)', hint: 'Staff-only shared capacity' },
   { id: 'openai', label: 'OpenAI (GPT-4o)', hint: 'GPT models' },
   { id: 'custom', label: 'Custom / OpenAI-compatible', hint: 'Azure · Groq · OpenRouter · self-hosted' },
   { id: 'gemini', label: 'Google Gemini', hint: 'Gemini models' },
@@ -46,6 +47,7 @@ export const AI_MODELS = [
 /** Model suggestions per provider for the datalist (free-text still allowed). */
 export const MODEL_SUGGESTIONS: Record<ChatProvider, string[]> = {
   claude: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+  claude_cli: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o4-mini'],
   gemini: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
   custom: [],
@@ -53,6 +55,7 @@ export const MODEL_SUGGESTIONS: Record<ChatProvider, string[]> = {
 
 export const DEFAULT_CHAT_MODEL: Record<ChatProvider, string> = {
   claude: 'claude-opus-4-8',
+  claude_cli: 'claude-opus-4-8',
   openai: 'gpt-4o',
   custom: '',
   gemini: 'gemini-2.0-flash',
@@ -96,11 +99,11 @@ export const DEFAULT_AI_ASSISTANT: AiAssistantConfig = {
 }
 
 function isProvider(value: unknown): value is ChatProvider {
-  return value === 'claude' || value === 'openai' || value === 'custom' || value === 'gemini'
+  return value === 'claude' || value === 'claude_cli' || value === 'openai' || value === 'custom' || value === 'gemini'
 }
 
 function isIntentProvider(value: unknown): value is IntentProvider {
-  return value === 'deepseek' || isProvider(value)
+  return value === 'deepseek' || (value !== 'claude_cli' && isProvider(value))
 }
 
 function isEmbedProvider(value: unknown): value is EmbedProvider {

@@ -18,7 +18,7 @@ export type Intent =
   | 'out_of_scope'
 
 /** DeepSeek (default) or any chat provider can do intent classification. */
-export type IntentProvider = 'deepseek' | ChatProvider
+export type IntentProvider = 'deepseek' | Exclude<ChatProvider, 'claude_cli'>
 
 const INTENTS: Intent[] = [
   'greeting',

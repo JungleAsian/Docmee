@@ -19,6 +19,7 @@ vi.mock('@docmee/db', async () => ({
   createServiceDbClient: () => ({ end: async () => {} }),
   createClinicsRepository: () => ({ findById, update, list: async () => [] }),
   createAuditRepository: () => ({ log: auditLog }),
+  createUsersRepository: () => ({ getNotificationPrefs: async () => ({}) }),
   createConversationsRepository: () => ({}),
   createPatientsRepository: () => ({}),
 }))
@@ -87,6 +88,17 @@ describe('PATCH /clinics/:id guardrails', () => {
     expect(update).toHaveBeenCalledTimes(1)
   })
 
+  it('allows only a superuser to select the managed Claude CLI transport', async () => {
+    const payload = { settings: { aiAssistant: { chatProvider: 'claude_cli' } } }
+    const clinicAdminResponse = await app.inject({ method: 'PATCH', url: '/clinics/c-1', headers: clinicAdminAuth, payload })
+    expect(clinicAdminResponse.statusCode).toBe(403)
+    expect(clinicAdminResponse.json()).toMatchObject({ error: 'claude_cli_superuser_required' })
+    expect(update).not.toHaveBeenCalled()
+
+    const superuserResponse = await app.inject({ method: 'PATCH', url: '/clinics/c-1', headers: superuserAuth, payload })
+    expect(superuserResponse.statusCode).toBe(200)
+    expect(update).toHaveBeenCalledTimes(1)
+  })
   it('rejects malformed or unsafe guardrail settings before updating the clinic', async () => {
     const response = await app.inject({
       method: 'PATCH',

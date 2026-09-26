@@ -41,9 +41,12 @@ export async function previewTeachingAnswer(sql: Sql, clinic: Clinic, node: Work
     preferredLanguage ? `The patient selected ${preferredLanguage} for this workflow. Reply in ${preferredLanguage} unless the patient explicitly asks to switch languages.` : '',
   ].filter(Boolean).join('\n\n')
   const ai = readAiAssistant(clinic)
+  if (ai.chatProvider === 'claude_cli') return result('handoff', 'managed_cli_not_available', '', sources)
   const settings = resolveAiAgentSettings(node.config ?? {}, { chatProvider: ai.chatProvider, model: ai.model })
-  const complete = (prompt: string) => withAiAgentReplyTimeout(chatComplete({ provider: settings.provider, model: settings.model || defaultChatModel(settings.provider),
-    apiKey: resolveClinicAiKey(clinic.settings, settings.provider), baseURL: ai.baseURL || undefined, history: [],
+  const provider = settings.provider
+  if ((provider as string) === 'claude_cli') return result('handoff', 'managed_cli_not_available', '', sources)
+  const complete = (prompt: string) => withAiAgentReplyTimeout(chatComplete({ provider, model: settings.model || defaultChatModel(provider),
+    apiKey: resolveClinicAiKey(clinic.settings, provider), baseURL: ai.baseURL || undefined, history: [],
     maxTokens: settings.maxTokens, system: prompt, message }))
   let raw = await complete(system)
   const parsed = parseAiAgentCompletion(raw)

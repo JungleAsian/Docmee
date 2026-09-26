@@ -347,7 +347,7 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       const language =
         (clinic.settings as { botLanguage?: unknown }).botLanguage === 'en' ? 'en' : 'es'
       try {
-        const complete = resolveChat(ai, clinic.settings)
+        const complete = resolveChat(ai, clinic.settings, clinic.id, true)
         const rules = clinicRulesText(clinic)
         const system =
           `You configure WhatsApp automations for a medical clinic. From the list of templates, choose the single best-fit template for the clinic's goal, and write a short workflow name and a warm, professional opening WhatsApp greeting. ` +

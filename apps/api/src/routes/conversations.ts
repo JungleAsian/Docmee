@@ -234,9 +234,14 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
             rows.filter((c) => c.assignedTo == null)
           : rows.filter((c) => c.assignedTo === assignedTo)
 
+      // The inbox requests a bounded page every ten seconds. Keep its enrichment
+      // queries bounded to that page too: scanning a clinic's complete tag, message,
+      // and patient history on every refresh grows without limit.
+      const conversationIds = filtered.map((conversation) => conversation.id)
+
       // Req 20: attach each conversation's tag names so the list can flag urgent /
       // safety threads at a glance. One grouped query instead of an N+1 per row.
-      const tagRows = await repo.listTagNamesByClinic(clinicId)
+      const tagRows = await repo.listTagNamesByClinic(clinicId, conversationIds)
       const tagsByConversation = new Map<string, string[]>()
       for (const { conversationId, name } of tagRows) {
         const list = tagsByConversation.get(conversationId)
@@ -247,7 +252,7 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
       // Req 4/35: attach each thread's most recent message so the list row can show
       // a preview (the inbox's row preview line). One DISTINCT ON query, not an
       // N+1 per row — mirrors the tag-name fan-in above.
-      const lastMessageRows = await repo.listLastMessageByClinic(clinicId)
+      const lastMessageRows = await repo.listLastMessageByClinic(clinicId, conversationIds)
       const lastByConversation = new Map<string, { content: string; contentType: string; role: string }>()
       for (const { conversationId, content, contentType, role } of lastMessageRows) {
         lastByConversation.set(conversationId, { content, contentType, role })
@@ -256,7 +261,7 @@ const conversationsRoute: FastifyPluginAsync = async (app) => {
       // Attach each thread's patient name so the list row (and thread header) can show
       // who the patient is rather than the raw phone/handle. One join query, not an
       // N+1 — mirrors the tag-name fan-in above. Absent for unnamed/unlinked patients.
-      const patientNameRows = await repo.listPatientNamesByClinic(clinicId)
+      const patientNameRows = await repo.listPatientNamesByClinic(clinicId, conversationIds)
       const patientNameByConversation = new Map<string, string>()
       for (const { conversationId, patientName } of patientNameRows) {
         patientNameByConversation.set(conversationId, patientName)

@@ -97,7 +97,10 @@ export interface ConversationsRepository {
    * without an N+1 fetch (Req 20 — urgent/emergency must be unmistakable in the
    * list, not only in the open conversation's tag panel).
    */
-  listTagNamesByClinic(clinicId: string): Promise<Array<{ conversationId: string; name: string }>>
+  listTagNamesByClinic(
+    clinicId: string,
+    conversationIds?: string[],
+  ): Promise<Array<{ conversationId: string; name: string }>>
   /**
    * The single most recent message of every conversation in a clinic, in one query
    * (DISTINCT ON the conversation, newest first). Lets the conversation-list endpoint
@@ -106,6 +109,7 @@ export interface ConversationsRepository {
    */
   listLastMessageByClinic(
     clinicId: string,
+    conversationIds?: string[],
   ): Promise<Array<{ conversationId: string; content: string; contentType: string; role: string }>>
   /**
    * Every (conversationId, patient full name) pair for a clinic where the thread is
@@ -117,6 +121,7 @@ export interface ConversationsRepository {
    */
   listPatientNamesByClinic(
     clinicId: string,
+    conversationIds?: string[],
   ): Promise<Array<{ conversationId: string; patientName: string }>>
   /** Distinct tags linked to any of a patient's conversations (patient history view). */
   listTagsForPatient(clinicId: string, patientId: string): Promise<ConversationTag[]>
@@ -322,17 +327,20 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
       `
     },
 
-    async listTagNamesByClinic(clinicId) {
+    async listTagNamesByClinic(clinicId, conversationIds) {
+      if (conversationIds?.length === 0) return []
       return sql<Array<{ conversationId: string; name: string }>>`
         SELECT l.conversation_id, t.name
         FROM conversation_tag_links l
         JOIN conversation_tags t ON t.id = l.tag_id
         JOIN conversations c ON c.id = l.conversation_id
         WHERE c.clinic_id = ${clinicId}
+          AND (${conversationIds ?? null}::uuid[] IS NULL OR l.conversation_id = ANY(${conversationIds ?? null}::uuid[]))
       `
     },
 
-    async listLastMessageByClinic(clinicId) {
+    async listLastMessageByClinic(clinicId, conversationIds) {
+      if (conversationIds?.length === 0) return []
       return sql<Array<{ conversationId: string; content: string; contentType: string; role: string }>>`
         SELECT DISTINCT ON (m.conversation_id)
           m.conversation_id AS "conversationId",
@@ -341,16 +349,19 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
           m.role
         FROM conversation_messages m
         WHERE m.clinic_id = ${clinicId}
+          AND (${conversationIds ?? null}::uuid[] IS NULL OR m.conversation_id = ANY(${conversationIds ?? null}::uuid[]))
         ORDER BY m.conversation_id, m.created_at DESC
       `
     },
 
-    async listPatientNamesByClinic(clinicId) {
+    async listPatientNamesByClinic(clinicId, conversationIds) {
+      if (conversationIds?.length === 0) return []
       return sql<Array<{ conversationId: string; patientName: string }>>`
         SELECT c.id AS "conversationId", p.full_name AS "patientName"
         FROM conversations c
         JOIN patients p ON p.id = c.patient_id
         WHERE c.clinic_id = ${clinicId}
+          AND (${conversationIds ?? null}::uuid[] IS NULL OR c.id = ANY(${conversationIds ?? null}::uuid[]))
           AND p.full_name IS NOT NULL
           AND p.full_name <> ''
       `

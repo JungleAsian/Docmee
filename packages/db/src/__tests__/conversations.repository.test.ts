@@ -35,6 +35,36 @@ describe('conversations.repository — listPatientNamesByClinic', () => {
   })
 })
 
+describe('conversations.repository — conversation-list enrichment scope', () => {
+  it('limits tags, message previews, and patient names to the returned page', async () => {
+    const capture: { query?: string; values?: unknown[] } = {}
+    const repo = createConversationsRepository(fakeSql([], capture))
+    const pageIds = ['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']
+
+    await repo.listTagNamesByClinic('clinic-1', pageIds)
+    expect(capture.query).toContain('l.conversation_id = ANY')
+    expect(capture.values).toContain(pageIds)
+
+    await repo.listLastMessageByClinic('clinic-1', pageIds)
+    expect(capture.query).toContain('m.conversation_id = ANY')
+    expect(capture.values).toContain(pageIds)
+
+    await repo.listPatientNamesByClinic('clinic-1', pageIds)
+    expect(capture.query).toContain('c.id = ANY')
+    expect(capture.values).toContain(pageIds)
+  })
+
+  it('does not query enrichment tables when the conversation page is empty', async () => {
+    const capture: { query?: string; values?: unknown[] } = {}
+    const repo = createConversationsRepository(fakeSql([], capture))
+
+    await expect(repo.listTagNamesByClinic('clinic-1', [])).resolves.toEqual([])
+    await expect(repo.listLastMessageByClinic('clinic-1', [])).resolves.toEqual([])
+    await expect(repo.listPatientNamesByClinic('clinic-1', [])).resolves.toEqual([])
+    expect(capture.query).toBeUndefined()
+  })
+})
+
 describe('conversations.repository — deleteClosedBefore', () => {
   it('scopes the hard delete to terminal statuses and a clinic cutoff', async () => {
     const capture: { query?: string; values?: unknown[] } = {}

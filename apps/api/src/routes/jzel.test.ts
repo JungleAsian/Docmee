@@ -7,8 +7,11 @@ const state = vi.hoisted(() => ({
   kbClinics: [] as string[],
   clinicReads: [] as string[],
   systems: [] as string[],
+  searchRows: [] as Array<Record<string, unknown>>,
   chatResponse: 'CONFIDENCE: 0.95\nREPLY:\nok',
   hasKey: false,
+  useHelp: false,
+  recordAttempt: vi.fn(async () => ({ replayed: false, candidate: null })),
   user: {
     userId: 'u-1',
     clinicId: 'c-1',
@@ -23,17 +26,21 @@ vi.mock('@docmee/db', () => ({
   createClinicsRepository: () => ({
     findById: async (clinicId: string) => {
       state.clinicReads.push(clinicId)
-      return { id: clinicId, settings: {} }
+      return { id: clinicId, name: `Clinic ${clinicId}`, settings: {} }
     },
   }),
   createKnowledgeRepository: () => ({
+    getClinicRetrievalRevision: async () => 1,
     searchChunks: async (_query: string, _embedding: number[], filters: { clinicId: string; doctorId: string | null }, limit: number) => {
       expect(limit).toBeLessThanOrEqual(40)
       state.kbClinics.push(filters.clinicId)
-      state.embedded.push(filters.doctorId); state.active.push(filters.doctorId); return []
+      state.embedded.push(filters.doctorId); state.active.push(filters.doctorId); return state.searchRows
     },
   }),
-  createKnowledgeLearningRepository: () => ({ sourcesCurrent: async () => true }),
+  createKnowledgeLearningRepository: () => ({
+    recordAttempt: state.recordAttempt,
+    sourcesCurrent: async () => true,
+  }),
 }))
 
 vi.mock('@docmee/agents', () => ({
@@ -53,9 +60,19 @@ vi.mock('@docmee/agents', () => ({
   aiAgentHandoffReason: (evidence: { groundingScore: number }, confidence: number | null, current: boolean) =>
     !current ? 'stale' : evidence.groundingScore < 1 ? 'ungrounded' : confidence === null || confidence < .8 ? 'low_confidence' : null,
   retrieveKbEvidence: async (input: { clinicId: string; doctorId?: string | null; knowledge: { searchChunks: (...args: unknown[]) => unknown } }) => {
-    await input.knowledge.searchChunks('help me', [], { clinicId: input.clinicId, doctorId: input.doctorId }, 40)
-    return { status: 'ready', matches: [{ content: 'ok', title: 'KB' }], citations: [], revision: 1,
-      mode: 'keyword', plan: { language: 'en' } }
+    const matches = await input.knowledge.searchChunks('help me', [], { clinicId: input.clinicId, doctorId: input.doctorId }, 40) as Array<Record<string, unknown>>
+    return {
+      status: matches.length ? 'ready' : 'insufficient_evidence',
+      matches,
+      citations: matches.map((match) => ({
+        chunkId: match['chunkId'], documentId: match['documentId'], documentVersion: match['documentVersion'],
+        doctorId: match['doctorId'] ?? null, language: match['language'] ?? null,
+        retrievalRevision: match['retrievalRevision'] ?? 1, governanceReviewState: 'trusted',
+      })),
+      revision: 1,
+      mode: matches.length ? 'keyword' : 'none',
+      plan: { language: 'en' },
+    }
   },
   searchKb: async () => [],
   expandKbQuery: (query: string) => query,
@@ -70,7 +87,7 @@ vi.mock('../lib/ai-assistant.js', () => ({
     name: 'Docmee',
     persona: `${clinic.id}-persona`,
     useKb: true,
-    useHelp: false,
+    useHelp: state.useHelp,
     chatProvider: clinic.id === 'c-2' ? 'openai' : 'claude',
     embedProvider: 'openai',
     model: `${clinic.id}-model`,
@@ -110,7 +127,14 @@ describe('Docmee assistant route branding', () => {
     state.kbClinics.length = 0
     state.clinicReads.length = 0
     state.systems.length = 0
+    state.searchRows = [{
+      chunkId: 'default-chunk', documentId: 'default-doc', documentVersion: 1,
+      title: 'KB', content: 'ok', doctorId: null, language: 'en', retrievalRevision: 1,
+      provenance: { governanceReviewState: 'trusted' },
+    }]
     state.hasKey = false
+    state.useHelp = false
+    state.recordAttempt.mockClear()
     state.chatResponse = 'CONFIDENCE: 0.95\nREPLY:\nok'
     state.user = {
       userId: 'u-1',
@@ -243,5 +267,109 @@ describe('Docmee assistant route branding', () => {
 
     expect(home.json()).toMatchObject({ status: 'connected', model: 'c-1-model' })
     expect(selected.json()).toMatchObject({ status: 'error', model: 'c-2-model' })
+  })
+
+  it('records an unanswered question as a governed knowledge gap', async () => {
+    state.hasKey = true
+    state.searchRows = []
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: { message: 'When do you open?' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.recordAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      clinicId: 'c-1',
+      question: 'When do you open?',
+      answer: 'ok',
+      citations: [],
+      handoffReason: 'jzel_no_source',
+      doctorId: null,
+      language: 'en',
+    }))
+    expect(response.json().diagnostics).toEqual({
+      clinic: { id: 'c-1', name: 'Clinic c-1' },
+      workflowNode: null,
+      kbMatches: 0,
+      retrievalMode: 'none',
+      sources: [],
+    })
+  })
+
+  it('reports exact KB sources and does not create a gap when grounded context exists', async () => {
+    state.hasKey = true
+    state.searchRows = [{
+      chunkId: 'chunk-1',
+      documentId: 'doc-1',
+      documentVersion: 3,
+      title: 'Clinic hours',
+      content: 'We open at 9.',
+      doctorId: null,
+      language: 'en',
+      retrievalRevision: 7,
+      provenance: { governanceReviewState: 'trusted' },
+    }]
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: { message: 'When do you open?' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.recordAttempt).not.toHaveBeenCalled()
+    expect(response.json().diagnostics).toMatchObject({
+      clinic: { id: 'c-1', name: 'Clinic c-1' },
+      kbMatches: 1,
+      retrievalMode: 'keyword',
+      sources: [{ documentId: 'doc-1', title: 'Clinic hours', documentVersion: 3 }],
+    })
+  })
+
+  it('uses question-aware product help, reports its source, and does not create a knowledge gap', async () => {
+    state.useHelp = true
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: {
+        message: 'How do I check channel status and integrations?',
+        route: '/studio/workflows',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().reply).toContain('Channels & Integrations: open Admin Studio > Channels')
+    expect(state.systems).toEqual([])
+    expect(state.recordAttempt).not.toHaveBeenCalled()
+    expect(response.json().diagnostics.sources).toEqual([{
+      documentId: 'docmee-help:channels-integrations',
+      title: 'Channels & Integrations',
+      documentVersion: 1,
+    }])
+  })
+
+  it('records a true knowledge gap instead of attaching help for the current page', async () => {
+    state.hasKey = true
+    state.useHelp = true
+    state.searchRows = []
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/assist/chat',
+      payload: {
+        message: "What is the clinic's parking validation policy?",
+        route: '/studio/workflows',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(state.systems.at(-1)).not.toContain('## Docmee Help')
+    expect(state.recordAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      question: "What is the clinic's parking validation policy?",
+      handoffReason: 'jzel_no_source',
+    }))
   })
 })

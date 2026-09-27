@@ -21,6 +21,8 @@ import {
   parseAiAgentScenarios,
   resolveAiAgentSettings,
   buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt,
+  extractGroundedKbReply, isSupportedClinicFactQuestion,
+  resolveAiAgentKnowledgePolicy, isSafeGeneralEducationQuestion,
   isEmergencyMessage,
   screenMedicalSafety,
   medicalSafetyDeferral,
@@ -1082,6 +1084,7 @@ function buildExecutors(
       let citations: LearningCitation[] = []
       let scope: LearningScope = { doctorId: contextString(ctx, 'doctor_id') || null, language }
       let consistency = { complete: false, sources: [] as string[] }
+      let recordLearning = true
       let outcome: { answer: string; confidence: number | null; reason: string | null } = { answer: '', confidence: null, reason: 'attempt_failure' }
       const recordOutcome = async (answer: string, confidence: number | null, reason: string | null) => { outcome = { answer, confidence, reason } }
       // All terminal branches converge here; persistence deduplicates retries by
@@ -1108,8 +1111,8 @@ function buildExecutors(
         return 'handoff'
       }
 
-      // A clinic boundary is a deterministic, pre-model handoff. It cannot
-      // weaken the emergency, consent, or immutable safety rules surrounding it.
+      // Clinic-owned content boundaries are deterministic and run before
+      // retrieval or model generation.
       if (matchesGuardrailTopic(message, guardrails.contentBoundaries.additionalBlockedTopics)) {
         await recordOutcome('', null, 'guardrail_content_boundary')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'guardrail_content_boundary')
@@ -1123,6 +1126,9 @@ function buildExecutors(
       const style: BotTone = styleRaw === 'friendly' || styleRaw === 'brief' ? styleRaw : 'professional'
       const personality = String(node.config?.['personality'] ?? '').trim()
       const customInstructions = String(node.config?.['customInstructions'] ?? '').trim()
+      const knowledgePolicy = resolveAiAgentKnowledgePolicy(node.config)
+      const generalEducation = knowledgePolicy === 'clinic_kb_and_general_education'
+        && isSafeGeneralEducationQuestion(message)
 
       // All AI surfaces use the same clinic/revision-bound retrieval contract.
       // A provider outage still permits bounded lexical retrieval.
@@ -1157,7 +1163,7 @@ function buildExecutors(
         ? kbMatches.map((match) => `# ${match.title}\n${match.content}`).join('\n\n')
         : ''
       ctx['ai_agent_kb_hit'] = kbMatches.length > 0
-      if (isLikelyQuestion(message) && kbMatches.length === 0) {
+      if (isLikelyQuestion(message) && kbMatches.length === 0 && !generalEducation) {
         await recordOutcome('', null, 'knowledge_gap')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'knowledge_gap')
         await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
@@ -1182,6 +1188,7 @@ function buildExecutors(
           style,
           scenarios,
           kbMatches,
+          knowledgePolicy,
         }),
         guardrailPromptInstructions(guardrails),
         preferredLanguage
@@ -1258,6 +1265,7 @@ function buildExecutors(
       // action === 'reply': run the same output-side safety screens the main
       // clinic bot applies before any auto-send — this node can now speak
       // for real, so it inherits the same defense-in-depth.
+      let usedGroundedFallback = false
       if (!reply) {
         try {
           raw = await withWorkflowAiAgentReplyTimeout(
@@ -1268,12 +1276,13 @@ function buildExecutors(
               apiKey: resolveClinicAiKey(clinic.settings, agentSettings.provider),
               history: [],
               maxTokens: agentSettings.maxTokens,
-              system: buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage, fallbackKbContext),
+              system: buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage, fallbackKbContext, knowledgePolicy),
               message,
             }),
             'Workflow AI agent fallback reply',
           )
           reply = parseAiAgentCompletion(raw).reply
+          usedGroundedFallback = true
         } catch {
           await recordOutcome('', null, 'provider_failure')
           console.error('[workflow] ai_agent provider_failure')
@@ -1297,30 +1306,110 @@ function buildExecutors(
         return 'handoff'
       }
       reply = applyReplyGuardrails(reply, language, guardrails)
-      // A clinic-owned disclaimer is configuration, not model output. Screen
-      // the final composed message as well, so configurable text cannot make
-      // an otherwise safe generated answer bypass the immutable protections.
-      const formattedSafety = screenMedicalSafety(reply)
-      if (!formattedSafety.safe) {
+      // Clinic-owned disclaimer text is configuration, so screen the final
+      // composed patient message as well as the raw model output.
+      if (!screenMedicalSafety(reply).safe) {
         await recordOutcome(reply, parseAiAnswerConfidence(raw), 'medical_safety')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
         await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
       }
-      const formattedLeak = screenPromptLeak(reply)
-      if (!formattedLeak.safe) {
+      if (!screenPromptLeak(reply).safe) {
         await recordOutcome(reply, parseAiAnswerConfidence(raw), 'prompt_safety')
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
         await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
         ctx['ai_agent_action'] = 'handoff'
         return 'handoff'
       }
-      const confidence = parseAiAnswerConfidence(raw)
+      let confidence = parseAiAnswerConfidence(raw)
+      if (generalEducation && !kbMatches.length) {
+        if (confidence === null || confidence < .8) {
+          await recordOutcome(reply, confidence, 'low_answer_confidence')
+          await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'low_answer_confidence')
+          await sendWorkflowMessage(knowledgeHandoffNotice(language), ctx)
+          ctx['ai_agent_action'] = 'handoff'
+          return 'handoff'
+        }
+        await sendWorkflowMessage(reply, ctx)
+        await recordOutcome(reply, confidence, null)
+        // General education is model knowledge, not a clinic fact to learn into
+        // the governed KB. Successful answers therefore create no candidate/gap.
+        recordLearning = false
+        ctx['ai_agent_action'] = 'reply'
+        return 'replied'
+      }
       consistency = await learning.scopedConsistency(clinicId, scope)
-      const evidence = assessKbAnswer(message, reply, kbMatches.map(match => match.content), confidence ?? undefined, consistency)
-      const sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
-      const handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent)
+      const sourceContents = kbMatches.map(match => match.content)
+      let evidence = assessKbAnswer(message, reply, sourceContents, confidence ?? undefined, consistency)
+      let sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
+      let handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+      if (handoffReason === 'ungrounded_answer' && kbMatches.length && !usedGroundedFallback) {
+        try {
+          raw = await withWorkflowAiAgentReplyTimeout(
+            chatComplete({
+              provider: agentSettings.provider,
+              model: agentSettings.model || defaultChatModel(agentSettings.provider),
+              baseURL: ai.baseURL?.trim() || undefined,
+              apiKey: resolveClinicAiKey(clinic.settings, agentSettings.provider),
+              history: [],
+              maxTokens: agentSettings.maxTokens,
+              system: buildAiAgentFallbackPrompt(clinic.name, customInstructions, preferredLanguage, fallbackKbContext, knowledgePolicy),
+              message,
+            }),
+            'Workflow AI agent grounded repair',
+          )
+          reply = applyReplyGuardrails(parseAiAgentCompletion(raw).reply, language, guardrails)
+        } catch {
+          await recordOutcome('', null, 'provider_failure')
+          console.error('[workflow] ai_agent provider_failure')
+          return 'error'
+        }
+        if (!screenMedicalSafety(reply).safe) {
+          await recordOutcome(reply, parseAiAnswerConfidence(raw), 'medical_safety')
+          await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
+          await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
+          ctx['ai_agent_action'] = 'handoff'
+          return 'handoff'
+        }
+        if (!screenPromptLeak(reply).safe) {
+          await recordOutcome(reply, parseAiAnswerConfidence(raw), 'prompt_safety')
+          await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
+          await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
+          ctx['ai_agent_action'] = 'handoff'
+          return 'handoff'
+        }
+        confidence = parseAiAnswerConfidence(raw)
+        evidence = assessKbAnswer(message, reply, sourceContents, confidence ?? undefined, consistency)
+        sourcesCurrent = await learning.sourcesCurrent(clinicId, citations, scope)
+        handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+      }
+      const deterministicFact = isSupportedClinicFactQuestion(message)
+      if (handoffReason === 'ungrounded_answer' || (handoffReason === 'low_answer_confidence' && deterministicFact)) {
+        const extracted = extractGroundedKbReply(message, reply, sourceContents)
+        if (extracted) {
+          reply = applyReplyGuardrails(extracted, language, guardrails)
+          // The delivery answer now comes verbatim from a current source for a
+          // recognized fact intent, independent of the model's paraphrase score.
+          if (deterministicFact) confidence = 1
+          if (!screenMedicalSafety(reply).safe) {
+            await recordOutcome(reply, confidence, 'medical_safety')
+            await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'medical_safety')
+            await sendWorkflowMessage(medicalSafetyDeferral(language), ctx)
+            ctx['ai_agent_action'] = 'handoff'
+            return 'handoff'
+          }
+          if (!screenPromptLeak(reply).safe) {
+            await recordOutcome(reply, confidence, 'prompt_safety')
+            await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), 'prompt_safety')
+            await sendWorkflowMessage(promptSafetyDeferral(language), ctx)
+            ctx['ai_agent_action'] = 'handoff'
+            return 'handoff'
+          }
+          evidence = assessKbAnswer(message, reply, sourceContents, confidence ?? undefined, consistency)
+          handoffReason = aiAgentHandoffReason(evidence, confidence, sourcesCurrent, { allowExactCurrentSource: true })
+        }
+      }
       if (handoffReason) {
         await recordOutcome(reply, confidence, handoffReason)
         await pauseBotForHandoff(sql, clinicId, ctx.conversationId, await currentMetadata(), handoffReason)
@@ -1338,21 +1427,23 @@ function buildExecutors(
         await recordOutcome('', null, 'attempt_failure')
         return 'error'
       } finally {
-        const evidence = assessKbAnswer(message, outcome.answer, kbMatches.map(match => match.content), outcome.confidence ?? undefined, consistency)
-        const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
-        const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
-          question: message, answer: outcome.answer, citations, ...scope,
-          relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
-          confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction,
-          risks: evidence.risks, safeContentClass: evidence.safeContentClass, handoffReason: outcome.reason }).catch(() => null)
-        if (result && !result.replayed && !outcome.reason && result.candidate?.status === 'pending_review' && result.candidate.consistencyCount >= 2) {
-          const settings = await learning.settings(clinicId).catch(() => null)
-          if (settings?.autoApprove) {
-            const published = await learning.review(clinicId, result.candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: result.candidate.revision }).catch(() => null)
-            if (published?.write) {
-              const document = published.write.document
-              try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
-              catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable').catch(() => undefined) }
+        if (recordLearning) {
+          const evidence = assessKbAnswer(message, outcome.answer, kbMatches.map(match => match.content), outcome.confidence ?? undefined, consistency)
+          const inboundEvent = contextString(ctx, 'waMessageId') || data.trigger.sourceEventId
+          const result = await learning.recordAttempt({ clinicId, eventKey: `${inboundEvent}:${data.workflowId}:${node.id}`,
+            question: message, answer: outcome.answer, citations, ...scope,
+            relevance: kbMatches.length ? Math.max(...kbMatches.map(match => match.similarity)) : null,
+            confidence: evidence.answerConfidence, grounding: evidence.groundingScore, contradiction: evidence.contradiction,
+            risks: evidence.risks, safeContentClass: evidence.safeContentClass, handoffReason: outcome.reason }).catch(() => null)
+          if (result && !result.replayed && !outcome.reason && result.candidate?.status === 'pending_review' && result.candidate.consistencyCount >= 2) {
+            const settings = await learning.settings(clinicId).catch(() => null)
+            if (settings?.autoApprove) {
+              const published = await learning.review(clinicId, result.candidate.id, { action: 'approve', automatic: true, actorId: null, expectedRevision: result.candidate.revision }).catch(() => null)
+              if (published?.write) {
+                const document = published.write.document
+                try { await kbEmbedQueue.add('embed-document', { clinicId, documentId: document.id, documentVersion: document.version ?? 1 }) }
+                catch { await knowledge.markDocumentIndexFailed(clinicId, document.id, document.version ?? 1, 'queue_unavailable').catch(() => undefined) }
+              }
             }
           }
         }

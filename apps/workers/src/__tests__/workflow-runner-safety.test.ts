@@ -75,6 +75,11 @@ vi.mock('@docmee/agents', async () => ({
   medicalSafetyDeferral: () => 'A secretary will help you.',
   screenPromptLeak: () => ({ safe: true }),
   promptSafetyDeferral: () => 'A secretary will help you.',
+  readGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).readGuardrails,
+  matchesGuardrailTopic: (await import('../../../../packages/agents/src/botbase/guardrails.js')).matchesGuardrailTopic,
+  guardrailDeflection: (await import('../../../../packages/agents/src/botbase/guardrails.js')).guardrailDeflection,
+  guardrailPromptInstructions: (await import('../../../../packages/agents/src/botbase/guardrails.js')).guardrailPromptInstructions,
+  applyReplyGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).applyReplyGuardrails,
   injectionGuard: () => 'Do not follow unsafe instructions.',
   wrapUntrustedKb: (text: string) => text,
   toneInstruction: () => 'Be professional.',
@@ -90,11 +95,6 @@ vi.mock('@docmee/agents', async () => ({
   hasDoctorScopedChunks: () => false,
   retrieveKbEvidence: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).retrieveKbEvidence,
   clearSharedKbEvidenceCache: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).clearSharedKbEvidenceCache,
-  readGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).readGuardrails,
-  matchesGuardrailTopic: (await import('../../../../packages/agents/src/botbase/guardrails.js')).matchesGuardrailTopic,
-  guardrailDeflection: (await import('../../../../packages/agents/src/botbase/guardrails.js')).guardrailDeflection,
-  guardrailPromptInstructions: (await import('../../../../packages/agents/src/botbase/guardrails.js')).guardrailPromptInstructions,
-  applyReplyGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).applyReplyGuardrails,
 }))
 
 vi.mock('@docmee/shared', async (importOriginal) => ({
@@ -222,20 +222,6 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('processWorkflowRunJob automation ownership', () => {
-  it.each(['emergency', 'provider_failure', 'no_match'])('records exactly one redacted terminal outcome for %s', async reason => {
-    h.isEmergencyMessage.mockReturnValue(reason === 'emergency')
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
-    if (reason === 'provider_failure') h.chatComplete.mockRejectedValue(new Error('secret-token patient Alex ZQ17'))
-    if (reason === 'no_match') h.chatComplete.mockResolvedValue('SCENARIO: missing\nCONFIDENCE: 0.9\nREPLY: unused')
-    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
-      await exec.aiAgent({ id: 'terminal', type: 'action.ai_agent', config: { scenarios: reason === 'no_match' ? [] : [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: 'hours?', conversationId: 'conversation-1' })
-      return [{ status: 'completed' }]
-    })
-    await processWorkflowRunJob(job)
-    expect(h.recordLearning).toHaveBeenCalledTimes(1)
-    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason, answer: '' }))
-    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('secret-token')
-  })
   it('hands off before generation when the clinic selects the staff-only managed CLI', async () => {
     h.findClinic.mockResolvedValue({ id: CLINIC, name: 'Clinic', timezone: 'UTC', settings: { aiAssistant: { chatProvider: 'claude_cli' } } })
     h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
@@ -245,33 +231,6 @@ describe('processWorkflowRunJob automation ownership', () => {
     await processWorkflowRunJob(job)
     expect(h.chatComplete).not.toHaveBeenCalled()
     expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'managed_cli_not_available', answer: '' }))
-  })
-  it.each(['doctor_reassigned', 'governance_excluded'])('rechecks scope after generation for %s', async reason => {
-    h.sourcesCurrent.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
-      expect(await exec.aiAgent({ id: reason, type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `hours ${reason}?`, doctor_id: 'doctor-a', conversationId: 'conversation-1' })).toBe('handoff')
-      return [{ status: 'completed' }]
-    })
-    await processWorkflowRunJob(job)
-    expect(h.sourcesCurrent).toHaveBeenLastCalledWith(CLINIC, expect.any(Array), { retrievalRevision: 1, doctorId: 'doctor-a', language: 'en' })
-    expect(h.recordLearning).toHaveBeenCalledTimes(1)
-    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'stale_or_missing_sources', retrievalRevision: 1, doctorId: 'doctor-a', language: 'en', citations: [expect.objectContaining({ retrievalRevision: 1, doctorId: null, governanceReviewState: 'trusted' })] }))
-  })
-  it.each([
-    { reason: 'low_answer_confidence', confidence: 'NaN', answer: 'We open at 9 AM.', current: true },
-    { reason: 'ungrounded_answer', confidence: '0.99', answer: 'We offer unlimited free care.', current: true },
-    { reason: 'stale_or_missing_sources', confidence: '0.99', answer: 'We open at 9 AM.', current: false },
-  ])('hands off instead of sending unsupported output: $reason', async ({ reason, confidence, answer, current }) => {
-    h.chatComplete.mockResolvedValue(`SCENARIO: general\nCONFIDENCE: ${confidence}\nREPLY:\n${answer}`)
-    h.sourcesCurrent.mockResolvedValue(current)
-    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
-      const result = await exec.aiAgent({ id: 'ai-guard', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `Tell me ${reason}`, conversationId: 'conversation-1' })
-      expect(result).toBe('handoff'); return [{ status: 'completed' }]
-    })
-    await processWorkflowRunJob(job)
-    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason }))
-    expect(h.sendWhatsAppText.mock.calls.every(call => !String(call[3]).includes(answer))).toBe(true)
-    expect(h.reviewLearning).not.toHaveBeenCalled()
   })
 
   it('hands off a configured clinic boundary before retrieval or model generation', async () => {
@@ -302,6 +261,110 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.searchChunks).not.toHaveBeenCalled()
     expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'Our clinic team will help with that request.')
     expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'guardrail_content_boundary' }))
+  })
+
+  it('uses an explicit node policy for safe general education without learning model knowledge into the clinic KB', async () => {
+    h.searchChunks.mockResolvedValue([])
+    h.chatComplete.mockResolvedValue('SCENARIO: general\nCONFIDENCE: 0.93\nREPLY:\nAlopecia is the medical term for hair loss.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent({ id: 'education', type: 'action.ai_agent', config: {
+        knowledgePolicy: 'clinic_kb_and_general_education',
+        scenarios: [{ id: 'general', name: 'General education', action: 'reply' }],
+      } }, { ...ctx, message: 'What is alopecia?', conversationId: 'conversation-1' })).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'Alopecia is the medical term for hair loss.')
+    expect(h.recordLearning).not.toHaveBeenCalled()
+  })
+
+  it.each(['emergency', 'provider_failure', 'no_match'])('records exactly one redacted terminal outcome for %s', async reason => {
+    h.isEmergencyMessage.mockReturnValue(reason === 'emergency')
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    if (reason === 'provider_failure') h.chatComplete.mockRejectedValue(new Error('secret-token patient Alex ZQ17'))
+    if (reason === 'no_match') h.chatComplete.mockResolvedValue('SCENARIO: missing\nCONFIDENCE: 0.9\nREPLY: unused')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      await exec.aiAgent({ id: 'terminal', type: 'action.ai_agent', config: { scenarios: reason === 'no_match' ? [] : [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: 'hours?', conversationId: 'conversation-1' })
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.recordLearning).toHaveBeenCalledTimes(1)
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason, answer: '' }))
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('secret-token')
+  })
+  it.each(['doctor_reassigned', 'governance_excluded'])('rechecks scope after generation for %s', async reason => {
+    h.sourcesCurrent.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      expect(await exec.aiAgent({ id: reason, type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `hours ${reason}?`, doctor_id: 'doctor-a', conversationId: 'conversation-1' })).toBe('handoff')
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.sourcesCurrent).toHaveBeenLastCalledWith(CLINIC, expect.any(Array), { retrievalRevision: 1, doctorId: 'doctor-a', language: 'en' })
+    expect(h.recordLearning).toHaveBeenCalledTimes(1)
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: 'stale_or_missing_sources', retrievalRevision: 1, doctorId: 'doctor-a', language: 'en', citations: [expect.objectContaining({ retrievalRevision: 1, doctorId: null, governanceReviewState: 'trusted' })] }))
+  })
+  it.each([
+    { reason: 'low_answer_confidence', confidence: 'NaN', answer: 'We open at 9 AM.', current: true },
+    { reason: 'ungrounded_answer', confidence: '0.99', answer: 'We offer unlimited free care.', current: true },
+    { reason: 'stale_or_missing_sources', confidence: '0.99', answer: 'We open at 9 AM.', current: false },
+  ])('hands off instead of sending unsupported output: $reason', async ({ reason, confidence, answer, current }) => {
+    h.chatComplete.mockResolvedValue(`SCENARIO: general\nCONFIDENCE: ${confidence}\nREPLY:\n${answer}`)
+    h.sourcesCurrent.mockResolvedValue(current)
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = await exec.aiAgent({ id: 'ai-guard', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } }, { ...ctx, message: `Tell me ${reason}`, conversationId: 'conversation-1' })
+      expect(result).toBe('handoff'); return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: reason }))
+    expect(h.sendWhatsAppText.mock.calls.every(call => !String(call[3]).includes(answer))).toBe(true)
+    expect(h.reviewLearning).not.toHaveBeenCalled()
+  })
+  it('repairs a paraphrased clinic fact once and sends only the exact grounded source answer', async () => {
+    h.chatComplete.mockResolvedValueOnce('SCENARIO: general\nCONFIDENCE: 0.99\nREPLY:\nThe clinic starts seeing patients at nine.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.99\nREPLY:\nWe open at 9 AM.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = await exec.aiAgent({ id: 'ai-repair', type: 'action.ai_agent', config: {
+        scenarios: [{ id: 'general', name: 'General', action: 'reply' }],
+      } }, { ...ctx, message: 'When do you open?', conversationId: 'conversation-1' })
+      expect(result).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.chatComplete).toHaveBeenCalledTimes(2)
+    expect(h.chatComplete.mock.calls[1]![0].system).toContain('complete, unchanged KB sentences')
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'We open at 9 AM.')
+    expect(h.sendWhatsAppText.mock.calls.some(call => String(call[3]).includes('starts seeing'))).toBe(false)
+  })
+
+  it('deterministically extracts a retrieved phone fact when the grounded repair still paraphrases it', async () => {
+    const clinicSource = [
+      'Clinic: Derma Paz',
+      'Address: 20 Avenida 1-16 Zona 3',
+      'Phone: 46082715',
+      'Doctor: Dra. Mónica Paz, dermatóloga.',
+    ].join('\n')
+    h.searchChunks.mockResolvedValue([{ chunkId: 'kb-clinic', documentId: 'kb-clinic-doc', documentVersion: 1,
+      title: 'Clinic information', content: clinicSource, vectorScore: .99, lexicalScore: 1, retrievalRevision: 1,
+      doctorId: null, language: 'en', provenance: {} }])
+    h.scopedConsistency.mockResolvedValue({ complete: true, sources: [clinicSource] })
+    h.chatComplete.mockResolvedValueOnce('SCENARIO: general\nCONFIDENCE: 0.35\nREPLY:\nCall us at 4608-2715.')
+      .mockResolvedValueOnce('CONFIDENCE: 0.35\nREPLY:\nThe clinic phone number is 46082715.')
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const result = await exec.aiAgent({ id: 'ai-phone', type: 'action.ai_agent', config: {
+        scenarios: [{ id: 'general', name: 'General', action: 'reply' }],
+      } }, { ...ctx, message: 'What is the Derma Paz contact phone?', conversationId: 'conversation-1' })
+      expect(result).toBe('replied')
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    expect(h.sendWhatsAppText).toHaveBeenCalledWith('phone-1', 'token', '15551234567', 'Phone: 46082715')
+    expect(h.recordLearning).toHaveBeenCalledWith(expect.objectContaining({ handoffReason: null, grounding: 1, contradiction: 'unknown' }))
   })
 
   it('persists a validated patient email captured by a workflow as the newest patient-provided value', async () => {

@@ -4,20 +4,19 @@
 // One clinic = one Docmee assistant. The persona is chosen automatically from the logged-in
 // user's role; the model + clinic persona + knowledge toggles come from
 // clinic.settings.aiAssistant. Answers are grounded in the clinic Knowledge Base
-// (server-side, embedded) and the Docmee Help content (sent by the client as
-// `helpContext`, included only when the clinic has Help grounding enabled).
+// and a bounded, server-owned Docmee Help catalog when those sources are enabled.
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { createClinicsRepository, createKnowledgeLearningRepository, createKnowledgeRepository, type LearningCitation } from '@docmee/db'
-import { aiAgentHandoffReason, assessKbAnswer, capPatientInput, detectPromptInjection, knowledgeHandoffNotice, medicalSafetyDeferral, parseAiAgentCompletion, parseAiAnswerConfidence, retrieveKbEvidence, screenMedicalSafety, screenPromptLeak, wrapUntrustedKb } from '@docmee/agents'
+import { aiAgentHandoffReason, assessKbAnswer, capPatientInput, detectLanguage, detectPromptInjection, knowledgeHandoffNotice, medicalSafetyDeferral, parseAiAgentCompletion, parseAiAnswerConfidence, retrieveKbEvidence, screenMedicalSafety, screenPromptLeak, wrapUntrustedKb } from '@docmee/agents'
 import { readAiAssistant, resolveChat, resolveEmbed } from '../lib/ai-assistant.js'
-import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
 import { isClaudeCliAvailable } from '@docmee/llm'
+import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
 import { personaForRole } from '../lib/jzel-personas.js'
 import { withDb } from '../lib/db.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { requireAuth } from '../middleware/auth.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
-import { helpForJzelRoute } from '../lib/jzel-help.js'
+import { helpForJzelQuestion } from '../lib/jzel-help.js'
 import { isWithinJzelTotalBudget, JZEL_MAX_MESSAGE_CHARS, JZEL_MAX_RETRIEVED_CONTEXT_CHARS, validateJzelHistory } from '../lib/jzel-input-budget.js'
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
@@ -37,9 +36,8 @@ function hasChatProviderCredential(
   ai: ReturnType<typeof readAiAssistant>,
   settings: unknown,
 ): boolean {
-  return ai.chatProvider === 'claude_cli'
-    ? isClaudeCliAvailable()
-    : Boolean(resolveClinicAiKey(settings, ai.chatProvider))
+  if (ai.chatProvider === 'claude_cli') return isClaudeCliAvailable()
+  return Boolean(resolveClinicAiKey(settings, ai.chatProvider))
 }
 
 async function buildKbGrounding(input: {
@@ -49,8 +47,17 @@ async function buildKbGrounding(input: {
   settings: Record<string, unknown>
   log: { warn: (data: unknown, message?: string) => void }
   doctorId?: string | null
-}): Promise<{ text: string; matches: number; mode: 'embedded' | 'keyword' | 'none'; status: string; revision: number; language: 'en' | 'es'; citations: LearningCitation[] }> {
-  if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none', status: 'disabled', revision: 0, language: 'en', citations: [] }
+}): Promise<{
+  text: string
+  matches: number
+  mode: 'embedded' | 'keyword' | 'none'
+  status: string
+  revision: number
+  language: 'en' | 'es'
+  citations: LearningCitation[]
+  sources: Array<{ documentId: string; title: string; documentVersion: number }>
+}> {
+  if (!input.ai.useKb) return { text: '', matches: 0, mode: 'none', status: 'disabled', revision: 0, language: 'en', citations: [], sources: [] }
   try {
     const pack = await withDb((sql) => {
       const learning = createKnowledgeLearningRepository(sql)
@@ -78,10 +85,13 @@ async function buildKbGrounding(input: {
         doctorId: match.doctorId ?? null, language: match.language ?? null, retrievalRevision: match.retrievalRevision,
         governanceReviewState: typeof match.provenance?.['governanceReviewState'] === 'string' ? match.provenance['governanceReviewState'] : 'trusted',
       })),
+      sources: usable
+        ? pack.matches.map(({ documentId, title, documentVersion }) => ({ documentId, title, documentVersion }))
+        : [],
     }
   } catch {
     input.log.warn({ clinicId: input.clinicId }, 'jzel current KB grounding unavailable')
-    return { text: '', matches: 0, mode: 'none', status: 'error', revision: 0, language: 'en', citations: [] }
+    return { text: '', matches: 0, mode: 'none', status: 'error', revision: 0, language: 'en', citations: [], sources: [] }
   }
 }
 
@@ -127,9 +137,23 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
     })
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, JZEL_MAX_RETRIEVED_CONTEXT_CHARS)) : ''
 
-    // ── Help grounding (sent by the client; cap to keep the prompt bounded) ──
+    // ── Help grounding (bounded and selected from the server-owned catalog) ──
     const help =
-      ai.useHelp ? helpForJzelRoute(body.route) : null
+      ai.useHelp ? helpForJzelQuestion(message, body.route) : null
+    const helpDiagnosticSource = help
+      ? { documentId: `docmee-help:${help.id}`, title: help.source, documentVersion: 1 }
+      : null
+    const diagnosticSources = [
+      ...kb.sources,
+      ...(helpDiagnosticSource ? [helpDiagnosticSource] : []),
+    ]
+    const diagnostics = {
+      clinic: { id: clinic.id, name: clinic.name },
+      workflowNode: null,
+      kbMatches: kb.matches,
+      retrievalMode: kb.mode,
+      sources: diagnosticSources,
+    }
 
     const context =
       [
@@ -140,6 +164,18 @@ const jzelRoute: FastifyPluginAsync = async (app) => {
         .join('\n\n') || '(No Knowledge Base or Help content is available for this question.)'
     if (!isWithinJzelTotalBudget(message, historyBudget.chars, context)) {
       return reply.code(413).send({ error: 'input_too_large' })
+    }
+
+    // Product guidance comes from a small server-owned catalog. Return the
+    // selected article directly so stale chat history or provider variance
+    // cannot replace authoritative help with a generic fallback.
+    if (help) {
+      return {
+        reply: help.text,
+        name: ai.name,
+        sources: [{ type: 'help', source: help.source }],
+        diagnostics: { ...diagnostics, sources: [helpDiagnosticSource] },
+      }
     }
 
     const clinicPersona = ai.persona.trim()
@@ -191,14 +227,33 @@ ${context}`,
       const confidence = parseAiAnswerConfidence(raw)
       request.log.info({ clinicId, provider: ai.chatProvider, model: ai.model, inputChars: message.length + historyBudget.chars + kbText.length, outputChars: text.length, durationMs: Date.now() - startedAt }, 'jzel chat usage')
       if (!text || !screenPromptLeak(text).safe) return reply.code(502).send({ error: 'assistant_unsafe_response' })
-      if (!screenMedicalSafety(text).safe) return { reply: medicalSafetyDeferral(kb.language), name: ai.name, sources: [] }
-      if (ai.useKb && kb.status !== 'ready') {
-        return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [] }
+      if (!screenMedicalSafety(text).safe) return { reply: medicalSafetyDeferral(kb.language), name: ai.name, sources: [], diagnostics }
+      if (kb.matches === 0 && !help) {
+        try {
+          await withDb((sql) => createKnowledgeLearningRepository(sql).recordAttempt({
+            clinicId,
+            eventKey: `jzel:${request.id}`,
+            question: message,
+            answer: text,
+            citations: [],
+            relevance: null,
+            confidence: null,
+            grounding: null,
+            contradiction: 'unknown',
+            risks: injection.detected ? ['prompt_injection'] : [],
+            doctorId: typeof body.doctorId === 'string' ? body.doctorId : null,
+            language: detectLanguage(message),
+            handoffReason: 'jzel_no_source',
+          }))
+        } catch {
+          // Chat remains available if learning telemetry is temporarily unavailable.
+          request.log.warn({ clinicId }, 'jzel knowledge gap recording unavailable')
+        }
       }
-      const evidenceSources = [
-        ...(kb.text ? [kb.text] : []),
-        ...(help ? [help.text] : []),
-      ]
+      if (ai.useKb && kb.status !== 'ready') {
+        return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [], diagnostics }
+      }
+      const evidenceSources = kb.text ? [kb.text] : []
       const evidence = assessKbAnswer(message, text, evidenceSources, confidence ?? undefined)
       // The shared evidence pack has already rejected current canonical conflicts;
       // this promotes that governed result into the common answer gate without
@@ -211,15 +266,14 @@ ${context}`,
           retrievalRevision: kb.revision,
         }))
         const handoffReason = aiAgentHandoffReason(governedEvidence, confidence, current)
-        if (handoffReason) return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [] }
+        if (handoffReason) return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [], diagnostics }
       } else {
         const handoffReason = aiAgentHandoffReason(governedEvidence, confidence, true)
-        if (handoffReason) return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [] }
+        if (handoffReason) return { reply: knowledgeHandoffNotice(kb.language), name: ai.name, sources: [], diagnostics }
       }
       return { reply: text, name: ai.name, sources: [
         ...(kb.matches > 0 ? [{ type: 'knowledge_base', count: kb.matches, mode: kb.mode }] : []),
-        ...(help ? [{ type: 'help', source: help.source }] : []),
-      ] }
+      ], diagnostics }
     } catch (err) {
       request.log.error(
         {
@@ -267,7 +321,7 @@ ${context}`,
     const kbText = kb.text ? wrapUntrustedKb(kb.text.slice(0, 6000)) : ''
 
     const help =
-      ai.useHelp ? helpForJzelRoute(body.route) : null
+      ai.useHelp ? helpForJzelQuestion(message, body.route) : null
     const context =
       [
         kbText ? `## Clinic Knowledge Base\n${kbText}` : '',

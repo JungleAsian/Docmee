@@ -1,6 +1,6 @@
 export const teachingCopy = {
   en: {
-    mode: 'Train J.zel', chat: 'Chat', clinic: 'Teaching clinic', doctor: 'Doctor', allDoctors: 'Whole clinic',
+    mode: 'Train J.zel', chat: 'Docmee Help', clinic: 'Teaching clinic', doctor: 'Doctor', allDoctors: 'Whole clinic',
     recent: 'Recent lessons in this scope', resume: 'Open lesson',
     language: 'Knowledge language', allLanguages: 'Any language', intro: 'Write a clinic fact or correction. A draft stays private until you review and approve it.',
     title: 'Entry title', content: 'What should the agent know?', target: 'Add or update', newEntry: 'Add a new entry',
@@ -18,7 +18,7 @@ export const teachingCopy = {
     previewHint: 'Uses the current approved KB and this saved AI node. No WhatsApp message is sent and no workflow actions run.',
     noNode: 'No saved AI Agent node exists in this clinic. Add one in Workflow Studio to preview.',
     outcome: 'Workflow outcome', handoff: 'Would hand off to staff', route: 'Would route to another step', no_match: 'No matching scenario', reply: 'Would reply',
-    source: 'Sources used', emptyAnswer: 'The current workflow checks did not allow an answer.', newLesson: 'Teach another fact',
+    source: 'Sources used', diagnostics: 'Response diagnostics', clinicUsed: 'Clinic', nodeUsed: 'Workflow node', kbUsed: 'KB matches', retrievalUsed: 'Retrieval', helpMode: 'Docmee Help · no workflow node', emptyAnswer: 'The current workflow checks did not allow an answer.', newLesson: 'Teach another fact',
     error: 'The operation failed. Try again.', loading: 'Loading teaching options…', scope: 'Knowledge scope',
     limited: 'Showing the 200 most recently updated entries. Use Knowledge Base for older entries.',
     expires: 'Draft expires', openKb: 'Open Knowledge Base', historyEmpty: 'No published content to restore yet.',
@@ -34,7 +34,7 @@ export const teachingCopy = {
     } as Record<string, string>,
   },
   es: {
-    mode: 'Entrenar a J.zel', chat: 'Chat', clinic: 'Clínica de destino', doctor: 'Doctor', allDoctors: 'Toda la clínica',
+    mode: 'Entrenar a J.zel', chat: 'Ayuda de Docmee', clinic: 'Clínica de destino', doctor: 'Doctor', allDoctors: 'Toda la clínica',
     recent: 'Lecciones recientes en este alcance', resume: 'Abrir lección',
     language: 'Idioma del conocimiento', allLanguages: 'Cualquier idioma', intro: 'Escribe un dato o una corrección de la clínica. El borrador no se publica hasta que lo revises y apruebes.',
     title: 'Título de la entrada', content: '¿Qué debe saber el agente?', target: 'Añadir o actualizar', newEntry: 'Añadir una entrada',
@@ -52,7 +52,7 @@ export const teachingCopy = {
     previewHint: 'Utiliza la base de conocimiento aprobada y este nodo guardado. No envía WhatsApp ni ejecuta acciones del flujo.',
     noNode: 'Esta clínica no tiene nodos de Agente IA guardados. Añade uno en Workflow Studio para probar.',
     outcome: 'Resultado del flujo', handoff: 'Derivaría al personal', route: 'Dirigiría a otro paso', no_match: 'Sin escenario coincidente', reply: 'Respondería',
-    source: 'Fuentes utilizadas', emptyAnswer: 'Las verificaciones del flujo actual no permitieron una respuesta.', newLesson: 'Enseñar otro dato',
+    source: 'Fuentes utilizadas', diagnostics: 'Diagnóstico de la respuesta', clinicUsed: 'Clínica', nodeUsed: 'Nodo del flujo', kbUsed: 'Coincidencias KB', retrievalUsed: 'Recuperación', helpMode: 'Ayuda de Docmee · sin nodo del flujo', emptyAnswer: 'Las verificaciones del flujo actual no permitieron una respuesta.', newLesson: 'Enseñar otro dato',
     error: 'La operación falló. Inténtalo de nuevo.', loading: 'Cargando opciones…', scope: 'Alcance del conocimiento',
     limited: 'Se muestran las 200 entradas más recientes. Busca las anteriores en la base de conocimiento.',
     expires: 'El borrador vence', openKb: 'Abrir base de conocimiento', historyEmpty: 'Todavía no hay contenido publicado para restaurar.',

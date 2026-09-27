@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/auth'
 import { ClinicSelect } from '../ClinicSelect'
 import { teachingCopy, type TeachingCopy } from './copy'
 import type { Preview, Proposal, Status, TeachingOptions } from './types'
+import { ResponseDiagnostics } from './ResponseDiagnostics'
 
 const field = 'w-full rounded border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] p-2 text-xs'
 const button = 'rounded border border-[var(--crm-border-color)] px-3 py-2 text-xs font-semibold disabled:opacity-50'
@@ -226,7 +227,7 @@ function TeachingEditor({ options, doctorId, language, c }: {
           <strong>{c.outcome}: {c[preview.action as 'reply'|'route'|'handoff'|'no_match'] ?? preview.action}</strong>
           <p className="whitespace-pre-wrap">{preview.answer || c.emptyAnswer}</p>
           {preview.reason && <p>{preview.reason}</p>}
-          <p>{c.source}: {preview.sources.map(s => `${s.title} (v${s.documentVersion})`).join(', ') || '—'}</p>
+          <ResponseDiagnostics diagnostics={preview.diagnostics} c={c} />
         </div>}
       </>}
     </section>

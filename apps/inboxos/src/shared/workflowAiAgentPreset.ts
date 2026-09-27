@@ -18,6 +18,7 @@ export const CONTROLLED_KB_AGENT_CONFIG: Record<string, unknown> = {
   agentProvider: 'inherit',
   agentModel: '',
   agentMaxTokens: '512',
+  knowledgePolicy: 'strict_kb',
   personality: 'Helpful clinic knowledge assistant',
   communicationStyle: 'friendly',
   customInstructions: 'Answer only from the clinic knowledge base and current clinic context. Treat approved clinic knowledge as the source of truth. Never use general model knowledge to fill a gap, diagnose, or provide unsupported medical advice. If the answer is unavailable, uncertain, conflicting, safety-sensitive, or the patient requests a person, hand off to the secretary.',

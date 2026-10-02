@@ -18,6 +18,7 @@ import { withDb } from '../lib/db.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
+import { buildWorkflowDiagnosticReport, type WorkflowDiagnosticIntegration } from '../lib/workflow-diagnostics.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const nodeSchema = z.object({
@@ -110,6 +111,12 @@ const simulateSchema = z.object({
   graph: z.object({ nodes: z.array(nodeSchema).max(500), edges: z.array(edgeSchema).max(1_000) }).optional(),
   input: simulationInputSchema.default({}),
 })
+const diagnosticsSchema = z.object({
+  graph: z.object({ nodes: z.array(nodeSchema).max(500), edges: z.array(edgeSchema).max(1_000) }).optional(),
+  simulation: z.object({ enabled: z.boolean().default(true) }).default({ enabled: true }),
+  readiness: z.object({ enabled: z.boolean().default(true), refresh: z.boolean().default(false) }).default({ enabled: true, refresh: false }),
+  recentRunsLimit: z.number().int().min(1).max(50).default(10),
+}).default({})
 
 function graphFromDocument(document: WorkflowDocumentV2): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
   return materializeWorkflowDocument(document)
@@ -146,6 +153,33 @@ export function redactWorkflowDiagnostic(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => {
     const secret = /message|content|body|token|secret|authorization|provider.*payload/i.test(key)
     return [key, secret ? '[redacted]' : redactWorkflowDiagnostic(nested)]
+  }))
+}
+
+function workflowIntegrationReadiness(nodes: WorkflowNode[], checkedAt: string): WorkflowDiagnosticIntegration[] {
+  const types = nodes.map((node) => node.type.toLowerCase())
+  const dependencies = new Map<string, string>()
+
+  if (types.some((type) => type.includes('send_message') || type.includes('send_template') || type.includes('whatsapp'))) {
+    dependencies.set('whatsapp', 'WhatsApp')
+  }
+  if (types.some((type) => type.includes('availability') || type.includes('booking') || type.includes('calendar'))) {
+    dependencies.set('calendar', 'Calendar')
+  }
+  if (types.some((type) => type.includes('ai_agent') || type.includes('intent') || type.includes('extract'))) {
+    dependencies.set('ai_provider', 'AI provider')
+  }
+  if (types.some((type) => type.includes('ai_agent') || type.includes('faq') || type.includes('knowledge'))) {
+    dependencies.set('clinic_kb', 'Clinic knowledge base')
+  }
+
+  return [...dependencies].map(([key, label]) => ({
+    key,
+    label,
+    required: true,
+    status: 'unknown',
+    checkedAt,
+    detail: 'Configuration is referenced by this workflow. Verify it in the corresponding Admin Studio settings before publishing.',
   }))
 }
 
@@ -239,6 +273,91 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       const run = await withDb((sql) => createWorkflowExecutionsRepository(sql).findRunById(clinicId, request.params.workflowId, request.params.runId))
       if (!run) return reply.code(404).send({ error: 'Workflow run not found' })
       return { run: { ...run, trace: redactWorkflowDiagnostic(run.trace) } }
+    },
+  )
+
+  app.post<{ Params: { id: string; workflowId: string } }>(
+    '/clinics/:id/workflows/:workflowId/diagnostics',
+    { preHandler: requireRole('ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(diagnosticsSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+
+      const workflow = await withDb((sql) => createWorkflowsRepository(sql).findById(clinicId, request.params.workflowId))
+      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' })
+
+      const startedAt = new Date().toISOString()
+      const graph = parsed.data.graph ?? { nodes: workflow.nodes, edges: workflow.edges }
+      const source = parsed.data.graph ? 'unsaved_graph' as const : 'saved_graph' as const
+      const workflowChecks = validateWorkflowDefinitionDetailed(graph.nodes, graph.edges, { requireTrigger: true })
+      const hasBlockingIssue = workflowChecks.some((issue) => issue.severity === 'error')
+      const simulations = []
+
+      if (parsed.data.simulation.enabled) {
+        if (hasBlockingIssue) {
+          simulations.push({
+            name: 'Default safe path',
+            required: true,
+            status: 'skipped' as const,
+            reason: 'Fix the blocking workflow checks before running the isolated test.',
+          })
+        } else {
+          const outcome = await simulateWorkflow(graph, {})
+          simulations.push({
+            name: 'Default safe path',
+            required: true,
+            status: outcome.status,
+            result: { ...outcome, simulated: true },
+          })
+        }
+      }
+
+      const checkedAt = new Date().toISOString()
+      const integrations = parsed.data.readiness.enabled
+        ? workflowIntegrationReadiness(graph.nodes, checkedAt)
+        : []
+      const runs = await withDb((sql) => createWorkflowExecutionsRepository(sql).listRuns(
+        clinicId,
+        request.params.workflowId,
+        parsed.data.recentRunsLimit,
+      ))
+      const recentRuns = runs.map((run) => ({ ...run, trace: redactWorkflowDiagnostic(run.trace) }))
+      const report = buildWorkflowDiagnosticReport({
+        source,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        workflowChecks,
+        simulations,
+        integrations,
+        recentRuns,
+      })
+
+      await withDb((sql) => createAuditRepository(sql).log({
+        clinicId,
+        actorId: request.user!.userId,
+        action: 'workflow_diagnostic_completed',
+        resourceType: 'workflow',
+        resourceId: request.params.workflowId,
+        metadata: {
+          source,
+          status: report.status,
+          requestedSections: {
+            simulation: parsed.data.simulation.enabled,
+            readiness: parsed.data.readiness.enabled,
+            recentRuns: true,
+          },
+          findingCount: workflowChecks.length,
+          simulationCount: simulations.length,
+          integrationCount: integrations.length,
+          recentRunCount: recentRuns.length,
+          startedAt: report.startedAt,
+          completedAt: report.completedAt,
+        },
+      }))
+
+      return { diagnostic: report }
     },
   )
 

@@ -32,6 +32,9 @@ vi.mock('@docmee/shared', () => ({
 
 const store = vi.hoisted(() => ({
   workflows: new Map<string, { id: string; clinicId: string; name: string; status: 'draft'; nodes: unknown[]; edges: unknown[] }>(),
+  workflowFindCalls: [] as Array<{ clinicId: string; id: string }>,
+  runs: [] as Array<Record<string, unknown>>,
+  auditLogs: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('@docmee/db', () => ({
@@ -39,6 +42,7 @@ vi.mock('@docmee/db', () => ({
   createWorkflowsRepository: () => ({
     listByClinic: async (clinicId: string) => [...store.workflows.values()].filter((workflow) => workflow.clinicId === clinicId),
     findById: async (clinicId: string, id: string) => {
+      store.workflowFindCalls.push({ clinicId, id })
       const workflow = store.workflows.get(id)
       return workflow?.clinicId === clinicId ? workflow : null
     },
@@ -50,8 +54,8 @@ vi.mock('@docmee/db', () => ({
     },
   }),
   createWorkflowApprovalsRepository: () => ({}),
-  createWorkflowExecutionsRepository: () => ({ listRuns: async () => [], findRunById: async () => null }),
-  createAuditRepository: () => ({ log: vi.fn() }),
+  createWorkflowExecutionsRepository: () => ({ listRuns: async () => store.runs, findRunById: async () => null }),
+  createAuditRepository: () => ({ log: async (entry: Record<string, unknown>) => { store.auditLogs.push(entry) } }),
   normalizeWorkflowStatus: (status: string) => status === 'active' ? 'published' : status,
 }))
 
@@ -64,6 +68,12 @@ const adminAuth = {
 }
 const secretaryAuth = {
   authorization: `Bearer ${signAccessToken({ userId: 'sec-c1', clinicId: 'c-1', role: 'secretary', email: 'sec@c1.test' })}`,
+}
+const doctorAuth = {
+  authorization: `Bearer ${signAccessToken({ userId: 'doctor-c1', clinicId: 'c-1', role: 'doctor', email: 'doctor@c1.test' })}`,
+}
+const studioAuth = {
+  authorization: `Bearer ${signAccessToken({ userId: 'studio-1', clinicId: 'studio', role: 'ia_studio_admin', email: 'studio@docmee.test' })}`,
 }
 
 function seed(id: string, clinicId = 'c-1') {
@@ -202,6 +212,98 @@ describe('workflow delete contract (CRE-534)', () => {
     expect(validation.simulationCalls).toEqual([{ workflow: draftGraph, input: { context: { tier: 'vip' }, maxSteps: 1 } }])
     expect(store.workflows.get('wf-simulate')?.nodes).toEqual([])
     expect(response.json().simulation.safety.isolated).toBe(true)
+  })
+
+  it('denies workflow diagnostics before repository access for every non-superuser role', async () => {
+    seed('wf-diagnostics-auth')
+    const callsBefore = store.workflowFindCalls.length
+
+    const anonymous = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-diagnostics-auth/diagnostics' })
+    expect(anonymous.statusCode).toBe(401)
+    for (const headers of [adminAuth, secretaryAuth, doctorAuth]) {
+      const response = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-diagnostics-auth/diagnostics', headers })
+      expect(response.statusCode).toBe(403)
+    }
+    expect(store.workflowFindCalls).toHaveLength(callsBefore)
+  })
+
+  it('diagnoses an unsaved graph without persisting it and records metadata-only audit evidence', async () => {
+    validation.errors = []
+    validation.issues = []
+    validation.simulationCalls = []
+    store.auditLogs = []
+    seed('wf-diagnostics')
+    const draftGraph = {
+      nodes: [
+        { id: 'start', kind: 'trigger', type: 'trigger.message_keyword', config: { secret: 'do-not-audit' }, x: 0, y: 0 },
+        { id: 'end', kind: 'action', type: 'action.end', config: {}, x: 200, y: 0 },
+      ],
+      edges: [{ id: 'edge-1', source: 'start', target: 'end' }],
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/workflows/wf-diagnostics/diagnostics',
+      headers: studioAuth,
+      payload: { graph: draftGraph, simulation: { enabled: true }, readiness: { enabled: true }, recentRunsLimit: 5 },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().diagnostic).toMatchObject({
+      source: 'unsaved_graph',
+      status: 'ready',
+      workflowChecks: [],
+      recentRuns: [],
+    })
+    expect(validation.simulationCalls).toHaveLength(1)
+    expect(store.workflows.get('wf-diagnostics')?.nodes).toEqual([])
+    expect(store.auditLogs).toHaveLength(1)
+    expect(store.auditLogs[0]).toMatchObject({
+      clinicId: 'c-1',
+      actorId: 'studio-1',
+      action: 'workflow_diagnostic_completed',
+      resourceType: 'workflow',
+      resourceId: 'wf-diagnostics',
+      metadata: expect.objectContaining({ source: 'unsaved_graph' }),
+    })
+    expect(JSON.stringify(store.auditLogs[0])).not.toContain('do-not-audit')
+  })
+
+  it('keeps invalid-graph diagnostics useful while suppressing simulation and redacting recent runs', async () => {
+    validation.errors = ['Missing end step']
+    validation.issues = [{
+      code: 'missing_successor', severity: 'error', title: 'Add an ending', nodeId: 'start',
+      whatHappened: 'The workflow has no ending.', howToFix: 'Connect an end step.', technicalDetails: 'missing successor',
+    }]
+    validation.simulationCalls = []
+    store.runs = [{
+      id: 'run-1', status: 'failed', currentNodeId: 'start',
+      trace: { nodeId: 'start', message: 'patient text', providerPayload: { token: 'secret' }, safe: 'visible' },
+    }]
+    seed('wf-diagnostics-invalid')
+    const response = await app.inject({
+      method: 'POST',
+      url: '/clinics/c-1/workflows/wf-diagnostics-invalid/diagnostics',
+      headers: studioAuth,
+      payload: { graph: { nodes: [{ id: 'start', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 }], edges: [] } },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().diagnostic).toMatchObject({
+      status: 'not_ready',
+      source: 'unsaved_graph',
+      workflowChecks: [{ code: 'missing_successor', nodeId: 'start' }],
+      simulations: [{ status: 'skipped' }],
+      recentRuns: [{ trace: { nodeId: 'start', message: '[redacted]', providerPayload: '[redacted]', safe: 'visible' } }],
+    })
+    expect(validation.simulationCalls).toHaveLength(0)
+  })
+
+  it('does not disclose a workflow from another clinic to a superuser diagnostic request', async () => {
+    seed('wf-diagnostics-c2', 'c-2')
+    const response = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-diagnostics-c2/diagnostics', headers: studioAuth })
+    expect(response.statusCode).toBe(404)
+    expect(response.json()).toEqual({ error: 'Workflow not found' })
   })
 
   it('validates simulator bounds and the editor graph before execution', async () => {

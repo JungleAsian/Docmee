@@ -26,6 +26,34 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-02-workflow-diagnostics',
+    publishedAt: '2026-10-02T12:00:00.000Z',
+    version: '2026.10.02',
+    audience: 'platform',
+    title: {
+      en: 'Safe workflow diagnostics for superusers',
+      es: 'Diagnóstico seguro de flujos para superusuarios',
+    },
+    summary: {
+      en: 'Superusers can now check a saved workflow, preview unsaved edits, and review recent execution evidence without contacting patients or external services.',
+      es: 'Los superusuarios ahora pueden revisar un flujo guardado, probar cambios sin guardar y consultar evidencia de ejecuciones recientes sin contactar a pacientes ni servicios externos.',
+    },
+    highlights: [
+      {
+        en: 'Workflow checks identify blocking errors and warnings, with a direct path back to the affected node or connection.',
+        es: 'Las comprobaciones del flujo identifican errores bloqueantes y advertencias, con acceso directo al nodo o conexión afectados.',
+      },
+      {
+        en: 'A side-effect-free safe test shows whether the current workflow can complete without sending messages, creating appointments, or calling external integrations.',
+        es: 'Una prueba segura y sin efectos secundarios muestra si el flujo puede completarse sin enviar mensajes, crear citas ni llamar integraciones externas.',
+      },
+      {
+        en: 'Integration readiness and privacy-redacted recent runs provide operational evidence while keeping the tool restricted to superusers.',
+        es: 'La preparación de integraciones y las ejecuciones recientes con datos sensibles ocultos aportan evidencia operativa, manteniendo la herramienta restringida a superusuarios.',
+      },
+    ],
+  },
+  {
     id: '2026-09-25-governed-kb-retrieval',
     publishedAt: '2026-09-25T16:30:00.000Z',
     version: '2026.09.25.2',

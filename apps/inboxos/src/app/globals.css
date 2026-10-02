@@ -321,6 +321,7 @@ body {
   .crm-sidebar {
     position: relative;
     width: 220px;
+    min-height: 0;
     /* Keep the leaf toggle above the adjacent page header when the rail is collapsed. */
     z-index: 70;
     overflow: visible;
@@ -403,6 +404,7 @@ body {
   }
 
   .crm-sidebar-header {
+    flex: 0 0 auto;
     padding: 22px 16px 14px;
   }
 
@@ -467,14 +469,99 @@ body {
     filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.22));
   }
 
+  .crm-sidebar-nav-shell {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .crm-sidebar-nav-shell::before,
+  .crm-sidebar-nav-shell::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    left: 0;
+    z-index: 2;
+    height: 10px;
+    pointer-events: none;
+  }
+
+  .crm-sidebar-nav-shell::before {
+    top: 0;
+    background: linear-gradient(180deg, rgba(5, 55, 78, .88), rgba(5, 55, 78, 0));
+  }
+
+  .crm-sidebar-nav-shell::after {
+    bottom: 0;
+    background: linear-gradient(0deg, rgba(6, 47, 66, .9), rgba(6, 47, 66, 0));
+  }
+
   .crm-sidebar-nav {
-    flex: 1;
+    height: 100%;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 5px;
-    padding: 0 18px 0 14px;
-    overflow: hidden;
+    padding: 6px 18px 8px 14px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .28) transparent;
+  }
+
+  .crm-sidebar-nav::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .crm-sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .crm-sidebar-nav::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .28);
+  }
+
+  .crm-nav-group-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 4px;
+    border-radius: 10px;
+    color: inherit;
+    text-align: left;
+    transition: background-color .18s ease, color .18s ease;
+  }
+
+  .crm-nav-group-toggle:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, .07);
+  }
+
+  .crm-nav-group-toggle:focus-visible {
+    outline: 2px solid rgba(58, 217, 235, .9);
+    outline-offset: 2px;
+  }
+
+  .crm-nav-group-toggle .crm-nav-group-label {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .crm-nav-group-caret {
+    flex: 0 0 auto;
+    color: rgba(255, 255, 255, .6);
+    transition: transform .18s ease;
+  }
+
+  .crm-nav-group-toggle[aria-expanded='true'] .crm-nav-group-caret {
+    transform: rotate(180deg);
   }
 
   .crm-nav-group-label {
@@ -550,6 +637,7 @@ body {
 
   .crm-sidebar-footer {
     display: flex;
+    flex: 0 0 auto;
     flex-direction: column;
     align-items: stretch;
     gap: 5px;
@@ -598,7 +686,8 @@ body {
     align-items: center;
     gap: var(--crm-rail-button-gap);
     padding-inline: 12px;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .crm-sidebar-collapsed .crm-nav-group-items {
@@ -1566,15 +1655,17 @@ body {
   .crm-inboxos-desktop-shell .crm-sidebar-nav {
     align-items: stretch;
     gap: 5px;
-    padding: 0 18px 0 14px;
-    overflow: hidden;
+    padding: 6px 18px 8px 14px;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-sidebar-nav {
     align-items: center;
     gap: var(--crm-rail-button-gap);
     padding-inline: 12px;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .crm-inboxos-desktop-shell .crm-sidebar-collapsed .crm-nav-group-items {

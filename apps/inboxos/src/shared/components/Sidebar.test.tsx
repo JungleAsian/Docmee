@@ -75,4 +75,31 @@ describe('Sidebar', () => {
     expect(markup).toContain('Tutorial')
     expect(markup).toContain('nav.logout')
   })
+
+  it('turns labelled sections into accessible controls and keeps the active section open', async () => {
+    vi.stubGlobal('React', React)
+    const { Sidebar } = await import('./Sidebar')
+    const markup = renderToStaticMarkup(
+      React.createElement(Sidebar, {
+        title: 'Inbox',
+        collapsed: false,
+        groups: [
+          {
+            label: 'Clinics & people',
+            items: [{ href: '/studio/users', label: 'Users' }],
+          },
+          {
+            label: 'Messaging',
+            items: [{ href: '/inbox', label: 'Inbox' }],
+          },
+        ],
+      }),
+    )
+
+    expect(markup).toContain('class="crm-nav-group-toggle"')
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).toContain('aria-expanded="true"')
+    expect(markup).toContain('aria-current="page"')
+    expect(markup).toContain('class="crm-sidebar-nav-shell"')
+  })
 })

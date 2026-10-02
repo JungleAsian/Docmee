@@ -26,6 +26,34 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-02-cleaner-workflow-builder',
+    publishedAt: '2026-10-02T17:30:00.000Z',
+    version: '2026.10.02.2',
+    audience: 'admin',
+    title: {
+      en: 'A cleaner workflow builder for every automation',
+      es: 'Un constructor de flujos más claro para cada automatización',
+    },
+    summary: {
+      en: 'Current and future workflows now share clearer navigation, explicit route focus, compact tools, and safer visual grouping without changing execution behavior.',
+      es: 'Los flujos actuales y futuros ahora comparten navegación más clara, enfoque explícito de rutas, herramientas compactas y agrupación visual segura sin cambiar su ejecución.',
+    },
+    highlights: [
+      {
+        en: 'Search and status filters keep active workflows easy to find while archived workflows remain available on demand.',
+        es: 'La búsqueda y los filtros de estado facilitan encontrar flujos activos, mientras los archivados siguen disponibles cuando se necesitan.',
+      },
+      {
+        en: 'Collapsed groups combine equivalent visual connections while preserving every executable edge and branch.',
+        es: 'Los grupos contraídos combinan conexiones visuales equivalentes y conservan cada conexión y rama ejecutable.',
+      },
+      {
+        en: 'Route focus is now intentional, the simulator stays hidden until requested, and secondary actions are organized into compact menus.',
+        es: 'El enfoque de ruta ahora es intencional, el simulador permanece oculto hasta solicitarlo y las acciones secundarias se organizan en menús compactos.',
+      },
+    ],
+  },
+  {
     id: '2026-10-02-workflow-diagnostics',
     publishedAt: '2026-10-02T12:00:00.000Z',
     version: '2026.10.02',

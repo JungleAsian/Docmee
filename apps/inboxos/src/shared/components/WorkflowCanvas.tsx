@@ -141,6 +141,9 @@ export function WorkflowLayoutControls({
   language,
   onLayoutSelected,
   onReduceCrossings,
+  focusActive,
+  onFocusRoute,
+  onShowAll,
 }: {
   selectedId: string | null
   crossingCount: number
@@ -148,6 +151,9 @@ export function WorkflowLayoutControls({
   language: PanelLanguage
   onLayoutSelected: () => void
   onReduceCrossings: () => void
+  focusActive: boolean
+  onFocusRoute: () => void
+  onShowAll: () => void
 }) {
   const copy = language === 'es'
     ? {
@@ -155,12 +161,16 @@ export function WorkflowLayoutControls({
         branch: 'Organizar rama seleccionada',
         warning: `${crossingCount} cruces de conexiones detectados`,
         reduce: 'Reducir cruces',
+        focus: 'Enfocar ruta',
+        showAll: 'Mostrar todo',
       }
     : {
         tidy: 'Tidy workflow',
         branch: 'Layout selected branch',
         warning: `${crossingCount} connection crossings detected`,
         reduce: 'Reduce crossings',
+        focus: 'Focus route',
+        showAll: 'Show all',
       }
 
   return (
@@ -179,6 +189,14 @@ export function WorkflowLayoutControls({
         className="rounded border border-gray-600 bg-gray-950/90 px-2.5 py-1.5 text-xs font-medium text-gray-100 shadow disabled:cursor-not-allowed disabled:opacity-45"
       >
         {copy.branch}
+      </button>
+      <button
+        type="button"
+        disabled={!selectedId && !focusActive}
+        onClick={focusActive ? onShowAll : onFocusRoute}
+        className="rounded border border-gray-600 bg-gray-950/90 px-2.5 py-1.5 text-xs font-medium text-gray-100 shadow disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        {focusActive ? copy.showAll : copy.focus}
       </button>
       {showCrossingWarning && crossingCount > 0 && (
         <div role="status" className="flex items-center gap-2 rounded border border-amber-500/60 bg-gray-950/95 px-2.5 py-1.5 text-xs text-amber-100 shadow">
@@ -689,6 +707,7 @@ function WorkflowCanvasInner({
   workflowId,
   mode,
   focusIssue,
+  focusResetKey,
   simulation,
 }: {
   nodes: WfNode[]
@@ -703,6 +722,8 @@ function WorkflowCanvasInner({
   /** Builder mode — lifted to the editor toolbar (item 16), passed in here. */
   mode: CanvasMode
   focusIssue?: WorkflowCanvasFocusIssue | null
+  /** Changes after graph replacement so route focus never leaks across imports. */
+  focusResetKey?: number
   simulation?: WorkflowCanvasSimulation
 }) {
   const { t, language } = useI18n()
@@ -710,6 +731,7 @@ function WorkflowCanvasInner({
   const label = useCallback((type: string) => t((nodeDef(type)?.labelKey ?? type) as Parameters<typeof t>[0]), [t])
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [focusedRouteId, setFocusedRouteId] = useState<string | null>(null)
   const [paletteQuery, setPaletteQuery] = useState('')
   const [pendingWire, setPendingWire] = useState<PendingWire | null>(null)
   const [pickerQuery, setPickerQuery] = useState('')
@@ -815,6 +837,14 @@ function WorkflowCanvasInner({
   const selected = nodes.find((n) => n.id === selectedId) ?? null
 
   useEffect(() => {
+    if (focusedRouteId && !nodes.some((node) => node.id === focusedRouteId)) setFocusedRouteId(null)
+  }, [focusedRouteId, nodes])
+
+  useEffect(() => {
+    setFocusedRouteId(null)
+  }, [focusResetKey])
+
+  useEffect(() => {
     const nodeId = focusIssue?.nodeId ?? (focusIssue?.edgeId ? edges.find((edge) => edge.id === focusIssue.edgeId)?.source : undefined)
     if (!nodeId || !nodes.some((node) => node.id === nodeId)) return
     setSelectedId(nodeId)
@@ -829,7 +859,7 @@ function WorkflowCanvasInner({
   const graph = useMemo(() => {
     const nodeById = new Map(nodes.map((n) => [n.id, n]))
     const allTargets = nodes.map((n) => ({ id: n.id, label: label(n.type) }))
-    const selectedPath = selectedId ? getSelectedWorkflowPath(edges, selectedId) : null
+    const selectedPath = focusedRouteId ? getSelectedWorkflowPath(edges, focusedRouteId) : null
     const rfNodes: Node[] = projection.nodes.map(({ node: n, parentId, position }) => {
       const inPath = selectedPath?.nodeIds.has(n.id) ?? false
       const appearance = workflowPathAppearance(Boolean(selectedPath), inPath)
@@ -870,6 +900,7 @@ function WorkflowCanvasInner({
       draggable: true, deletable: false, connectable: false,
       ariaLabel: group.group.label,
       data: { group: group.group, sourceHandles: group.sourceHandles, targetHandles: group.targetHandles,
+        sourcePorts: group.sourcePorts, targetPorts: group.targetPorts,
         onToggle: toggleGroup, onUngroup: ungroup, onRename: renameGroup },
     })))
     const rfEdges: Edge[] = projection.edges.map((e, order) => {
@@ -914,7 +945,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, projection, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, selectedId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
+  }, [nodes, edges, projection, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, focusedRouteId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -1282,6 +1313,9 @@ function WorkflowCanvasInner({
           language={language}
           onLayoutSelected={layoutSelected}
           onReduceCrossings={reduceCrossings}
+          focusActive={Boolean(focusedRouteId)}
+          onFocusRoute={() => setFocusedRouteId(selectedId)}
+          onShowAll={() => setFocusedRouteId(null)}
         />
 
         {/* Auto-wire node picker (opened by dropping a loose connection) */}
@@ -1354,6 +1388,8 @@ export function WorkflowCanvas(props: {
   mode: CanvasMode
   /** Save-error focus target — selects the node, opens config, and centers it. */
   focusIssue?: WorkflowCanvasFocusIssue | null
+  /** Changes after graph replacement so route focus never leaks across imports. */
+  focusResetKey?: number
   /** Ephemeral simulator path state; never serialized into the workflow. */
   simulation?: WorkflowCanvasSimulation
 }) {

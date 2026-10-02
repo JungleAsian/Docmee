@@ -23,6 +23,7 @@ import { layoutWorkflow } from '@/shared/workflowLayout'
 import { cleanGroups, layoutGroupedWorkflow, workflowDocument, type WorkflowCanvasGraph } from '@/shared/components/workflow/LayoutUtils'
 import { publishWorkflow } from '@/shared/workflowPublish'
 import { serializeWorkflowExport, parseWorkflowExport } from '@/shared/workflowImport'
+import { filterWorkflows, workflowNameGuidance, type WorkflowStatusFilter } from '@/shared/workflowPresentation'
 import type { Workflow, WorkflowNode, WorkflowEdge, WorkflowStatus } from '@/shared/types'
 
 const btn = 'rounded-md px-3 py-1.5 text-sm font-medium'
@@ -98,6 +99,8 @@ export default function WorkflowsPage() {
   const [pendingDelete, setPendingDelete] = useState<Workflow | null>(null)
   // Item 25 of the 25-item batch: the Q&A wizard entry point.
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [workflowQuery, setWorkflowQuery] = useState('')
+  const [workflowStatusFilter, setWorkflowStatusFilter] = useState<WorkflowStatusFilter>('active')
 
   const key = ['workflows', clinicId]
   const query = useQuery({
@@ -161,6 +164,10 @@ export default function WorkflowsPage() {
   })
 
   const workflows = query.data?.workflows ?? []
+  const visibleWorkflows = useMemo(
+    () => filterWorkflows(workflows, workflowQuery, workflowStatusFilter),
+    [workflows, workflowQuery, workflowStatusFilter],
+  )
 
   // R5 deep links from the Automations hub gallery (client-side read avoids a
   // useSearchParams Suspense requirement on this statically rendered page):
@@ -285,7 +292,34 @@ export default function WorkflowsPage() {
           ) : workflows.length === 0 ? (
             <p className="text-sm text-gray-500">{t('wf.empty')}</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+              <div className="flex flex-wrap gap-2 border-b border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-950/50">
+                <label className="min-w-52 flex-1">
+                  <span className="sr-only">{language === 'es' ? 'Buscar flujos' : 'Search workflows'}</span>
+                  <input
+                    type="search"
+                    value={workflowQuery}
+                    onChange={(event) => setWorkflowQuery(event.target.value)}
+                    placeholder={language === 'es' ? 'Buscar flujos…' : 'Search workflows…'}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  />
+                </label>
+                <label>
+                  <span className="sr-only">{language === 'es' ? 'Filtrar por estado' : 'Filter by status'}</span>
+                  <select
+                    value={workflowStatusFilter}
+                    onChange={(event) => setWorkflowStatusFilter(event.target.value as WorkflowStatusFilter)}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  >
+                    <option value="active">{language === 'es' ? 'Activos' : 'Active'}</option>
+                    <option value="draft">{language === 'es' ? 'Borradores' : 'Drafts'}</option>
+                    <option value="published">{language === 'es' ? 'Publicados' : 'Published'}</option>
+                    <option value="archived">{language === 'es' ? 'Archivados' : 'Archived'}</option>
+                    <option value="all">{language === 'es' ? 'Todos' : 'All'}</option>
+                  </select>
+                </label>
+              </div>
+              <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-800">
                 <thead className="bg-gray-50 dark:bg-gray-950/50">
                   <tr>
@@ -296,7 +330,7 @@ export default function WorkflowsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {workflows.map((wf) => (
+                  {visibleWorkflows.map((wf) => (
                     <tr key={wf.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="px-3 py-2">
                         <p className="font-medium text-gray-800 dark:text-gray-100">{wf.name}</p>
@@ -339,8 +373,12 @@ export default function WorkflowsPage() {
                       </td>
                     </tr>
                   ))}
+                  {visibleWorkflows.length === 0 && (
+                    <tr><td colSpan={4} className="px-3 py-8 text-center text-sm text-gray-500">{language === 'es' ? 'No hay flujos que coincidan con estos filtros.' : 'No workflows match these filters.'}</td></tr>
+                  )}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </>
@@ -578,7 +616,9 @@ function WorkflowEditor({
   const [importError, setImportError] = useState<string | null>(null)
   const [focusedIssue, setFocusedIssue] = useState<ApiIssue | null>(null)
   const [simulationPaused, setSimulationPaused] = useState(false)
+  const [simulationOpen, setSimulationOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [focusResetKey, setFocusResetKey] = useState(0)
   const simulationSessionRef = useRef(createSimulationReplaySession())
   const simulationScenarioRef = useRef<SimulationScenarioInput | undefined>(undefined)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -682,6 +722,7 @@ function WorkflowEditor({
       }
       setImportError(null)
       setHist((h) => pushHistory(h, { nodes: result.nodes, edges: result.edges, groups: result.groups ?? [] }))
+      setFocusResetKey((value) => value + 1)
       lastPushAtRef.current = Date.now()
       setDirty(true)
       resetSimulation()
@@ -744,21 +785,26 @@ function WorkflowEditor({
 
   const saveIssues = save.error instanceof ApiError ? save.error.issues ?? [] : []
   const issueCopy = workflowIssueCopy(language, saveIssues.length)
+  const nameGuidance = workflowNameGuidance(name, language)
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
         <BackButton onClick={requestClose} label={t('wf.backToWorkflows')} className={`${btn} border border-gray-300 text-gray-700 dark:text-gray-200`} />
-        <input
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value)
-            setDirty(true)
-            setSaved(false)
-          }}
-          placeholder={t('wf.namePlaceholder')}
-          className="w-56 min-w-40 rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
-        />
+        <div className="min-w-48">
+          <input
+            value={name}
+            aria-describedby={nameGuidance ? 'workflow-name-guidance' : undefined}
+            onChange={(e) => {
+              setName(e.target.value)
+              setDirty(true)
+              setSaved(false)
+            }}
+            placeholder={t('wf.namePlaceholder')}
+            className="w-56 max-w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-800"
+          />
+          {nameGuidance && <p id="workflow-name-guidance" className="mt-1 max-w-56 text-[11px] text-amber-600 dark:text-amber-300">{nameGuidance}</p>}
+        </div>
         <span className="flex-1" />
         {/* Enhanced / Guided builder toggle — moved here from the canvas overlay
             (item 16), sitting just before Undo. */}
@@ -778,7 +824,9 @@ function WorkflowEditor({
         <span className="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">
           {status === 'published' ? 'Published' : 'Draft'}
         </span>
-        <div role="group" aria-label={language === 'es' ? 'Editar y organizar' : 'Edit and arrange'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
+        <details className="relative">
+          <summary className={`${btn} cursor-pointer list-none border border-gray-300 text-gray-700 dark:text-gray-200`}>▦ {language === 'es' ? 'Organizar' : 'Arrange'}</summary>
+          <div role="group" aria-label={language === 'es' ? 'Editar y organizar' : 'Edit and arrange'} className="absolute right-0 z-30 mt-1 flex min-w-40 flex-col gap-1 rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
         <button
           type="button"
           onClick={undo}
@@ -805,10 +853,18 @@ function WorkflowEditor({
         >
           ▦ {t('wf.autoLayout')}
         </button>
-        </div>
-        <div role="group" aria-label={language === 'es' ? 'Probar y transferir' : 'Test and transfer'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
-        <button type="button" onClick={() => simulation.mutate({ mode: 'run' })} disabled={!persistedWorkflow || simulation.isPending} title="Open and run the side-effect-free simulator" className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}>▷ Simulate</button>
+          </div>
+        </details>
+        <details className="relative">
+          <summary className={`${btn} cursor-pointer list-none border border-violet-300 text-violet-700 dark:text-violet-200`}>▷ {language === 'es' ? 'Probar' : 'Test'}</summary>
+          <div role="group" aria-label={language === 'es' ? 'Probar flujo' : 'Test workflow'} className="absolute right-0 z-30 mt-1 flex min-w-44 flex-col gap-1 rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+        <button type="button" onClick={() => { setSimulationOpen(true); simulation.mutate({ mode: 'run' }) }} disabled={!persistedWorkflow || simulation.isPending} title="Open and run the side-effect-free simulator" className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}>▷ {language === 'es' ? 'Simular' : 'Simulate'}</button>
         <WorkflowDiagnosticsTrigger role={role} busy={diagnostics.isPending} onOpen={() => setDiagnosticsOpen(true)} />
+          </div>
+        </details>
+        <details className="relative">
+          <summary className={`${btn} cursor-pointer list-none border border-gray-300 text-gray-700 dark:text-gray-200`}>••• {language === 'es' ? 'Más' : 'More'}</summary>
+          <div role="group" aria-label={language === 'es' ? 'Transferir flujo' : 'Transfer workflow'} className="absolute right-0 z-30 mt-1 flex min-w-40 flex-col gap-1 rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
         <button
           type="button"
           onClick={handleExport}
@@ -825,7 +881,8 @@ function WorkflowEditor({
           ⭱ {t('wf.import')}
         </button>
         <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
-        </div>
+          </div>
+        </details>
         {saved && <span role="status" className="text-xs font-medium text-emerald-600">{t('common.saved')}</span>}
         <button type="button" onClick={() => { setSaved(false); save.mutate() }} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
@@ -900,7 +957,11 @@ function WorkflowEditor({
           Simulation failed: {simulation.error instanceof Error ? simulation.error.message : t('common.error')}
         </div>
       )}
-      {(persistedWorkflow || simulation.data) && (
+      {simulationOpen && persistedWorkflow && (
+        <div className="relative">
+          <button type="button" onClick={() => setSimulationOpen(false)} className="absolute right-4 top-2 z-20 rounded border border-violet-300 bg-white px-2 py-1 text-xs font-medium text-violet-700 dark:bg-gray-900 dark:text-violet-200">
+            {language === 'es' ? 'Ocultar simulador' : 'Hide simulator'}
+          </button>
         <WorkflowSimulationPanel
           result={simulation.data?.simulation ?? null}
           busy={simulation.isPending}
@@ -914,6 +975,7 @@ function WorkflowEditor({
           onResume={(resumeInput) => simulation.mutate({ mode: 'resume', resumeInput })}
           onFocusNode={(nodeId) => setFocusedIssue({ nodeId })}
         />
+        </div>
       )}
       {canUseWorkflowDiagnostics(role) && (
         <WorkflowDiagnosticsPanel
@@ -940,6 +1002,7 @@ function WorkflowEditor({
           workflowId={persistedWorkflow?.id}
           mode={mode}
           focusIssue={focusedIssue}
+          focusResetKey={focusResetKey}
           simulation={{
             currentNodeId: simulation.data?.simulation.trace.at(-1)?.nodeId,
             testedNodeIds: simulation.data?.simulation.coverage.testedNodeIds ?? [],

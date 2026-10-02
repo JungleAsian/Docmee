@@ -29,6 +29,9 @@ describe('WorkflowLayoutControls', () => {
         language="en"
         onLayoutSelected={vi.fn()}
         onReduceCrossings={vi.fn()}
+        focusActive={false}
+        onFocusRoute={vi.fn()}
+        onShowAll={vi.fn()}
       />,
     )
 
@@ -46,10 +49,14 @@ describe('WorkflowLayoutControls', () => {
         language="en"
         onLayoutSelected={vi.fn()}
         onReduceCrossings={vi.fn()}
+        focusActive={false}
+        onFocusRoute={vi.fn()}
+        onShowAll={vi.fn()}
       />,
     )
 
     expect(markup).toContain('Layout selected branch')
+    expect(markup).toContain('Focus route')
     expect(markup).toContain('disabled=""')
     expect(markup).not.toContain('role="status"')
   })
@@ -64,6 +71,9 @@ describe('WorkflowLayoutControls', () => {
         language="es"
         onLayoutSelected={vi.fn()}
         onReduceCrossings={vi.fn()}
+        focusActive
+        onFocusRoute={vi.fn()}
+        onShowAll={vi.fn()}
       />,
     )
 
@@ -71,6 +81,7 @@ describe('WorkflowLayoutControls', () => {
     expect(markup).toContain('3 cruces de conexiones')
     expect(markup).toContain('Reducir cruces')
     expect(markup).toContain('Organizar rama seleccionada')
+    expect(markup).toContain('Mostrar todo')
   })
 
   it('keeps a straight orthogonal route finite when adjacent corridor points coincide', () => {

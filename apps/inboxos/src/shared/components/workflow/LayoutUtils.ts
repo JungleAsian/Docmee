@@ -64,8 +64,53 @@ export interface ProjectedGroup extends Box {
   group: WorkflowGroup
   sourceHandles: string[]
   targetHandles: string[]
+  sourcePorts: ProjectedPort[]
+  targetPorts: ProjectedPort[]
 }
 export interface ProjectedEdge extends WorkflowEdge { targetHandle?: string }
+
+export interface ProjectedPort {
+  id: string
+  direction: 'incoming' | 'outgoing'
+  branchClass: string
+  externalEndpoint: string
+  edgeIds: string[]
+  count: number
+}
+
+function collapsedBranchClass(handle: string | undefined): string {
+  if (!handle) return 'default'
+  if (/error|fail/i.test(handle)) return 'error'
+  if (/success|default/i.test(handle)) return 'default'
+  return `conditional:${handle}`
+}
+
+function collapsedPortId(direction: 'in' | 'out', branchClass: string, endpoint: string): string {
+  return `${direction}:${encodeURIComponent(branchClass)}:${encodeURIComponent(endpoint)}`
+}
+
+function projectedPorts(edges: ProjectedEdge[], groupId: string, direction: 'incoming' | 'outgoing'): ProjectedPort[] {
+  const byHandle = new Map<string, ProjectedPort>()
+  for (const edge of edges) {
+    const matches = direction === 'outgoing' ? edge.source === groupId : edge.target === groupId
+    if (!matches) continue
+    const id = direction === 'outgoing' ? edge.sourceHandle : edge.targetHandle
+    if (!id) continue
+    const endpoint = direction === 'outgoing' ? edge.target : edge.source
+    const encodedBranch = edge.sourceHandle?.split(':').slice(1, -1).join(':')
+    const branchClass = direction === 'outgoing'
+      ? collapsedBranchClass(encodedBranch ? decodeURIComponent(encodedBranch) : undefined)
+      : 'incoming'
+    const current = byHandle.get(id)
+    if (current) {
+      current.edgeIds.push(edge.id)
+      current.count += 1
+    } else {
+      byHandle.set(id, { id, direction, branchClass, externalEndpoint: endpoint, edgeIds: [edge.id], count: 1 })
+    }
+  }
+  return [...byHandle.values()].sort((a, b) => a.id.localeCompare(b.id))
+}
 
 /** Derive display coordinates from saved coordinates on every toggle. Never
  * accumulate offsets: collapsing restores the same compact layout each time. */
@@ -126,19 +171,26 @@ export function projectWorkflow(nodes: WorkflowNode[], edges: WorkflowEdge[], ra
     const sourceGroup = membership.get(edge.source)
     const targetGroup = membership.get(edge.target)
     if (sourceGroup?.collapsed && sourceGroup === targetGroup) return []
+    const source = sourceGroup?.collapsed ? sourceGroup.id : edge.source
+    const target = targetGroup?.collapsed ? targetGroup.id : edge.target
+    const branchClass = collapsedBranchClass(edge.sourceHandle ?? undefined)
     return [{
       ...edge,
-      source: sourceGroup?.collapsed ? sourceGroup.id : edge.source,
-      target: targetGroup?.collapsed ? targetGroup.id : edge.target,
-      sourceHandle: sourceGroup?.collapsed ? 'out:' + edge.id : edge.sourceHandle,
-      targetHandle: targetGroup?.collapsed ? 'in:' + edge.id : undefined,
+      source,
+      target,
+      sourceHandle: sourceGroup?.collapsed ? collapsedPortId('out', branchClass, target) : edge.sourceHandle,
+      targetHandle: targetGroup?.collapsed ? collapsedPortId('in', 'incoming', source) : undefined,
     }]
   })
-  const projectedGroups: ProjectedGroup[] = groups.map((group) => ({
-    ...boxById.get(group.id)!, group,
-    sourceHandles: projectedEdges.filter((edge) => edge.source === group.id).map((edge) => edge.sourceHandle!),
-    targetHandles: projectedEdges.filter((edge) => edge.target === group.id).map((edge) => edge.targetHandle!),
-  }))
+  const projectedGroups: ProjectedGroup[] = groups.map((group) => {
+    const sourcePorts = projectedPorts(projectedEdges, group.id, 'outgoing')
+    const targetPorts = projectedPorts(projectedEdges, group.id, 'incoming')
+    return {
+      ...boxById.get(group.id)!, group, sourcePorts, targetPorts,
+      sourceHandles: sourcePorts.map((port) => port.id),
+      targetHandles: targetPorts.map((port) => port.id),
+    }
+  })
   return { nodes: projectedNodes, edges: projectedEdges, groups: projectedGroups, boxes: placed }
 }
 

@@ -5,6 +5,7 @@ import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } f
 import { FolderSimple, CaretRight, CaretDown } from '@phosphor-icons/react'
 import { useI18n } from '../../hooks/useI18n'
 import type { WorkflowGroup } from '../../types'
+import type { ProjectedPort } from './LayoutUtils'
 import { useSemanticZoom } from './SemanticZoom'
 import styles from './workflow.module.css'
 
@@ -12,13 +13,15 @@ export type GroupNodeData = {
   group: WorkflowGroup
   sourceHandles: string[]
   targetHandles: string[]
+  sourcePorts?: ProjectedPort[]
+  targetPorts?: ProjectedPort[]
   onToggle: (id: string) => void
   onUngroup: (id: string) => void
   onRename: (id: string, label: string) => void
 }
 
 export const CustomGroupNode = memo(function CustomGroupNode({ data, selected }: NodeProps<Node<GroupNodeData>>) {
-  const { group, sourceHandles, targetHandles, onToggle, onUngroup, onRename } = data
+  const { group, sourceHandles, targetHandles, sourcePorts = [], targetPorts = [], onToggle, onUngroup, onRename } = data
   const { language } = useI18n()
   const tier = useSemanticZoom()
   const updateNodeInternals = useUpdateNodeInternals()
@@ -39,9 +42,23 @@ export const CustomGroupNode = memo(function CustomGroupNode({ data, selected }:
         onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur() }} />
       <button type="button" onClick={() => onUngroup(group.id)}>{language === 'es' ? 'Desagrupar' : 'Ungroup'}</button>
     </div>}
-    {sourceHandles.map((id, index) => <Handle key={id} id={id} type="source" position={Position.Right} isConnectable={false}
-      style={{ top: `${(index + 1) * 100 / (sourceHandles.length + 1)}%`, opacity: tier === 'macro' ? 0 : 1 }} />)}
-    {targetHandles.map((id, index) => <Handle key={id} id={id} type="target" position={Position.Left} isConnectable={false}
-      style={{ top: `${(index + 1) * 100 / (targetHandles.length + 1)}%`, opacity: tier === 'macro' ? 0 : 1 }} />)}
+    {sourceHandles.map((id, index) => {
+      const port = sourcePorts.find((entry) => entry.id === id)
+      const top = `${(index + 1) * 100 / (sourceHandles.length + 1)}%`
+      return <div key={id} title={port && port.count > 1 ? `${port.count} outgoing connections` : undefined}>
+        <Handle id={id} type="source" position={Position.Right} isConnectable={false}
+          style={{ top, opacity: tier === 'macro' ? 0 : 1 }} />
+        {tier === 'full' && port && port.count > 1 && <span aria-label={`${port.count} outgoing connections`} className="pointer-events-none absolute right-1 rounded-full bg-cyan-600 px-1.5 text-[9px] font-bold text-white" style={{ top }}>{port.count}</span>}
+      </div>
+    })}
+    {targetHandles.map((id, index) => {
+      const port = targetPorts.find((entry) => entry.id === id)
+      const top = `${(index + 1) * 100 / (targetHandles.length + 1)}%`
+      return <div key={id} title={port && port.count > 1 ? `${port.count} incoming connections` : undefined}>
+        <Handle id={id} type="target" position={Position.Left} isConnectable={false}
+          style={{ top, opacity: tier === 'macro' ? 0 : 1 }} />
+        {tier === 'full' && port && port.count > 1 && <span aria-label={`${port.count} incoming connections`} className="pointer-events-none absolute left-1 rounded-full bg-cyan-600 px-1.5 text-[9px] font-bold text-white" style={{ top }}>{port.count}</span>}
+      </div>
+    })}
   </div>
 })

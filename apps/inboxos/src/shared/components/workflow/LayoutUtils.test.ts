@@ -13,12 +13,29 @@ describe('large workflow presentation', () => {
     expect(view.groups).toHaveLength(3)
     expect(view.nodes).toHaveLength(0)
     expect(view.edges).toHaveLength(2)
-    expect(view.edges[0]).toMatchObject({ id: 'bridge-0', source: 'demo-group-0', target: 'demo-group-1', sourceHandle: 'out:bridge-0', targetHandle: 'in:bridge-0' })
+    expect(view.edges[0]).toMatchObject({ id: 'bridge-0', source: 'demo-group-0', target: 'demo-group-1' })
     const document = workflowDocument(graph)
     expect(document.definition.nodes).toHaveLength(36)
     expect(document.definition.edges).toEqual(graph.edges)
     expect(document.definition.nodes.some((node) => node.id.startsWith('demo-group'))).toBe(false)
     expect(JSON.stringify(graph)).toBe(before)
+  })
+  it('aggregates equivalent collapsed-group boundary connections without changing edge identity', () => {
+    const nodes = [
+      { id: 'inside-a', kind: 'action' as const, type: 'action.end', config: {}, x: 0, y: 0 },
+      { id: 'inside-b', kind: 'action' as const, type: 'action.end', config: {}, x: 0, y: 160 },
+      { id: 'outside', kind: 'action' as const, type: 'action.end', config: {}, x: 480, y: 80 },
+    ]
+    const edges = [
+      { id: 'edge-a', source: 'inside-a', target: 'outside' },
+      { id: 'edge-b', source: 'inside-b', target: 'outside' },
+    ]
+    const view = projectWorkflow(nodes, edges, [{ id: 'group', label: 'Grouped', nodeIds: ['inside-a', 'inside-b'], collapsed: true }])
+    expect(view.edges.map((edge) => edge.id)).toEqual(['edge-a', 'edge-b'])
+    expect(new Set(view.edges.map((edge) => edge.sourceHandle)).size).toBe(1)
+    expect(view.groups[0]?.sourcePorts).toEqual([
+      expect.objectContaining({ count: 2, edgeIds: ['edge-a', 'edge-b'], externalEndpoint: 'outside' }),
+    ])
   })
   it('expands without container overlaps and reverses offsets without drift', () => {
     const graph = createHugeWorkflow()

@@ -864,31 +864,33 @@ export async function processAgentJob(job: Job): Promise<void> {
     if (activeSchedulingAction) {
       if (!insideHours) {
         await sendOutOfHoursNotice()
-        await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
       }
+      await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
       return
     }
 
-    // Fire inbound workflows only outside business hours, after the safety and
-    // consent guards above. A matched
+    // Published inbound workflows remain active during clinic hours. Safety,
+    // consent, explicit handoff, and human-ownership guards still run first. A matched
     // CONVERSATIONAL workflow (menu / ask & capture / send message…) owns the
     // reply turn: it answers the patient itself, so custom flows and the LLM stay
     // silent this turn. Pure side-effect workflows (tag / notify / approval)
     // remain best-effort and never suppress the reply below.
     if (!insideHours) {
       await sendOutOfHoursNotice()
-      try {
-        const claim = await enqueueInboundWorkflowRuns(sql, data.clinicId, {
-          sourceEventId: data.waMessageId,
-          message: data.message,
-          ...(data.patientId ? { patientId: data.patientId } : {}),
-          ...(data.conversationId ? { conversationId: data.conversationId } : {}),
-        })
-        if (claim.ownsTurn) return
-      } catch (err) {
-        console.error('[agent] workflow trigger enqueue failed:', err)
-      }
+    }
+    try {
+      const claim = await enqueueInboundWorkflowRuns(sql, data.clinicId, {
+        sourceEventId: data.waMessageId,
+        message: data.message,
+        ...(data.patientId ? { patientId: data.patientId } : {}),
+        ...(data.conversationId ? { conversationId: data.conversationId } : {}),
+      })
+      if (claim.ownsTurn) return
+    } catch (err) {
+      console.error('[agent] workflow trigger enqueue failed:', err)
+    }
 
+    if (!insideHours) {
       // P18 (Gap #34): custom flows run before intent classification. A keyword
       // match runs the clinic's scripted message sequence and skips the LLM.
       if (sendReply && (await runMatchingCustomFlow(sql, data, patient, conversation, sendReply, sendInteractive, clinic))) {

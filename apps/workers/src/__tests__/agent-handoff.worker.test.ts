@@ -108,6 +108,7 @@ const baseJob = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.enqueueInboundWorkflowRuns.mockReset().mockResolvedValue({ enqueued: 0, ownsTurn: false })
   h.sendWhatsAppText.mockReset().mockResolvedValue('wamid.reply')
   h.markProviderAccepted.mockReset().mockResolvedValue(undefined)
   h.markSendFailed.mockReset().mockResolvedValue(undefined)
@@ -441,6 +442,26 @@ describe('processAgentJob — clinic guardrails', () => {
 })
 
 describe('processAgentJob — AI conversation orchestration', () => {
+  it('lets a published inbound workflow own a daytime WhatsApp turn', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.enqueueInboundWorkflowRuns.mockResolvedValueOnce({ enqueued: 1, ownsTurn: true })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'Quiero cambiar mi cita' }))
+
+    expect(h.enqueueInboundWorkflowRuns).toHaveBeenCalledWith(
+      expect.anything(),
+      CLINIC,
+      expect.objectContaining({
+        sourceEventId: baseJob.waMessageId,
+        message: 'Quiero cambiar mi cita',
+        patientId: PATIENT,
+        conversationId: CONVO,
+      }),
+    )
+    expect(h.classifyIntent).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
   it('keeps a booking request with staff during business hours', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
     h.classifyIntent.mockResolvedValueOnce('booking_request')
@@ -564,19 +585,25 @@ describe('processAgentJob — AI conversation orchestration', () => {
     }
   })
 
-  it('keeps an active booking with staff during business hours', async () => {
-    h.findConversation.mockResolvedValue({
-      id: CONVO,
-      status: 'open',
-      metadata: { scheduling: { action: 'book', step: 'awaiting_time' } },
-    })
+  it.each(['book', 'reschedule', 'cancel', 'status'] as const)(
+    'continues an active %s flow during business hours',
+    async (action) => {
+      h.findConversation.mockResolvedValue({
+        id: CONVO,
+        status: 'open',
+        metadata: { scheduling: { action, step: 'awaiting_time' } },
+      })
 
-    await processAgentJob(makeJob({ ...baseJob, message: '10:30' }))
+      await processAgentJob(makeJob({ ...baseJob, message: '10:30' }))
 
-    expect(h.classifyIntent).not.toHaveBeenCalled()
-    expect(h.runClinicBot).not.toHaveBeenCalled()
-    expect(h.schedulingAdd).not.toHaveBeenCalled()
-  })
+      expect(h.classifyIntent).not.toHaveBeenCalled()
+      expect(h.runClinicBot).not.toHaveBeenCalled()
+      expect(h.schedulingAdd).toHaveBeenCalledWith(
+        'schedule',
+        expect.objectContaining({ action, conversationId: CONVO, message: '10:30' }),
+      )
+    },
+  )
 
   it('does not auto-reply to a general question during business hours', async () => {
     h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })

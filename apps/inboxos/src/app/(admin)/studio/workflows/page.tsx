@@ -12,9 +12,11 @@ import { ClinicSelect, useClinics } from '@/shared/components/ClinicSelect'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
 import { WorkflowSimulationPanel, buildSimulationRequestInput, createSimulationReplaySession, type SimulationResumeInput, type SimulationScenarioInput, type WorkflowSimulationView } from '@/shared/components/WorkflowSimulationPanel'
+import { WorkflowDiagnosticsPanel, WorkflowDiagnosticsTrigger, buildWorkflowDiagnosticsRequest, canUseWorkflowDiagnostics, type WorkflowDiagnosticView } from '@/shared/components/WorkflowDiagnosticsPanel'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
+import { useAuthStore } from '@/shared/store/auth'
 import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate, type WorkflowTemplate } from '@/shared/workflowTemplates'
 import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
 import { layoutWorkflow } from '@/shared/workflowLayout'
@@ -543,6 +545,7 @@ function WorkflowEditor({
   onClose: () => void
 }) {
   const { t, language } = useI18n()
+  const role = useAuthStore((state) => state.user?.role)
   // Keep the persisted identity locally after the first save. This lets a new
   // workflow remain open and be saved repeatedly without creating duplicates.
   const [persistedWorkflow, setPersistedWorkflow] = useState<Workflow | undefined>(workflow)
@@ -575,6 +578,7 @@ function WorkflowEditor({
   const [importError, setImportError] = useState<string | null>(null)
   const [focusedIssue, setFocusedIssue] = useState<ApiIssue | null>(null)
   const [simulationPaused, setSimulationPaused] = useState(false)
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const simulationSessionRef = useRef(createSimulationReplaySession())
   const simulationScenarioRef = useRef<SimulationScenarioInput | undefined>(undefined)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -594,6 +598,20 @@ function WorkflowEditor({
       setSimulationPaused(false)
     },
   })
+  const diagnostics = useMutation({
+    mutationFn: async () => {
+      if (!persistedWorkflow || !canUseWorkflowDiagnostics(role)) throw new Error('Workflow diagnostics are unavailable.')
+      return api.post<{ diagnostic: WorkflowDiagnosticView }>(
+        `/clinics/${clinicId}/workflows/${persistedWorkflow.id}/diagnostics`,
+        buildWorkflowDiagnosticsRequest(nodes, edges),
+      )
+    },
+  })
+  const resetDiagnostics = diagnostics.reset
+
+  useEffect(() => {
+    resetDiagnostics()
+  }, [nodes, edges, resetDiagnostics])
 
   const resetSimulation = useCallback(() => {
     simulationSessionRef.current.reset()
@@ -790,6 +808,7 @@ function WorkflowEditor({
         </div>
         <div role="group" aria-label={language === 'es' ? 'Probar y transferir' : 'Test and transfer'} className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 p-1 dark:border-gray-700">
         <button type="button" onClick={() => simulation.mutate({ mode: 'run' })} disabled={!persistedWorkflow || simulation.isPending} title="Open and run the side-effect-free simulator" className={`${btn} border border-violet-300 text-violet-700 disabled:opacity-40 dark:text-violet-200`}>▷ Simulate</button>
+        <WorkflowDiagnosticsTrigger role={role} busy={diagnostics.isPending} onOpen={() => setDiagnosticsOpen(true)} />
         <button
           type="button"
           onClick={handleExport}
@@ -894,6 +913,21 @@ function WorkflowEditor({
           onReset={resetSimulation}
           onResume={(resumeInput) => simulation.mutate({ mode: 'resume', resumeInput })}
           onFocusNode={(nodeId) => setFocusedIssue({ nodeId })}
+        />
+      )}
+      {canUseWorkflowDiagnostics(role) && (
+        <WorkflowDiagnosticsPanel
+          open={diagnosticsOpen}
+          busy={diagnostics.isPending}
+          needsInitialSave={!persistedWorkflow}
+          result={diagnostics.data?.diagnostic ?? null}
+          error={diagnostics.isError ? (diagnostics.error instanceof Error ? diagnostics.error.message : t('common.error')) : null}
+          onClose={() => setDiagnosticsOpen(false)}
+          onRun={() => diagnostics.mutate()}
+          onFocusIssue={(issue) => {
+            setFocusedIssue(issue)
+            setDiagnosticsOpen(false)
+          }}
         />
       )}
       <div className="min-h-0 flex-1 p-4 pt-2">

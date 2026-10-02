@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { WorkflowDiagnosticsPanel, WorkflowDiagnosticsTrigger, canUseWorkflowDiagnostics } from './WorkflowDiagnosticsPanel'
+import { WorkflowDiagnosticsPanel, WorkflowDiagnosticsTrigger, buildWorkflowDiagnosticsRequest, canUseWorkflowDiagnostics } from './WorkflowDiagnosticsPanel'
 
 describe('WorkflowDiagnosticsPanel', () => {
   it('keeps the diagnostic entry point exclusive to superusers', () => {
@@ -10,6 +10,17 @@ describe('WorkflowDiagnosticsPanel', () => {
     expect(canUseWorkflowDiagnostics('clinic_admin')).toBe(false)
     expect(renderToStaticMarkup(<WorkflowDiagnosticsTrigger role="clinic_admin" busy={false} onOpen={vi.fn()} />)).toBe('')
     expect(renderToStaticMarkup(<WorkflowDiagnosticsTrigger role="ia_studio_admin" busy={false} onOpen={vi.fn()} />)).toContain('Diagnose')
+  })
+
+  it('sends the current editor graph through safe diagnostic checks', () => {
+    const nodes = [{ id: 'unsaved-step' }]
+    const edges = [{ id: 'unsaved-edge' }]
+    expect(buildWorkflowDiagnosticsRequest(nodes, edges)).toEqual({
+      graph: { nodes, edges },
+      simulation: { enabled: true },
+      readiness: { enabled: true, refresh: false },
+      recentRunsLimit: 10,
+    })
   })
 
   it('explains why a new workflow must be saved before diagnostics can run', () => {

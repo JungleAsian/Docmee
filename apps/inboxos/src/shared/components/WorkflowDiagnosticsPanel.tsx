@@ -25,6 +25,23 @@ export interface WorkflowDiagnosticView {
   recentRuns: Array<Record<string, unknown>>
 }
 
+export function buildWorkflowDiagnosticsRequest(
+  nodes: unknown[],
+  edges: unknown[],
+): {
+  graph: { nodes: unknown[]; edges: unknown[] }
+  simulation: { enabled: true }
+  readiness: { enabled: true; refresh: false }
+  recentRunsLimit: 10
+} {
+  return {
+    graph: { nodes, edges },
+    simulation: { enabled: true },
+    readiness: { enabled: true, refresh: false },
+    recentRunsLimit: 10,
+  }
+}
+
 export function canUseWorkflowDiagnostics(role: string | undefined): boolean {
   return role === 'ia_studio_admin'
 }

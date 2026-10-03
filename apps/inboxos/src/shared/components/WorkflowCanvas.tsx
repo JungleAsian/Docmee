@@ -34,7 +34,7 @@ import type { PanelLanguage, WorkflowNode as WfNode, WorkflowEdge as WfEdge, Wor
 import { CustomGroupNode } from './workflow/CustomGroupNode'
 import { OrthogonalEdge, type RoutedEdgeData } from './workflow/OrthogonalEdge'
 import { useSemanticZoom } from './workflow/SemanticZoom'
-import { cleanGroups, layoutGroupedWorkflow, projectWorkflow, routeProjectedWorkflow, type WorkflowCanvasGraph } from './workflow/LayoutUtils'
+import { bundleProjectedEdges, cleanGroups, layoutGroupedWorkflow, projectWorkflow, routeProjectedWorkflow, type WorkflowCanvasGraph } from './workflow/LayoutUtils'
 import workflowStyles from './workflow/workflow.module.css'
 
 import {
@@ -781,7 +781,15 @@ function WorkflowCanvasInner({
   }, [nodes, edges, groups, selection, language, onChange])
   const eligibleSelection = selection.filter((id) => !groups.some((group) => group.nodeIds.includes(id))).length
   const projection = useMemo(() => projectWorkflow(nodes, edges, groups, measuredSizes), [nodes, edges, groups, measuredSizes])
-  const routeByEdge = useMemo(() => new Map(routeProjectedWorkflow(projection, measuredSizes).map((route) => [route.edgeId, route])), [projection, measuredSizes])
+  const edgeBundles = useMemo(() => bundleProjectedEdges(projection.edges), [projection.edges])
+  const bundledEdgeIdsByRenderedId = useMemo(
+    () => new Map(edgeBundles.map((bundle) => [bundle.edge.id, bundle.edgeIds])),
+    [edgeBundles],
+  )
+  const routeByEdge = useMemo(() => new Map(routeProjectedWorkflow({
+    ...projection,
+    edges: edgeBundles.map((bundle) => bundle.edge),
+  }, measuredSizes).map((route) => [route.edgeId, route])), [projection, edgeBundles, measuredSizes])
 
   const configureNode = useCallback((id: string) => setSelectedId(id), [])
 
@@ -915,7 +923,7 @@ function WorkflowCanvasInner({
         sourcePorts: group.sourcePorts, targetPorts: group.targetPorts,
         onToggle: toggleGroup, onUngroup: ungroup, onRename: renameGroup },
     })))
-    const rfEdges: Edge[] = projection.edges.map((e, order) => {
+    const rfEdges: Edge[] = edgeBundles.map(({ edge: e, edgeIds, count }, order) => {
       const original = edges.find((edge) => edge.id === e.id) ?? e
       // The admin's own routing-color override (resolveBranchColor) wins over
       // the tone-based default; a matched real option's own title (branchRows'
@@ -925,9 +933,9 @@ function WorkflowCanvasInner({
       const sourceNode = nodeById.get(original.source)
       const row = sourceNode && original.sourceHandle ? branchRows(sourceNode).find((r) => r.key === original.sourceHandle) : undefined
       const color = sourceNode && original.sourceHandle ? resolveBranchColor(sourceNode, original.sourceHandle) : edgeColor(original.sourceHandle)
-      const edgeLabel = original.sourceHandle ? (row?.label ?? t(`wf.branch.${original.sourceHandle}` as Parameters<typeof t>[0])) : undefined
+      const edgeLabel = count === 1 && original.sourceHandle ? (row?.label ?? t(`wf.branch.${original.sourceHandle}` as Parameters<typeof t>[0])) : undefined
       const route = routeByEdge.get(e.id)
-      const emphasized = selectedPath?.edgeIds.has(e.id) ?? false
+      const emphasized = edgeIds.some((edgeId) => selectedPath?.edgeIds.has(edgeId) ?? false)
       const dimmed = Boolean(selectedPath && !emphasized)
       const hovered = hoveredEdgeId === e.id
       const appearance = workflowEdgeAppearance({
@@ -943,7 +951,7 @@ function WorkflowCanvasInner({
         sourceHandle: e.sourceHandle ?? undefined,
         targetHandle: e.targetHandle,
         type: 'workflowRoute',
-        data: route ? { route, label: edgeLabel, color, dimmed, emphasized, hovered } satisfies RoutedEdgeData : undefined,
+        data: route ? { route, label: edgeLabel, count, color, dimmed, emphasized, hovered } satisfies RoutedEdgeData : undefined,
         style: {
           stroke: color,
           strokeWidth: appearance.width,
@@ -952,12 +960,12 @@ function WorkflowCanvasInner({
         },
         zIndex: appearance.zIndex,
         animated: appearance.animated,
-        ariaLabel: `${label(sourceNode?.type ?? e.source)}${edgeLabel ? ` ${edgeLabel}` : ''} to ${label(nodeById.get(e.target)?.type ?? e.target)}`,
+        ariaLabel: `${label(sourceNode?.type ?? e.source)}${edgeLabel ? ` ${edgeLabel}` : ''} to ${label(nodeById.get(e.target)?.type ?? e.target)}${count > 1 ? `, ${count} connections` : ''}`,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, projection, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, focusedRouteId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
+  }, [nodes, edges, projection, edgeBundles, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, focusedRouteId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -1059,10 +1067,10 @@ function WorkflowCanvasInner({
       onEdgesChange(changes)
       const removed = changes.filter((c): c is Extract<EdgeChange, { type: 'remove' }> => c.type === 'remove')
       if (removed.length === 0) return
-      const removedIds = new Set(removed.map((c) => c.id))
+      const removedIds = new Set(removed.flatMap((c) => bundledEdgeIdsByRenderedId.get(c.id) ?? [c.id]))
       onChange({ nodes, edges: edges.filter((e) => !removedIds.has(e.id)) })
     },
-    [onEdgesChange, nodes, edges, onChange],
+    [onEdgesChange, nodes, edges, onChange, bundledEdgeIdsByRenderedId],
   )
 
   const onConnect = useCallback(

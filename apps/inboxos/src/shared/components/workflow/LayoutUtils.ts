@@ -69,6 +69,28 @@ export interface ProjectedGroup extends Box {
 }
 export interface ProjectedEdge extends WorkflowEdge { targetHandle?: string }
 
+export interface ProjectedEdgeBundle {
+  edge: ProjectedEdge
+  edgeIds: string[]
+  count: number
+}
+
+/** Collapse repeated visual routes without changing the executable edge list. */
+export function bundleProjectedEdges(edges: ProjectedEdge[]): ProjectedEdgeBundle[] {
+  const bundles = new Map<string, ProjectedEdgeBundle>()
+  for (const edge of edges) {
+    const key = JSON.stringify([edge.source, edge.target])
+    const current = bundles.get(key)
+    if (current) {
+      current.edgeIds.push(edge.id)
+      current.count += 1
+    } else {
+      bundles.set(key, { edge, edgeIds: [edge.id], count: 1 })
+    }
+  }
+  return [...bundles.values()]
+}
+
 export interface ProjectedPort {
   id: string
   direction: 'incoming' | 'outgoing'

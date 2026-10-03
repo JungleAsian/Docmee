@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanGroups, layoutGroupedWorkflow, overlaps, projectWorkflow, routeProjectedWorkflow, workflowDocument } from './LayoutUtils'
+import { bundleProjectedEdges, cleanGroups, layoutGroupedWorkflow, overlaps, projectWorkflow, routeProjectedWorkflow, workflowDocument } from './LayoutUtils'
 import { createHugeWorkflow } from './MockData'
 import { parseWorkflowExport, serializeWorkflowExport } from '../../workflowImport'
 import { gridRoute, orthogonalPath } from './OrthogonalEdge'
@@ -36,6 +36,39 @@ describe('large workflow presentation', () => {
     expect(view.groups[0]?.sourcePorts).toEqual([
       expect.objectContaining({ count: 2, edgeIds: ['edge-a', 'edge-b'], externalEndpoint: 'outside' }),
     ])
+  })
+  it('renders one line for repeated endpoints while retaining every executable edge', () => {
+    const projected = [
+      { id: 'edge-a', source: 'source', target: 'shared-target', sourceHandle: 'yes' },
+      { id: 'edge-b', source: 'source', target: 'shared-target', sourceHandle: 'no' },
+      { id: 'edge-c', source: 'source', target: 'other-target', sourceHandle: 'fallback' },
+    ]
+
+    expect(bundleProjectedEdges(projected)).toEqual([
+      { edge: projected[0], edgeIds: ['edge-a', 'edge-b'], count: 2 },
+      { edge: projected[2], edgeIds: ['edge-c'], count: 1 },
+    ])
+    expect(projected.map((edge) => edge.id)).toEqual(['edge-a', 'edge-b', 'edge-c'])
+  })
+  it('keeps every distinct collapsed-group destination visible', () => {
+    const nodes = [
+      { id: 'inside-a', kind: 'action' as const, type: 'action.end', config: {}, x: 0, y: 0 },
+      { id: 'inside-b', kind: 'action' as const, type: 'action.end', config: {}, x: 0, y: 160 },
+      { id: 'outside-a', kind: 'action' as const, type: 'action.end', config: {}, x: 480, y: 0 },
+      { id: 'outside-b', kind: 'action' as const, type: 'action.end', config: {}, x: 480, y: 160 },
+    ]
+    const edges = [
+      { id: 'edge-a', source: 'inside-a', target: 'outside-a' },
+      { id: 'edge-b', source: 'inside-b', target: 'outside-a' },
+      { id: 'edge-c', source: 'inside-b', target: 'outside-b' },
+    ]
+    const view = projectWorkflow(nodes, edges, [{ id: 'group', label: 'Grouped', nodeIds: ['inside-a', 'inside-b'], collapsed: true }])
+
+    expect(bundleProjectedEdges(view.edges).map((bundle) => ({ source: bundle.edge.source, target: bundle.edge.target, count: bundle.count }))).toEqual([
+      { source: 'group', target: 'outside-a', count: 2 },
+      { source: 'group', target: 'outside-b', count: 1 },
+    ])
+    expect(view.edges).toHaveLength(3)
   })
   it('expands without container overlaps and reverses offsets without drift', () => {
     const graph = createHugeWorkflow()

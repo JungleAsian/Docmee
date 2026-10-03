@@ -83,6 +83,7 @@
   --crm-message-text-line-height: var(--crm-type-label-line-height);
   --crm-workflow-canvas-bg: #1f242b;
   --crm-workflow-canvas-grid: #3a414c;
+  --crm-workflow-minimap-bg: #d1d5db;
 }
 
 .dark {
@@ -123,6 +124,7 @@
   --crm-message-outbound-border: transparent;
   --crm-workflow-canvas-bg: #111827;
   --crm-workflow-canvas-grid: #333d4a;
+  --crm-workflow-minimap-bg: #374151;
 }
 
 body {
@@ -917,21 +919,26 @@ body {
     border: 1px solid var(--crm-border-color);
     border-radius: var(--crm-border-radius-sm);
     background: var(--crm-card-bg);
-    padding: 7px 12px 7px 7px;
+    padding: 5px 9px 5px 5px;
     box-shadow: var(--crm-shadow-sm);
     backdrop-filter: blur(16px);
   }
 
   .crm-avatar {
     display: grid;
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     place-items: center;
     border-radius: 999px;
     background: linear-gradient(135deg, var(--crm-accent-orange), var(--crm-accent-red) 48%, var(--crm-primary-color));
     color: white;
     font-size: var(--crm-type-label-size);
     font-weight: 800;
+  }
+
+  .crm-avatar svg {
+    width: 55%;
+    height: 55%;
   }
 
   .crm-dashboard-content {
@@ -1089,6 +1096,20 @@ body {
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }
 
+  .crm-inbox-panel-brand {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin-bottom: 8px;
+  }
+
+  .crm-inbox-panel-brand img {
+    display: block;
+    width: 104px;
+    max-width: 45%;
+    height: auto;
+  }
+
   /* The repository overlays only the conversation rows, leaving the list controls
      (including the Open conversations label) visible above it. */
   .crm-media-repository-rail {
@@ -1152,41 +1173,6 @@ body {
 
   .crm-conversation-item-active {
     border-left: 4px solid var(--crm-primary-color);
-  }
-
-  .crm-conversation-delete-btn {
-    display: inline-flex;
-    width: 18px;
-    height: 18px;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid rgba(248, 113, 113, 0.55);
-    border-radius: 999px;
-    background: rgba(254, 226, 226, 0.86);
-    color: #dc2626;
-    font-size: 14px;
-    font-weight: 800;
-    line-height: 1;
-    transition: var(--crm-transition);
-  }
-
-  .crm-conversation-delete-btn:hover {
-    border-color: rgba(220, 38, 38, 0.65);
-    background: rgba(254, 202, 202, 0.95);
-    color: #b91c1c;
-  }
-
-  .dark .crm-conversation-delete-btn {
-    border-color: rgba(248, 113, 113, 0.35);
-    background: rgba(127, 29, 29, 0.26);
-    color: #f87171;
-  }
-
-  .dark .crm-conversation-delete-btn:hover {
-    border-color: rgba(248, 113, 113, 0.55);
-    background: rgba(127, 29, 29, 0.42);
-    color: #fca5a5;
   }
 
   .crm-conv-avatar {
@@ -1329,25 +1315,33 @@ body {
 
   .crm-message-sent {
     margin-left: auto;
-    border-color: var(--crm-message-outbound-border);
+    border-color: #22b8cf;
     border-radius: 18px;
-    background: var(--crm-message-outbound-bg);
-    color: var(--crm-text-main);
+    background: #67e8f9;
+    color: #083344;
   }
 
   .dark .crm-message-sent {
-    background: var(--crm-message-outbound-bg);
-    color: white;
+    border-color: #22d3ee;
+    background: #22d3ee;
+    color: #082f49;
   }
 
   .crm-ai-suggested {
-    border: 1px solid var(--crm-message-outbound-border);
-    background: var(--crm-message-outbound-bg);
-    color: var(--crm-text-main);
+    border: 1px solid #22b8cf;
+    background: #67e8f9;
+    color: #083344;
   }
 
   .dark .crm-ai-suggested {
-    background: linear-gradient(90deg, rgba(52, 198, 229, 0.14), color-mix(in srgb, var(--crm-card-bg) 84%, transparent));
+    border-color: #22d3ee;
+    background: #22d3ee;
+    color: #082f49;
+  }
+
+  .crm-message-meta,
+  .dark .crm-message-meta {
+    color: #334155 !important;
   }
 
   .crm-chat-input-area {
@@ -1358,36 +1352,6 @@ body {
     border-top: 1px solid var(--crm-border-color);
     background: var(--crm-card-bg);
     padding: 18px 24px;
-  }
-
-  .crm-message-delete-btn {
-    position: absolute;
-    top: -8px;
-    z-index: 2;
-    display: grid;
-    width: 18px;
-    height: 18px;
-    place-items: center;
-    border: 1px solid rgba(244, 63, 94, .55);
-    border-radius: 999px;
-    background: #fff1f2;
-    color: #e11d48;
-    font-size: 15px;
-    font-weight: 900;
-    line-height: 1;
-    opacity: 1;
-    box-shadow: var(--crm-shadow-sm);
-    transition: var(--crm-transition);
-  }
-
-  .crm-message-delete-btn:hover {
-    border-color: #e11d48;
-    background: #ffe4e6;
-    color: #be123c;
-  }
-
-  .crm-message-delete-btn:disabled {
-    opacity: .65;
   }
 
   @media (max-width: 1024px) {
@@ -1897,8 +1861,8 @@ body {
   }
 
   .crm-inboxos-desktop-shell .crm-avatar {
-    width: 50px;
-    height: 50px;
+    width: 40px;
+    height: 40px;
     background: linear-gradient(135deg, #06a4b3, #0794a7);
     font-size: var(--crm-type-h2-size);
     box-shadow: 0 10px 22px rgba(6, 148, 167, .25);
@@ -3979,8 +3943,13 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 .react-flow__minimap {
   border-radius: 0.5rem;
   overflow: hidden;
-  background: #f9fafb;
+  background: var(--crm-workflow-minimap-bg);
   border: 1px solid #e5e7eb;
+}
+
+.crm-workflow-canvas {
+  user-select: none;
+  -webkit-user-select: none;
 }
 .react-flow__edge-text {
   fill: #374151;
@@ -3999,7 +3968,7 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
   background: #1f2937;
 }
 .dark .react-flow__minimap {
-  background: #0b1220;
+  background: var(--crm-workflow-minimap-bg);
   border-color: #1f2937;
 }
 .dark .react-flow__minimap-mask {
@@ -4223,13 +4192,13 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
   }
 }
 
-/* Product card contract: surfaces are square across Docmee. Keep the
-   existing rounded treatment for avatars, badges, pills, and icon controls. */
+/* Shared surface contract: use one rounded system across Docmee while
+   preserving circular avatars, badges, pills, and floating controls. */
 :root,
 :root.dark {
-  --crm-border-radius-sm: 0px;
-  --crm-border-radius-md: 0px;
-  --crm-border-radius-lg: 0px;
+  --crm-border-radius-sm: 8px;
+  --crm-border-radius-md: 12px;
+  --crm-border-radius-lg: 16px;
 }
 
 .docmee-page-hero,
@@ -4259,16 +4228,16 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
 [data-docmee-app-shell] .clinic-toolbar,
 [data-docmee-app-shell] .clinic-page-header,
 [data-docmee-app-shell] .clinic-empty-state {
-  border-radius: 0 !important;
+  border-radius: var(--crm-border-radius-md) !important;
 }
 
 /* The floating chat launcher is a control, not a product card. Keep its
-   circular affordance even while card surfaces use square corners globally. */
+   circular affordance while card surfaces use the shared rounded system. */
 .crm-chat-launcher {
   border-radius: 50% !important;
 }
 
 /* Catch page-specific card names without changing pills, buttons, or avatars. */
 :where([class*="-card"], [class$="card"]) {
-  border-radius: 0 !important;
+  border-radius: var(--crm-border-radius-md) !important;
 }

@@ -380,15 +380,6 @@ export function ConversationView({
     },
   })
 
-  const deleteMessageMutation = useMutation({
-    mutationFn: (messageId: string) =>
-      api.del(`/conversations/${conversationId}/messages/${messageId}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['messages', conversationId] })
-      qc.invalidateQueries({ queryKey: ['conversations'] })
-    },
-  })
-
   function onSend(e: FormEvent) {
     e.preventDefault()
     const content = draft.trim()
@@ -582,8 +573,6 @@ export function ConversationView({
                     flagged={flaggedIds.has(m.id)}
                     flagging={flagMutation.isPending && flagMutation.variables?.id === m.id}
                     onFlag={() => flagMutation.mutate(m)}
-                    deleting={deleteMessageMutation.isPending && deleteMessageMutation.variables === m.id}
-                    onDelete={() => deleteMessageMutation.mutate(m.id)}
                     delivery={ind ? { glyph: ind.glyph, tone: ind.tone, label: t(ind.labelKey) } : null}
                     language={language}
                     conversationId={conversationId}
@@ -929,8 +918,6 @@ function MessageBubble({
   flagged,
   flagging,
   onFlag,
-  deleting,
-  onDelete,
   delivery,
   language,
   conversationId,
@@ -945,8 +932,6 @@ function MessageBubble({
   flagged: boolean
   flagging: boolean
   onFlag: () => void
-  deleting: boolean
-  onDelete: () => void
   delivery: { glyph: string; tone: DeliveryTone; label: string } | null
   language: 'es' | 'en'
   conversationId: string
@@ -967,8 +952,8 @@ function MessageBubble({
   const isImage = isImageMessage(message)
   const transcript = message.transcription ?? message.content
 
-  // Bubble skin per author: patient = plain white card (left); bot = white card with
-  // a violet rail; human secretary = the teal brand bubble; system = a muted card.
+  // Bubble skin per author: patient stays unchanged; bot and secretary replies share
+  // the Docmee aqua treatment; system messages remain muted.
   const skin = fromPatient
     ? 'crm-message'
     : isBot
@@ -976,7 +961,7 @@ function MessageBubble({
       : isHuman
         ? 'crm-message crm-message-sent'
         : 'crm-message bg-gray-100 text-gray-600 dark:bg-gray-800/60 dark:text-gray-300'
-  const metaTone = isHuman ? 'text-teal-50/90' : 'text-gray-400'
+  const metaTone = fromPatient ? 'text-gray-500 dark:text-gray-400' : 'crm-message-meta'
 
   const senderName = fromPatient ? patientDisplayName : roleLabel
   const senderSeed = fromPatient ? conversationId : `staff-${message.role}`
@@ -985,19 +970,9 @@ function MessageBubble({
   return (
     <div className={`group flex ${fromPatient ? 'justify-start' : 'justify-end'}`}>
       <div className={`relative text-[12px] ${skin} ${flagged ? 'outline outline-2 outline-red-500' : ''}`}>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={deleting}
-          title="Delete message"
-          aria-label="Delete message"
-          className={`crm-message-delete-btn ${fromPatient ? '-right-2' : '-left-2'}`}
-        >
-          {deleting ? '…' : '−'}
-        </button>
         {/* Sender row — mini avatar + name + who's driving (bot/human) for clinic
             replies, matching the reskin's spec. */}
-        <div className={`crm-sender-row ${isHuman ? '!text-teal-50/80' : ''} ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>
+        <div className={`crm-sender-row ${fromPatient ? '' : 'flex-row-reverse justify-end'}`}>
           {!isBot && (
             <span
               className="crm-sender-avatar"
@@ -1026,7 +1001,7 @@ function MessageBubble({
           <span>{formatTime(message.createdAt, language)}</span>
           {delivery && (
             <span
-              className={`flex items-center gap-1 font-semibold ${isHuman && delivery.tone !== 'failed' ? 'text-teal-50' : DELIVERY_TONE[delivery.tone]}`}
+              className={`flex items-center gap-1 font-semibold ${delivery.tone === 'failed' ? DELIVERY_TONE.failed : 'crm-message-meta'}`}
               title={delivery.label}
             >
               <span aria-hidden>{delivery.glyph}</span>

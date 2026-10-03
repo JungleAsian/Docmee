@@ -1,20 +1,18 @@
 // Screen 1 — inbox list operational lenses (pure).
 //
 // The granular 7-state status filter is precise but not how a secretary actually
-// triages: they think in four operational buckets — what the bot is handling, what
-// needs a human, what they own, and what's done. These four lenses (mirrors the
-// approved high-fidelity design's Active / Bot / Assigned / Closed tabs) sit over
+// triages: they need the whole queue, what the bot is handling, what needs a human,
+// and what is already assigned. These four lenses sit over
 // the SAME full clinic set the list already loads (GET /conversations is unpaginated),
 // so they're a complete client-side view and carry live counts.
 //
-// Bot vs Active partition the live (non-closed) set; Assigned is a cross-cut over the
-// live set; Closed is terminal. A thread can therefore match both Active and Assigned
-// (an escalation you own) — these are lenses, not a strict partition.
+// Secretary vs Bot partition the live (non-closed) set; Assigned is a cross-cut over
+// the live set; All includes terminal conversations for complete history.
 import type { Conversation, ConversationStatus } from './types'
 
-export type ConversationLens = 'active' | 'bot' | 'assigned' | 'closed'
+export type ConversationLens = 'all' | 'secretary' | 'bot' | 'assigned'
 
-export const LENSES: ConversationLens[] = ['active', 'bot', 'assigned', 'closed']
+export const LENSES: ConversationLens[] = ['all', 'secretary', 'bot', 'assigned']
 
 const CLOSED_STATUSES: ConversationStatus[] = ['resolved', 'archived']
 
@@ -36,20 +34,20 @@ function isBot(c: Conversation): boolean {
 
 export function matchesLens(c: Conversation, lens: ConversationLens): boolean {
   switch (lens) {
-    case 'closed':
-      return isClosed(c.status)
+    case 'all':
+      return true
     case 'assigned':
       return !isClosed(c.status) && !!c.assignedTo
     case 'bot':
       return !isClosed(c.status) && isBot(c)
-    case 'active':
+    case 'secretary':
       // Everything still live that isn't a pure bot-auto-answer thread.
       return !isClosed(c.status) && !isBot(c)
   }
 }
 
 export function lensCounts(rows: Conversation[]): Record<ConversationLens, number> {
-  const counts: Record<ConversationLens, number> = { active: 0, bot: 0, assigned: 0, closed: 0 }
+  const counts: Record<ConversationLens, number> = { all: 0, secretary: 0, bot: 0, assigned: 0 }
   for (const c of rows) {
     for (const lens of LENSES) {
       if (matchesLens(c, lens)) counts[lens]++

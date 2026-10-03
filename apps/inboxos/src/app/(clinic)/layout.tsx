@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
+import { List, MagnifyingGlass, SlidersHorizontal, User } from '@phosphor-icons/react'
 import { api } from '@/shared/api/client'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
@@ -239,7 +239,13 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <NotificationBell />
             {user && (
               <div className="crm-user-profile">
-                <span className="crm-avatar">{(user.fullName || user.email || 'U').slice(0, 2).toUpperCase()}</span>
+                <span
+                  className="crm-avatar"
+                  aria-label={user.fullName || user.email || undefined}
+                  title={user.fullName || user.email || undefined}
+                >
+                  <User aria-hidden="true" weight="bold" />
+                </span>
               </div>
             )}
             <div className="crm-header-clinic-switcher">

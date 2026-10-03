@@ -154,16 +154,9 @@ export function Sidebar({
             <img src="/pets/docmee-robotito.png?v=20260828" alt={t('app.name')} className="h-[49.92px] w-[49.92px] shrink-0 object-contain" />
           </div>
         ) : (
-          <div className="crm-logo">
-            <div className="min-w-0 leading-tight">
-              <div className="crm-sidebar-logo-wordmark" aria-label={`${t('app.name')} registered trademark`}>
-                <span className="crm-sidebar-logo-doc">doc</span>
-                <span className="crm-sidebar-logo-mee">mee</span>
-                <span className="crm-sidebar-logo-registered" aria-hidden="true">®</span>
-              </div>
-              <p className="crm-sidebar-logo-tagline">Chatbot de IA para médicos</p>
-              <p className="mt-1.5 break-words text-[8px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">{title}</p>
-            </div>
+          <div className="flex items-center gap-2 px-3 py-2">
+            <img src="/pets/docmee-robotito.png?v=20260828" alt={t('app.name')} className="h-[49.92px] w-[49.92px] shrink-0 object-contain" />
+            <p className="min-w-0 break-words text-[8px] font-semibold uppercase tracking-wide text-[var(--crm-text-muted)]">{title}</p>
           </div>
         )}
       </div>

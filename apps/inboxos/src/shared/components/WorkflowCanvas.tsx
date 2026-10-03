@@ -92,6 +92,18 @@ export function workflowPathAppearance(hasSelection: boolean, inPath: boolean): 
     : { nodeOpacity: 0.38, edgeOpacity: 0.28, edgeWidth: 2 }
 }
 
+export function workflowCanvasInteractionPolicy(): {
+  panOnDrag: true
+  selectionOnDrag: false
+  selectionKeyCode: null
+} {
+  return {
+    panOnDrag: true,
+    selectionOnDrag: false,
+    selectionKeyCode: null,
+  }
+}
+
 /**
  * The canvas may contain several orthogonal routes in the same corridor.
  * Derive edge presentation exclusively from local interaction state so a
@@ -1248,11 +1260,13 @@ function WorkflowCanvasInner({
         {/* React Flow applies selection through handleNodesChange. Keeping
             selection out of the derived graph prevents a setNodes loop. */}
         <ReactFlow
+          className="crm-workflow-canvas"
           nodes={rfNodes}
           edges={rfEdges}
           onNodesChange={handleNodesChange}
           onSelectionChange={selectionChanged}
           multiSelectionKeyCode="Shift"
+          {...workflowCanvasInteractionPolicy()}
           minZoom={0.1}
           maxZoom={2}
           onEdgesChange={handleEdgesChange}
@@ -1284,7 +1298,7 @@ function WorkflowCanvasInner({
         >
           <Background gap={16} color="var(--crm-workflow-canvas-grid)" />
           <Controls />
-          <MiniMap pannable className="!hidden sm:!block" />
+          <MiniMap pannable className="!hidden sm:!block" bgColor="var(--crm-workflow-minimap-bg)" />
         </ReactFlow>
 
         {nodes.length === 0 && (

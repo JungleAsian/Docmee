@@ -31,48 +31,49 @@ describe('isClosed', () => {
 })
 
 describe('matchesLens', () => {
-  it('classifies a fresh open, unowned thread as bot (and active excludes it)', () => {
+  it('classifies a fresh open, unowned thread as bot and includes it in all', () => {
     const c = conv({ status: 'open', assignedTo: null })
     expect(matchesLens(c, 'bot')).toBe(true)
-    expect(matchesLens(c, 'active')).toBe(false)
+    expect(matchesLens(c, 'secretary')).toBe(false)
     expect(matchesLens(c, 'assigned')).toBe(false)
-    expect(matchesLens(c, 'closed')).toBe(false)
+    expect(matchesLens(c, 'all')).toBe(true)
   })
 
-  it('moves an open thread to active+assigned once a human owns it', () => {
+  it('moves an open thread to secretary+assigned once a human owns it', () => {
     const c = conv({ status: 'open', assignedTo: 'u-1' })
     expect(matchesLens(c, 'bot')).toBe(false)
-    expect(matchesLens(c, 'active')).toBe(true)
+    expect(matchesLens(c, 'secretary')).toBe(true)
     expect(matchesLens(c, 'assigned')).toBe(true)
+    expect(matchesLens(c, 'all')).toBe(true)
   })
 
-  it('treats pending/handoff/snoozed as active, not bot', () => {
+  it('treats pending/handoff/snoozed as secretary, not bot', () => {
     for (const status of ['pending', 'handoff', 'snoozed'] as const) {
       const c = conv({ status })
-      expect(matchesLens(c, 'active')).toBe(true)
+      expect(matchesLens(c, 'secretary')).toBe(true)
       expect(matchesLens(c, 'bot')).toBe(false)
     }
   })
 
-  it('an assigned-status thread is both active and assigned', () => {
+  it('an assigned-status thread is both secretary and assigned', () => {
     const c = conv({ status: 'assigned', assignedTo: 'u-2' })
-    expect(matchesLens(c, 'active')).toBe(true)
+    expect(matchesLens(c, 'secretary')).toBe(true)
     expect(matchesLens(c, 'assigned')).toBe(true)
-    expect(matchesLens(c, 'closed')).toBe(false)
+    expect(matchesLens(c, 'all')).toBe(true)
   })
 
-  it('a closed thread is only closed — never assigned/active even if it still has an owner', () => {
+  it('keeps a closed thread in all but out of the operational lenses', () => {
     const c = conv({ status: 'resolved', assignedTo: 'u-3' })
-    expect(matchesLens(c, 'closed')).toBe(true)
+    expect(matchesLens(c, 'all')).toBe(true)
     expect(matchesLens(c, 'assigned')).toBe(false)
-    expect(matchesLens(c, 'active')).toBe(false)
+    expect(matchesLens(c, 'secretary')).toBe(false)
     expect(matchesLens(c, 'bot')).toBe(false)
   })
 
-  it('bot and active partition every live thread (exactly one matches)', () => {
+  it('bot and secretary partition every live thread (exactly one matches)', () => {
     for (const status of ['open', 'pending', 'assigned', 'handoff', 'snoozed'] as const) {
       const c = conv({ status })
-      const live = [matchesLens(c, 'bot'), matchesLens(c, 'active')].filter(Boolean)
+      const live = [matchesLens(c, 'bot'), matchesLens(c, 'secretary')].filter(Boolean)
       expect(live).toHaveLength(1)
     }
   })
@@ -93,13 +94,13 @@ describe('lensCounts', () => {
     const rows = [
       conv({ id: 'a', status: 'open', assignedTo: null }), // bot
       conv({ id: 'b', status: 'open', assignedTo: null }), // bot
-      conv({ id: 'c', status: 'pending' }), // active
-      conv({ id: 'd', status: 'assigned', assignedTo: 'u-1' }), // active + assigned
-      conv({ id: 'e', status: 'resolved' }), // closed
-      conv({ id: 'f', status: 'archived' }), // closed
+      conv({ id: 'c', status: 'pending' }), // secretary
+      conv({ id: 'd', status: 'assigned', assignedTo: 'u-1' }), // secretary + assigned
+      conv({ id: 'e', status: 'resolved' }), // all only
+      conv({ id: 'f', status: 'archived' }), // all only
     ]
     const counts = lensCounts(rows)
-    expect(counts).toEqual({ active: 2, bot: 2, assigned: 1, closed: 2 })
+    expect(counts).toEqual({ all: 6, secretary: 2, bot: 2, assigned: 1 })
   })
 
   it('returns all-zero counts for an empty set', () => {

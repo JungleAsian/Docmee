@@ -5,7 +5,7 @@
 // a top bar with breadcrumbs, and a hamburger toggle.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { List, MagnifyingGlass, SlidersHorizontal } from '@phosphor-icons/react'
+import { List, MagnifyingGlass, SlidersHorizontal, User } from '@phosphor-icons/react'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useHeartbeat } from '@/shared/hooks/useHeartbeat'
 import { useI18n } from '@/shared/hooks/useI18n'
@@ -130,13 +130,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               },
             ]
           : [{ id: 'admin.clinics', label: t('nav.group.clinics'), items: clinicItems }]),
+        {
+          id: 'admin.inbox',
+          items: [{ href: '/inbox', label: t('nav.inbox'), icon: <NavIcon name="inbox" /> }],
+        },
         { id: 'admin.messaging', label: t('nav.group.messaging'), items: messagingItems },
         { id: 'admin.operations', label: t('nav.group.operations'), items: operationsItems },
         ...(complianceItems.length ? [{ id: 'admin.compliance', label: t('nav.group.compliance'), items: complianceItems }] : []),
         {
           id: 'admin.shortcuts',
           items: [
-            { href: '/inbox', label: t('nav.backToInbox'), icon: <NavIcon name="inbox" /> },
             { href: '/help', label: L(HELP_UI.navHelp, language), icon: <NavIcon name="help" /> },
             { href: '/updates', label: t('nav.productUpdates'), icon: <NavIcon name="updates" /> },
           ],
@@ -245,7 +248,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <PushOptIn />
             {user && (
               <div className="crm-user-profile">
-                <span className="crm-avatar">{(user.fullName || user.email || 'U').slice(0, 2).toUpperCase()}</span>
+                <span
+                  className="crm-avatar"
+                  aria-label={user.fullName || user.email || undefined}
+                  title={user.fullName || user.email || undefined}
+                >
+                  <User aria-hidden="true" weight="bold" />
+                </span>
               </div>
             )}
           </div>

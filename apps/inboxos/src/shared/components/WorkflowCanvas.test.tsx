@@ -8,10 +8,18 @@ import {
   WorkflowLayoutControls,
   WorkflowNodeView,
   workflowEdgeAppearance,
+  workflowCanvasInteractionPolicy,
   workflowPathAppearance,
 } from './WorkflowCanvas'
 
 describe('WorkflowLayoutControls', () => {
+  it('keeps primary canvas dragging in pan mode without a selection rectangle', () => {
+    expect(workflowCanvasInteractionPolicy()).toEqual({
+      panOnDrag: true,
+      selectionOnDrag: false,
+      selectionKeyCode: null,
+    })
+  })
   it('starts with the node library collapsed and exposes an accessible opener', () => {
     vi.stubGlobal('React', React)
     const markup = renderToStaticMarkup(<WorkflowCanvas nodes={[]} edges={[]} onChange={vi.fn()} mode="enhanced" />)

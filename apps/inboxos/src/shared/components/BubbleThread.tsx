@@ -12,9 +12,7 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
-import { useAuthStore } from '../store/auth'
 import { avatarColor, avatarLabel, formatTime } from '../format'
-import { DeleteConversationDialog } from './DeleteConversationDialog'
 import type { Conversation, ConversationStatus, Message } from '../types'
 
 function isClosedStatus(status: ConversationStatus | undefined): boolean {
@@ -30,10 +28,7 @@ export function BubbleThread({
 }) {
   const { t, language } = useI18n()
   const qc = useQueryClient()
-  const role = useAuthStore((s) => s.user?.role)
-  const canDelete = role === 'clinic_admin' || role === 'ia_studio_admin'
   const [draft, setDraft] = useState('')
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const conversationQuery = useQuery({
@@ -125,17 +120,6 @@ export function BubbleThread({
             🗄
           </button>
         )}
-        {conversation && canDelete && (
-          <button
-            type="button"
-            onClick={() => setDeleteOpen(true)}
-            aria-label={t('view.delete')}
-            title={t('view.delete')}
-            className="shrink-0 rounded p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-          >
-            🗑
-          </button>
-        )}
         <Link prefetch={false}
           href={`/inbox?c=${conversationId}`}
           className="shrink-0 text-[11px] font-semibold text-[var(--crm-primary-color)] hover:underline"
@@ -191,15 +175,6 @@ export function BubbleThread({
           </button>
         </form>
       )}
-      <DeleteConversationDialog
-        open={deleteOpen}
-        conversationId={conversationId}
-        onClose={() => setDeleteOpen(false)}
-        onDeleted={() => {
-          setDeleteOpen(false)
-          onBack()
-        }}
-      />
     </div>
   )
 }

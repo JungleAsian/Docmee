@@ -118,16 +118,16 @@ describe('filterConversations', () => {
     })
     const projection = projectConversationList([
       conv({ id: 'bot', channel: 'whatsapp', status: 'open', assignedTo: null }),
-      conv({ id: 'active', channel: 'instagram', status: 'pending' }),
+      conv({ id: 'secretary', channel: 'instagram', status: 'pending' }),
       conv({ id: 'closed', channel: 'messenger', status: 'resolved' }),
     ], '', 'all', activeFilter)
 
     expect(projection.rows.map((conversation) => conversation.id)).toEqual(['bot'])
-    expect(projection.counts).toEqual({ active: 0, bot: 1, assigned: 0, closed: 0 })
+    expect(projection.counts).toEqual({ all: 1, secretary: 0, bot: 1, assigned: 0 })
   })
 
-  it('keeps the Closed lifecycle lens when inactive channels are hidden', () => {
-    expect(visibleConversationLenses(false)).toEqual(['active', 'bot', 'assigned', 'closed'])
+  it('keeps the four operational lenses when inactive channels are hidden', () => {
+    expect(visibleConversationLenses(false)).toEqual(['all', 'secretary', 'bot', 'assigned'])
   })
 
   it('hides the channel selector when zero or one integration is active', () => {

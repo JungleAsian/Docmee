@@ -7,7 +7,7 @@
 // unmistakable while scanning a dense queue (Req 20). Supports a free-text search on
 // the contact handle, a channel filter, a status filter and an assignee filter.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { FacebookLogo, InstagramLogo, WhatsappLogo } from '@phosphor-icons/react'
+import { FacebookLogo, ImagesSquare, InstagramLogo, WhatsappLogo } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useAuthStore } from '../store/auth'
@@ -21,7 +21,6 @@ import { conversationMode } from '../conversationMode'
 import { filterConversations, type ChannelFilter } from '../conversationFilter'
 import { isAssignedToUser, LENSES, lensCounts, matchesLens, type ConversationLens } from '../conversationLens'
 import { readInboxSettings } from '../inboxSettings'
-import { DeleteConversationDialog } from './DeleteConversationDialog'
 import type { Channel, Conversation, ConversationStatus } from '../types'
 import { conversationSearchInputProps } from '../conversationInputPolicy'
 
@@ -122,7 +121,6 @@ export function ConversationList({
   const { t } = useI18n()
   const user = useAuthStore((s) => s.user)
   const userId = user?.id
-  const canDeleteConversations = user?.role === 'clinic_admin' || user?.role === 'ia_studio_admin'
   const members = useTeam()
   const { clinicId } = useActiveClinic()
   const clinicSettings = useQuery({
@@ -141,11 +139,11 @@ export function ConversationList({
     [activeChannelsQuery.data, activeChannelsQuery.isError, activeChannelsQuery.isLoading, showInactiveChannels],
   )
   const qc = useQueryClient()
-  // Operational lens (design's Active/Bot/Assigned/Closed tabs) — derived entirely
+  // Operational lens (All/Secretary/Bot/Assigned) — derived entirely
   // client-side over the full clinic set so the tab counts are accurate and switching
-  // is instant. Defaults to 'active' (what needs a person now); safety-flagged threads
-  // are exempt from the lens and always surface (see below).
-  const [lens, setLens] = useState<ConversationLens>('active')
+  // is instant. Defaults to the complete clinic history; safety-flagged threads
+  // still surface first (see below).
+  const [lens, setLens] = useState<ConversationLens>('all')
   // Assignment stays available through the assignment panel and bulk actions; the
   // main queue no longer pins a permanent Assignee/Anyone filter.
   const [assignee] = useState<AssigneeFilter>('all')
@@ -154,7 +152,6 @@ export function ConversationList({
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [selectedRows, setSelectedRows] = useState<Set<string>>(() => new Set())
-  const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null)
   useEffect(() => {
     if (channel !== 'all' && activeChannels !== undefined && !activeChannels.has(channel)) {
       setChannel('all')
@@ -350,6 +347,9 @@ export function ConversationList({
         </button>
       )}
       <div className="border-b border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
+        <div className="crm-inbox-panel-brand">
+          <img src="/brand/docmee-logo.png?v=20260821" alt={t('app.name')} />
+        </div>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-bold">{t('conv.title')}</h2>
           <div className="flex items-center gap-2">
@@ -410,7 +410,7 @@ export function ConversationList({
           </select>
         </label>}
 
-        {/* Operational lens tabs (Active / Bot / Assigned / Closed) with live counts —
+        {/* Operational lens tabs (All / Secretary / Bot / Assigned) with live counts —
             the secretary's primary triage control, narrowing the queue client-side. */}
         <div role="tablist" aria-label={t('conv.lens.label')} className="crm-conversation-lens-tabs flex flex-nowrap gap-1">
           {visibleConversationLenses(showInactiveChannels).map((l) => (
@@ -544,8 +544,6 @@ export function ConversationList({
                 userId={userId}
                 checked={selectedRows.has(c.id)}
                 onCheck={toggleRow}
-                canDelete={canDeleteConversations}
-                onDelete={setDeleteConversationId}
               />
             ))}
             {pageNormal.length > 0 && (
@@ -560,12 +558,7 @@ export function ConversationList({
                         aria-label="Open media repository"
                         title="Open media repository"
                       >
-                        <img
-                          src="/brand/media-repository-folder.png"
-                          alt=""
-                          aria-hidden="true"
-                          className="h-5 w-5 object-contain"
-                        />
+                        <ImagesSquare size={20} weight="duotone" aria-hidden="true" />
                       </button>
                     ) : null
                   }
@@ -584,8 +577,6 @@ export function ConversationList({
                 userId={userId}
                 checked={selectedRows.has(c.id)}
                 onCheck={toggleRow}
-                canDelete={canDeleteConversations}
-                onDelete={setDeleteConversationId}
               />
             ))}
           </ul>
@@ -622,21 +613,6 @@ export function ConversationList({
           </div>
         )}
       </div>
-      <DeleteConversationDialog
-        open={deleteConversationId !== null}
-        conversationId={deleteConversationId ?? ''}
-        onClose={() => setDeleteConversationId(null)}
-        onDeleted={() => {
-          setDeleteConversationId(null)
-          setSelectedRows((current) => {
-            if (!deleteConversationId || !current.has(deleteConversationId)) return current
-            const next = new Set(current)
-            next.delete(deleteConversationId)
-            return next
-          })
-          qc.invalidateQueries({ queryKey: ['conversations'] })
-        }}
-      />
     </div>
   )
 }
@@ -683,8 +659,6 @@ function ThreadRow({
   userId,
   checked,
   onCheck,
-  canDelete,
-  onDelete,
 }: {
   conversation: Conversation
   selected: boolean
@@ -693,8 +667,6 @@ function ThreadRow({
   userId: string | undefined
   checked: boolean
   onCheck: (id: string, checked: boolean) => void
-  canDelete: boolean
-  onDelete: (id: string) => void
 }) {
   const { t } = useI18n()
   const safety = assessSafety(c.tags).level
@@ -721,20 +693,6 @@ function ThreadRow({
           aria-label={`Select ${displayName}`}
           className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
         />
-        {canDelete && (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              onDelete(c.id)
-            }}
-            title={t('view.delete')}
-            aria-label={t('view.delete')}
-            className="crm-conversation-delete-btn mt-1"
-          >
-            <span aria-hidden="true">−</span>
-          </button>
-        )}
         <button
           type="button"
           onClick={() => onSelect(c.id)}

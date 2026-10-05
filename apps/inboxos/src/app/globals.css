@@ -1153,18 +1153,30 @@ body {
     background: color-mix(in srgb, var(--crm-card-bg) 78%, var(--crm-bg-color));
   }
 
-  .crm-inbox-panel-brand {
-    display: flex;
+  /* Logo at the left end of the top bar on every page (clinic + Studio layouts). */
+  .crm-topbar-logo {
+    display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
-    justify-content: flex-start;
-    margin-bottom: 8px;
+    margin-right: 4px;
+    border-radius: 8px;
   }
 
-  .crm-inbox-panel-brand img {
+  .crm-topbar-logo img {
     display: block;
-    width: 104px;
-    max-width: 45%;
-    height: auto;
+    width: auto;
+    height: 44px;
+  }
+
+  .crm-topbar-logo:focus-visible {
+    outline: 2px solid var(--crm-primary-color);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 768px) {
+    .crm-topbar-logo img {
+      height: 32px;
+    }
   }
 
   /* The repository overlays only the conversation rows, leaving the list controls

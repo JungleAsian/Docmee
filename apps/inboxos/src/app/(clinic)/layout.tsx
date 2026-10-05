@@ -15,6 +15,7 @@ import { useI18n } from '@/shared/hooks/useI18n'
 import { can } from '@/shared/permissions'
 import { roleCanSeeMenuItem, type RoleAccessSettings, type RoleMenuItemKey } from '@/shared/roleAccess'
 import { ClinicBackButton } from '@/shared/components/ClinicBackButton'
+import { TopbarLogo } from '@/shared/components/TopbarLogo'
 import { Sidebar, type NavGroup, type NavLink } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { NotificationBell } from '@/shared/components/NotificationBell'
@@ -193,6 +194,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
       <div className="crm-main-content">
         <PageHeroActionsProvider>
         <header className="crm-top-header shrink-0">
+          <TopbarLogo />
           <button
             type="button"
             aria-label={t('common.openMenu')}

@@ -14,6 +14,7 @@ import { NavIcon } from '@/shared/components/NavIcon'
 import { HELP_UI, L } from '@/shared/help/content'
 import { Breadcrumbs } from '@/shared/components/Breadcrumbs'
 import { PlatformBackButton } from '@/shared/components/PlatformBackButton'
+import { TopbarLogo } from '@/shared/components/TopbarLogo'
 import { PushOptIn } from '@/shared/components/PushOptIn'
 import { ProductUpdatesControl } from '@/shared/components/ProductUpdatesControl'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
@@ -202,6 +203,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="crm-main-content">
         <PageHeroActionsProvider>
         <header className="crm-top-header shrink-0">
+          <TopbarLogo />
           {!isWorkflowPage && <button
               type="button"
               aria-label={t('common.openMenu')}

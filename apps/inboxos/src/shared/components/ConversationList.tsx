@@ -347,9 +347,6 @@ export function ConversationList({
         </button>
       )}
       <div className="border-b border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-900">
-        <div className="crm-inbox-panel-brand">
-          <img src="/brand/docmee-logo.png?v=20260821" alt={t('app.name')} />
-        </div>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-bold">{t('conv.title')}</h2>
           <div className="flex items-center gap-2">

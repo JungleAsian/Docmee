@@ -16,6 +16,8 @@ import { TemplatePicker } from './TemplatePicker'
 import { InteractivePicker } from './InteractivePicker'
 import { ListPicker } from './ListPicker'
 import { AutomationModeToggle } from './AutomationModeToggle'
+import { DeleteConversationDialog } from './DeleteConversationDialog'
+import { useAuthStore } from '../store/auth'
 import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
 import { assessSafety, type SafetyLevel } from '../safety'
@@ -120,14 +122,22 @@ export function ConversationView({
   onDraftChange,
   detailsHidden = false,
   onToggleDetails,
+  onDeleted,
 }: {
   conversationId: string
   draft?: string
   onDraftChange?: (draft: string) => void
   detailsHidden?: boolean
   onToggleDetails?: () => void
+  /** Called after the conversation is permanently deleted (e.g. to clear the selection). */
+  onDeleted?: () => void
 }) {
   const { t, language } = useI18n()
+  // The API only lets clinic and platform admins delete a conversation (and
+  // re-checks their password); the button is hidden for everyone else.
+  const role = useAuthStore((s) => s.user?.role)
+  const canDelete = role === 'clinic_admin' || role === 'ia_studio_admin'
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const qc = useQueryClient()
   const { clinicId } = useActiveClinic()
   const { features } = useFeatures()
@@ -538,6 +548,17 @@ export function ConversationView({
                 Show details
               </button>
             )}
+            {canDelete && conversation && (
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(true)}
+                aria-label={t('view.delete')}
+                title={t('view.delete')}
+                className="rounded-full border border-red-200 bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30"
+              >
+                🗑 {t('view.delete')}
+              </button>
+            )}
           </div>
         </div>
         {conversation && <KbCitations metadata={conversation.metadata} />}
@@ -807,6 +828,15 @@ export function ConversationView({
           </form>
         </div>
       )}
+      <DeleteConversationDialog
+        open={deleteOpen}
+        conversationId={conversationId}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => {
+          setDeleteOpen(false)
+          onDeleted?.()
+        }}
+      />
     </div>
   )
 }

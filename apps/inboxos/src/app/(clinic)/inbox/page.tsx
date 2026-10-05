@@ -264,6 +264,7 @@ export default function InboxPage() {
                 onDraftChange={setComposerDraft}
                 detailsHidden={detailsHidden}
                 onToggleDetails={() => setDetailsHidden((value) => !value)}
+                onDeleted={() => select(null)}
               />
             </div>
           </>

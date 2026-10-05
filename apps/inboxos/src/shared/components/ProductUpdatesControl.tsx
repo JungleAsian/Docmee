@@ -47,14 +47,15 @@ export function ProductUpdatesButton({ unseenCount, expanded, language, onToggle
     <button
       type="button"
       aria-label={label}
+      title={label}
       aria-expanded={expanded}
       aria-haspopup="dialog"
       onClick={onToggle}
-      className="crm-icon-btn relative inline-flex min-h-8 min-w-9 items-center justify-center border border-gray-300 px-2.5 py-1 text-cyan-600 hover:bg-gray-50 dark:border-gray-700 dark:text-cyan-300 dark:hover:bg-gray-800"
+      className="crm-topbar-action-btn crm-topbar-action-btn--accent"
     >
-      <Megaphone aria-hidden size={18} weight={unseenCount > 0 ? 'fill' : 'regular'} />
+      <Megaphone aria-hidden="true" size={14} weight={unseenCount > 0 ? 'fill' : 'regular'} />
       {unseenCount > 0 && (
-        <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-cyan-500 px-1 text-[10px] font-bold text-slate-950">
+        <span className="crm-topbar-action-badge flex h-4 min-w-4 items-center justify-center rounded-full bg-cyan-500 px-1 text-[10px] font-bold text-slate-950">
           {unseenCount > 99 ? '99+' : unseenCount}
         </span>
       )}

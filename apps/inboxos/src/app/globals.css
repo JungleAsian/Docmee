@@ -910,6 +910,63 @@ body {
     background: var(--crm-card-bg);
   }
 
+  /* Preserve a 44px hit target while rendering a quieter 32px circle. */
+  .crm-topbar-action-btn {
+    position: relative;
+    display: inline-flex;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    flex: 0 0 44px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--crm-text-muted);
+    transition: var(--crm-transition);
+  }
+
+  .crm-topbar-action-btn::before {
+    position: absolute;
+    inset: 6px;
+    content: '';
+    border: 1px solid var(--crm-border-color);
+    border-radius: 999px;
+    background: var(--crm-card-bg);
+    box-shadow: var(--crm-shadow-sm);
+    transition: var(--crm-transition);
+  }
+
+  .crm-topbar-action-btn > svg {
+    position: relative;
+    z-index: 1;
+    width: 14px;
+    height: 14px;
+  }
+
+  .crm-topbar-action-btn:hover,
+  .crm-topbar-action-btn--accent {
+    color: var(--crm-primary-color);
+  }
+
+  .crm-topbar-action-btn:hover::before {
+    border-color: var(--crm-primary-color);
+  }
+
+  .crm-topbar-action-btn:focus-visible {
+    outline: 2px solid var(--crm-primary-color);
+    outline-offset: 2px;
+  }
+
+  .crm-topbar-action-badge {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    right: 0;
+  }
+
   .crm-user-profile {
     display: flex;
     align-items: center;
@@ -4188,6 +4245,18 @@ body:has([data-docmee-auth-shell]) .docmee-root-footer {
     color: CanvasText;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .crm-topbar-action-btn {
+    color: ButtonText;
+  }
+
+  .crm-topbar-action-btn::before {
+    border-color: ButtonText;
+    background: Canvas;
     box-shadow: none;
   }
 }

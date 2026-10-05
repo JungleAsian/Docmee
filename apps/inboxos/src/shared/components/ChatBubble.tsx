@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { ChatCircleDots, X } from '@phosphor-icons/react'
+import { ChatCircleDots, Trash, X } from '@phosphor-icons/react'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { useActiveClinic } from '../hooks/useActiveClinic'
@@ -16,6 +16,7 @@ import { api } from '../api/client'
 import { BubbleConversationList } from './BubbleConversationList'
 import { BubbleThread } from './BubbleThread'
 import { BubbleJzelChat } from './BubbleJzelChat'
+import { DeleteConversationDialog } from './DeleteConversationDialog'
 import type { ClinicSettings, Conversation, PanelLanguage } from '../types'
 
 type Mode = 'messenger' | 'jzel'
@@ -61,6 +62,7 @@ export function ChatBubble() {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<Mode>('messenger')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const uiLoadedFor = useRef<string | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const launcherRef = useRef<HTMLButtonElement>(null)
@@ -174,6 +176,17 @@ export function ChatBubble() {
                 {t('bubble.mode.jzel')}
               </button>
             </div>
+            {mode === 'messenger' && selectedId && (user?.role === 'clinic_admin' || user?.role === 'ia_studio_admin') && (
+              <button
+                type="button"
+                aria-label={t('view.delete')}
+                title={t('view.delete')}
+                onClick={() => setDeleteOpen(true)}
+                className="ml-auto shrink-0 rounded-md p-1 text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--crm-primary-color)]"
+              >
+                <Trash size={16} weight="bold" />
+              </button>
+            )}
             <button
               type="button"
               aria-label={t('bubble.close')}
@@ -195,6 +208,15 @@ export function ChatBubble() {
               <BubbleJzelChat />
             )}
           </div>
+          <DeleteConversationDialog
+            open={deleteOpen && Boolean(selectedId)}
+            conversationId={selectedId ?? ''}
+            onClose={() => setDeleteOpen(false)}
+            onDeleted={() => {
+              setDeleteOpen(false)
+              setSelectedId(null)
+            }}
+          />
         </div>
       )}
 

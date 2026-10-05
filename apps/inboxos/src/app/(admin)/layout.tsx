@@ -224,8 +224,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               alerts reach them on their phone with the panel closed. */}
           <div className="crm-header-actions">
             <div ref={customizeMenuRef} className="relative crm-header-customize">
-              <button type="button" aria-label={t('nav.customizeMenu')} title={t('nav.customizeMenu')} onClick={() => setCustomizeOpen((v) => !v)} className="crm-icon-btn hidden md:inline-flex">
-                <SlidersHorizontal size={18} />
+              <button type="button" aria-label={t('nav.customizeMenu')} title={t('nav.customizeMenu')} aria-expanded={customizeOpen} onClick={() => setCustomizeOpen((v) => !v)} className="crm-topbar-action-btn hidden md:inline-flex">
+                <SlidersHorizontal aria-hidden="true" size={14} />
               </button>
               {customizeOpen && (
                 <div className="absolute right-0 top-full z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">

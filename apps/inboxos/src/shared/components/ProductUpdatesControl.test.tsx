@@ -27,6 +27,9 @@ describe('product updates header control', () => {
     )
 
     expect(markup).toContain('aria-label="What’s new: 3 unseen updates"')
+    expect(markup).toContain('title="What’s new: 3 unseen updates"')
+    expect(markup).toContain('crm-topbar-action-btn crm-topbar-action-btn--accent')
+    expect(markup).toContain('crm-topbar-action-badge')
     expect(markup).toContain('>3<')
   })
 

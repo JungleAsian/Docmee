@@ -598,3 +598,60 @@ describe('processAgentJob — AI conversation orchestration', () => {
     )
   })
 })
+
+describe('processAgentJob — all-day automation switch', () => {
+  const allDayClinic = {
+    id: CLINIC,
+    name: 'Clinica',
+    settings: {
+      automationDuringBusinessHours: true,
+      outOfHoursMessage: { es: 'La clinica esta cerrada.' },
+    },
+    timezone: 'America/Mexico_City',
+  }
+
+  it('starts inbound workflows during business hours when the clinic opted in', async () => {
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.enqueueInboundWorkflowRuns.mockResolvedValueOnce({ enqueued: 1, ownsTurn: true })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'hola' }))
+
+    expect(h.enqueueInboundWorkflowRuns).toHaveBeenCalledWith(
+      expect.anything(),
+      CLINIC,
+      expect.objectContaining({ sourceEventId: 'wamid.ABC', message: 'hola' }),
+    )
+    // Inside business hours the "clinic is closed" notice would be false.
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it('queues a booking during business hours when the clinic opted in', async () => {
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+    h.classifyIntent.mockResolvedValueOnce('booking_request')
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'Quiero una cita' }))
+
+    expect(h.schedulingAdd).toHaveBeenCalledWith('schedule', expect.objectContaining({ action: 'book' }))
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it('still leaves open-hours conversations to staff by default', async () => {
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'hola' }))
+
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+  })
+
+  it('still respects a human-owned conversation when the clinic opted in', async () => {
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'handoff', metadata: {} })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'hola' }))
+
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+})

@@ -540,6 +540,9 @@ export interface ClinicSettings {
   // Optional closure notice sent before out-of-hours automation. Leaving both
   // languages blank leaves existing clinics' outbound behavior unchanged.
   outOfHoursMessage?: { es?: string; en?: string }
+  // When true, workflows and the bot also answer during business hours instead
+  // of leaving open-hours conversations to staff. Off by default.
+  automationDuringBusinessHours?: boolean
   businessHours?: BusinessHours
   bookingGrid?: { startHour: number; endHour: number; slotMinutes: number }
   stalledConversation?: { stallMinutes?: number; reannounceIntervalMinutes?: number; maxReannouncements?: number; closeGraceMinutes?: number }

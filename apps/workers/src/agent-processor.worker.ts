@@ -274,6 +274,12 @@ export function resolveOutOfHoursMessage(clinic: Clinic, language: Language): st
   return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : defaultOutOfHoursMessage(language)
 }
 
+/** When true, workflows and the bot answer patients all day instead of leaving
+ *  open-hours conversations to staff. Off (the existing behaviour) by default. */
+export function automationRunsDuringBusinessHours(clinic: Clinic): boolean {
+  return (clinic.settings as { automationDuringBusinessHours?: unknown }).automationDuringBusinessHours === true
+}
+
 function hasConfiguredOutOfHoursMessage(clinic: Clinic): boolean {
   const configured = (clinic.settings as {
     outOfHoursMessage?: { es?: unknown; en?: unknown }
@@ -841,9 +847,12 @@ export async function processAgentJob(job: Job): Promise<void> {
     // Staff own ordinary conversations during configured open hours. Deterministic
     // safety, consent, and direct-handoff rules remain above this point.
     const insideHours = isInsideBusinessHours(getBusinessHours(clinic), clinic.timezone)
+    // Staff own open-hours conversations unless the clinic opted into all-day automation.
+    const automationHeldForStaff = insideHours && !automationRunsDuringBusinessHours(clinic)
     let outOfHoursNoticeSent = false
     const sendOutOfHoursNotice = async () => {
-      if (!outOfHoursNoticeSent && sendReply && hasConfiguredOutOfHoursMessage(clinic)) {
+      // The "clinic is closed" notice is only true outside business hours.
+      if (!insideHours && !outOfHoursNoticeSent && sendReply && hasConfiguredOutOfHoursMessage(clinic)) {
         await sendReply(resolveOutOfHoursMessage(clinic, patientLanguage))
         outOfHoursNoticeSent = true
       }
@@ -862,7 +871,7 @@ export async function processAgentJob(job: Job): Promise<void> {
         ? (activeScheduling.action as 'book' | 'reschedule' | 'cancel' | 'status')
         : null
     if (activeSchedulingAction) {
-      if (!insideHours) {
+      if (!automationHeldForStaff) {
         await sendOutOfHoursNotice()
         await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
       }
@@ -875,7 +884,7 @@ export async function processAgentJob(job: Job): Promise<void> {
     // reply turn: it answers the patient itself, so custom flows and the LLM stay
     // silent this turn. Pure side-effect workflows (tag / notify / approval)
     // remain best-effort and never suppress the reply below.
-    if (!insideHours) {
+    if (!automationHeldForStaff) {
       await sendOutOfHoursNotice()
       try {
         const claim = await enqueueInboundWorkflowRuns(sql, data.clinicId, {
@@ -931,7 +940,7 @@ export async function processAgentJob(job: Job): Promise<void> {
       }
     }
     const orchestration = orchestrateConversation(intent, {
-      isInsideBusinessHours: insideHours,
+      isInsideBusinessHours: automationHeldForStaff,
       patientOptedOut,
     })
     const route = orchestration.route

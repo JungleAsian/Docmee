@@ -284,6 +284,7 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
   const [unmatchedEn, setUnmatchedEn] = useState(settings.unmatchedKeywordMessage?.en ?? '')
   const [outOfHoursEs, setOutOfHoursEs] = useState(settings.outOfHoursMessage?.es ?? '')
   const [outOfHoursEn, setOutOfHoursEn] = useState(settings.outOfHoursMessage?.en ?? '')
+  const [allDayAutomation, setAllDayAutomation] = useState(settings.automationDuringBusinessHours === true)
   const save = useSaveClinic(clinic.id)
 
   const dirty =
@@ -291,7 +292,8 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
     unmatchedEs !== (settings.unmatchedKeywordMessage?.es ?? '') ||
     unmatchedEn !== (settings.unmatchedKeywordMessage?.en ?? '') ||
     outOfHoursEs !== (settings.outOfHoursMessage?.es ?? '') ||
-    outOfHoursEn !== (settings.outOfHoursMessage?.en ?? '')
+    outOfHoursEn !== (settings.outOfHoursMessage?.en ?? '') ||
+    allDayAutomation !== (settings.automationDuringBusinessHours === true)
 
   useSectionSaveRegistration('bot', t('clinic.section.bot'), dirty, save.isPending, () => onSave())
 
@@ -318,6 +320,7 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
         // intentional "use the default" value, not an error.
         unmatchedKeywordMessage: { es: unmatchedEs.trim(), en: unmatchedEn.trim() },
         outOfHoursMessage: { es: outOfHoursEs.trim(), en: outOfHoursEn.trim() },
+        automationDuringBusinessHours: allDayAutomation,
       },
     })
   }
@@ -424,6 +427,21 @@ function BotConfigSection({ clinic }: { clinic: Clinic }) {
           </div>
         </div>
       </div>
+
+      {/* All-day automation: by default staff own conversations during business hours
+          and workflows/the bot only answer while the clinic is closed. */}
+      <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+        <input
+          type="checkbox"
+          checked={allDayAutomation}
+          onChange={(e) => setAllDayAutomation(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0"
+        />
+        <span>
+          <span className="block text-xs font-medium text-gray-700 dark:text-gray-200">{t('bot.allDayAutomation.label')}</span>
+          <span className="block text-xs text-gray-400">{t('bot.allDayAutomation.hint')}</span>
+        </span>
+      </label>
 
       {/* Optional closure notice sent before ordinary automation after business hours. */}
       <div className="mt-4">

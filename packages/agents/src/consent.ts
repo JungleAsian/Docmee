@@ -33,8 +33,8 @@ function normalize(message: string): string {
 const OPT_OUT_KEYWORDS = new Set([
   'stop',
   'unsubscribe',
-  'cancel',
-  'end',
+  // Not 'cancel' / 'end': patients type (or tap a button labelled) "Cancel" to
+  // cancel an appointment, and treating that as STOP silently unsubscribed them.
   'baja',
   'dar de baja',
   'darme de baja',

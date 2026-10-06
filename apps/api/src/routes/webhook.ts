@@ -24,7 +24,8 @@ const WhatsAppEntrySchema = z.object({
               })
               .optional(),
             contacts: z
-              .array(z.object({ profile: z.object({ name: z.string() }), wa_id: z.string() }))
+              // Meta omits `profile` for some senders; requiring it dropped the message.
+              .array(z.object({ profile: z.object({ name: z.string() }).optional(), wa_id: z.string() }))
               .optional(),
             messages: z
               .array(
@@ -182,7 +183,7 @@ const webhookRoute: FastifyPluginAsync = async (app) => {
             await whatsappInboundQueue.add('inbound', {
               phoneNumberId: metadata.phone_number_id,
               patientWaId: msg.from,
-              patientName: contacts?.[0]?.profile.name ?? '',
+              patientName: contacts?.[0]?.profile?.name ?? '',
               messageType: msg.type,
               content:
                 msg.text?.body ??

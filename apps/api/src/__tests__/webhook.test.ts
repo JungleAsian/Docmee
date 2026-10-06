@@ -120,6 +120,26 @@ describe('webhook routes', () => {
     expect(statusAdd).not.toHaveBeenCalled()
   })
 
+  it('POST still enqueues the message when Meta omits the contact profile', async () => {
+    // Seen in production: contacts[0] arrives without `profile`. Rejecting the
+    // payload dropped the patient's message entirely.
+    const body = validPayload.replace('{"profile":{"name":"Ana"},"wa_id"', '{"wa_id"')
+    expect(body).not.toContain('profile')
+    const res = await app.inject({
+      method: 'POST',
+      url: '/webhook/whatsapp',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': sign(body) },
+      payload: body,
+    })
+    await flush()
+    expect(res.statusCode).toBe(200)
+    expect(add).toHaveBeenCalledTimes(1)
+    const [, job] = add.mock.calls[0] as [string, Record<string, unknown>]
+    expect(job['patientWaId']).toBe('5215555555555')
+    expect(job['patientName']).toBe('')
+    expect(job['content']).toBe('hola')
+  })
+
   it('POST with an inbound image enqueues with the media id, mime type and caption', async () => {
     const imagePayload = JSON.stringify({
       object: 'whatsapp_business_account',

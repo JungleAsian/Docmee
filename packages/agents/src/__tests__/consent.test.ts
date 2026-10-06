@@ -17,6 +17,10 @@ describe('isOptOutMessage', () => {
     // Must still reach calbot to cancel an appointment, not opt out.
     expect(isOptOutMessage('quiero cancelar mi cita')).toBe(false)
     expect(isOptOutMessage('cancel my appointment please')).toBe(false)
+    // A bare "Cancel"/"End" (typed, or a tapped menu button) is a booking action.
+    expect(isOptOutMessage('Cancel')).toBe(false)
+    expect(isOptOutMessage('cancel')).toBe(false)
+    expect(isOptOutMessage('End')).toBe(false)
     // "stop" inside a sentence is not a command.
     expect(isOptOutMessage('can I stop by the clinic tomorrow?')).toBe(false)
     expect(isOptOutMessage('Hola, ¿cuáles son sus horarios?')).toBe(false)

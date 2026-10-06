@@ -42,6 +42,8 @@ export async function sendTwilioWhatsAppText(config: TwilioWhatsAppTextConfig): 
         'content-type': 'application/x-www-form-urlencoded',
       },
       body: params,
+      // fetch has no default timeout; never let a stuck Twilio call freeze a send.
+      signal: AbortSignal.timeout(15_000),
     },
   )
 

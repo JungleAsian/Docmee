@@ -1,5 +1,6 @@
 // Only file permitted to import @anthropic-ai/sdk
 import Anthropic from '@anthropic-ai/sdk'
+import { LLM_MAX_RETRIES, LLM_TIMEOUT_MS } from '../timeouts.js'
 
 export interface ClaudeTurn {
   role: 'user' | 'assistant'
@@ -40,7 +41,11 @@ export async function claudeComplete(
   if (process.env['LLM_STUB'] === 'true') return 'STUB_RESPONSE'
   // Per-clinic key when the clinic has connected one (Integrations → "login to
   // the service"); otherwise fall back to the server's env key.
-  const client = new Anthropic({ apiKey: apiKey?.trim() || process.env['ANTHROPIC_API_KEY'] })
+  const client = new Anthropic({
+    apiKey: apiKey?.trim() || process.env['ANTHROPIC_API_KEY'],
+    timeout: LLM_TIMEOUT_MS,
+    maxRetries: LLM_MAX_RETRIES,
+  })
   const msg = await client.messages.create({
     model: model?.trim() || process.env['LLM_MODEL']?.trim() || 'claude-sonnet-4-6',
     max_tokens: maxTokens,

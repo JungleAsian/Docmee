@@ -3,6 +3,11 @@
 
 const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
 
+// Node's fetch has no default timeout, so an unresponsive provider would hang the
+// awaiting send (and the workflow run / patient conversation behind it) forever.
+// On timeout fetch rejects like any other network failure, which callers handle.
+const SEND_TIMEOUT_MS = 15_000
+
 function providerMessage(body: string): string {
   const text = body.replace(/\s+/g, ' ').trim()
   if (/<(?:!doctype|html|head|body|script)\b/i.test(text)) return 'unexpected HTML response from provider'
@@ -56,6 +61,7 @@ export async function sendWhatsAppText(
         type: 'text',
         text: { body },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -126,6 +132,7 @@ export async function sendWhatsAppInteractiveButtons(
           },
         },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -187,6 +194,7 @@ export async function sendWhatsAppInteractiveList(
           },
         },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 

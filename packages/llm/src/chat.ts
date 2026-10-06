@@ -8,6 +8,7 @@ import OpenAI from 'openai'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { claudeComplete } from './providers/claude.js'
 import { claudeCliComplete } from './providers/claude-cli.js'
+import { LLM_MAX_RETRIES, LLM_TIMEOUT_MS } from './timeouts.js'
 
 export type ChatProvider = 'claude' | 'openai' | 'custom' | 'gemini'
 export type ManagedChatProvider = ChatProvider | 'claude_cli'
@@ -65,7 +66,7 @@ async function openaiChat(o: ChatOpts): Promise<string> {
   const apiKey = o.apiKey?.trim() || process.env['OPENAI_API_KEY']
   // 'custom' points the OpenAI SDK at an OpenAI-compatible endpoint; 'openai' uses the default.
   const baseURL = o.provider === 'custom' ? o.baseURL?.trim() || undefined : undefined
-  const client = new OpenAI({ apiKey, baseURL })
+  const client = new OpenAI({ apiKey, baseURL, timeout: LLM_TIMEOUT_MS, maxRetries: LLM_MAX_RETRIES })
   const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: o.system },
     ...(o.history ?? []).map(
@@ -103,6 +104,7 @@ async function geminiChat(o: ChatOpts): Promise<string> {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')

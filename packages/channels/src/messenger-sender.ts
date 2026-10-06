@@ -3,6 +3,11 @@
 
 const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
 
+// Node's fetch has no default timeout, so an unresponsive provider would hang the
+// awaiting send (and the workflow run / patient conversation behind it) forever.
+// On timeout fetch rejects like any other network failure, which callers handle.
+const SEND_TIMEOUT_MS = 15_000
+
 /**
  * Send a text message via the Facebook Messenger Send API.
  *
@@ -35,6 +40,7 @@ export async function sendMessengerText(
       recipient: { id: recipientPsid },
       message: { text },
     }),
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   })
 
   if (!res.ok) {

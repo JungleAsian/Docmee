@@ -9,6 +9,16 @@
 
 const GRAPH_API_VERSION = process.env['META_GRAPH_API_VERSION'] || 'v24.0'
 
+// Node's fetch has no default timeout, so an unresponsive Zernio/Meta endpoint
+// would otherwise hang the awaiting call indefinitely — and with it, the
+// workflow step (and the patient's conversation) that's waiting on the send to
+// complete. AbortSignal.timeout bounds every outbound send below to a fixed
+// window; on timeout, fetch rejects with an AbortError like any other network
+// failure, which the EXISTING error handling in each function (and its callers)
+// already deals with. Media upload gets a longer window since it ships bytes.
+const SEND_TIMEOUT_MS = 15_000
+const MEDIA_TIMEOUT_MS = 30_000
+
 function normalizeZernioApiBase(apiBase: string): string {
   const base = apiBase.trim().replace(/\/+$/, '')
   if (!base) throw new Error('Zernio send failed: apiBase is required')
@@ -52,6 +62,7 @@ export async function sendZernioWhatsAppText(
       method: 'POST',
       headers,
       body: JSON.stringify({ accountId, message: body }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -93,6 +104,7 @@ export async function sendWhatsAppText(
         type: 'text',
         text: { body },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -136,6 +148,7 @@ export async function uploadWhatsAppMedia(
       // No explicit Content-Type — fetch sets the multipart boundary from the FormData.
       headers: { Authorization: `Bearer ${accessToken}` },
       body: form,
+      signal: AbortSignal.timeout(MEDIA_TIMEOUT_MS),
     },
   )
 
@@ -176,6 +189,7 @@ export async function sendWhatsAppImage(
         type: 'image',
         image: { id: mediaId, ...(caption ? { caption } : {}) },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -215,6 +229,7 @@ export async function sendWhatsAppDocument(
         type: 'document',
         document: { id: mediaId, filename, ...(caption ? { caption } : {}) },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
   if (!res.ok) throw new Error(`WhatsApp document send failed ${res.status}: ${await res.text()}`)
@@ -255,6 +270,7 @@ export async function sendWhatsAppTemplate(
         type: 'template',
         template: { name: templateName, language: { code: languageCode } },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -310,6 +326,7 @@ export async function sendWhatsAppInteractive(
           },
         },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -381,6 +398,7 @@ export async function sendWhatsAppList(
           },
         },
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     },
   )
 
@@ -416,6 +434,7 @@ export async function sendMessengerText(
       recipient: { id: recipientPsid },
       message: { text },
     }),
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   })
 
   if (!res.ok) {
@@ -449,6 +468,7 @@ export async function sendInstagramText(
       message: { text },
       messaging_type: 'RESPONSE',
     }),
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   })
 
   if (!res.ok) {

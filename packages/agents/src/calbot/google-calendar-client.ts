@@ -18,6 +18,28 @@ const SLOT_MINUTES = 30
 const DAY_START_HOUR = 9 // 09:00
 const DAY_END_HOUR = 18 // 18:00
 
+// googleapis' Calendar client has no request timeout unless asked for one, so an
+// unresponsive Google endpoint would otherwise hang the awaiting call — and with
+// it the whole workflow run and the patient's conversation — indefinitely. Every
+// Calendar network call below (including the OAuth token refresh that googleapis
+// runs inside the first request) races this timeout, so a stuck request becomes
+// an ordinary rejection that the existing callers already handle (the worker's
+// best-effort try/catch and calendarSyncPending fallback) instead of a freeze.
+// This unblocks the caller but does not cancel the HTTP request, so a call that
+// times out and later succeeds could still land in Google; that is an acceptable
+// trade against hanging forever. Exported only for google-calendar-timeout.test.ts.
+export const CALENDAR_TIMEOUT_MS = 20_000
+export function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Google Calendar ${label} timed out after ${CALENDAR_TIMEOUT_MS / 1000}s`)),
+      CALENDAR_TIMEOUT_MS,
+    )
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 const pad = (n: number): string => String(n).padStart(2, '0')
 
 function localParts(value: string): [number, number, number, number, number, number] {
@@ -172,13 +194,16 @@ async function slotsFromClient(
   const dayStart = zonedDateTimeToInstant(`${date}T00:00:00`, timezone)
   const dayEnd = zonedDateTimeToInstant(`${nextDate(date)}T00:00:00`, timezone)
   if (!dayStart || !dayEnd) throw new Error('Unable to resolve clinic-local calendar day')
-  const { data } = await calendar.events.list({
-    calendarId,
-    timeMin: dayStart.toISOString(),
-    timeMax: dayEnd.toISOString(),
-    singleEvents: true,
-    orderBy: 'startTime',
-  })
+  const { data } = await withTimeout(
+    calendar.events.list({
+      calendarId,
+      timeMin: dayStart.toISOString(),
+      timeMax: dayEnd.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+    }),
+    'availability lookup',
+  )
   return computeFreeSlots(data.items ?? [], date, timezone, grid)
 }
 
@@ -196,13 +221,16 @@ export async function listAvailableSlots(
   const dayEnd = zonedDateTimeToInstant(`${nextDate(date)}T00:00:00`, timezone)
   if (!dayStart || !dayEnd) throw new Error('Unable to resolve clinic-local calendar day')
 
-  const { data } = await calendar.events.list({
-    calendarId,
-    timeMin: dayStart.toISOString(),
-    timeMax: dayEnd.toISOString(),
-    singleEvents: true,
-    orderBy: 'startTime',
-  })
+  const { data } = await withTimeout(
+    calendar.events.list({
+      calendarId,
+      timeMin: dayStart.toISOString(),
+      timeMax: dayEnd.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+    }),
+    'availability lookup',
+  )
 
   return computeFreeSlots(data.items ?? [], date, timezone, grid)
 }
@@ -212,15 +240,18 @@ export async function createCalendarEvent(params: CreateEventParams): Promise<st
   const calendar = await authedCalendar(params.accessToken, params.refreshToken)
   const range = addLocalMinutes(params.date, params.time, params.durationMinutes)
 
-  const { data } = await calendar.events.insert({
-    calendarId: params.calendarId,
-    requestBody: {
-      summary: params.title,
-      description: params.description,
-      start: { dateTime: range.start, timeZone: params.timezone },
-      end: { dateTime: range.end, timeZone: params.timezone },
-    },
-  })
+  const { data } = await withTimeout(
+    calendar.events.insert({
+      calendarId: params.calendarId,
+      requestBody: {
+        summary: params.title,
+        description: params.description,
+        start: { dateTime: range.start, timeZone: params.timezone },
+        end: { dateTime: range.end, timeZone: params.timezone },
+      },
+    }),
+    'event creation',
+  )
 
   if (!data.id) throw new Error('Google Calendar did not return an event id')
   return data.id
@@ -231,14 +262,17 @@ export async function updateCalendarEvent(params: CreateEventParams & { eventId:
   const calendar = await authedCalendar(params.accessToken, params.refreshToken)
   const range = addLocalMinutes(params.date, params.time, params.durationMinutes)
 
-  await calendar.events.patch({
-    calendarId: params.calendarId,
-    eventId: params.eventId,
-    requestBody: {
-      start: { dateTime: range.start, timeZone: params.timezone },
-      end: { dateTime: range.end, timeZone: params.timezone },
-    },
-  })
+  await withTimeout(
+    calendar.events.patch({
+      calendarId: params.calendarId,
+      eventId: params.eventId,
+      requestBody: {
+        start: { dateTime: range.start, timeZone: params.timezone },
+        end: { dateTime: range.end, timeZone: params.timezone },
+      },
+    }),
+    'event update',
+  )
 }
 
 export async function deleteCalendarEvent(
@@ -248,7 +282,7 @@ export async function deleteCalendarEvent(
   eventId: string,
 ): Promise<void> {
   const calendar = await authedCalendar(accessToken, refreshToken)
-  await calendar.events.delete({ calendarId, eventId })
+  await withTimeout(calendar.events.delete({ calendarId, eventId }), 'event deletion')
 }
 
 interface RawEvent {
@@ -346,35 +380,41 @@ export function createGoogleCalendarOps(config: GoogleCalendarConfig): CalendarO
     createEvent: async (p) => {
       const calendar = await client()
       const range = addLocalMinutes(p.date, p.time, p.durationMinutes)
-      const { data } = await calendar.events.insert({
-        calendarId: config.calendarId,
-        requestBody: {
-          summary: p.title,
-          description: p.description,
-          start: { dateTime: range.start, timeZone: config.timezone },
-          end: { dateTime: range.end, timeZone: config.timezone },
-        },
-      })
+      const { data } = await withTimeout(
+        calendar.events.insert({
+          calendarId: config.calendarId,
+          requestBody: {
+            summary: p.title,
+            description: p.description,
+            start: { dateTime: range.start, timeZone: config.timezone },
+            end: { dateTime: range.end, timeZone: config.timezone },
+          },
+        }),
+        'event creation',
+      )
       if (!data.id) throw new Error('Google Calendar did not return an event id')
       return data.id
     },
     updateEvent: async (p) => {
       const calendar = await client()
       const range = addLocalMinutes(p.date, p.time, p.durationMinutes)
-      await calendar.events.patch({
-        calendarId: config.calendarId,
-        eventId: p.eventId,
-        requestBody: {
-          summary: p.title,
-          description: p.description,
-          start: { dateTime: range.start, timeZone: config.timezone },
-          end: { dateTime: range.end, timeZone: config.timezone },
-        },
-      })
+      await withTimeout(
+        calendar.events.patch({
+          calendarId: config.calendarId,
+          eventId: p.eventId,
+          requestBody: {
+            summary: p.title,
+            description: p.description,
+            start: { dateTime: range.start, timeZone: config.timezone },
+            end: { dateTime: range.end, timeZone: config.timezone },
+          },
+        }),
+        'event update',
+      )
     },
     deleteEvent: async (eventId) => {
       const calendar = await client()
-      await calendar.events.delete({ calendarId: config.calendarId, eventId })
+      await withTimeout(calendar.events.delete({ calendarId: config.calendarId, eventId }), 'event deletion')
     },
   }
 }

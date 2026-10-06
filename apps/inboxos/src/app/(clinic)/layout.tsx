@@ -16,6 +16,7 @@ import { can } from '@/shared/permissions'
 import { roleCanSeeMenuItem, type RoleAccessSettings, type RoleMenuItemKey } from '@/shared/roleAccess'
 import { ClinicBackButton } from '@/shared/components/ClinicBackButton'
 import { TopbarLogo } from '@/shared/components/TopbarLogo'
+import { SetupCheckBanner } from '@/shared/components/SetupCheckBanner'
 import { Sidebar, type NavGroup, type NavLink } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
 import { NotificationBell } from '@/shared/components/NotificationBell'
@@ -256,6 +257,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
           </div>
         </header>
         <main className="crm-dashboard-content">
+          <SetupCheckBanner />
           {preferences.imageBannersVisible && !inboxRoute && <PageMascotBanner />}
           {/* The content wrapper GROWS to fill the scroll column so the footer is
               always pushed to the bottom of the screen (sticky-footer) and never

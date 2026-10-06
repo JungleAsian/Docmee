@@ -244,6 +244,8 @@ export type {
   WorkflowEffectStatus,
 } from './repositories/index.js'
 export { createChangeLogRepository } from './repositories/change-log.repository.js'
+export { createClinicSetupChecksRepository } from './repositories/clinic-setup-checks.repository.js'
+export type { ClinicSetupChecksRepository, ClinicSetupCheckSnapshot } from './repositories/clinic-setup-checks.repository.js'
 export type { ChangeLogRepository, ChangeLogEntry, ChangeLogFilter, ChangeLogOutcome, CreateChangeLogInput } from './repositories/change-log.repository.js'
 export { createKnowledgeLearningRepository, sanitizeLearningText, learningFingerprint, rejectionReasons, reviewerReadiness } from './repositories/knowledge-learning.repository.js'
 export type { LearningScope, LearningCitation, LearningSettings, LearningEvidence, GovernedCandidate, LearningAttempt, LearningHistory, LearningReview, RejectionReason, ReviewReadiness } from './repositories/knowledge-learning.repository.js'

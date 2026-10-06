@@ -15,6 +15,7 @@ import { HELP_UI, L } from '@/shared/help/content'
 import { Breadcrumbs } from '@/shared/components/Breadcrumbs'
 import { PlatformBackButton } from '@/shared/components/PlatformBackButton'
 import { TopbarLogo } from '@/shared/components/TopbarLogo'
+import { SetupCheckBanner } from '@/shared/components/SetupCheckBanner'
 import { PushOptIn } from '@/shared/components/PushOptIn'
 import { ProductUpdatesControl } from '@/shared/components/ProductUpdatesControl'
 import { InstallPrompt } from '@/shared/components/InstallPrompt'
@@ -263,6 +264,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
         <main className="crm-dashboard-content">
+          <SetupCheckBanner />
           {preferences.imageBannersVisible && <PageMascotBanner />}
           {children}
           <AppFooter />

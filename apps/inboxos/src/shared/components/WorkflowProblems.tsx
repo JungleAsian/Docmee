@@ -4,6 +4,7 @@
 // panel that explains each problem in plain language and jumps to the step.
 // Errors block publishing; warnings will not, but the workflow will likely
 // misbehave for patients (see packages/agents/src/workflows/workflow-lint.ts).
+import type { ReactNode } from 'react'
 import type { ApiIssue } from '../api/client'
 import type { WorkflowCheckResult } from '../hooks/useWorkflowCheck'
 
@@ -90,7 +91,8 @@ export function WorkflowProblemsButton({
   )
 }
 
-function IssueCard({ issue, severity, language, onShowStep }: { issue: ApiIssue; severity: 'error' | 'warning'; language: Language; onShowStep: (issue: ApiIssue) => void }) {
+/** One problem: title, where, what happens, how to fix, plus an action (jump to the step or a fix link). */
+export function ProblemCard({ issue, severity, language, onShowStep, action }: { issue: ApiIssue; severity: 'error' | 'warning'; language: Language; onShowStep?: (issue: ApiIssue) => void; action?: ReactNode }) {
   const copy = COPY[language]
   const tone = severity === 'error' ? 'border-red-200 dark:border-red-900' : 'border-amber-200 dark:border-amber-900'
   const titleTone = severity === 'error' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'
@@ -103,7 +105,7 @@ function IssueCard({ issue, severity, language, onShowStep }: { issue: ApiIssue;
           <p className={`font-semibold ${titleTone}`}>{text(issue, 'title', language)}</p>
           {issue.where && <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{copy.where}: {issue.where}</p>}
         </div>
-        {(issue.nodeId || issue.edgeId) && (
+        {action ?? (onShowStep && (issue.nodeId || issue.edgeId) && (
           <button
             type="button"
             onClick={() => onShowStep(issue)}
@@ -111,7 +113,7 @@ function IssueCard({ issue, severity, language, onShowStep }: { issue: ApiIssue;
           >
             {copy.showStep}
           </button>
-        )}
+        ))}
       </div>
       {whatHappened && <p className="mt-2 text-sm"><span className="font-medium">{copy.whatHappened}:</span> {whatHappened}</p>}
       {howToFix && <p className="mt-1 text-sm"><span className="font-medium">{copy.howToFix}:</span> {howToFix}</p>}
@@ -153,7 +155,7 @@ export function WorkflowProblemsPanel({
         <>
           <p className="mb-1 mt-1 text-xs font-semibold uppercase tracking-wide text-red-600 dark:text-red-300">{copy.errorsHeading}</p>
           <ul className="space-y-2">
-            {errors.map((issue, i) => <IssueCard key={`e-${issue.nodeId ?? issue.edgeId ?? ''}-${i}`} issue={issue} severity="error" language={language} onShowStep={onShowStep} />)}
+            {errors.map((issue, i) => <ProblemCard key={`e-${issue.nodeId ?? issue.edgeId ?? ''}-${i}`} issue={issue} severity="error" language={language} onShowStep={onShowStep} />)}
           </ul>
         </>
       )}
@@ -161,7 +163,7 @@ export function WorkflowProblemsPanel({
         <>
           <p className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">{copy.warningsHeading}</p>
           <ul className="space-y-2">
-            {warnings.map((issue, i) => <IssueCard key={`w-${issue.nodeId ?? issue.edgeId ?? ''}-${i}`} issue={issue} severity="warning" language={language} onShowStep={onShowStep} />)}
+            {warnings.map((issue, i) => <ProblemCard key={`w-${issue.nodeId ?? issue.edgeId ?? ''}-${i}`} issue={issue} severity="warning" language={language} onShowStep={onShowStep} />)}
           </ul>
         </>
       )}

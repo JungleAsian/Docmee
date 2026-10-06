@@ -8,13 +8,14 @@
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { createAuditRepository, createClinicsRepository, createDoctorsRepository, createMessageTemplatesRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
+import { createAuditRepository, createClinicsRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
 import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge, WorkflowDocumentV2 } from '@docmee/db'
-import { checkWorkflow, materializeWorkflowDocument, simulateWorkflow, SIMULATION_REPLAY_LIMITS, validateWorkflowDefinition, validateWorkflowDefinitionDetailed, type WorkflowLintContext } from '@docmee/agents'
+import { checkWorkflow, materializeWorkflowDocument, simulateWorkflow, SIMULATION_REPLAY_LIMITS, validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
 import { readAiAssistant, resolveChat } from '../lib/ai-assistant.js'
 import { withDb } from '../lib/db.js'
+import { workflowLintContext } from '../lib/setup-check.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
@@ -146,30 +147,6 @@ function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[], active: boo
     issues: validateWorkflowDefinitionDetailed(nodes, edges, { requireTrigger: active }),
   })
   return false
-}
-
-function hasCalendarTokens(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const record = value as Record<string, unknown>
-  return typeof record['accessToken'] === 'string' && typeof record['refreshToken'] === 'string'
-}
-
-/** Clinic facts the workflow lint needs. Read-only; failures just omit a fact. */
-async function workflowLintContext(clinicId: string): Promise<WorkflowLintContext> {
-  return withDb(async (sql) => {
-    const [clinic, doctors, approved] = await Promise.all([
-      createClinicsRepository(sql).findById(clinicId),
-      createDoctorsRepository(sql).listByClinic(clinicId).catch(() => null),
-      createMessageTemplatesRepository(sql).listApproved(clinicId).catch(() => null),
-    ])
-    return {
-      ...(clinic && doctors
-        ? { calendarConnected: hasCalendarTokens(clinic.settings['googleCalendar']) || doctors.some((doctor) => Boolean(doctor.googleCalendarRefreshTokenEncrypted)) }
-        : {}),
-      ...(doctors ? { doctorCount: doctors.length } : {}),
-      ...(approved ? { approvedTemplateCategories: [...new Set(approved.map((template) => String(template.category)))] } : {}),
-    }
-  })
 }
 
 /** Operator diagnostics must never become a second transport for patient
@@ -476,7 +453,7 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       if (!parsed.ok) return
       const clinicId = resolveClinicScope(request, request.params.id)
       if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
-      const context = await workflowLintContext(clinicId).catch(() => ({}))
+      const context = await withDb((sql) => workflowLintContext(sql, clinicId)).catch(() => ({}))
       const { nodes, edges } = parsed.data.graph
       return checkWorkflow(nodes as WorkflowNode[], edges as WorkflowEdge[], context)
     },

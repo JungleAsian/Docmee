@@ -26,6 +26,34 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-06-mistake-alerts',
+    publishedAt: '2026-10-06T04:00:00.000Z',
+    version: '2026.10.06.3',
+    audience: 'admin',
+    title: {
+      en: 'Docmee now warns you about setup and workflow mistakes',
+      es: 'Docmee ahora te avisa de errores de configuración y de flujos',
+    },
+    summary: {
+      en: 'Workflows are checked while you build them, and after any change Docmee re-checks your clinic and tells you if something will stop patients from getting answers.',
+      es: 'Los flujos se revisan mientras los construyes y, después de cualquier cambio, Docmee revisa tu clínica y te avisa si algo impedirá que los pacientes reciban respuesta.',
+    },
+    highlights: [
+      {
+        en: 'The workflow editor shows live problems with red and amber badges on the steps, a Problems list with how to fix each one, and a notice right after saving.',
+        es: 'El editor de flujos muestra problemas en vivo con marcas rojas y ámbar en los pasos, una lista de Problemas con cómo corregir cada uno y un aviso justo después de guardar.',
+      },
+      {
+        en: 'A banner at the top of the panel and an alert in the bell flag setup mistakes, such as business hours that keep workflows from answering, no connected channel, a broken live workflow, or two workflows answering the same message.',
+        es: 'Un aviso en la parte superior del panel y una alerta en la campana señalan errores de configuración, como un horario que impide que los flujos respondan, ningún canal conectado, un flujo publicado roto o dos flujos que responden al mismo mensaje.',
+      },
+      {
+        en: 'Each problem links to where it can be fixed. Only clinic admins and superusers see these alerts.',
+        es: 'Cada problema enlaza a donde se puede corregir. Solo los administradores de clínica y superusuarios ven estos avisos.',
+      },
+    ],
+  },
+  {
     id: '2026-10-06-superuser-change-log',
     publishedAt: '2026-10-06T03:00:00.000Z',
     version: '2026.10.06.2',

@@ -5,12 +5,13 @@
 // priority marker, and lets a secretary acknowledge one or all of them
 // (POST /notifications/:id/acknowledge). A gear opens the per-user preferences.
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { formatDateTime } from '../format'
-import { alertCategoryFor, alertLabelKey, alertPriority, alertTitleText, formatAlertDetailText, PRIORITY_DOT } from '../notifications'
+import { alertCategoryFor, alertLabelKey, alertPriority, alertTitleText, formatAlertDetailText, PRIORITY_DOT, setupAlertText } from '../notifications'
 import { SlideOver } from './SlideOver'
 import { NotificationPreferences } from './NotificationPreferences'
 import { useFeatures } from '../hooks/useFeatures'
@@ -180,8 +181,10 @@ export function NotificationBell() {
               <ul className="divide-y divide-gray-100 dark:divide-gray-800">
                 {notifications.map((n) => {
                   const unreadRow = isUnread(n)
-                  const title = n.alertType ? t(alertLabelKey(n.alertType)) : alertTitleText(n.subject, '')
-                  const detail = formatAlertDetailText(n.content, title)
+                  // Setup alerts carry their own specific title + fix link (both languages).
+                  const setup = setupAlertText(n, language)
+                  const title = setup?.title || (n.alertType ? t(alertLabelKey(n.alertType)) : alertTitleText(n.subject, ''))
+                  const detail = formatAlertDetailText(setup?.content ?? n.content, title)
                   return (
                     <li
                       key={n.id}
@@ -200,6 +203,11 @@ export function NotificationBell() {
                           {title}
                         </p>
                         {detail && <p className="line-clamp-2 text-xs text-gray-500 dark:text-gray-400">{detail}</p>}
+                        {setup?.href && (
+                          <Link href={setup.href} className="text-xs font-medium text-teal-700 hover:underline dark:text-teal-300">
+                            {t('setup.banner.fix')}
+                          </Link>
+                        )}
                         <p className="text-xs text-gray-400">{formatDateTime(n.createdAt, language)}</p>
                       </div>
                       {unreadRow && (

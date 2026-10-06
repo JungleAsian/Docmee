@@ -41,6 +41,13 @@ export {
   type WorkflowLintContext,
   type WorkflowCheckResult,
 } from './workflow-lint.js'
+export {
+  checkClinicSetup,
+  type ClinicSetupFacts,
+  type LiveWorkflow,
+  type SetupIssue,
+  type SetupIssueCode,
+} from './clinic-setup-check.js'
 export { compileWorkflowDocument, materializeWorkflowDocument } from './workflow-compiler.js'
 export { workflowPortsForNode, validateWorkflowPortConnection, type WorkflowPort } from './workflow-ports.js'
 export { workflowRunTransition, isTerminalWorkflowRunState, workflowRetryDelayMs, type WorkflowRunState, type WorkflowRunTransition } from './workflow-run-state.js'

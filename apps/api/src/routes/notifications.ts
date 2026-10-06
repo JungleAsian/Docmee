@@ -27,7 +27,13 @@ const notificationsRoute: FastifyPluginAsync = async (app) => {
         ? createNotificationsRepository(sql).listAll(50)
         : createNotificationsRepository(sql).listByClinic(clinicId!, 50),
     )
-    return { notifications }
+    // Setup problems are for the people who can fix them (clinic admins and superusers).
+    const canSeeSetupAlerts = request.user?.role === 'clinic_admin' || request.user?.role === 'ia_studio_admin'
+    return {
+      notifications: canSeeSetupAlerts
+        ? notifications
+        : notifications.filter((notification) => !String(notification.alertType ?? '').startsWith('setup_')),
+    }
   })
 
   app.post<{ Params: { id: string } }>('/:id/acknowledge', async (request, reply) => {

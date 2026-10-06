@@ -13,6 +13,7 @@ import {
   type CreateChangeLogInput,
 } from '@docmee/db'
 import { hasDatabaseUrl, withDb } from './db.js'
+import { scheduleSetupRecheck } from './setup-check.js'
 
 export type ChangeArea =
   | 'workflow'
@@ -446,7 +447,15 @@ export function registerChangeLog(app: FastifyInstance): void {
     if (!request.changeLog || !request.user || !hasDatabaseUrl()) return
     // Never delay or fail the request: the response has already been sent.
     void buildChangeLogEntry(request, reply)
-      .then((entry) => (entry ? withDb((sql) => createChangeLogRepository(sql).log(entry)) : undefined))
+      .then(async (entry) => {
+        if (!entry) return
+        // A successful change may have introduced a setup problem: re-check the
+        // clinic and notify its admins about anything new (debounced per clinic).
+        if (entry.outcome === 'succeeded' && entry.clinicId) {
+          scheduleSetupRecheck(entry.clinicId, entry.actorEmail, (message) => request.log.warn(message))
+        }
+        await withDb((sql) => createChangeLogRepository(sql).log(entry))
+      })
       .catch((error: unknown) => {
         request.log.warn({ err: error instanceof Error ? error.message : String(error) }, '[change-log] failed to record change')
       })

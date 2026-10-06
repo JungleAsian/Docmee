@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 const h = vi.hoisted(() => ({
   log: vi.fn(),
+  recheck: vi.fn(),
   workflows: [] as unknown[],
   clinic: { id: 'c0000000-0000-0000-0000-000000000001', name: 'Derma Paz', settings: { botTone: 'warm' } } as Record<string, unknown>,
 }))
@@ -13,6 +14,8 @@ vi.mock('@docmee/db', () => ({
   createWorkflowsRepository: () => ({ findById: async () => h.workflows.shift() ?? null }),
   createClinicsRepository: () => ({ findById: async () => h.clinic }),
 }))
+
+vi.mock('../lib/setup-check.js', () => ({ scheduleSetupRecheck: h.recheck }))
 
 import {
   deriveAction,
@@ -129,6 +132,7 @@ describe('change-log capture hook', () => {
 
   beforeEach(() => {
     h.log.mockReset().mockResolvedValue(undefined)
+    h.recheck.mockReset()
     h.workflows = []
   })
 
@@ -169,6 +173,13 @@ describe('change-log capture hook', () => {
     await app.inject({ method: 'PUT', url: `/clinics/${CLINIC}/channels/whatsapp`, payload: { token: 't' } })
     await flush()
     expect(h.log.mock.calls[0]![0]).toMatchObject({ outcome: 'failed', statusCode: 422 })
+    expect(h.recheck).not.toHaveBeenCalled()
+  })
+
+  it('re-checks the clinic setup after a successful change', async () => {
+    await app.inject({ method: 'POST', url: `/clinics/${CLINIC}/doctors`, payload: { name: 'Dra. Paz' } })
+    await flush()
+    expect(h.recheck).toHaveBeenCalledWith(CLINIC, 'admin@clinic.test', expect.any(Function))
   })
 
   it('skips operational routes and unauthenticated requests', async () => {

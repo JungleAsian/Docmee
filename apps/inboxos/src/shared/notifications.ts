@@ -82,8 +82,24 @@ export function normalizedVolume(value: unknown): number {
 /** Alert types a user may mute (p1 safety alerts always email and are excluded). */
 export const MUTABLE_ALERT_TYPES = ALERT_TYPES.filter((t) => NOTIFICATION_PRIORITY[t] !== 'p1')
 
+/** Setup-check alerts (configuration mistakes) — admin-only, not user-tunable types. */
+const SETUP_ALERT_PRIORITY: Record<string, AlertPriority> = { setup_error: 'p2', setup_warning: 'standard' }
+
 export function alertPriority(alertType: string | null | undefined): AlertPriority {
-  return (alertType && NOTIFICATION_PRIORITY[alertType]) || 'standard'
+  return (alertType && (NOTIFICATION_PRIORITY[alertType] ?? SETUP_ALERT_PRIORITY[alertType])) || 'standard'
+}
+
+/** Title, detail and fix link of a setup-check alert in the viewer's language. */
+export function setupAlertText(
+  n: { alertType: string | null; subject: string | null; content: string; metadata: Record<string, unknown> },
+  language: 'es' | 'en',
+): { title: string; content: string; href: string | null } | null {
+  if (!n.alertType?.startsWith('setup_')) return null
+  const es = n.metadata['es'] as { subject?: unknown; content?: unknown } | undefined
+  const href = typeof n.metadata['href'] === 'string' ? n.metadata['href'] : null
+  const title = language === 'es' && typeof es?.subject === 'string' ? es.subject : n.subject ?? ''
+  const content = language === 'es' && typeof es?.content === 'string' ? es.content : n.content
+  return { title, content, href }
 }
 
 /** i18n key for a human label of an alert type, e.g. notif.type.emergency. */
@@ -121,6 +137,8 @@ const ALERT_ICON: Record<string, string> = {
   kb_miss_threshold: '❓',
   license_expiring: '🔑',
   license_expired: '🔑',
+  setup_error: '⛔',
+  setup_warning: '⚠️',
 }
 
 export function alertIcon(alertType: string | null | undefined): string {

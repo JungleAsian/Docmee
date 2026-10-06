@@ -910,7 +910,14 @@ function WorkflowEditor({
         <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
           </div>
         </details>
-        {saved && <span role="status" className="text-xs font-medium text-emerald-600">{t('common.saved')}</span>}
+        {saved && ((check.data?.errors.length ?? 0) + (check.data?.warnings.length ?? 0) > 0 ? (
+          <span role="status" className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+            {t('wf.savedWithProblems', { count: (check.data?.errors.length ?? 0) + (check.data?.warnings.length ?? 0) })}
+            <button type="button" onClick={() => setProblemsOpen(true)} className="underline">{t('wf.viewProblems')}</button>
+          </span>
+        ) : (
+          <span role="status" className="text-xs font-medium text-emerald-600">{t('common.saved')}</span>
+        ))}
         <button type="button" onClick={() => { setSaved(false); save.mutate() }} disabled={save.isPending} className={`${btn} bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50`}>
           {t('common.save')}
         </button>

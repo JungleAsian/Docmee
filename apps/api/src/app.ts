@@ -51,6 +51,7 @@ import governanceRoute from './routes/governance.js'
 import credentialHealthRoute from './routes/credential-health.js'
 import emailDeliveryRoute from './routes/email-delivery.js'
 import changeLogRoute from './routes/change-log.js'
+import setupCheckRoute from './routes/setup-check.js'
 import { registerChangeLog } from './lib/change-log.js'
 
 export async function buildApp() {
@@ -175,6 +176,7 @@ export async function buildApp() {
   await app.register(userRoute, { prefix: '/user' })
   await app.register(usersRoute)
   await app.register(changeLogRoute)
+  await app.register(setupCheckRoute)
 
   return app
 }

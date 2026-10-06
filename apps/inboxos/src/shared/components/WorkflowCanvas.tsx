@@ -240,6 +240,31 @@ export type WfNodeData = {
   allTargets: { id: string; label: string }[]
   onSetBranchTarget: (sourceId: string, handleKey: string | undefined, targetId: string) => void
   simulationState?: 'current' | 'tested' | 'untested' | 'error'
+  /** Live problem from the workflow check (worst severity + titles). */
+  problem?: WorkflowNodeProblem
+}
+
+export interface WorkflowNodeProblem {
+  severity: 'error' | 'warning'
+  titles: string[]
+}
+
+/** Red (must fix) or amber (warning) marker; the tooltip lists what is wrong. */
+function ProblemBadge({ problem, large = false }: { problem?: WorkflowNodeProblem; large?: boolean }) {
+  if (!problem) return null
+  const tone = problem.severity === 'error' ? 'bg-red-500 text-white' : 'bg-amber-400 text-gray-900'
+  const size = large ? 'h-6 min-w-6 text-sm' : 'h-4 min-w-4 text-[10px]'
+  return (
+    <span
+      role="img"
+      aria-label={problem.titles.join('. ') || problem.severity}
+      title={problem.titles.join('\n')}
+      data-problem-severity={problem.severity}
+      className={`absolute -right-2 -top-2 z-10 flex items-center justify-center rounded-full px-1 font-bold shadow ring-2 ring-white dark:ring-gray-900 ${tone} ${size}`}
+    >
+      {problem.severity === 'error' ? '!' : problem.titles.length > 1 ? problem.titles.length : '⚠'}
+    </span>
+  )
 }
 
 const KIND_ICON: Record<string, string> = {
@@ -406,7 +431,7 @@ const RING_HANDLE = '!rounded-full !border !border-gray-300 !bg-white dark:!bord
 const TEAL_HANDLE = '!bg-teal-500'
 
 export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected }: NodeProps<Node<WfNodeData>>) {
-  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom, edges: allEdges, allTargets, onSetBranchTarget, simulationState } = data
+  const { wf, label, mode, onConfigure, onDuplicate, onDelete, onAddFrom, edges: allEdges, allTargets, onSetBranchTarget, simulationState, problem } = data
   const rows = branchRows(wf)
   const { t } = useI18n()
   const tier = useSemanticZoom()
@@ -415,6 +440,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
     return <div data-zoom-tier={tier} aria-label={String(wf.config.customLabel || label)}
       className={'relative flex h-20 w-52 items-center gap-3 rounded border-2 px-3 text-sm text-white ' + (selected ? 'ring-4 ring-white' : '')}
       style={{ background: colors[wf.kind], borderColor: colors[wf.kind] }}>
+      <ProblemBadge problem={problem} large />
       {wf.kind !== 'trigger' && <Handle type="target" position={Position.Left} style={{ opacity: tier === 'macro' ? 0 : 1 }} />}
       {tier === 'balanced' && <><WorkflowNodeIcon icon={nodeDef(wf.type)?.icon ?? ''} className="h-5 w-5 shrink-0" /><span className="truncate">{String(wf.config.customLabel || label)}</span></>}
       {rows.map((row, index) => <Handle key={row.key} id={row.key} type="source" position={Position.Right}
@@ -463,13 +489,14 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
     const add = (handleId: string) => onAddFrom(wf.id, handleId)
     return (
       <div
-        className={`w-48 rounded-lg border border-gray-200 px-3 py-2 text-xs shadow-md dark:border-gray-700 ${NODE_KIND_FILL[wf.kind]} ${simulationRing(simulationState)} ${
+        className={`relative w-48 rounded-lg border border-gray-200 px-3 py-2 text-xs shadow-md dark:border-gray-700 ${NODE_KIND_FILL[wf.kind]} ${simulationRing(simulationState)} ${
           selected ? 'ring-2 ring-teal-300' : ''
         }`}
       >
         {wf.kind !== 'trigger' && (
           <Handle type="target" position={Position.Left} className={`!h-2 !w-2 ${RING_HANDLE}`} />
         )}
+        <ProblemBadge problem={problem} />
 
         {/* Type badge: colored icon + type name (BotPenguin card header) */}
         <div className="mb-1 flex items-center gap-1.5">
@@ -542,8 +569,10 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ data, selected 
         <Handle type="target" position={Position.Left} className="!h-2 !w-2 !bg-gray-400" />
       )}
 
-      {/* Issue indicator: cheap, node-local validation hint (see nodeHasIssue) */}
-      {issueKey && (
+      {/* Live problem from the workflow check; the cheap node-local hint
+          (nodeHasIssue) covers the moment before the first check returns. */}
+      <ProblemBadge problem={problem} />
+      {!problem && issueKey && (
         <span
           title={t(issueKey as Parameters<typeof t>[0])}
           className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-amber-400 shadow-sm ring-2 ring-white dark:ring-gray-900"
@@ -721,6 +750,7 @@ function WorkflowCanvasInner({
   focusIssue,
   focusResetKey,
   simulation,
+  problems,
 }: {
   nodes: WfNode[]
   edges: WfEdge[]
@@ -737,6 +767,7 @@ function WorkflowCanvasInner({
   /** Changes after graph replacement so route focus never leaks across imports. */
   focusResetKey?: number
   simulation?: WorkflowCanvasSimulation
+  problems?: Record<string, WorkflowNodeProblem>
 }) {
   const { t, language } = useI18n()
   const { screenToFlowPosition, fitView } = useReactFlow()
@@ -902,6 +933,7 @@ function WorkflowCanvasInner({
         edges,
         allTargets: allTargets.filter((t) => t.id !== n.id),
         onSetBranchTarget: setBranchTarget,
+        problem: problems?.[n.id],
         simulationState: simulation?.errorNodeIds.includes(n.id)
           ? 'error'
           : simulation?.currentNodeId === n.id
@@ -965,7 +997,7 @@ function WorkflowCanvasInner({
       }
     })
     return { nodes: rfNodes, edges: rfEdges }
-  }, [nodes, edges, projection, edgeBundles, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, focusedRouteId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation])
+  }, [nodes, edges, projection, edgeBundles, routeByEdge, toggleGroup, ungroup, renameGroup, label, language, focusedRouteId, hoveredEdgeId, t, mode, configureNode, duplicateNodeById, deleteNodeById, openAddFrom, setBranchTarget, simulation, problems])
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState(graph.nodes)
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState(graph.edges)
@@ -1414,6 +1446,8 @@ export function WorkflowCanvas(props: {
   focusResetKey?: number
   /** Ephemeral simulator path state; never serialized into the workflow. */
   simulation?: WorkflowCanvasSimulation
+  /** Live problems per node id from the workflow check (badges on the canvas). */
+  problems?: Record<string, WorkflowNodeProblem>
 }) {
   return (
     <ReactFlowProvider>

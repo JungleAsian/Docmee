@@ -13,9 +13,11 @@ import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { BackButton } from '@/shared/components/BackButton'
 import { WorkflowSimulationPanel, buildSimulationRequestInput, createSimulationReplaySession, type SimulationResumeInput, type SimulationScenarioInput, type WorkflowSimulationView } from '@/shared/components/WorkflowSimulationPanel'
 import { WorkflowDiagnosticsPanel, WorkflowDiagnosticsTrigger, buildWorkflowDiagnosticsRequest, canUseWorkflowDiagnostics, type WorkflowDiagnosticView } from '@/shared/components/WorkflowDiagnosticsPanel'
+import { WorkflowProblemsButton, WorkflowProblemsPanel } from '@/shared/components/WorkflowProblems'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
+import { problemsByNode, useWorkflowCheck } from '@/shared/hooks/useWorkflowCheck'
 import { useAuthStore } from '@/shared/store/auth'
 import { WORKFLOW_TEMPLATES, personalizeWorkflowTemplate, type WorkflowTemplate } from '@/shared/workflowTemplates'
 import { canRedo, canUndo, createHistory, pushHistory, redoHistory, replacePresent, undoHistory } from '@/shared/workflowHistory'
@@ -238,7 +240,19 @@ export default function WorkflowsPage() {
       {lifecycleMutation.error && (
         <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           <p>{language === 'es' ? 'No se pudo actualizar el estado del flujo.' : 'Could not update workflow status.'} {lifecycleMutation.error.message}</p>
-          {lifecycleMutation.error instanceof ApiError && lifecycleMutation.error.details?.map((detail, index) => <p key={index}>{detail}</p>)}
+          {lifecycleMutation.error instanceof ApiError && (lifecycleMutation.error.issues?.length
+            ? (
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {lifecycleMutation.error.issues.map((issue, index) => (
+                  <li key={index}>
+                    <span className="font-medium">{workflowIssueText(issue, 'title', language)}</span>
+                    {issue.where ? ` — ${issue.where}` : ''}
+                    {workflowIssueText(issue, 'howToFix', language) ? `: ${workflowIssueText(issue, 'howToFix', language)}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )
+            : lifecycleMutation.error.details?.map((detail, index) => <p key={index}>{detail}</p>))}
         </div>
       )}
 
@@ -618,6 +632,7 @@ function WorkflowEditor({
   const [simulationPaused, setSimulationPaused] = useState(false)
   const [simulationOpen, setSimulationOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [problemsOpen, setProblemsOpen] = useState(false)
   const [focusResetKey, setFocusResetKey] = useState(0)
   const simulationSessionRef = useRef(createSimulationReplaySession())
   const simulationScenarioRef = useRef<SimulationScenarioInput | undefined>(undefined)
@@ -783,6 +798,10 @@ function WorkflowEditor({
     },
   })
 
+  // Live problems: re-checked shortly after every edit, before anything is saved.
+  const check = useWorkflowCheck(clinicId, nodes, edges)
+  const nodeProblems = useMemo(() => problemsByNode(check.data, language), [check.data, language])
+
   const saveIssues = save.error instanceof ApiError ? save.error.issues ?? [] : []
   const issueCopy = workflowIssueCopy(language, saveIssues.length)
   const nameGuidance = workflowNameGuidance(name, language)
@@ -821,6 +840,14 @@ function WorkflowEditor({
             </button>
           ))}
         </div>
+        <WorkflowProblemsButton
+          result={check.data}
+          checking={check.isFetching}
+          failed={check.isError}
+          open={problemsOpen}
+          language={language}
+          onToggle={() => setProblemsOpen((value) => !value)}
+        />
         <span className="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">
           {status === 'published' ? 'Published' : 'Draft'}
         </span>
@@ -888,6 +915,15 @@ function WorkflowEditor({
           {t('common.save')}
         </button>
       </div>
+      {problemsOpen && (
+        <WorkflowProblemsPanel
+          result={check.data}
+          failed={check.isError}
+          language={language}
+          onClose={() => setProblemsOpen(false)}
+          onShowStep={(issue) => setFocusedIssue(issue)}
+        />
+      )}
       {importError && (
         <div role="alert" className="mx-4 mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {importError}
@@ -1003,6 +1039,7 @@ function WorkflowEditor({
           mode={mode}
           focusIssue={focusedIssue}
           focusResetKey={focusResetKey}
+          problems={nodeProblems}
           simulation={{
             currentNodeId: simulation.data?.simulation.trace.at(-1)?.nodeId,
             testedNodeIds: simulation.data?.simulation.coverage.testedNodeIds ?? [],

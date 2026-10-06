@@ -33,6 +33,14 @@ export {
   type WorkflowValidationIssue,
   type WorkflowValidationIssueCode,
 } from './workflow-validator.js'
+export {
+  lintWorkflow,
+  checkWorkflow,
+  type WorkflowLintIssue,
+  type WorkflowLintCode,
+  type WorkflowLintContext,
+  type WorkflowCheckResult,
+} from './workflow-lint.js'
 export { compileWorkflowDocument, materializeWorkflowDocument } from './workflow-compiler.js'
 export { workflowPortsForNode, validateWorkflowPortConnection, type WorkflowPort } from './workflow-ports.js'
 export { workflowRunTransition, isTerminalWorkflowRunState, workflowRetryDelayMs, type WorkflowRunState, type WorkflowRunTransition } from './workflow-run-state.js'

@@ -708,6 +708,123 @@ function issueFromTechnicalDetail(
     })
   }
 
+  match = technicalDetails.match(/^Capture node ([^\s]+) has no destination field/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'incomplete_node',
+      title: 'A question does not say where to save the answer',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This question step has no “Save answer as” field, so the patient’s answer would be lost and later steps cannot use it.',
+      howToFix: 'Open the step and choose “Save answer as” (patient name, phone, email, reason, or a custom field).',
+      translations: {
+        es: {
+          title: 'Una pregunta no indica dónde guardar la respuesta',
+          whatHappened: 'Este paso de pregunta no tiene el campo “Guardar respuesta como”, así que la respuesta del paciente se perdería y los pasos siguientes no podrían usarla.',
+          howToFix: 'Abre el paso y elige “Guardar respuesta como” (nombre, teléfono, correo, motivo o un campo personalizado).',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^Booking node ([^\s]+) requires exactly one (\w+) branch/)
+  if (match) {
+    const [, nodeId, branch] = match
+    return base({
+      code: 'missing_branch',
+      title: 'A booking result has nowhere to go',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      branch,
+      whatHappened: `This booking step uses result branches, but its “${branch}” result is not connected to exactly one next step.`,
+      howToFix: `Connect the “${branch}” output to one next step (use a secretary handoff for errors), and remove any extra connection.`,
+      translations: {
+        es: {
+          title: 'Un resultado de la cita no lleva a ninguna parte',
+          whatHappened: `Este paso de cita usa ramas de resultado, pero su resultado “${branch}” no está conectado a exactamente un siguiente paso.`,
+          howToFix: `Conecta la salida “${branch}” a un siguiente paso (usa un traspaso a secretaria para errores) y elimina cualquier conexión extra.`,
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^The end node ([^\s]+) has/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'invalid_connection',
+      title: 'An End step continues to another step',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'End steps finish the workflow, so they cannot have connections leaving them.',
+      howToFix: 'Delete the connections leaving this End step, or replace it with the step that should come next.',
+      translations: {
+        es: {
+          title: 'Un paso Fin continúa hacia otro paso',
+          whatHappened: 'Los pasos Fin terminan el flujo, así que no pueden tener conexiones de salida.',
+          howToFix: 'Elimina las conexiones que salen de este paso Fin, o reemplázalo por el paso que debe seguir.',
+        },
+      },
+    })
+  }
+
+  if (/^This workflow has (no trigger node|[0-9]+ trigger nodes)/.test(technicalDetails)) {
+    return base({
+      title: 'The workflow needs exactly one starting trigger',
+      where: 'Workflow',
+      whatHappened: 'A workflow starts from one trigger (for example “Message keyword”). This one has none, or more than one.',
+      howToFix: 'Keep exactly one trigger: add one from the node panel, or delete the extra triggers.',
+      translations: {
+        es: {
+          title: 'El flujo necesita exactamente un disparador de inicio',
+          whatHappened: 'Un flujo inicia desde un disparador (por ejemplo “Palabra clave”). Este no tiene ninguno, o tiene más de uno.',
+          howToFix: 'Deja exactamente un disparador: agrega uno desde el panel de nodos, o elimina los disparadores extra.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^(?:Interactive menu|Booking node) ([^\s]+) has (?:[0-9]+ options, more than|invalid result routing|an unknown handle)/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'invalid_setting',
+      title: 'One setting needs to be corrected',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'This node has a setting or connection that the workflow runner or WhatsApp does not accept.',
+      howToFix: 'Open the node settings and choose a supported value; see the technical details for the exact limit.',
+      translations: {
+        es: {
+          title: 'Hay que corregir una configuración',
+          whatHappened: 'Este nodo tiene una configuración o conexión que el ejecutor del flujo o WhatsApp no acepta.',
+          howToFix: 'Abre la configuración del nodo y elige un valor compatible; revisa los detalles técnicos para el límite exacto.',
+        },
+      },
+    })
+  }
+
+  match = technicalDetails.match(/^AI Agent ([^\s:']+)(?::|'s scenario| has a scenario)/)
+  if (match) {
+    const [, nodeId] = match
+    return base({
+      code: 'incomplete_node',
+      title: 'The AI Agent is not fully set up',
+      where: nodeLabel(nodesById.get(nodeId), nodeId),
+      nodeId,
+      whatHappened: 'One of this AI Agent’s settings or scenarios is missing information it needs to run.',
+      howToFix: 'Open the AI Agent and complete the provider settings and every scenario (description and, for “route”, its target).',
+      translations: {
+        es: {
+          title: 'El Agente de IA no está completamente configurado',
+          whatHappened: 'Una configuración o escenario de este Agente de IA no tiene la información que necesita para ejecutarse.',
+          howToFix: 'Abre el Agente de IA y completa la configuración del proveedor y cada escenario (descripción y, para “route”, su destino).',
+        },
+      },
+    })
+  }
+
   match = technicalDetails.match(/^Node ([^\s]+) /)
   if (match) {
     const [, nodeId] = match
@@ -719,7 +836,12 @@ function issueFromTechnicalDetail(
     })
   }
 
-  return base({})
+  // Last resort: point at whichever existing node the message names, so the
+  // editor can still take the user straight to it.
+  const namedNode = [...nodesById.keys()]
+    .sort((a, b) => b.length - a.length)
+    .find((id) => new RegExp(`(^|[^\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w-]|$)`).test(technicalDetails))
+  return base(namedNode ? { nodeId: namedNode, where: nodeLabel(nodesById.get(namedNode), namedNode) } : {})
 }
 
 export function validateWorkflowDefinitionDetailed(

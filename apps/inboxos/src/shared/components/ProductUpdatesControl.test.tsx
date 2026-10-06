@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,6 +46,17 @@ describe('product updates header control', () => {
     expect(markup).toContain('Second improvement')
     expect(markup).toContain('View all updates')
     expect(markup).toContain('Dismiss')
+  })
+
+  it('does not reopen the popup after "View all updates" switches layouts', () => {
+    // Regression: Studio → /updates remounts the control in the clinic layout; it
+    // used to see the update as unseen again and reopen over the updates page.
+    const source = readFileSync(new URL('./ProductUpdatesControl.tsx', import.meta.url), 'utf8')
+    expect(source).toContain('let autoOpenedThisPageLoad = false')
+    expect(source).toContain('!autoOpenedThisPageLoad && !onUpdatesPage')
+    expect(source).toContain('acknowledgedThisPageLoad = latest.id')
+    const hook = readFileSync(new URL('../hooks/useUserUiPreferences.ts', import.meta.url), 'utf8')
+    expect(hook).toContain('onMutate: async (patch) => {')
   })
 
   it('uses the selected language', () => {

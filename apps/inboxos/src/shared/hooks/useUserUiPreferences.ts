@@ -20,6 +20,18 @@ export function useUserUiPreferences() {
   const mutation = useMutation({
     mutationFn: (patch: Partial<UserUiPreferences>) =>
       api.put<{ preferences: unknown }>('/user/ui-preferences', patch),
+    // Apply the change to the cache immediately. Components that remount while
+    // the save is in flight (e.g. a layout switch after "View all updates") must
+    // see the new value, not the stale one, or they act on outdated preferences.
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: ['user-ui-preferences'] })
+      const previous = qc.getQueryData<UserUiPreferences>(['user-ui-preferences'])
+      qc.setQueryData(['user-ui-preferences'], { ...(previous ?? normalizeUserUiPreferences(null)), ...patch })
+      return { previous }
+    },
+    onError: (_error, _patch, context) => {
+      if (context?.previous) qc.setQueryData(['user-ui-preferences'], context.previous)
+    },
     onSuccess: (data) => {
       qc.setQueryData(['user-ui-preferences'], normalizeUserUiPreferences(data.preferences))
     },

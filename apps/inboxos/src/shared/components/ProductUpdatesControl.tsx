@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Megaphone } from '@phosphor-icons/react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useI18n } from '../hooks/useI18n'
 import { useUserUiPreferences } from '../hooks/useUserUiPreferences'
 import { useAuthStore } from '../store/auth'
@@ -111,29 +111,37 @@ export function ProductUpdatePopover({ update, language, onDismiss, onViewAll }:
   )
 }
 
+// The clinic and Studio layouts each mount their own control, so a layout switch
+// (e.g. Studio → /updates) remounts it. Track auto-open and acknowledgement per
+// page load, not per mount, or the popup reopens over the page the user just
+// asked to see.
+let autoOpenedThisPageLoad = false
+let acknowledgedThisPageLoad: string | null = null
+
 export function ProductUpdatesControl() {
   const router = useRouter()
+  const pathname = usePathname()
   const { language } = useI18n()
   const role = useAuthStore((state) => state.user?.role)
   const { preferences, isLoading, setPreferences } = useUserUiPreferences()
   const [open, setOpen] = useState(false)
-  const autoOpened = useRef(false)
   const releases = useMemo(() => updatesForRole(role), [role])
-  const unseen = useMemo(
-    () => unseenProductUpdates(releases, preferences.lastSeenProductUpdateId),
-    [releases, preferences.lastSeenProductUpdateId],
-  )
+  const lastSeen = acknowledgedThisPageLoad ?? preferences.lastSeenProductUpdateId
+  const unseen = useMemo(() => unseenProductUpdates(releases, lastSeen), [releases, lastSeen])
   const latest = releases[0]
+  const onUpdatesPage = pathname === '/updates' || pathname?.startsWith('/updates/') === true
 
   useEffect(() => {
-    if (!isLoading && unseen.length > 0 && !autoOpened.current) {
-      autoOpened.current = true
+    if (!isLoading && unseen.length > 0 && !autoOpenedThisPageLoad && !onUpdatesPage) {
+      autoOpenedThisPageLoad = true
       setOpen(true)
     }
-  }, [isLoading, unseen.length])
+  }, [isLoading, unseen.length, onUpdatesPage])
 
   const acknowledgeLatest = useCallback(() => {
-    if (!latest || preferences.lastSeenProductUpdateId === latest.id) return
+    if (!latest) return
+    acknowledgedThisPageLoad = latest.id
+    if (preferences.lastSeenProductUpdateId === latest.id) return
     setPreferences({ lastSeenProductUpdateId: latest.id })
   }, [latest, preferences.lastSeenProductUpdateId, setPreferences])
 

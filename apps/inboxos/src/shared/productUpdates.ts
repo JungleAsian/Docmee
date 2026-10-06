@@ -26,6 +26,38 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-06-reliable-booking-workflows',
+    publishedAt: '2026-10-06T02:00:00.000Z',
+    version: '2026.10.06',
+    audience: 'all',
+    title: {
+      en: 'More reliable bookings and workflows',
+      es: 'Citas y flujos más confiables',
+    },
+    summary: {
+      en: 'Bookings no longer stall on a slow Google Calendar, WhatsApp, or AI provider, and patients are no longer silently blocked from your workflows.',
+      es: 'Las citas ya no se detienen por demoras de Google Calendar, WhatsApp o del proveedor de IA, y los pacientes ya no quedan bloqueados en silencio fuera de sus flujos.',
+    },
+    highlights: [
+      {
+        en: 'Every Google Calendar, WhatsApp, and AI request now has a time limit, so a booking conversation can no longer freeze while waiting on another service.',
+        es: 'Cada solicitud a Google Calendar, WhatsApp y a la IA ahora tiene un límite de tiempo, así que una conversación de cita ya no puede congelarse esperando a otro servicio.',
+      },
+      {
+        en: 'Patients who reply "Cancel" or "End" to manage an appointment are no longer unsubscribed by mistake, and WhatsApp messages without a profile name are no longer dropped.',
+        es: 'Los pacientes que responden "Cancel" o "End" para gestionar una cita ya no se dan de baja por error, y los mensajes de WhatsApp sin nombre de perfil ya no se pierden.',
+      },
+      {
+        en: 'Clinic admins can let workflows and the assistant also answer during business hours (Studio → Clinic → Bot), and can delete a chat from the chat window with password confirmation.',
+        es: 'Los administradores de clínica pueden permitir que los flujos y el asistente respondan también en horario de atención (Studio → Clínica → Bot) y pueden eliminar un chat desde la ventana del chat con confirmación de contraseña.',
+      },
+      {
+        en: 'The Docmee logo now sits at the start of the top bar on every page, and "View all updates" opens this page without the popup reappearing.',
+        es: 'El logo de Docmee ahora aparece al inicio de la barra superior en todas las páginas, y "Ver todas las novedades" abre esta página sin que la ventana vuelva a aparecer.',
+      },
+    ],
+  },
+  {
     id: '2026-10-02-cleaner-workflow-builder',
     publishedAt: '2026-10-02T17:30:00.000Z',
     version: '2026.10.02.2',

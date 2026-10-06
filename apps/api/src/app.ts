@@ -50,6 +50,8 @@ import launchReadinessRoute from './routes/launch-readiness.js'
 import governanceRoute from './routes/governance.js'
 import credentialHealthRoute from './routes/credential-health.js'
 import emailDeliveryRoute from './routes/email-delivery.js'
+import changeLogRoute from './routes/change-log.js'
+import { registerChangeLog } from './lib/change-log.js'
 
 export async function buildApp() {
   const env = parseEnv()
@@ -109,6 +111,9 @@ export async function buildApp() {
     await closeDb()
   })
 
+  // Superuser change log: app-level hooks must exist before any route plugin is
+  // registered so every workflow/settings/configuration route inherits them.
+  registerChangeLog(app)
   await app.register(healthRoute)
   await app.register(configRoute)
   await app.register(authRoute, { prefix: '/auth' })
@@ -169,6 +174,7 @@ export async function buildApp() {
   await app.register(calendarRoute)
   await app.register(userRoute, { prefix: '/user' })
   await app.register(usersRoute)
+  await app.register(changeLogRoute)
 
   return app
 }

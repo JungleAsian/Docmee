@@ -26,6 +26,34 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-06-superuser-change-log',
+    publishedAt: '2026-10-06T03:00:00.000Z',
+    version: '2026.10.06.2',
+    audience: 'platform',
+    title: {
+      en: 'Change log for superusers',
+      es: 'Registro de cambios para superusuarios',
+    },
+    summary: {
+      en: 'Every change to workflows, settings and configuration is now recorded with who made it, when, and exactly what changed.',
+      es: 'Cada cambio en flujos, ajustes y configuración ahora queda registrado con quién lo hizo, cuándo y qué cambió exactamente.',
+    },
+    highlights: [
+      {
+        en: 'Open Studio → Compliance → Change log to review changes across every clinic, filtered by clinic, area, outcome or text.',
+        es: 'Abre Studio → Cumplimiento → Registro de cambios para revisar los cambios de todas las clínicas, filtrando por clínica, área, resultado o texto.',
+      },
+      {
+        en: 'Workflow edits show each step added, removed or edited with before and after values; clinic settings show every field that changed.',
+        es: 'Las ediciones de flujos muestran cada paso agregado, eliminado o editado con valores antes y después; los ajustes de clínica muestran cada campo modificado.',
+      },
+      {
+        en: 'Failed attempts are recorded too, passwords and keys are never stored, and only superusers can see the log.',
+        es: 'También se registran los intentos fallidos, nunca se guardan contraseñas ni claves, y solo los superusuarios pueden ver el registro.',
+      },
+    ],
+  },
+  {
     id: '2026-10-06-reliable-booking-workflows',
     publishedAt: '2026-10-06T02:00:00.000Z',
     version: '2026.10.06',

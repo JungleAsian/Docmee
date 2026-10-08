@@ -11,6 +11,7 @@ import instagramRoute from './routes/instagram.js'
 import authRoute from './routes/auth.js'
 import clinicsRoute from './routes/clinics.js'
 import conversationsRoute from './routes/conversations.js'
+import scheduledMessagesRoute from './routes/scheduled-messages.js'
 import conversationMediaRoute from './routes/conversation-media.js'
 import mediaAssetsRoute from './routes/media-assets.js'
 import googleDriveMediaRoute from './routes/google-drive-media.js'
@@ -132,6 +133,7 @@ export async function buildApp() {
   await app.register(credentialHealthRoute)
   await app.register(emailDeliveryRoute)
   await app.register(conversationsRoute, { prefix: '/conversations' })
+  await app.register(scheduledMessagesRoute)
   // Outbound image attachment (Req 3) — separate plugin so @fastify/multipart is
   // encapsulated and never affects the JSON conversation routes. Declares its own
   // /conversations/:id/send-media path.

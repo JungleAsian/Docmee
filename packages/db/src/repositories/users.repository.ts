@@ -36,6 +36,9 @@ export interface UpdateClinicUserInput {
 
 export interface UsersRepository {
   findById(clinicId: string, id: string): Promise<ClinicUser | null>
+  /** Resolve a signed login/saved author identity, independent of the active clinic.
+   * No profile fields are returned. Callers must independently check current target-clinic access. */
+  findIdentityById(id: string): Promise<Pick<ClinicUser, 'id' | 'userId' | 'status'> | null>
   listByClinic(clinicId: string): Promise<ClinicUser[]>
   /** Clinic users with their resolved highest-privilege role (user-management list). */
   listWithRoles(clinicId: string): Promise<ClinicUserWithRole[]>
@@ -115,6 +118,10 @@ export function createUsersRepository(sql: Sql): UsersRepository {
       const rows = await sql<ClinicUser[]>`
         SELECT * FROM clinic_users WHERE clinic_id = ${clinicId} AND id = ${id} LIMIT 1
       `
+      return rows[0] ?? null
+    },
+    async findIdentityById(id) {
+      const rows = await sql<Pick<ClinicUser, 'id' | 'userId' | 'status'>[]>`SELECT id, user_id, status FROM clinic_users WHERE id = ${id} LIMIT 1`
       return rows[0] ?? null
     },
 

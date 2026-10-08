@@ -6,6 +6,7 @@
 // view follows the caller to it via onConversationChange.
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import Link from 'next/link'
+import { ClockIcon } from '@phosphor-icons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
@@ -17,6 +18,7 @@ import { InteractivePicker } from './InteractivePicker'
 import { ListPicker } from './ListPicker'
 import { AutomationModeToggle } from './AutomationModeToggle'
 import { DeleteConversationDialog } from './DeleteConversationDialog'
+import { ScheduledMessages } from './ScheduledMessages'
 import { useAuthStore } from '../store/auth'
 import { deliveryIndicator, type DeliveryTone } from '../delivery'
 import { isImageMessage, messageMediaPath } from '../media'
@@ -138,8 +140,10 @@ export function ConversationView({
   const role = useAuthStore((s) => s.user?.role)
   const canDelete = role === 'clinic_admin' || role === 'ia_studio_admin'
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [scheduleScope, setScheduleScope] = useState<string | null>(null)
   const qc = useQueryClient()
   const { clinicId } = useActiveClinic()
+  useEffect(() => { setScheduleScope(null) }, [clinicId, conversationId])
   const { features } = useFeatures()
   const [localDraft, setLocalDraft] = useState('')
   const draft = controlledDraft ?? localDraft
@@ -608,6 +612,15 @@ export function ConversationView({
       </div>
 
       {/* Composer */}
+      {conversation?.channel === 'whatsapp' && <ScheduledMessages
+        key={`${clinicId}:${conversationId}`}
+        clinicId={clinicId}
+        conversationId={conversationId}
+        draft={draft}
+        open={scheduleScope === `${clinicId}:${conversationId}`}
+        onClose={() => setScheduleScope(null)}
+        onCreated={original => setDraft(current => current === original ? '' : current)}
+      />}
       {closed ? (
         <p className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900">
           {t('view.closedNotice')}
@@ -816,6 +829,13 @@ export function ConversationView({
               autoCapitalize="sentences"
               className="max-h-[35vh] min-h-[44px] min-w-0 flex-1 resize-y overflow-y-auto rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-4 py-3 text-sm outline-none transition focus:border-[var(--crm-primary-color)] focus:ring-4 focus:ring-[var(--crm-hover-bg)]"
             />
+            {conversation?.channel === 'whatsapp' && clinicQuery.data?.clinic.id === clinicId && (clinicQuery.data.clinic.settings.scheduledMessages as { enabled?: boolean } | undefined)?.enabled === true && <button
+              type="button"
+              onClick={() => setScheduleScope(`${clinicId}:${conversationId}`)}
+              aria-label={t('schedule.create')}
+              title={t('schedule.create')}
+              className="crm-composer-icon-btn min-h-11 min-w-11"
+            ><ClockIcon size={22} aria-hidden="true" /></button>}
             <button
               type="submit"
               disabled={sendMutation.isPending || !draft.trim()}

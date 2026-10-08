@@ -28,6 +28,10 @@ import { runCalendarSyncRetry } from './calendar-sync-retry.js'
 import { startMediaCleanupScheduler } from './media-cleanup.js'
 import { startSensitiveDataCleanupScheduler } from './sensitive-data-cleanup.js'
 import { createServiceDbClient } from '@docmee/db'
+import { startScheduledMessagesRuntime } from './scheduled-messages.scheduler.js'
+
+// Default-disabled: no delayed staff delivery or reconciliation until explicitly enabled.
+export const scheduledMessagesRuntime = startScheduledMessagesRuntime()
 
 export const conversationWorker = createWorker(
   'whatsapp.inbound',
@@ -147,6 +151,7 @@ const allWorkers = [
   transcriptionWorker, agentWorker, schedulingWorker, notificationWorker,
   licenseHeartbeatWorker, kbEmbedWorker, followUpWorker, reportsWorker,
   sheetsSyncWorker, reviewRequestWorker, workflowRunWorker,
+  ...(scheduledMessagesRuntime ? [scheduledMessagesRuntime.worker] : []),
 ]
 
 console.log(`[workers] all ${allWorkers.length} workers registered and listening (build ${releaseBuildId()})`)
@@ -162,6 +167,7 @@ async function shutdownWorkers(signal: string): Promise<void> {
   clearInterval(calendarSyncRetryScheduler)
   clearInterval(mediaCleanupScheduler)
   clearInterval(sensitiveDataCleanupScheduler)
+  if (scheduledMessagesRuntime) clearInterval(scheduledMessagesRuntime.timer)
   await Promise.allSettled(allWorkers.map((w) => w.close()))
   console.log('[workers] shutdown complete')
   process.exit(0)

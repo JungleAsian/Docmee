@@ -320,6 +320,8 @@ export interface MessageTemplate {
   category: MessageTemplateCategory
   language: string
   body: string
+  /** Verified template structure; legacy unknown structures are rejected for delayed delivery. */
+  components?: Array<{ type: string; text?: string }> | null
   status: MessageTemplateStatus
   metaTemplateId: string | null
   metaStatus: string | null

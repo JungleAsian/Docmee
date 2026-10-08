@@ -55,6 +55,7 @@ const base = {
   patientWaId: '50299998889',
   messageId: 'wamid.test002',
   mediaId: 'MEDIA_ID_001',
+  phoneNumberId: 'PHONE_ID',
   mimeType: 'audio/ogg',
   waAccessToken: 'token',
 }
@@ -130,6 +131,7 @@ describe('processTranscriptionJob', () => {
     expect(msg.transcription).toBe('Hola quiero una cita.')
     expect(msg.channelMessageId).toBe('wamid.test002')
     expect(msg.metadata.isVoiceNote).toBe(true)
+    expect(msg.metadata.phoneNumberId).toBe('PHONE_ID')
 
     // Agent job is threaded onto the same conversation.
     const [, job] = h.agentAdd.mock.calls[0]

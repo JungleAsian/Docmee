@@ -26,6 +26,31 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-07-scheduled-messages',
+    publishedAt: '2026-10-07T12:00:00.000Z',
+    version: '2026.10.07',
+    audience: 'all',
+    title: { en: 'Scheduled Messages: controlled rollout', es: 'Mensajes programados: lanzamiento controlado' },
+    summary: {
+      en: 'Schedule WhatsApp messages from the inbox using the clinic timezone. This feature is disabled by default and is not available until rollout checks pass and your clinic is enabled.',
+      es: 'Programa mensajes de WhatsApp desde la bandeja con la zona horaria de la clínica. Esta función está desactivada por defecto y no estará disponible hasta completar las verificaciones y habilitar tu clínica.',
+    },
+    highlights: [
+      {
+        en: 'Prepare text or approved static templates, review scheduled messages, and edit or cancel messages that are still pending.',
+        es: 'Prepara texto o plantillas estáticas aprobadas, revisa los mensajes programados y edita o cancela los que aún estén pendientes.',
+      },
+      {
+        en: 'Before delivery, Docmee checks access, consent, the conversation, the connected WhatsApp account, and messaging eligibility again. Scheduling alone does not pause the bot.',
+        es: 'Antes del envío, Docmee vuelve a verificar acceso, consentimiento, conversación, cuenta de WhatsApp y elegibilidad del mensaje. Programar un mensaje no pausa el bot.',
+      },
+      {
+        en: 'If delivery cannot be confirmed, the message is marked for review and is not automatically resent, reducing the risk of duplicate messages.',
+        es: 'Si no se puede confirmar el envío, el mensaje queda pendiente de revisión y no se reenvía automáticamente, reduciendo el riesgo de duplicados.',
+      },
+    ],
+  },
+  {
     id: '2026-10-06-mistake-alerts',
     publishedAt: '2026-10-06T04:00:00.000Z',
     version: '2026.10.06.3',
@@ -232,6 +257,17 @@ export const PRODUCT_UPDATES: ProductUpdate[] = [
 ]
 
 export const PRODUCT_FEATURES: ProductFeature[] = [
+  {
+    id: 'scheduled-messages',
+    category: { en: 'Patient communication', es: 'Comunicación con pacientes' },
+    title: { en: 'Scheduled Messages (controlled rollout)', es: 'Mensajes programados (lanzamiento controlado)' },
+    description: {
+      en: 'Schedule WhatsApp text or approved static templates in the clinic timezone; review, edit, and cancel pending messages. Disabled by default until rollout checks pass and your clinic is enabled.',
+      es: 'Programa texto o plantillas estáticas aprobadas de WhatsApp en la zona horaria de la clínica; revisa, edita y cancela mensajes pendientes. Desactivado por defecto hasta completar las verificaciones y habilitar tu clínica.',
+    },
+    href: '/inbox',
+    audience: 'all',
+  },
   {
     id: 'inbox',
     category: { en: 'Patient communication', es: 'Comunicacion con pacientes' },

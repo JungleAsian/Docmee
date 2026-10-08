@@ -212,6 +212,7 @@ async function storeVoiceNote(
       transcription: result.text,
       metadata: {
         isVoiceNote: true,
+        phoneNumberId: payload.phoneNumberId ?? null,
         mediaId: payload.mediaId,
         mimeType: payload.mimeType ?? null,
         durationSeconds: result.duration_seconds,

@@ -195,6 +195,7 @@ async function threadInboundMessage(
       channelMessageId: msg.waMessageId,
       metadata: {
         channel,
+        phoneNumberId: msg.phoneNumberId,
         ...(msg.mediaId ? { mediaId: msg.mediaId } : {}),
         ...(msg.mimeType ? { mimeType: msg.mimeType } : {}),
       },

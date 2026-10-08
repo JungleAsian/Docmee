@@ -1,5 +1,7 @@
 // ── Client boundary ────────────────────────────────────────────────────────────
 export { createDbClient, createServiceDbClient, withClinicContext, toJson } from './client.js'
+export { createScheduledMessagesRepository } from './repositories/scheduled-messages.repository.js'
+export type { ScheduledMessage, ScheduledMessageInput, ScheduledMessagesRepository, CreateScheduledMessageInput } from './repositories/scheduled-messages.repository.js'
 export type { Sql, TxSql } from './client.js'
 export {
   normalizeWorkflowStatus,

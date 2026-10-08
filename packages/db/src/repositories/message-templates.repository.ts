@@ -78,19 +78,21 @@ export function createMessageTemplatesRepository(sql: Sql): MessageTemplatesRepo
     async create(data) {
       // A clinic submits one template per name; resubmitting resets it to pending.
       const rows = await sql<MessageTemplate[]>`
-        INSERT INTO message_templates (clinic_id, name, category, language, body, status)
+        INSERT INTO message_templates (clinic_id, name, category, language, body, status, components)
         VALUES (
           ${data.clinicId},
           ${data.name},
           ${data.category},
           ${data.language ?? 'es'},
           ${data.body},
-          ${data.status ?? 'pending'}
+          ${data.status ?? 'pending'},
+          ${sql.json([{ type: 'BODY', text: data.body }])}
         )
         ON CONFLICT (clinic_id, name) DO UPDATE
           SET category   = EXCLUDED.category,
               language   = EXCLUDED.language,
               body       = EXCLUDED.body,
+              components = EXCLUDED.components,
               status     = EXCLUDED.status,
               updated_at = NOW()
         RETURNING *

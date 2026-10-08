@@ -1,6 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 
 export type ID = string
+export { scheduledMessagesEnabled, scheduledDeliveryTimeReason, scheduledTextWindowOpen, isSafeScheduledTemplate } from './scheduled-messages.js'
+export type { ScheduledMessageStatus } from './scheduled-messages.js'
 
 /** Safe immutable identifier injected once by the release pipeline. */
 export function releaseBuildId(): string {

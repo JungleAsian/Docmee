@@ -34,6 +34,16 @@ const releases: ProductUpdate[] = [
 ]
 
 describe('product updates', () => {
+  it('lists Scheduled Messages in updates and All Features with rollout limits in both languages', () => {
+    const update = updatesForRole('secretary').find((item) => item.id === '2026-10-07-scheduled-messages')
+    const feature = featuresForRole('secretary').find((item) => item.id === 'scheduled-messages')
+    expect(update?.summary.en).toContain('disabled by default')
+    expect(update?.summary.es).toContain('desactivada por defecto')
+    expect(feature?.description.en).toContain('Disabled by default')
+    expect(feature?.description.es).toContain('Desactivado por defecto')
+    expect(feature?.href).toBe('/inbox')
+    expect(updatesForRole('clinic_admin')[0].id).toBe(update?.id)
+  })
   it('returns permitted releases newest first for each role', () => {
     expect(updatesForRole('secretary', releases).map((release) => release.id)).toEqual(['newest', 'oldest'])
     expect(updatesForRole('clinic_admin', releases).map((release) => release.id)).toEqual([

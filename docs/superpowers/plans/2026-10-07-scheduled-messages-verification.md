@@ -72,3 +72,25 @@ Review corrections: confirmed-send activity timestamps; current target-clinic ac
 - Fresh source-profile STS verification reported an expired session. No SSM deployment command or database migration was submitted. Deployment must wait for renewed authentication and verification of the expected non-root deployment role.
 - Re-ran the full Inbox suite, focused API/worker/repository suites, shared suite, all six package typechecks, translation validation, and whitespace checks successfully for release preparation.
 - Production requires migration preflight and the approved backup gate before applying the additive migration; then the existing safe build/deploy path and exact external build verification. The new table is queried even with scheduled delivery disabled.
+
+## Historical migration recovery (2026-10-08)
+
+Authenticated read-only SSM preflight found seven names in the live `_migrations` ledger absent from release `d963273709820f441aca5e37bc3266d2ca8baa9d`. The live checkout remained clean at `566c46d8d06bd952a83befa51eed90363f331657`. The guard correctly blocked deployment; it was not bypassed.
+
+Restored the original files byte-for-byte from existing backups, with SHA-256 verification. Backup roots are under `C:\Users\Mikazuki\Dropbox\Docmee`; server rollback copies were inspected as `ubuntu` through SSM invocation `a4d0f3c6-b424-4b79-bf5c-05bcd67fd148` (Success, response code 0).
+
+| Migration filename | Verified original source | SHA-256 |
+| --- | --- | --- |
+| `20260708000100_default_inactivity_timeout_15.sql` | Three matching server copies: `docmee-rollback-20260720033648`, `docmee-rollback-emailfix-202607200414`, and `docmee-rollbacks/docmee-cre520-20260721T0350Z`, under `/var/www` | `D058664D850119947CB4C9338F1502B83C99C30939975A255C5E75DD03A5CE53` |
+| `20260710000100_default_inactivity_timeout_15.sql` | `Docmee_Backup070726/packages/db/supabase/migrations` | `9F517845BD82EAC26136EFC044071C7F7BF3EDABC49A82546B6448209F222CC4` |
+| `20260719000001_enforce_authenticated_rls.sql` | Same backup directory | `3D8A6899A5A5143642BA6448D2DD3E8B41B51BC38C3AAE242F16176B55320A63` |
+| `20260719000002_governance_rls.sql` | Same backup directory | `E6EA5E86F42A51F7A4C82BB3F8D86FD42EB51B9DCE5D1A67948211FB12F47F62` |
+| `20260719000003_launch_readiness_rls.sql` | Same backup directory | `558B4597FDBB6FE041CF6D079AB67FC98B281A1FAED243E134A0433CF4F177CD` |
+| `20260719000004_memberships_rls.sql` | Same backup directory | `5898F34FC0962B1BDEE0987258CDD58A61EF73577F72FC35D72E0358F8ADF1E1` |
+| `20260720000100_message_templates_authenticated_access.sql` | `Docmee_release_CRE520_20260720033648/packages/db/supabase/migrations` | `692504DE1C0B21AB2CE66642E89D707013D460B81854A222FD8D539C60458C65` |
+
+This is source-history reconciliation, not SQL execution. Do not delete/change ledger rows or manually rerun the restored migrations. Live metadata already records all seven as applied; later migrations retain the current inactivity default of 30 minutes. A fresh live comparison against the reconciliation commit must confirm zero unknown names and only `20261007000001_scheduled_messages.sql` pending before any migration runs.
+
+Recovery verification: all seven working-tree SHA-256 hashes match the originals above; the existing DB suite passed 167 tests across 23 files, including seven migration-plan tests, and the DB TypeScript check passed. Initial sandbox runs could not resolve dependency realpaths; the same checks passed after approved execution outside that filesystem restriction. These are local checks, not live DB integration or fresh-install proof.
+
+No database migration, build promotion, service restart, clinic enablement, or patient send occurred during recovery. A verified fresh RDS snapshot remains required before the pending additive migration; source backups are not database backups. The deployment role could not inspect RDS snapshots (`rds:DescribeDBSnapshots` denied). Do not expand IAM or use another identity implicitly to bypass this gate. Scheduled delivery stays disabled and `docmee.ai` is excluded.

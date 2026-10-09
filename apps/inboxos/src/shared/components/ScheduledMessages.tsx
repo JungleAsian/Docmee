@@ -9,6 +9,7 @@ import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { consumedScheduledDraft, formatClinicInput, scheduledMessageKey, scheduleRequest, type ScheduleForm, type ScheduledMessage } from '../scheduledMessages'
 import type { MessageTemplate } from '../types'
+import { ServerClock } from './ServerClock'
 
 const button = 'min-h-11 rounded-lg border border-[var(--crm-border-color)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--crm-primary-color)] disabled:opacity-50'
 const input = 'w-full rounded-lg border border-[var(--crm-border-color)] bg-[var(--crm-input-bg)] px-3 py-2 text-sm'
@@ -146,6 +147,7 @@ function ScheduleDialog({ clinicId, conversationId, initialDraft, existing, data
         {form.kind === 'text' ? <label className="block">{t('schedule.content')}<textarea className={input} rows={4} maxLength={4096} required value={form.content} onChange={event => setForm({ ...form, content: event.target.value })} /></label> : <label className="block">{t('schedule.template')}<select className={input} required value={form.templateId} onChange={event => setForm({ ...form, templateId: event.target.value })}><option value="">{t('schedule.selectTemplate')}</option>{templates.data?.templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select><span className="text-xs">{t(templates.isError ? 'schedule.templateLoadFailed' : 'schedule.templateHelp')}</span></label>}
         <label className="block">{t('schedule.when')}<input className={input} type="datetime-local" required value={form.localTime} onChange={event => setForm({ ...form, localTime: event.target.value })} aria-describedby="schedule-zone schedule-help" /></label>
         <p id="schedule-zone" className="text-sm">{t('schedule.timezone')}: {timezone}</p>
+        <ServerClock timezone={timezone} />
       </fieldset>
       {error && <p role="alert" className="text-sm font-semibold">{t(`schedule.${error}`)}</p>}
       <button type="submit" disabled={busy} className={`${button} bg-[var(--crm-primary-color)] text-white`}>{t(busy ? 'schedule.saving' : uncertain ? 'schedule.checkSave' : 'schedule.save')}</button>

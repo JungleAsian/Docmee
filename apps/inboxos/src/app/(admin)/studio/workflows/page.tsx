@@ -14,6 +14,8 @@ import { BackButton } from '@/shared/components/BackButton'
 import { WorkflowSimulationPanel, buildSimulationRequestInput, createSimulationReplaySession, type SimulationResumeInput, type SimulationScenarioInput, type WorkflowSimulationView } from '@/shared/components/WorkflowSimulationPanel'
 import { WorkflowDiagnosticsPanel, WorkflowDiagnosticsTrigger, buildWorkflowDiagnosticsRequest, canUseWorkflowDiagnostics, type WorkflowDiagnosticView } from '@/shared/components/WorkflowDiagnosticsPanel'
 import { WorkflowProblemsButton, WorkflowProblemsPanel } from '@/shared/components/WorkflowProblems'
+import { WorkflowJzel } from '@/shared/components/WorkflowJzel'
+import { pushWorkflowProposal, workflowGraphKey, type AssistantGraph } from '@/shared/workflowAssistant'
 import { formatDateTime } from '@/shared/format'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
@@ -687,6 +689,19 @@ function WorkflowEditor({
     resetSimulation()
   }, [resetSimulation])
 
+  const applyAssistantProposal = useCallback((next: AssistantGraph, baseKey: string) => {
+    if (role !== 'ia_studio_admin' || status !== 'draft' || workflowGraphKey(hist.present) !== baseKey) return false
+    // One explicit history step; never reuse keystroke coalescing or invoke Save/Publish.
+    setHist((current) => pushWorkflowProposal(current, next, baseKey))
+    lastPushAtRef.current = 0
+    setDirty(true)
+    setSaved(false)
+    setFocusedIssue(null)
+    setFocusResetKey((key) => key + 1)
+    resetSimulation()
+    return true
+  }, [role, status, hist, resetSimulation])
+
   const undo = useCallback(() => {
     if (!canUndo(hist)) return
     setHist(undoHistory)
@@ -1055,6 +1070,9 @@ function WorkflowEditor({
           }}
         />
       </div>
+      <WorkflowJzel key={`${clinicId}:${persistedWorkflow?.id ?? 'new'}`} role={role} clinicId={clinicId}
+        workflowId={persistedWorkflow?.id} status={status} graph={{ nodes, edges }} language={language}
+        onApply={applyAssistantProposal} />
     </>
   )
 }

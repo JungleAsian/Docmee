@@ -8,6 +8,19 @@ export const NEW_FEATURE_GUIDES: HelpCategory = {
   description: text('Practical guides for scheduling, workflows, clinic knowledge, AI, and administrative controls.', 'Guías prácticas de programación, flujos, conocimiento clínico, IA y controles administrativos.'),
   articles: [
     {
+      slug: 'workflow-jzel',
+      title: text('Ask J.zel to diagnose or draft workflows', 'Pedir a J.zel diagnosticar o diseñar flujos'),
+      excerpt: text('Superusers can review safe diagnostics and complete workflow proposals without automatic publication.', 'Los superusuarios pueden revisar diagnósticos seguros y propuestas completas sin publicación automática.'),
+      body: [
+        { type: 'note', text: text('This tool is for superusers only and requires the selected clinic’s enabled, configured AI service. It does not enable managed CLI transport or change clinic AI settings.', 'Esta herramienta es solo para superusuarios y requiere el servicio de IA habilitado y configurado de la clínica seleccionada. No habilita transporte CLI ni cambia los ajustes de IA.') },
+        { type: 'steps', items: [
+          text('Open the correct clinic and workflow, then use Ask J.zel in the editor. Choose Diagnose or Build / revise and describe your request without patient details or credentials.', 'Abre la clínica y flujo correctos y usa Ask J.zel en el editor. Elige Diagnose o Build / revise y describe tu solicitud sin datos de pacientes ni credenciales.'),
+          text('Review diagnostics and the complete proposal. Diagnosis includes structural checks, mocked simulation, and redacted recent execution statuses; it does not send messages or execute live actions.', 'Revisa el diagnóstico y la propuesta completa. Incluye controles estructurales, simulación y estados recientes sin datos sensibles; no envía mensajes ni ejecuta acciones reales.'),
+          text('Applying a proposal replaces the entire editor draft and clears visual groups. Confirm the replacement only after reviewing it. Use Undo if needed, then validate, save, and publish manually.', 'Aplicar una propuesta reemplaza todo el borrador y elimina grupos visuales. Confirma solo después de revisarla. Usa Undo si es necesario y luego valida, guarda y publica manualmente.'),
+        ] },
+      ],
+    },
+    {
       slug: 'scheduled-messages',
       title: text('Schedule and manage WhatsApp messages', 'Programar y gestionar mensajes de WhatsApp'),
       excerpt: text('Prepare a message for later, check its timezone, and manage pending delivery safely.', 'Prepara un mensaje para después, revisa su zona horaria y gestiona el envío pendiente con seguridad.'),
@@ -20,6 +33,7 @@ export const NEW_FEATURE_GUIDES: HelpCategory = {
           text('Edit or cancel while the message is still pending. Once sending begins, changes may no longer be allowed.', 'Edita o cancela mientras el mensaje siga pendiente. Una vez iniciado el envío, puede que ya no se permitan cambios.'),
         ] },
         { type: 'p', text: text('At delivery time, Docmee rechecks access, consent, conversation state, channel connection, and WhatsApp eligibility. Free text needs an eligible customer-care window; outside that window an approved template is required. A message scheduled now is not a guarantee of later delivery.', 'Al enviar, Docmee vuelve a verificar acceso, consentimiento, estado de conversación, conexión del canal y elegibilidad en WhatsApp. El texto libre necesita una ventana de atención válida; fuera de ella se requiere una plantilla aprobada. Programar ahora no garantiza el envío posterior.') },
+        { type: 'p', text: text('Compare your chosen time with the server clock in the clinic timezone. The header clock uses UTC. An unavailable or stale clock is not verified server time; scheduling enablement and delivery checks still apply.', 'Compara la hora elegida con el reloj del servidor en la zona de la clínica. La cabecera usa UTC. Un reloj no disponible o desactualizado no es hora verificada; siguen aplicándose habilitación y controles de envío.') },
         { type: 'note', text: text('Scheduling alone does not pause the bot. If delivery is uncertain, review the status before sending again: Docmee does not automatically resend uncertain deliveries, to avoid duplicates.', 'Programar no pausa el bot. Si el envío es incierto, revisa su estado antes de volver a enviar: Docmee no reenvía automáticamente los envíos inciertos para evitar duplicados.') },
       ],
     },
@@ -35,6 +49,7 @@ export const NEW_FEATURE_GUIDES: HelpCategory = {
           text('Review red and amber badges and the Problems list. Correct missing configuration or connections, save, and check the save feedback before publishing.', 'Revisa las marcas rojas y ámbar y la lista de Problemas. Corrige configuración o conexiones faltantes, guarda y revisa el resultado antes de publicar.'),
         ] },
         { type: 'note', text: text('Saving a draft and publishing a workflow are different actions. Confirm the published version and status for the correct clinic. A clean layout is not proof that live execution works.', 'Guardar un borrador y publicar un flujo son acciones distintas. Confirma la versión publicada y el estado en la clínica correcta. Una distribución clara no demuestra que la ejecución real funcione.') },
+        { type: 'p', text: text('For a Message Keyword trigger, the exact phrase “any words” matches any non-empty text message. Connect the next node and check for overlapping published triggers. Clinic hours, opt-out, and human handoff still apply.', 'En un disparador Message Keyword, la frase exacta “any words” coincide con cualquier mensaje de texto no vacío. Conecta el siguiente nodo y revisa disparadores publicados que se superponen. Siguen aplicándose horarios, desactivación y derivación humana.') },
         { type: 'p', text: text('The simulator is hidden until opened with Simulate and can be hidden again. It uses mocked providers: it does not send patient messages, create appointments, or prove a live integration is ready.', 'El simulador permanece oculto hasta abrirlo con Simular y puede volver a ocultarse. Usa proveedores simulados: no envía mensajes a pacientes, no crea citas ni demuestra que una integración real esté lista.') },
       ],
     },
@@ -138,6 +153,7 @@ export const NEW_FEATURE_GUIDES: HelpCategory = {
 }
 
 export const NEW_FEATURE_TARGETS: Record<string, HelpArticleTarget> = Object.fromEntries([
+  ['workflow-jzel', '/studio/workflows'],
   ['scheduled-messages', '/inbox'], ['cleaner-workflow-builder', '/studio/workflows'],
   ['workflow-diagnostics', '/studio/workflows'], ['knowledge-approval-retrieval', '/studio/kb'],
   ['train-jzel', '/inbox'], ['workflow-ai-agent', '/studio/ai-settings'],

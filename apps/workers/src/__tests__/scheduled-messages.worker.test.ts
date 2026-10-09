@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { deliverScheduledMessage } from '../scheduled-messages.worker.js'
+import { deliverScheduledMessage, processScheduledMessageJob, ScheduledMessageJobSchema } from '../scheduled-messages.worker.js'
+import type { Job } from '@docmee/queue'
 import type { ScheduledMessage } from '@docmee/db'
 
 const message = { id: 'scheduled', clinicId: 'clinic', conversationId: 'conversation', patientId: 'patient', authorId: 'author', accountId: 'account', providerAccountId: 'provider-account', recipient: 'synthetic-recipient', kind: 'text', content: 'Synthetic notice', templateId: null, scheduledAt: '2026-10-07T12:00:00Z', timezone: 'UTC', status: 'pending', version: 1, reasonCode: null, createdAt: '2026-10-07T11:00:00Z', idempotencyKey: 'key' } as ScheduledMessage
@@ -16,6 +17,37 @@ function fixture() {
   return { events, context, repo, load, send }
 }
 describe('scheduled delivery', () => {
+  it('fails closed when current eligibility cannot be loaded', async () => {
+    const f = fixture(); f.load.mockRejectedValue(new Error('synthetic context failure'))
+    await deliverScheduledMessage({ clinicId: 'clinic', messageId: 'scheduled', version: 1 }, f.repo, f.load, f.send, Date.parse('2026-10-07T12:00:00Z'))
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.repo.confirmed).not.toHaveBeenCalled()
+    expect(f.repo.outcome).toHaveBeenCalledWith(message, 'failed', 'revalidation_failed')
+  })
+  it('does not resend a confirmed provider response when timeline persistence fails', async () => {
+    const f = fixture(); f.repo.confirmed.mockRejectedValue(new Error('synthetic database failure'))
+    await deliverScheduledMessage({ clinicId: 'clinic', messageId: 'scheduled', version: 1 }, f.repo, f.load, f.send, Date.parse('2026-10-07T12:00:00Z'))
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.repo.outcome).toHaveBeenCalledWith(message, 'delivery_unknown', 'confirmation_persistence_unknown')
+  })
+  it('surfaces failure to record uncertainty without making a second provider call', async () => {
+    const f = fixture(); f.send.mockRejectedValue(new Error('synthetic timeout'))
+    f.repo.outcome.mockRejectedValue(new Error('synthetic persistence failure'))
+    await expect(deliverScheduledMessage({ clinicId: 'clinic', messageId: 'scheduled', version: 1 }, f.repo, f.load, f.send, Date.parse('2026-10-07T12:00:00Z'))).rejects.toThrow('synthetic persistence failure')
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.repo.confirmed).not.toHaveBeenCalled()
+  })
+  it('rejects queue payloads containing content, invalid versions, or missing bindings', () => {
+    for (const data of [{ clinicId: 'clinic', messageId: 'scheduled', version: 0 }, { clinicId: '', messageId: 'scheduled', version: 1 }, { clinicId: 'clinic', messageId: 'scheduled', version: 1, content: 'not a wakeup' }]) {
+      expect(ScheduledMessageJobSchema.safeParse(data).success).toBe(false)
+    }
+  })
+  it('ignores manually queued jobs while the runtime opt-in is absent', async () => {
+    const original = process.env['SCHEDULED_MESSAGES_WORKER_ENABLED']
+    delete process.env['SCHEDULED_MESSAGES_WORKER_ENABLED']
+    try { await expect(processScheduledMessageJob({ data: null } as Job)).resolves.toBeUndefined() }
+    finally { if (original !== undefined) process.env['SCHEDULED_MESSAGES_WORKER_ENABLED'] = original }
+  })
   it('rechecks the current clock after slow revalidation before calling the provider', async () => {
     const f = fixture()
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-07T12:00:00Z'))

@@ -81,6 +81,21 @@ describe('checkClinicSetup', () => {
     expect(codes(facts({ liveWorkflows: [workflow('w1', 'cita'), workflow('w2', 'precio')] }))).toEqual([])
   })
 
+  it.each(['any words', 'urgent, ANY WORDS'])('warns when a catch-all overlaps a specific trigger: %s', (keywords) => {
+    for (const liveWorkflows of [
+      [workflow('w1', keywords), workflow('w2', 'cita')],
+      [workflow('w1', 'cita'), workflow('w2', keywords)],
+    ]) {
+      const issues = checkClinicSetup(facts({ liveWorkflows }))
+      expect(issues.map((issue) => issue.code)).toEqual(['overlapping_triggers'])
+      expect(issues[0]!.whatHappened).toContain('two different replies')
+    }
+  })
+
+  it('does not treat a longer literal phrase as a catch-all', () => {
+    expect(codes(facts({ liveWorkflows: [workflow('w1', 'not any words'), workflow('w2', 'cita')] }))).toEqual([])
+  })
+
   it('lists errors before warnings', () => {
     const issues = checkClinicSetup(facts({ automationDuringBusinessHours: false, channelStatuses: [] }))
     expect(issues.map((issue) => issue.severity)).toEqual(['error', 'warning'])

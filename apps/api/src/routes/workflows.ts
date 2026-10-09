@@ -21,6 +21,7 @@ import { resolveClinicScope } from '../lib/scope.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
 import { buildWorkflowDiagnosticReport, type WorkflowDiagnosticIntegration } from '../lib/workflow-diagnostics.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
+import workflowAssistantRoute from './workflow-assistant.js'
 
 const nodeSchema = z.object({
   id: z.string().min(1),
@@ -226,6 +227,7 @@ function parseWizardJson(
 
 const workflowsRoute: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth)
+  await app.register(workflowAssistantRoute)
 
   app.get<{ Params: { id: string } }>('/clinics/:id/workflows', async (request, reply) => {
     const clinicId = resolveClinicScope(request, request.params.id)

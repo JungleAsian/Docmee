@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { runWorkflow, type WorkflowExecutors } from '../../../../packages/agents/src/workflows/workflow-engine.js'
 
 const h = vi.hoisted(() => ({
   queueAdd: vi.fn().mockResolvedValue(undefined),
@@ -109,6 +110,7 @@ describe('pending conversational workflow state', () => {
       {},
       {
         workflowId: '22222222-2222-4222-8222-222222222222',
+        workflowRevisionId: '55555555-5555-4555-8555-555555555555',
         sourceEventId: 'wamid.menu-click',
         resumeNodeId: 'ask_question',
         context: { patientId: 'patient-1' },
@@ -126,6 +128,9 @@ describe('pending conversational workflow state', () => {
     expect(h.queueAdd).toHaveBeenCalledWith(
       'run',
       expect.objectContaining({
+        workflowId: '22222222-2222-4222-8222-222222222222',
+        workflowRevisionId: '55555555-5555-4555-8555-555555555555',
+        startNodeId: 'ask_question',
         trigger: expect.objectContaining({ sourceEventId: 'wamid.menu-click', message: 'What services do you offer?' }),
       }),
       expect.objectContaining({
@@ -146,6 +151,24 @@ describe('workflowKeywordMatches', () => {
 
   it('matches every message when the keyword list is empty', () => {
     expect(workflowKeywordMatches(wf(''), 'anything at all')).toBe(true)
+    expect(workflowKeywordMatches(wf(''), '')).toBe(true)
+  })
+
+  it.each(['hello', 'cita', '¿Cuánto cuesta la consulta?', '你好'])('matches any non-empty text with any words: %s', (message) => {
+    expect(workflowKeywordMatches(wf('any words'), message)).toBe(true)
+  })
+
+  it('normalizes the catch-all token inside a comma-separated list', () => {
+    expect(workflowKeywordMatches(wf('urgent,  ANY WORDS  '), 'hello')).toBe(true)
+  })
+
+  it.each(['', '   ', '\n\t'])('does not match blank text with the explicit catch-all: %j', (message) => {
+    expect(workflowKeywordMatches(wf('any words, urgent'), message)).toBe(false)
+  })
+
+  it('keeps phrases containing but not equal to any words as literal keywords', () => {
+    expect(workflowKeywordMatches(wf('not any words'), 'hello')).toBe(false)
+    expect(workflowKeywordMatches(wf('not any words'), 'This is not any words')).toBe(true)
   })
 })
 
@@ -203,6 +226,51 @@ describe('enqueueInboundWorkflowRuns', () => {
   })
 
   const sql = {} as never
+
+  it('starts a catch-all workflow with the pinned revision and clinic-scoped source event', async () => {
+    const workflow = {
+      nodes: [
+        { ...triggerNode, config: { keywords: 'any words' } },
+        { id: 'm', kind: 'action' as const, type: 'action.interactive_menu', config: {
+          message: 'How can we help?',
+          options: JSON.stringify([{ optionId: 'booking', title: 'Book an appointment' }]),
+        }, x: 0, y: 0 },
+      ],
+      edges: [{ id: 't-m', source: 't', target: 'm' }],
+    }
+    h.listActiveByTrigger.mockResolvedValue([
+      { id: 'wf-any', activeRevisionId: '55555555-5555-4555-8555-555555555555', ...workflow },
+    ])
+    expect(await enqueueInboundWorkflowRuns(sql, 'clinic-1', { sourceEventId: 'wamid.any', message: 'hola' }))
+      .toEqual({ enqueued: 1, ownsTurn: true })
+    expect(h.listActiveByTrigger).toHaveBeenCalledWith('clinic-1', 'trigger.message_keyword')
+    expect(h.queueAdd).toHaveBeenCalledWith('run', expect.objectContaining({
+      clinicId: 'clinic-1', workflowId: 'wf-any', workflowRevisionId: '55555555-5555-4555-8555-555555555555',
+    }), expect.objectContaining({ jobId: workflowRunKey('wf-any', 'wamid.any') }))
+
+    // Execute the matched graph, not a mocked engine: the trigger must advance
+    // along its edge to the menu and wait for a reply rather than finish silently.
+    const exec: WorkflowExecutors = {
+      sendMessage: vi.fn(), sendTemplate: vi.fn(), notifySecretary: vi.fn(),
+      addTag: vi.fn(), aiDraft: vi.fn(), requestApproval: vi.fn(), scheduleResume: vi.fn(),
+      sendInteractiveMenu: vi.fn(async () => true),
+    }
+    const job = h.queueAdd.mock.calls[0]?.[1]
+    const trace = await runWorkflow(workflow, job.trigger, exec)
+    expect(trace.map((step) => step.nodeId)).toEqual(['t', 'm'])
+    expect(trace.at(-1)).toEqual({ nodeId: 'm', type: 'action.interactive_menu', status: 'paused' })
+    expect(exec.sendInteractiveMenu).toHaveBeenCalledTimes(1)
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, '', '   '])('does not start the explicit catch-all without non-empty text: %j', async (message) => {
+    h.listActiveByTrigger.mockResolvedValue([
+      { id: 'wf-any', nodes: [{ ...triggerNode, config: { keywords: 'any words' } }] },
+    ])
+    expect(await enqueueInboundWorkflowRuns(sql, 'clinic-1', { sourceEventId: 'wamid.empty', message }))
+      .toEqual({ enqueued: 0, ownsTurn: false })
+    expect(h.queueAdd).not.toHaveBeenCalled()
+  })
 
   it('claims the turn when a matched workflow is conversational', async () => {
     h.listActiveByTrigger.mockResolvedValue([

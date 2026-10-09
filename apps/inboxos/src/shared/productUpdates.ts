@@ -26,6 +26,27 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-08-workflow-jzel', publishedAt: '2026-10-08T12:00:00.000Z', version: '2026.10.08', audience: 'platform',
+    title: { en: 'Ask J.zel to diagnose or draft a workflow', es: 'Pide a J.zel diagnosticar o diseñar un flujo' },
+    summary: { en: 'Superusers can ask J.zel for workflow diagnostics and complete draft proposals in the editor, using the selected clinic’s configured AI service.', es: 'Los superusuarios pueden pedir diagnósticos y propuestas completas de borrador en el editor con el servicio de IA de la clínica seleccionada.' },
+    highlights: [
+      { en: 'Diagnosis uses structural checks, a mocked simulation, and redacted recent execution status. It does not contact patients or external workflow services.', es: 'El diagnóstico usa controles estructurales, simulación y estados recientes de ejecución sin datos sensibles. No contacta pacientes ni servicios externos del flujo.' },
+      { en: 'Review the complete proposal before applying it: this replaces the entire editor draft and clears visual groups. Undo is available; saving and publishing remain manual.', es: 'Revisa la propuesta completa antes de aplicarla: reemplaza todo el borrador y elimina los grupos visuales. Puedes deshacer; guardar y publicar siguen siendo acciones manuales.' },
+    ],
+  },
+  {
+    id: '2026-10-08-any-words-trigger', publishedAt: '2026-10-08T11:00:00.000Z', version: '2026.10.08', audience: 'admin',
+    title: { en: 'Start a workflow with any words', es: 'Iniciar un flujo con cualquier palabra' },
+    summary: { en: 'Set the Message Keyword trigger to the exact phrase “any words” to match any non-empty text message. Existing keyword and clinic safeguards still apply.', es: 'Configura el disparador Message Keyword con la frase exacta “any words” para coincidir con cualquier mensaje de texto no vacío. Los controles clínicos y palabras clave existentes siguen aplicándose.' },
+    highlights: [{ en: 'Review overlapping published workflows and verify the connected next node. Wildcard matching does not bypass business hours, opt-out, or human handoff.', es: 'Revisa flujos publicados que se superponen y verifica el siguiente nodo conectado. La coincidencia general no omite horarios, desactivación ni derivación humana.' }],
+  },
+  {
+    id: '2026-10-08-server-clock', publishedAt: '2026-10-08T10:00:00.000Z', version: '2026.10.08', audience: 'all',
+    title: { en: 'Server time for clearer scheduling', es: 'Hora del servidor para programar con claridad' },
+    summary: { en: 'The header shows server time in UTC. Scheduled-message controls also show server time in the clinic timezone so delivery times are easier to review.', es: 'La cabecera muestra la hora del servidor en UTC. Los controles de mensajes programados también muestran la hora en la zona de la clínica para revisar mejor los envíos.' },
+    highlights: [{ en: 'If time synchronization is unavailable or stale, the clock reports that instead of presenting your computer clock as verified server time. Scheduling still requires clinic enablement.', es: 'Si la sincronización no está disponible o está desactualizada, el reloj lo indica sin presentar la hora de tu computadora como hora verificada del servidor. Programar sigue requiriendo habilitación clínica.' }],
+  },
+  {
     id: '2026-10-07-scheduled-messages',
     publishedAt: '2026-10-07T12:00:00.000Z',
     version: '2026.10.07',
@@ -257,6 +278,11 @@ export const PRODUCT_UPDATES: ProductUpdate[] = [
 ]
 
 export const PRODUCT_FEATURES: ProductFeature[] = [
+  {
+    id: 'workflow-jzel', category: { en: 'Automation', es: 'Automatización' }, audience: 'platform', href: '/studio/workflows',
+    title: { en: 'J.zel workflow assistant', es: 'Asistente de flujos J.zel' },
+    description: { en: 'Superuser-only diagnosis and complete draft proposals using clinic AI settings, with explicit review, undo, and manual saving and publication.', es: 'Diagnóstico y propuestas completas de borrador solo para superusuarios con IA clínica, revisión explícita, deshacer y guardado y publicación manuales.' },
+  },
   {
     id: 'scheduled-messages',
     category: { en: 'Patient communication', es: 'Comunicación con pacientes' },

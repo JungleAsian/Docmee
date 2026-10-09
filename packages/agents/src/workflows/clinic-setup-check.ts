@@ -62,7 +62,7 @@ function keywordsOf(workflow: LiveWorkflow): string[] | null {
 
 /** True when some message could start both workflows (mirrors workflowKeywordMatches). */
 function triggersOverlap(a: string[], b: string[]): boolean {
-  if (a.length === 0 || b.length === 0) return true
+  if (a.length === 0 || b.length === 0 || a.includes('any words') || b.includes('any words')) return true
   return a.some((x) => b.some((y) => x.includes(y) || y.includes(x)))
 }
 

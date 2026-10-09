@@ -192,8 +192,8 @@ export async function resumePendingWorkflowRuns(
   return active.length
 }
 
-/** Pure: does this message_keyword workflow's trigger match the message? An empty
- *  keyword list matches everything (the clinic wants every inbound to run it). */
+/** Pure: does this message_keyword workflow's trigger match the message? The exact
+ *  token "any words" matches non-empty text; an empty list keeps its legacy match-all behavior. */
 export function workflowKeywordMatches(workflow: Pick<Workflow, 'nodes'>, message: string): boolean {
   const trigger = workflow.nodes.find((n) => n.kind === 'trigger' && n.type === 'trigger.message_keyword')
   const raw = String((trigger?.config as { keywords?: unknown } | undefined)?.keywords ?? '').trim()
@@ -203,6 +203,7 @@ export function workflowKeywordMatches(workflow: Pick<Workflow, 'nodes'>, messag
     .map((k) => k.trim().toLowerCase())
     .filter(Boolean)
   if (keywords.length === 0) return true
+  if (keywords.includes('any words')) return message.trim().length > 0
   const lower = message.toLowerCase()
   return keywords.some((k) => lower.includes(k))
 }

@@ -16,6 +16,7 @@ import { can } from '@/shared/permissions'
 import { roleCanSeeMenuItem, type RoleAccessSettings, type RoleMenuItemKey } from '@/shared/roleAccess'
 import { ClinicBackButton } from '@/shared/components/ClinicBackButton'
 import { TopbarLogo } from '@/shared/components/TopbarLogo'
+import { ServerClock } from '@/shared/components/ServerClock'
 import { SetupCheckBanner } from '@/shared/components/SetupCheckBanner'
 import { Sidebar, type NavGroup, type NavLink } from '@/shared/components/Sidebar'
 import { NavIcon } from '@/shared/components/NavIcon'
@@ -209,6 +210,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             <span className="crm-header-breadcrumb" aria-current="page">{t(headerTitleKey)}</span>
           </div>
           <div className="crm-header-center">
+          <ServerClock compact className="hidden shrink-0 md:flex" />
           {!inboxRoute && (
             <div className="crm-header-search hidden lg:flex">
               <MagnifyingGlass size={20} className="mr-3 shrink-0" />
@@ -256,6 +258,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             </div>
           </div>
         </header>
+        <ServerClock compact className="shrink-0 px-3 pb-2 md:hidden" />
         <main className="crm-dashboard-content">
           <SetupCheckBanner />
           {preferences.imageBannersVisible && !inboxRoute && <PageMascotBanner />}

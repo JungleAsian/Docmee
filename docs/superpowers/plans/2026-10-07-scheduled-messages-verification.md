@@ -1,6 +1,6 @@
 # Scheduled Messages: verification and controlled rollout
 
-Status: local source implemented and reviewed; delivery disabled by default. Owner authorized commit, push, and disabled deployment on 2026-10-07. Release execution and live evidence must be recorded separately; this document is not proof of deployment. No external messages sent.
+Status: source release `32e2989f6a8ad4097e2f5d3a5ab5ce44626569a3` was deployed with delivery disabled on 2026-10-08. Delivery readiness is not yet accepted. No external messages sent.
 
 Product Updates and All Features include EN/ES Scheduled Messages entries explicitly marked as a controlled rollout, disabled by default until rollout checks pass and a clinic is enabled. Publication does not authorize clinic or worker enablement.
 
@@ -61,9 +61,43 @@ Review corrections: confirmed-send activity timestamps; current target-clinic ac
 
 - Local source and automated checks: complete for this bounded implementation.
 - Runtime integration / browser acceptance / production build: not verified.
-- Migration / deployment / clinic enablement / patient sends: not performed.
-- Release `execution_complete`: false (authorized; deployment pending authentication and release gates).
+- Migration / disabled deployment: completed in the release evidence below. Clinic enablement / patient sends: not performed.
+- Disabled-release `execution_complete`: true; delivery-readiness `execution_complete`: false.
 - `owner_accepted`: false (awaiting user acceptance).
+
+## Delivery-readiness work contract (2026-10-08)
+
+Objective: strengthen executable failure/recovery coverage and provide an opt-in, synthetic-data integration harness for the actual scheduled-message migration and repository. This is verification work, not authorization for patient delivery.
+
+Scope: scheduling unit tests, an isolated local PostgreSQL harness, and this existing acceptance record. Preserve unrelated `.claude/` work. Non-goals: enabling clinics/workers, sending WhatsApp messages, changing `docmee.ai`, provider credentials, AI/KB/booking settings, or repairing the workstation's Docker installation.
+
+Acceptance: fresh focused tests and relevant typechecks; harness rejects non-local/shared database targets and never falls back to `DATABASE_URL`; real SQL checks cover idempotency, competing claims/edits/cancellation, RLS isolation, stale reconciliation, and atomic confirmed-send persistence. Unrun integration/browser/pilot checks remain explicitly incomplete. Stop before external sends, unsafe database targets, or unavailable isolated dependencies.
+
+Local prerequisite: Docker Desktop failed to start (Windows inference socket initialization); WSL Ubuntu has no PostgreSQL or Redis server. Do not bypass isolation by using production.
+
+### Fresh readiness checks
+
+Source: `32e2989f6a8ad4097e2f5d3a5ab5ce44626569a3`, branch `codex/sidebar-overflow-20261002`; readiness edits are local and uncommitted. No production code or runtime configuration changed.
+
+| Check | Result | Scope |
+| --- | --- | --- |
+| Worker scheduling/reconciliation | 22 passed, 2 files | Includes failed revalidation, uncertain send/confirmation persistence, missed wakeup recovery, non-overlapping ticks and malformed jobs |
+| Full worker suite | 452 passed, 41 files | Existing suite emitted local Redis connection-refused warnings; not Redis integration proof |
+| Full DB unit suite | 167 passed, 23 files | Includes scheduling repository assertions and migration planning; not real database execution |
+| Integration target guard | 6 passed | Explicit opt-in, separate local database, no shared/remote/query-override target or `DATABASE_URL` fallback |
+| Worker and harness TypeScript | Passed | Existing local executables; dependency path restriction required scoped execution outside sandbox |
+| Touched source ESLint | Passed | Tests and isolated harness |
+| SQL suite without opt-in | Refused before client creation | Expected safety rejection; not an integration pass |
+
+The [isolated SQL harness](../../../scripts/scheduled-messages/README.md) adds nine executable checks using the actual migration/repository. It creates and cleans only its randomly named schema and restricted role in an explicitly supplied disposable local test database. Its minimal synthetic dependency schema does not prove the complete historical migration chain. Localhost guardrails cannot distinguish a local server from a tunnel; do not use a production/shared tunnel.
+
+The nine SQL checks remain **unrun** because isolated PostgreSQL is unavailable. Isolated Redis/multiple-worker restart checks, real browser acceptance, production build and authorized test-recipient/provider receipt also remain incomplete. Docker was started hidden as a prerequisite check, then failed initialization; no socket deletion, workstation repair, production database access, clinic enablement or external message occurred. Delivery-readiness `execution_complete` and `owner_accepted` remain false.
+
+## Disabled deployment evidence (2026-10-08)
+
+Previously recorded release evidence: encrypted RDS snapshot `docmee-predeploy-32e2989-20261008-230335` was Available before migration. SSM deployment `fd147acd-bb93-4cbf-8441-2bc494058639` and verification `255b9635-eb76-4326-982a-f7de86e50d39` both succeeded (response code 0). The additive migration was recorded, migration drift was zero, and `docmee.service`/Caddy were active. External health returned HTTP 200 with `git-32e2989f6a8a`. Product Updates and All Features carried controlled-rollout entries.
+
+At that verification: zero enabled clinics and `scheduledDeliveryEnabled: false`. Snapshot restore, live scheduled delivery, and owner acceptance were not tested. These are prior release observations, not a fresh runtime probe from the readiness work.
 
 ## Release preflight (2026-10-07)
 

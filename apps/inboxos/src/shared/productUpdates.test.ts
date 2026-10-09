@@ -42,7 +42,14 @@ describe('product updates', () => {
     expect(feature?.description.en).toContain('Disabled by default')
     expect(feature?.description.es).toContain('Desactivado por defecto')
     expect(feature?.href).toBe('/inbox')
-    expect(updatesForRole('clinic_admin')[0].id).toBe(update?.id)
+  })
+  it('keeps workflow authoring announcements and tools exclusive to superusers', () => {
+    expect(updatesForRole('ia_studio_admin').some((item) => item.id === '2026-10-08-workflow-jzel')).toBe(true)
+    expect(featuresForRole('ia_studio_admin').find((item) => item.id === 'workflow-jzel')?.href).toBe('/studio/workflows')
+    for (const role of ['clinic_admin', 'secretary']) {
+      expect(updatesForRole(role).some((item) => item.id === '2026-10-08-workflow-jzel')).toBe(false)
+      expect(featuresForRole(role).some((item) => item.id === 'workflow-jzel')).toBe(false)
+    }
   })
   it('returns permitted releases newest first for each role', () => {
     expect(updatesForRole('secretary', releases).map((release) => release.id)).toEqual(['newest', 'oldest'])

@@ -15,6 +15,7 @@ import { HELP_UI, L } from '@/shared/help/content'
 import { Breadcrumbs } from '@/shared/components/Breadcrumbs'
 import { PlatformBackButton } from '@/shared/components/PlatformBackButton'
 import { TopbarLogo } from '@/shared/components/TopbarLogo'
+import { ServerClock } from '@/shared/components/ServerClock'
 import { SetupCheckBanner } from '@/shared/components/SetupCheckBanner'
 import { PushOptIn } from '@/shared/components/PushOptIn'
 import { ProductUpdatesControl } from '@/shared/components/ProductUpdatesControl'
@@ -219,6 +220,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Breadcrumbs />
           </div>
           <div className="crm-header-center">
+          <ServerClock compact className="hidden shrink-0 md:flex" />
           <div className="crm-header-search hidden lg:flex">
             <MagnifyingGlass size={20} className="mr-3 shrink-0" />
             <input type="search" value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { const hit = visibleGroups.flatMap((g) => g.items).find((item) => `${item.label} ${item.href}`.toLowerCase().includes(globalSearch.trim().toLowerCase())); if (hit) router.push(hit.href) } }} placeholder="Search settings, users, channels, or knowledge..." />
@@ -263,6 +265,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             )}
           </div>
         </header>
+        <ServerClock compact className="shrink-0 px-3 pb-2 md:hidden" />
         <main className="crm-dashboard-content">
           <SetupCheckBanner />
           {preferences.imageBannersVisible && <PageMascotBanner />}

@@ -1,6 +1,9 @@
 // Docmee Help Center - self-contained bilingual (ES/EN) user knowledge base.
 // Keep this user-facing: no developer setup, secrets, infrastructure, or internal notes.
 import type { PanelLanguage } from '../types'
+import { PRODUCT_FEATURES, PRODUCT_UPDATES } from '../productUpdates'
+import { buildCatalogHelp } from './catalog'
+import { NEW_FEATURE_GUIDES, NEW_FEATURE_TARGETS } from './guides'
 
 export type Localized = Record<PanelLanguage, string>
 
@@ -75,7 +78,11 @@ const SUPPORT_CHECKLIST = {
   en: 'Before contacting support: refresh the page, check your connection, confirm you are in the correct clinic, sign out and in, and take a screenshot of the error.',
 }
 
+const catalogHelp = buildCatalogHelp(PRODUCT_UPDATES, PRODUCT_FEATURES)
+
 export const HELP_CATEGORIES: HelpCategory[] = [
+  NEW_FEATURE_GUIDES,
+  ...catalogHelp.categories,
   {
     slug: 'getting-started',
     icon: 'kb',
@@ -705,6 +712,9 @@ export const HELP_CATEGORIES: HelpCategory[] = [
 ]
 
 export const POPULAR_ARTICLES: { category: string; article: string }[] = [
+  { category: 'new-features', article: 'scheduled-messages' },
+  { category: 'new-features', article: 'cleaner-workflow-builder' },
+  { category: 'new-features', article: 'knowledge-approval-retrieval' },
   { category: 'getting-started', article: 'welcome-to-docmee' },
   { category: 'inbox', article: 'manage-conversations' },
   { category: 'channels', article: 'whatsapp-overview' },
@@ -730,6 +740,8 @@ export interface SearchHit {
 }
 
 const ARTICLE_TARGETS: Record<string, HelpArticleTarget> = {
+  ...NEW_FEATURE_TARGETS,
+  ...catalogHelp.targets,
   'getting-started/welcome-to-docmee': { href: '/inbox', label: { es: 'Abrir Bandeja', en: 'Open Inbox' } },
   'getting-started/install-app-notifications': { href: '/alerts', label: { es: 'Abrir alertas', en: 'Open alerts' } },
   'inbox/manage-conversations': { href: '/inbox', label: { es: 'Abrir Bandeja', en: 'Open Inbox' } },
@@ -740,12 +752,12 @@ const ARTICLE_TARGETS: Record<string, HelpArticleTarget> = {
   'appointments/reschedule-cancel-no-show': { href: '/calendar', label: { es: 'Abrir Calendario', en: 'Open Calendar' } },
   'appointments/doctors-services-availability': { href: '/studio/doctors', label: { es: 'Abrir doctores', en: 'Open Doctors' } },
   'channels/whatsapp-overview': { href: '/studio/channels', label: { es: 'Abrir Canales', en: 'Open Channels' } },
-  'channels/connect-whatsapp': { href: '/studio/channels', label: { es: 'Abrir Canales', en: 'Open Channels' } },
-  'channels/templates-window': { href: '/studio/templates', label: { es: 'Abrir plantillas', en: 'Open Templates' } },
-  'jzel-ai/meet-jzel': { href: '/studio/automations', label: { es: 'Abrir Docmee', en: 'Open Docmee' } },
+  'channels/connect-update-whatsapp': { href: '/studio/channels', label: { es: 'Abrir Canales', en: 'Open Channels' } },
+  'channels/channel-troubleshooting': { href: '/studio/channels', label: { es: 'Abrir Canales', en: 'Open Channels' } },
+  'jzel-ai/meet-jzel': { href: '/inbox', label: { es: 'Abrir Docmee', en: 'Open Docmee' } },
   'jzel-ai/knowledge-base': { href: '/studio/kb', label: { es: 'Abrir base de conocimiento', en: 'Open Knowledge Base' } },
-  'jzel-ai/automations-workflows': { href: '/studio/automations', label: { es: 'Abrir automatizaciones', en: 'Open Automations' } },
-  'templates/quick-replies': { href: '/studio/templates', label: { es: 'Abrir plantillas', en: 'Open Templates' } },
+  'jzel-ai/automations-workflows': { href: '/studio/workflows', label: { es: 'Abrir flujos', en: 'Open Workflows' } },
+  'templates/quick-replies': { href: '/studio/quick-replies', label: { es: 'Abrir respuestas rápidas', en: 'Open Quick Replies' } },
   'templates/whatsapp-templates': { href: '/studio/templates', label: { es: 'Abrir plantillas', en: 'Open Templates' } },
   'admin-studio/roles-permissions-menu': { href: '/studio/users', label: { es: 'Abrir usuarios', en: 'Open Users' } },
   'admin-studio/manage-users-alerts': { href: '/studio/users', label: { es: 'Abrir usuarios', en: 'Open Users' } },

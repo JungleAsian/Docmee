@@ -8,7 +8,7 @@
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { createAuditRepository, createClinicsRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
+import { createAuditRepository, createClinicsRepository, createConversationsRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
 import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge, WorkflowDocumentV2 } from '@docmee/db'
@@ -19,7 +19,7 @@ import { workflowLintContext } from '../lib/setup-check.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
 import { rateLimitGuard } from '../lib/rate-limit.js'
-import { buildWorkflowDiagnosticReport, type WorkflowDiagnosticIntegration } from '../lib/workflow-diagnostics.js'
+import { buildWorkflowDiagnosticReport, workflowRuntimeFindings, type WorkflowDiagnosticIntegration } from '../lib/workflow-diagnostics.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import workflowAssistantRoute from './workflow-assistant.js'
 
@@ -165,7 +165,7 @@ function workflowIntegrationReadiness(nodes: WorkflowNode[], checkedAt: string):
   const types = nodes.map((node) => node.type.toLowerCase())
   const dependencies = new Map<string, string>()
 
-  if (types.some((type) => type.includes('send_message') || type.includes('send_template') || type.includes('whatsapp'))) {
+  if (types.some((type) => type.includes('send_message') || type.includes('send_template') || type.includes('whatsapp') || type.includes('interactive_menu') || type.includes('slot_menu'))) {
     dependencies.set('whatsapp', 'WhatsApp')
   }
   if (types.some((type) => type.includes('availability') || type.includes('booking') || type.includes('calendar'))) {
@@ -330,11 +330,17 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
         parsed.data.recentRunsLimit,
       ))
       const recentRuns = runs.map((run) => ({ ...run, trace: redactWorkflowDiagnostic(run.trace) }))
+      const schedulingSessionCount = await withDb((sql) => createConversationsRepository(sql).countSchedulingSessions(clinicId))
+      const diagnosticChecks = [...workflowChecks, ...workflowRuntimeFindings({
+        schedulingSessionCount,
+        activeRevisionId: workflow.activeRevisionId,
+        recentRuns,
+      })]
       const report = buildWorkflowDiagnosticReport({
         source,
         startedAt,
         completedAt: new Date().toISOString(),
-        workflowChecks,
+        workflowChecks: diagnosticChecks,
         simulations,
         integrations,
         recentRuns,
@@ -354,7 +360,7 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
             readiness: parsed.data.readiness.enabled,
             recentRuns: true,
           },
-          findingCount: workflowChecks.length,
+          findingCount: diagnosticChecks.length,
           simulationCount: simulations.length,
           integrationCount: integrations.length,
           recentRunCount: recentRuns.length,

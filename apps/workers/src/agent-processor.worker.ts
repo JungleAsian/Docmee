@@ -42,6 +42,7 @@ import {
 } from '@docmee/agents'
 import { hybridClarificationMessage, resolveHybridFlowBranch } from './custom-flow-hybrid.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
+import { schedulingAction, schedulingSessionExpired, isSchedulingMenuEscape } from './scheduling-session.js'
 import { resolveAutomationEligiblePatient } from './automation-patient-guard.js'
 import { sendMessengerText, sendInstagramText } from '@docmee/channels'
 import { activeWhatsAppAccount, readMetaToken, resolveWhatsAppSender, resolveWhatsAppInteractiveSender } from './meta-token.js'
@@ -863,19 +864,30 @@ export async function processAgentJob(job: Job): Promise<void> {
     // be reclassified by the general assistant. Safety, consent and explicit
     // human-handoff guards intentionally remain above this resume point.
     const activeScheduling = conversation?.metadata?.scheduling
-    const activeSchedulingAction =
-      activeScheduling &&
-      typeof activeScheduling === 'object' &&
-      'action' in activeScheduling &&
-      ['book', 'reschedule', 'cancel', 'status'].includes(String(activeScheduling.action))
-        ? (activeScheduling.action as 'book' | 'reschedule' | 'cancel' | 'status')
-        : null
+    const activeSchedulingAction = schedulingAction(activeScheduling)
     if (activeSchedulingAction) {
-      if (!automationHeldForStaff) {
-        await sendOutOfHoursNotice()
-        await schedulingQueue.add('schedule', { ...data, action: activeSchedulingAction })
+      const escape = isSchedulingMenuEscape(data.message)
+      if (escape || schedulingSessionExpired(activeScheduling)) {
+        if (!conversation || !(await conversations.replaceSchedulingSession(
+          data.clinicId, conversation.id, activeScheduling, null,
+        ))) return
+        delete conversation.metadata.scheduling
+        console.info('[agent] scheduling session released', {
+          clinicId: data.clinicId, conversationId: conversation.id,
+          reason: escape ? 'menu_escape' : 'inactivity_expiry',
+        })
+      } else {
+        if (!automationHeldForStaff) {
+          await sendOutOfHoursNotice()
+          await schedulingQueue.add('schedule', {
+            ...data, action: activeSchedulingAction, expectedSchedulingSession: activeScheduling,
+          })
+          console.info('[agent] scheduling session owns turn', {
+            clinicId: data.clinicId, conversationId: conversation?.id, action: activeSchedulingAction,
+          })
+        }
+        return
       }
-      return
     }
 
     // Fire inbound workflows only outside business hours, after the safety and

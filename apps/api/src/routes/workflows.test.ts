@@ -31,10 +31,12 @@ vi.mock('@docmee/shared', () => ({
 }))
 
 const store = vi.hoisted(() => ({
-  workflows: new Map<string, { id: string; clinicId: string; name: string; status: 'draft'; nodes: unknown[]; edges: unknown[] }>(),
+  workflows: new Map<string, { id: string; clinicId: string; name: string; status: 'draft'; nodes: unknown[]; edges: unknown[]; activeRevisionId?: string }>(),
   workflowFindCalls: [] as Array<{ clinicId: string; id: string }>,
   runs: [] as Array<Record<string, unknown>>,
   auditLogs: [] as Array<Record<string, unknown>>,
+  schedulingSessionCount: 0,
+  schedulingCountCalls: [] as string[],
 }))
 
 vi.mock('@docmee/db', () => ({
@@ -54,6 +56,10 @@ vi.mock('@docmee/db', () => ({
     },
   }),
   createWorkflowApprovalsRepository: () => ({}),
+  createConversationsRepository: () => ({ countSchedulingSessions: async (clinicId: string) => {
+    store.schedulingCountCalls.push(clinicId)
+    return store.schedulingSessionCount
+  } }),
   createWorkflowExecutionsRepository: () => ({ listRuns: async () => store.runs, findRunById: async () => null }),
   createAuditRepository: () => ({ log: async (entry: Record<string, unknown>) => { store.auditLogs.push(entry) } }),
   normalizeWorkflowStatus: (status: string) => status === 'active' ? 'published' : status,
@@ -217,6 +223,7 @@ describe('workflow delete contract (CRE-534)', () => {
   it('denies workflow diagnostics before repository access for every non-superuser role', async () => {
     seed('wf-diagnostics-auth')
     const callsBefore = store.workflowFindCalls.length
+    const countCallsBefore = store.schedulingCountCalls.length
 
     const anonymous = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-diagnostics-auth/diagnostics' })
     expect(anonymous.statusCode).toBe(401)
@@ -225,6 +232,7 @@ describe('workflow delete contract (CRE-534)', () => {
       expect(response.statusCode).toBe(403)
     }
     expect(store.workflowFindCalls).toHaveLength(callsBefore)
+    expect(store.schedulingCountCalls).toHaveLength(countCallsBefore)
   })
 
   it('diagnoses an unsaved graph without persisting it and records metadata-only audit evidence', async () => {
@@ -301,9 +309,46 @@ describe('workflow delete contract (CRE-534)', () => {
 
   it('does not disclose a workflow from another clinic to a superuser diagnostic request', async () => {
     seed('wf-diagnostics-c2', 'c-2')
+    const callsBefore = store.schedulingCountCalls.length
     const response = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-diagnostics-c2/diagnostics', headers: studioAuth })
     expect(response.statusCode).toBe(404)
     expect(response.json()).toEqual({ error: 'Workflow not found' })
+    expect(store.schedulingCountCalls).toHaveLength(callsBefore)
+  })
+
+  it('explains clinic scheduling interception, pinned revisions, and menu text fallback without changing state', async () => {
+    validation.errors = []
+    validation.issues = []
+    seed('wf-runtime-diagnostics')
+    store.workflows.get('wf-runtime-diagnostics')!.activeRevisionId = 'new-revision'
+    store.schedulingSessionCount = 1
+    store.runs = [{ id: 'old-run', status: 'waiting', workflowRevisionId: 'old-revision', trace: {
+      menuDeliveries: [{ nodeId: 'menu-1', deliveryMode: 'text_fallback', fallbackReason: 'provider_error' }],
+    } }]
+    const callsBefore = store.schedulingCountCalls.length
+    try {
+      const response = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-runtime-diagnostics/diagnostics', headers: studioAuth,
+        payload: { simulation: { enabled: false }, readiness: { enabled: false } } })
+      expect(response.statusCode).toBe(200)
+      expect(response.json().diagnostic.workflowChecks.map((finding: { code: string }) => finding.code)).toEqual([
+        'scheduling_session_interception', 'pinned_workflow_revision', 'interactive_menu_text_fallback',
+      ])
+      expect(store.schedulingCountCalls.slice(callsBefore)).toEqual(['c-1'])
+      expect(store.runs[0]?.status).toBe('waiting')
+    } finally {
+      store.schedulingSessionCount = 0
+      store.runs = []
+    }
+  })
+
+  it.each(['action.interactive_menu', 'action.slot_menu'])('includes WhatsApp readiness for %s', async (type: string) => {
+    validation.errors = []
+    validation.issues = []
+    seed('wf-menu-readiness')
+    const response = await app.inject({ method: 'POST', url: '/clinics/c-1/workflows/wf-menu-readiness/diagnostics', headers: studioAuth,
+      payload: { graph: { nodes: [{ id: 'menu-1', kind: 'action', type, config: {}, x: 0, y: 0 }], edges: [] }, simulation: { enabled: false } } })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().diagnostic.integrations).toContainEqual(expect.objectContaining({ key: 'whatsapp', status: 'unknown' }))
   })
 
   it('validates simulator bounds and the editor graph before execution', async () => {

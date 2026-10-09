@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorkflowDiagnosticReport } from './workflow-diagnostics.js'
+import { buildWorkflowDiagnosticReport, workflowRuntimeFindings } from './workflow-diagnostics.js'
 
 const base = {
   source: 'saved_graph' as const,
@@ -10,6 +10,45 @@ const base = {
   integrations: [],
   recentRuns: [],
 }
+
+describe('workflowRuntimeFindings', () => {
+  it('describes clinic-level scheduling interception without claiming a specific conversation failed', () => {
+    const findings = workflowRuntimeFindings({ schedulingSessionCount: 2, activeRevisionId: 'new', recentRuns: [] })
+    expect(findings).toMatchObject([{ code: 'scheduling_session_interception', severity: 'warning' }])
+    expect(findings[0]?.whatHappened).toContain('clinic')
+    expect(findings[0]?.howToFix).toContain('menu')
+    expect(findings[0]?.howToFix).toContain('30 minutes')
+  })
+
+  it('warns only about nonterminal runs pinned to a different known revision', () => {
+    const findings = workflowRuntimeFindings({ schedulingSessionCount: 0, activeRevisionId: 'new', recentRuns: [
+      { status: 'waiting', workflowRevisionId: 'old' },
+      { status: 'completed', workflowRevisionId: 'old' },
+      { status: 'running', workflowRevisionId: 'new' },
+      { status: 'waiting', workflowRevisionId: null },
+    ] })
+    expect(findings.map((finding) => finding.code)).toEqual(['pinned_workflow_revision'])
+    expect(workflowRuntimeFindings({ schedulingSessionCount: 0, activeRevisionId: null, recentRuns: [] })).toEqual([])
+  })
+
+  it('reports recorded text fallback without copying patient content or raw provider errors', () => {
+    const findings = workflowRuntimeFindings({ schedulingSessionCount: 0, activeRevisionId: 'new', recentRuns: [{
+      trace: { menuDeliveries: [
+        { nodeId: 'menu-1', deliveryMode: 'text_fallback', fallbackReason: 'provider_error', content: 'private patient text' },
+        { nodeId: 'menu-2', deliveryMode: 'interactive' },
+      ] },
+    }] })
+    expect(findings).toMatchObject([{ code: 'interactive_menu_text_fallback', nodeId: 'menu-1' }])
+    expect(JSON.stringify(findings)).not.toContain('private patient text')
+    expect(JSON.stringify(findings)).toContain('provider_error')
+  })
+
+  it('does not infer WhatsApp delivery from missing evidence or native acceptance', () => {
+    expect(workflowRuntimeFindings({ schedulingSessionCount: 0, recentRuns: [null, {}, {
+      trace: { menuDeliveries: [{ nodeId: 'menu-1', deliveryMode: 'interactive' }] },
+    }] })).toEqual([])
+  })
+})
 
 describe('buildWorkflowDiagnosticReport', () => {
   it('is ready only when every requested section is clear', () => {

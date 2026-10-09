@@ -76,3 +76,33 @@ describe('conversations.repository — deleteClosedBefore', () => {
     expect(capture.values).toEqual(['clinic-1', '2026-09-06T00:00:00.000Z'])
   })
 })
+
+describe('conversations.repository — scheduling session compare-and-swap', () => {
+  it('counts clinic scheduling sessions without retrieving patient data', async () => {
+    const capture: { query?: string; values?: unknown[] } = {}
+    const repo = createConversationsRepository(fakeSql([{ count: 2 }], capture))
+    await expect(repo.countSchedulingSessions('clinic-1')).resolves.toBe(2)
+    expect(capture.query).toContain('COUNT(*)')
+    expect(capture.query).toContain('clinic_id =')
+    expect(capture.query).toContain("status IN ('open', 'assigned')")
+    expect(capture.query).toContain("metadata->'scheduling'->>'action'")
+    expect(capture.values).toContain('clinic-1')
+  })
+  it('changes only scheduling metadata and matches the expected cursor within the clinic', async () => {
+    const capture: { query?: string; values?: unknown[] } = {}
+    const repo = createConversationsRepository(fakeSql([{ id: 'conv-1' }], capture))
+    const expected = { action: 'book', state: { step: 'awaiting_time' } }
+    await expect(repo.replaceSchedulingSession('clinic-1', 'conv-1', expected, null)).resolves.toBe(true)
+    expect(capture.query).toContain("- 'scheduling'")
+    expect(capture.query).toContain("metadata->'scheduling'")
+    expect(capture.query).toContain('clinic_id =')
+    expect(capture.values).toContain('clinic-1')
+    expect(capture.values).toContain('conv-1')
+    expect(capture.values).toContain(JSON.stringify(expected))
+  })
+
+  it('does not claim success if another turn changed the session', async () => {
+    const repo = createConversationsRepository(fakeSql([], {}))
+    await expect(repo.replaceSchedulingSession('clinic-1', 'conv-1', null, { action: 'book' })).resolves.toBe(false)
+  })
+})

@@ -10,6 +10,7 @@
 // next inbound message resumes where the patient left off. Google Calendar access
 // is bound from the clinic's encrypted OAuth tokens (clinics.settings.googleCalendar).
 import { z } from 'zod'
+import { isDeepStrictEqual } from 'node:util'
 import { decryptValue, encryptValue } from '@docmee/shared'
 import {
   detectLanguage,
@@ -38,6 +39,7 @@ import { activeWhatsAppAccount, resolveWhatsAppSender } from './meta-token.js'
 import { scheduleAppointmentFollowUps, scheduleNoResponseFollowUp } from './follow-up.js'
 import { createClinicCrmExporter, patientPhone } from './crm.js'
 import { patientAllowsAutomation } from './automation-boundary.js'
+import { schedulingSessionExpired } from './scheduling-session.js'
 import {
   createServiceDbClient,
   createClinicsRepository,
@@ -66,6 +68,7 @@ const SchedulingJobSchema = z.object({
   isNewPatient: z.boolean().optional(),
   conversationId: z.string().uuid().optional(),
   action: z.enum(['book', 'reschedule', 'cancel', 'status']),
+  expectedSchedulingSession: z.record(z.unknown()).optional(),
 })
 
 export type SchedulingJobData = z.infer<typeof SchedulingJobSchema>
@@ -79,10 +82,11 @@ interface CalendarConfig {
 }
 
 // Per-action persisted state lives under conversations.metadata.scheduling.
-type StoredFlow =
+type StoredFlow = (
   | { action: 'book'; state: BookingState }
   | { action: 'reschedule'; state: RescheduleState }
   | { action: 'cancel'; state: CancelState }
+) & { lastActivityAt?: string }
 
 function getPatientLanguage(patient: Patient | null): Language {
   const lang = patient ? (patient.metadata as { language?: unknown }).language : undefined
@@ -138,7 +142,7 @@ const unconfiguredCalendar: CalendarOps = {
 
 class SchedulingAutomationSuppressed extends Error {
   constructor() {
-    super('Scheduling automation suppressed because the patient is human-only')
+    super('Scheduling automation suppressed by patient ownership or a changed session')
   }
 }
 
@@ -244,6 +248,8 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     const conversations = createConversationsRepository(sql)
     const appointments = createAppointmentsRepository(sql)
     const channelAccounts = createChannelAccountsRepository(sql)
+    let cursorLoaded = false
+    let expectedCursor: unknown = null
     const automationAllowed = async (): Promise<boolean> => {
       // Automated replies must always be attributable to a durable patient. A
       // missing identity cannot prove that the number is automation-eligible.
@@ -252,6 +258,12 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     }
     const assertAutomationAllowed = async (): Promise<void> => {
       if (!(await automationAllowed())) throw new SchedulingAutomationSuppressed()
+      if (cursorLoaded && data.conversationId) {
+        const fresh = await conversations.findById(data.clinicId, data.conversationId)
+        if (!fresh || !isDeepStrictEqual(fresh.metadata.scheduling ?? null, expectedCursor)) {
+          throw new SchedulingAutomationSuppressed()
+        }
+      }
     }
 
     const clinic = await clinics.findById(data.clinicId)
@@ -356,6 +368,12 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       ? await conversations.findById(data.clinicId, data.conversationId)
       : null
     const metadata: Record<string, unknown> = conversation ? { ...conversation.metadata } : {}
+    expectedCursor = metadata.scheduling ?? null
+    cursorLoaded = true
+    if (data.expectedSchedulingSession && (
+      !isDeepStrictEqual(expectedCursor, data.expectedSchedulingSession) ||
+      schedulingSessionExpired(expectedCursor)
+    )) return
     // Whether a multi-turn flow was already mid-stream when this message arrived.
     // Used to schedule the no_response nudge only on the FIRST turn we start waiting
     // on the patient, so a long booking conversation doesn't queue a nudge per turn.
@@ -402,6 +420,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     const upcoming = patientAppointments.filter((a) => isUpcoming(a, nowIso))
 
     let nextFlow: StoredFlow | null = null
+    let needsHandoff = false
 
     // Generic turn-processing safety net (Req 29 Error Review). Calendar API
     // failures no longer land here — booking/reschedule/cancel-flow each catch
@@ -489,11 +508,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
 
         if (!rescheduleCalendar) {
           await reply(calendarUnavailable(language))
-          await notificationQueue.add('notify', {
-            ...data,
-            reason: 'human_handoff',
-            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
-          })
+          needsHandoff = true
           break
         }
 
@@ -621,11 +636,7 @@ export async function processSchedulingJob(job: Job): Promise<void> {
         // a usable calendar. Never silently fall back to another calendar.
         if ((!selectedResource && state.providerId) || (!bookingCalendar && (state.providerId || !doctorMode))) {
           await reply(calendarUnavailable(language))
-          await notificationQueue.add('notify', {
-            ...data,
-            reason: 'human_handoff',
-            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
-          })
+          needsHandoff = true
           break
         }
 
@@ -785,14 +796,8 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           },
         })
         await reply(result.reply)
-        if (result.handoff) {
-          await notificationQueue.add('notify', {
-            ...data,
-            reason: 'human_handoff',
-            idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
-          })
-        }
-        nextFlow = result.done ? null : { action: 'book', state: result.nextState }
+        needsHandoff = Boolean(result.handoff)
+        nextFlow = result.done || result.handoff ? null : { action: 'book', state: result.nextState }
         break
       }
       }
@@ -821,6 +826,10 @@ export async function processSchedulingJob(job: Job): Promise<void> {
       // Tell the patient a human will follow up and hand off; do not persist a
       // partially-advanced flow (we return without writing flow state).
       await reply(calendarUnavailable(language)).catch(() => {})
+      if (!(await automationAllowed())) return
+      if (conversation) {
+        if (!(await conversations.replaceSchedulingSession(data.clinicId, conversation.id, expectedCursor, null))) return
+      }
       await notificationQueue.add('notify', {
         ...data,
         reason: 'human_handoff',
@@ -832,10 +841,11 @@ export async function processSchedulingJob(job: Job): Promise<void> {
     // Persist (or clear) the flow state for the next inbound message.
     if (!(await automationAllowed())) return
     if (conversation) {
-      const updated = { ...metadata }
-      if (nextFlow) updated['scheduling'] = nextFlow
-      else delete updated['scheduling']
-      await conversations.update(data.clinicId, conversation.id, { metadata: updated })
+      if (nextFlow) nextFlow.lastActivityAt = new Date().toISOString()
+      const persisted = await conversations.replaceSchedulingSession(
+        data.clinicId, conversation.id, expectedCursor, nextFlow,
+      )
+      if (!persisted) return
 
       // Follow-up automation (Rev1 #14): the flow asked the patient something and is
       // now waiting on them. Schedule a single no_response nudge on the first such
@@ -848,6 +858,13 @@ export async function processSchedulingJob(job: Job): Promise<void> {
           silentSinceIso: nowIso,
         })
       }
+    }
+    if (needsHandoff) {
+      await notificationQueue.add('notify', {
+        ...data,
+        reason: 'human_handoff',
+        idempotencyKey: `human_handoff:${data.conversationId ?? 'none'}:${data.waMessageId}`,
+      })
     }
   } finally {
     await sql.end()

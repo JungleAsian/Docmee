@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   listContacts: vi.fn(),
   findConversation: vi.fn(),
   updateConversation: vi.fn(),
+  replaceSchedulingSession: vi.fn(),
   listProviders: vi.fn(),
   listByPatient: vi.fn(),
   listDoctors: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock('@docmee/db', () => ({
   createConversationsRepository: () => ({
     findById: h.findConversation,
     update: h.updateConversation,
+    replaceSchedulingSession: h.replaceSchedulingSession,
     createTag: vi.fn(),
     addTag: vi.fn(),
   }),
@@ -110,6 +112,7 @@ beforeEach(() => {
   h.findPatient.mockResolvedValue({ id: PATIENT, fullName: 'Ana', metadata: {} })
   h.listContacts.mockResolvedValue([{ channel: 'whatsapp', contactHandle: '5215555555555', isPrimary: true }])
   h.findConversation.mockResolvedValue({ id: CONVO, metadata: {} })
+  h.replaceSchedulingSession.mockReset().mockResolvedValue(true)
   h.listProviders.mockResolvedValue([{ id: 'p1', fullName: 'Dr. X', specialty: 'General' }])
   h.listByPatient.mockResolvedValue([])
   h.listDoctors.mockResolvedValue([]) // legacy provider mode → uses clinic calendar
@@ -125,6 +128,44 @@ beforeEach(() => {
 })
 
 describe('processSchedulingJob — calendar failure (Req 29)', () => {
+  it('clears the failed session before handing off, without replacing other metadata', async () => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() }
+    h.findConversation.mockResolvedValue({ id: CONVO, metadata: { scheduling: session, other: 'preserve' } })
+    h.advanceBookingFlow.mockRejectedValue(new Error('calendar unavailable'))
+    await processSchedulingJob(makeJob({ ...job, expectedSchedulingSession: session }))
+    expect(h.replaceSchedulingSession).toHaveBeenCalledWith(CLINIC, CONVO, session, null)
+    expect(h.updateConversation).not.toHaveBeenCalled()
+  })
+
+  it('stamps activity on a continued session using compare-and-swap', async () => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() }
+    h.findConversation.mockResolvedValue({ id: CONVO, metadata: { scheduling: session } })
+    h.advanceBookingFlow.mockResolvedValue({ nextState: { step: 'awaiting_time' }, reply: 'Elige una hora', done: false })
+    await processSchedulingJob(makeJob({ ...job, expectedSchedulingSession: session }))
+    expect(h.replaceSchedulingSession).toHaveBeenCalledWith(CLINIC, CONVO, session, expect.objectContaining({
+      action: 'book', lastActivityAt: expect.any(String),
+    }))
+    expect(h.updateConversation).not.toHaveBeenCalled()
+  })
+
+  it('clears a successfully completed appointment session', async () => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() }
+    h.findConversation.mockResolvedValue({ id: CONVO, metadata: { scheduling: session } })
+    h.advanceBookingFlow.mockResolvedValue({ nextState: {}, reply: 'Cita confirmada', done: true })
+    await processSchedulingJob(makeJob({ ...job, expectedSchedulingSession: session }))
+    expect(h.replaceSchedulingSession).toHaveBeenCalledWith(CLINIC, CONVO, session, null)
+  })
+
+  it('does not resume a queued appointment after the user has exited the session', async () => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() }
+    h.findConversation.mockResolvedValue({ id: CONVO, metadata: {} })
+    h.advanceBookingFlow.mockResolvedValue({ nextState: {}, reply: 'Cita confirmada', done: true })
+    await processSchedulingJob(makeJob({ ...job, expectedSchedulingSession: session }))
+    expect(h.advanceBookingFlow).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.replaceSchedulingSession).not.toHaveBeenCalled()
+  })
+
   it('logs calendar_failure, replies the fallback, and hands off when a flow throws', async () => {
     h.advanceBookingFlow.mockRejectedValue(new Error('invalid_grant: token expired'))
 
@@ -156,6 +197,21 @@ describe('processSchedulingJob — calendar failure (Req 29)', () => {
     )
     // The partially-advanced flow state is NOT persisted (we returned early).
     expect(h.updateConversation).not.toHaveBeenCalled()
+  })
+
+  it('does not hand off a newer session when failure cleanup loses the cursor race', async () => {
+    h.advanceBookingFlow.mockRejectedValue(new Error('calendar unavailable'))
+    h.replaceSchedulingSession.mockResolvedValue(false)
+    await processSchedulingJob(makeJob(job))
+    expect(h.notificationAdd).not.toHaveBeenCalled()
+  })
+
+  it('ignores an expired queued scheduling session before advancing or sending', async () => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date(Date.now() - 31 * 60_000).toISOString() }
+    h.findConversation.mockResolvedValue({ id: CONVO, metadata: { scheduling: session } })
+    await processSchedulingJob(makeJob({ ...job, expectedSchedulingSession: session }))
+    expect(h.advanceBookingFlow).not.toHaveBeenCalled()
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
   })
 
   it('classifies WhatsApp delivery errors separately from Calendar failures', async () => {

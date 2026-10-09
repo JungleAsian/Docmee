@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WorkflowContext, WorkflowExecutors } from '@docmee/agents'
+
+type MenuExecutors = Required<Pick<WorkflowExecutors, 'sendInteractiveMenu' | 'sendSlotMenu'>>
 
 const h = vi.hoisted(() => ({
   findWorkflow: vi.fn(),
@@ -433,6 +436,21 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.runWorkflow).not.toHaveBeenCalled()
   })
 
+  it.each(['completed', 'paused'])('persists bounded non-message menu evidence for %s runs', async (status: string) => {
+    h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext) => {
+      ctx.menu = { nodeId: 'menu-1', deliveryMode: 'text_fallback', fallbackReason: 'provider_error', message: 'private text' }
+      ctx.slots = { nodeId: 'slots-1', deliveryMode: 'interactive', fallbackReason: 'raw private error', slots: ['private'] }
+      return [{ status }]
+    })
+    await processWorkflowRunJob(job)
+    const persisted = status === 'paused' ? h.scheduleResume : h.transitionRun
+    expect(persisted).toHaveBeenLastCalledWith(expect.objectContaining({ trace: expect.objectContaining({ menuDeliveries: [
+      { nodeId: 'menu-1', deliveryMode: 'text_fallback', fallbackReason: 'provider_error' },
+      { nodeId: 'slots-1', deliveryMode: 'interactive' },
+    ] }) }))
+    expect(JSON.stringify(persisted.mock.calls)).not.toContain('private')
+  })
+
   it('re-checks human-only ownership before claiming each workflow side effect', async () => {
     h.findPatient
       .mockResolvedValueOnce({ id: PATIENT, automationMode: 'automated', metadata: {} })
@@ -502,6 +520,39 @@ describe('processWorkflowRunJob automation ownership', () => {
 
     expect(h.sendWhatsAppInteractiveList).not.toHaveBeenCalled()
     expect(h.createMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['interactive', 'slots'])('does not send a text duplicate after %s menu acceptance if persistence fails', async (kind: string) => {
+    h.createMessage.mockRejectedValueOnce(new Error('Database unavailable'))
+    h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext, exec: MenuExecutors) => {
+      const menuCtx = { ...ctx, conversationId: 'conversation-1', available_slots: [{ start: '2027-09-15T09:00:00', end: '2027-09-15T09:30:00' }] }
+      const node = { id: 'menu-1', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu', config: { message: 'Choose', options: [{ optionId: 'one', title: 'One' }] } }
+      if (kind === 'interactive') await exec.sendInteractiveMenu(node, menuCtx, 0)
+      else await exec.sendSlotMenu(node, menuCtx, 0)
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.sendWhatsAppInteractiveList).toHaveBeenCalledTimes(1)
+    expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it.each(['interactive', 'slots'])('records native versus fallback delivery for the %s menu', async (kind: string) => {
+    h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext, exec: MenuExecutors) => {
+      const menuCtx = { ...ctx, conversationId: 'conversation-1', available_slots: [{ start: '2027-09-15T09:00:00', end: '2027-09-15T09:30:00' }] }
+      const node = { id: 'menu-1', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu', config: { message: 'Choose', options: [{ optionId: 'one', title: 'One' }] } }
+      if (kind === 'interactive') await exec.sendInteractiveMenu(node, menuCtx, 0)
+      else await exec.sendSlotMenu(node, menuCtx, 0)
+      return [{ status: 'paused', context: menuCtx }]
+    })
+    await processWorkflowRunJob(job)
+    const key = kind === 'interactive' ? 'menu' : 'slots'
+    const nativeRun = h.updateConversation.mock.calls.at(-1)?.[2].metadata.pendingWorkflowRuns[0]
+    expect(JSON.parse(nativeRun.context)[key]).toEqual(expect.objectContaining({ deliveryMode: 'interactive' }))
+    h.sendWhatsAppInteractiveList.mockRejectedValueOnce(new Error('Provider rejected menu'))
+    await processWorkflowRunJob(job)
+    expect(h.sendWhatsAppText).toHaveBeenCalledTimes(1)
+    const fallbackRun = h.updateConversation.mock.calls.at(-1)?.[2].metadata.pendingWorkflowRuns[0]
+    expect(JSON.parse(fallbackRun.context)[key]).toEqual(expect.objectContaining({ deliveryMode: 'text_fallback', fallbackReason: 'provider_error' }))
   })
 
   it.each(['reason', 'appointment_reason', 'Appointment reason'])('persists the captured %s so calendar retries retain it', async (reasonField) => {

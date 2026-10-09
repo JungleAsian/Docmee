@@ -1530,6 +1530,8 @@ function buildExecutors(
         ...(footer ? [footer] : []),
       ].join('\n\n')
 
+      let deliveryMode: 'interactive' | 'text_fallback' = 'text_fallback'
+      let fallbackReason: 'provider_error' | 'sender_unavailable' | 'target_unavailable' | undefined = 'target_unavailable'
       const target = await resolveTarget(sql, clinicId, ctx.patientId)
       if (target) {
         const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
@@ -1549,13 +1551,17 @@ function buildExecutors(
               buttonLabel: isButton ? undefined : String(node.config?.['buttonLabel'] ?? 'Options'),
               options: options.map((o) => ({ id: o.optionId, title: o.title, description: o.description })),
             })
+            deliveryMode = 'interactive'
+            fallbackReason = undefined
             await persistOutbound(sql, clinicId, ctx.conversationId, fullText, wamid)
           } catch (err) {
             if (err instanceof WorkflowAutomationSuppressed) throw err
             console.error('[workflow] failed to send interactive menu:', err)
+            fallbackReason = 'provider_error'
             await sendWorkflowMessage(fullText, ctx)
           }
         } else {
+          fallbackReason = 'sender_unavailable'
           await sendWorkflowMessage(fullText, ctx)
         }
       } else {
@@ -1567,7 +1573,7 @@ function buildExecutors(
         return false
       }
 
-      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending' }
+      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending', deliveryMode, ...(fallbackReason ? { fallbackReason } : {}) }
       const conversations = createConversationsRepository(sql)
       const conversation = await conversations.findById(clinicId, ctx.conversationId)
       if (!conversation) return false
@@ -1625,6 +1631,8 @@ function buildExecutors(
       const message = menuMessageWithConfiguredLinks({ ...node.config, message: rawMessage })
       const fullText = [brandedHeader, message, menuOptionsListText(options), ...(footer ? [footer] : [])].join('\n\n')
 
+      let deliveryMode: 'interactive' | 'text_fallback' = 'text_fallback'
+      let fallbackReason: 'provider_error' | 'sender_unavailable' | 'target_unavailable' | undefined = 'target_unavailable'
       const target = await resolveTarget(sql, clinicId, ctx.patientId)
       if (target) {
         const sender = resolveWhatsAppInteractiveSender(target.account, target.handle)
@@ -1639,13 +1647,17 @@ function buildExecutors(
               buttonLabel: String(node.config?.['buttonLabel'] ?? 'Options'),
               options,
             })
+            deliveryMode = 'interactive'
+            fallbackReason = undefined
             await persistOutbound(sql, clinicId, ctx.conversationId, fullText, wamid)
           } catch (err) {
             if (err instanceof WorkflowAutomationSuppressed) throw err
             console.error('[workflow] failed to send slot menu:', err)
+            fallbackReason = 'provider_error'
             await sendWorkflowMessage(fullText, ctx)
           }
         } else {
+          fallbackReason = 'sender_unavailable'
           await sendWorkflowMessage(fullText, ctx)
         }
       } else {
@@ -1657,7 +1669,7 @@ function buildExecutors(
         return false
       }
 
-      ctx[WORKFLOW_SLOT_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending' }
+      ctx[WORKFLOW_SLOT_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending', deliveryMode, ...(fallbackReason ? { fallbackReason } : {}) }
       const conversations = createConversationsRepository(sql)
       const conversation = await conversations.findById(clinicId, ctx.conversationId)
       if (!conversation) return false
@@ -2107,7 +2119,19 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
     const exec = buildExecutors(sql, data, run.id, (resume) => { pendingResumeRef.current = resume })
     const outcome = await runWorkflowWithOutcome(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
     if (data.approvalId) await approvals.markResumed(data.clinicId, data.approvalId)
-    const tracePayload = { trace: outcome.trace, terminalState: outcome.status }
+    // Persist transport evidence only, never menu text, recipients, or raw
+    // provider errors. There can be at most one menu and one slot-menu cursor.
+    const menuDeliveries = [WORKFLOW_MENU_CONTEXT_KEY, WORKFLOW_SLOT_MENU_CONTEXT_KEY].flatMap((key) => {
+      const value = ctx[key]
+      if (!value || typeof value !== 'object') return []
+      const menu = value as Record<string, unknown>
+      if (typeof menu.nodeId !== 'string' || !['interactive', 'text_fallback'].includes(String(menu.deliveryMode))) return []
+      const reason = ['provider_error', 'sender_unavailable', 'target_unavailable'].includes(String(menu.fallbackReason))
+        ? String(menu.fallbackReason)
+        : undefined
+      return [{ nodeId: menu.nodeId, deliveryMode: menu.deliveryMode, ...(reason ? { fallbackReason: reason } : {}) }]
+    })
+    const tracePayload = { trace: outcome.trace, terminalState: outcome.status, ...(menuDeliveries.length ? { menuDeliveries } : {}) }
     if (outcome.status === 'waiting') {
       const pendingResume = pendingResumeRef.current
       // Reply/approval waits are resumed by their trusted event handlers, not

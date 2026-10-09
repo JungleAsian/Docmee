@@ -41,6 +41,8 @@ export interface CreateNoteInput {
 
 export interface ConversationsRepository {
   findById(clinicId: string, id: string): Promise<Conversation | null>
+  /** Replace only the scheduling cursor, without overwriting other metadata or a newer turn. */
+  replaceSchedulingSession(clinicId: string, id: string, expected: unknown, next: unknown): Promise<boolean>
   /**
    * The most recent still-active (not resolved/archived) conversation for a contact on a
    * channel, or null. Lets ingest workers thread a new inbound message onto the
@@ -55,6 +57,7 @@ export interface ConversationsRepository {
   /** Every conversation for one patient, newest first (patient history view). */
   listByPatient(clinicId: string, patientId: string): Promise<Conversation[]>
   countActive(clinicId: string): Promise<number>
+  countSchedulingSessions(clinicId: string): Promise<number>
   /**
    * Conversations (across all clinics) in any of the given statuses whose last
    * inbound/outbound message is older than `olderThanMinutes`. Powers the
@@ -151,6 +154,20 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
       return rows[0] ?? null
     },
 
+    async replaceSchedulingSession(clinicId, id, expected, next) {
+      const rows = await sql<Array<{ id: string }>>`
+        UPDATE conversations
+        SET metadata = CASE WHEN ${JSON.stringify(next ?? null)}::jsonb = 'null'::jsonb
+          THEN COALESCE(metadata, '{}'::jsonb) - 'scheduling'
+          ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{scheduling}', ${JSON.stringify(next ?? null)}::jsonb)
+        END
+        WHERE clinic_id = ${clinicId} AND id = ${id}
+          AND COALESCE(metadata->'scheduling', 'null'::jsonb) = ${JSON.stringify(expected ?? null)}::jsonb
+        RETURNING id
+      `
+      return rows.length > 0
+    },
+
     async findOpenByContact(clinicId, channel, contactHandle) {
       const rows = await sql<Conversation[]>`
         SELECT * FROM conversations
@@ -235,6 +252,15 @@ export function createConversationsRepository(sql: Sql): ConversationsRepository
     async countActive(clinicId) {
       const rows = await sql<[{ count: string }]>`
         SELECT COUNT(*) FROM conversations WHERE clinic_id = ${clinicId} AND status IN ('open', 'assigned')
+      `
+      return parseInt(rows[0]?.count ?? '0', 10)
+    },
+
+    async countSchedulingSessions(clinicId) {
+      const rows = await sql<[{ count: string }]>`
+        SELECT COUNT(*) FROM conversations
+        WHERE clinic_id = ${clinicId} AND status IN ('open', 'assigned')
+          AND metadata->'scheduling'->>'action' IN ('book', 'reschedule', 'cancel', 'status')
       `
       return parseInt(rows[0]?.count ?? '0', 10)
     },

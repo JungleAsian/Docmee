@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   listEnabledFlows: vi.fn(),
   findConversation: vi.fn(),
   updateConversation: vi.fn(),
+  replaceSchedulingSession: vi.fn(),
   createTag: vi.fn(),
   addTag: vi.fn(),
   createMessage: vi.fn(),
@@ -75,6 +76,7 @@ vi.mock('@docmee/db', () => ({
   createConversationsRepository: () => ({
     findById: h.findConversation,
     update: h.updateConversation,
+    replaceSchedulingSession: h.replaceSchedulingSession,
     createTag: h.createTag,
     addTag: h.addTag,
   }),
@@ -108,6 +110,8 @@ const baseJob = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.enqueueInboundWorkflowRuns.mockReset().mockResolvedValue({ enqueued: 0, ownsTurn: false })
+  h.replaceSchedulingSession.mockReset().mockResolvedValue(true)
   h.sendWhatsAppText.mockReset().mockResolvedValue('wamid.reply')
   h.markProviderAccepted.mockReset().mockResolvedValue(undefined)
   h.markSendFailed.mockReset().mockResolvedValue(undefined)
@@ -568,7 +572,7 @@ describe('processAgentJob — AI conversation orchestration', () => {
     h.findConversation.mockResolvedValue({
       id: CONVO,
       status: 'open',
-      metadata: { scheduling: { action: 'book', step: 'awaiting_time' } },
+      metadata: { scheduling: { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() } },
     })
 
     await processAgentJob(makeJob({ ...baseJob, message: '10:30' }))
@@ -609,6 +613,57 @@ describe('processAgentJob — all-day automation switch', () => {
     },
     timezone: 'America/Mexico_City',
   }
+
+  it.each(['menu', 'menú', ' INICIO '])('lets %s escape an appointment session into the published workflow', async (message: string) => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() }
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: { scheduling: session } })
+    h.enqueueInboundWorkflowRuns.mockResolvedValueOnce({ enqueued: 1, ownsTurn: true })
+
+    await processAgentJob(makeJob({ ...baseJob, message }))
+
+    expect(h.replaceSchedulingSession).toHaveBeenCalledWith(CLINIC, CONVO, session, null)
+    expect(h.enqueueInboundWorkflowRuns).toHaveBeenCalled()
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, 'invalid', new Date(Date.now() - 31 * 60_000).toISOString()])('expires a session with activity %s before a wildcard trigger', async (lastActivityAt: string | undefined) => {
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {
+      scheduling: { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt },
+    } })
+    h.enqueueInboundWorkflowRuns.mockResolvedValueOnce({ enqueued: 1, ownsTurn: true })
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'hola' }))
+
+    expect(h.replaceSchedulingSession).toHaveBeenCalled()
+    expect(h.enqueueInboundWorkflowRuns).toHaveBeenCalled()
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
+  })
+
+  it.each(['10:30', '2026-10-10', 'menu de precios'])('keeps a fresh appointment reply %s out of wildcard workflows', async (message: string) => {
+    const session = { action: 'book', state: { step: 'awaiting_time' }, lastActivityAt: new Date().toISOString() }
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: { scheduling: session } })
+
+    await processAgentJob(makeJob({ ...baseJob, message }))
+
+    expect(h.schedulingAdd).toHaveBeenCalledWith('schedule', expect.objectContaining({ action: 'book', expectedSchedulingSession: session }))
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+  })
+
+  it('does not start a workflow when a session changed concurrently during escape', async () => {
+    h.findClinic.mockResolvedValue(allDayClinic)
+    h.findConversation.mockResolvedValue({ id: CONVO, status: 'open', metadata: {
+      scheduling: { action: 'book', state: { step: 'start' }, lastActivityAt: new Date().toISOString() },
+    } })
+    h.replaceSchedulingSession.mockResolvedValue(false)
+
+    await processAgentJob(makeJob({ ...baseJob, message: 'menu' }))
+
+    expect(h.enqueueInboundWorkflowRuns).not.toHaveBeenCalled()
+    expect(h.schedulingAdd).not.toHaveBeenCalled()
+  })
 
   it('starts inbound workflows during business hours when the clinic opted in', async () => {
     h.findClinic.mockResolvedValue(allDayClinic)

@@ -1,10 +1,9 @@
 import 'dotenv/config'
 import { buildApp } from './app.js'
 
-const PORT = Number(process.env['API_PORT']) || 3001
-const HOST =
-  process.env['API_HOST'] ||
-  (process.env['NODE_ENV'] === 'production' ? '127.0.0.1' : '0.0.0.0')
+const PORT = Number(process.env['PORT'] || process.env['API_PORT']) || 3001
+const HOST = process.env['API_HOST'] ||
+  (process.env['PORT'] || process.env['NODE_ENV'] !== 'production' ? '0.0.0.0' : '127.0.0.1')
 
 const app = await buildApp()
 

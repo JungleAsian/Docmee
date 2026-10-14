@@ -29,7 +29,7 @@ export function InteractionModeToggle({ patientId, metadata }: { patientId: stri
     <div className="crm-status-toggle flex min-w-0 flex-col gap-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
-          Automation
+          Always handled by
         </span>
         {!canChangeMode && (
           <span className="text-[9px] font-semibold text-[var(--crm-text-muted)]">
@@ -39,8 +39,18 @@ export function InteractionModeToggle({ patientId, metadata }: { patientId: stri
       </div>
       <div
         className="crm-status-toggle-options grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
-        aria-label="Opt-in or Opt-out automation status"
+        role="group"
+        aria-label="Always handled by"
       >
+        <button
+          type="button"
+          aria-pressed={isOptedOut}
+          disabled={!canChangeMode || mutation.isPending || isOptedOut}
+          onClick={() => mutation.mutate('opted_out')}
+          className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${isOptedOut ? 'bg-sky-100 text-sky-700 shadow-sm dark:bg-sky-950/60 dark:text-sky-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-sky-700'}`}
+        >
+          Secretary
+        </button>
         <button
           type="button"
           aria-pressed={!isOptedOut}
@@ -48,16 +58,7 @@ export function InteractionModeToggle({ patientId, metadata }: { patientId: stri
           onClick={() => mutation.mutate('active')}
           className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${!isOptedOut ? 'bg-sky-100 text-sky-700 shadow-sm dark:bg-sky-950/60 dark:text-sky-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-sky-700'}`}
         >
-          Opt-in
-        </button>
-        <button
-          type="button"
-          aria-pressed={isOptedOut}
-          disabled={!canChangeMode || mutation.isPending || isOptedOut}
-          onClick={() => mutation.mutate('opted_out')}
-          className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${isOptedOut ? 'bg-rose-100 text-rose-700 shadow-sm dark:bg-rose-950/60 dark:text-rose-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-rose-700'}`}
-        >
-          Opt-out
+          Bot
         </button>
       </div>
       {mutation.isError && (

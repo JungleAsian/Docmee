@@ -42,7 +42,7 @@ export function Breadcrumbs() {
   })
 
   return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-gray-500">
+    <nav aria-label={t('nav.breadcrumb')} className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-gray-500">
       {crumbs.map((crumb, i) => {
         const last = i === crumbs.length - 1
         return (

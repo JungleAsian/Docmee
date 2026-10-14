@@ -9,7 +9,6 @@
 // ['patient-appointments', id] queries (TanStack dedupes them) so it adds no
 // fetch beyond what the thread already loads.
 import Link from 'next/link'
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useI18n } from '../hooks/useI18n'
@@ -58,7 +57,6 @@ export function PatientInfoCard({
   showChatStatus?: boolean
 }) {
   const { t, language } = useI18n()
-  const [phoneVisible, setPhoneVisible] = useState(false)
 
   const conversationQuery = useQuery({
     queryKey: ['conversation', conversationId],
@@ -82,7 +80,7 @@ export function PatientInfoCard({
   })
 
   const handle = conversation?.channelContactHandle ?? '…'
-  const displayName = patient?.fullName ?? conversation?.patientName ?? 'Patient'
+  const displayName = patient?.fullName ?? conversation?.patientName ?? t('inbox.contact.patient')
   const badge = patient ? STATUS_BADGE[patient.status] : null
   const channel = conversation?.channel
 
@@ -103,38 +101,29 @@ export function PatientInfoCard({
           className="crm-conv-avatar !h-9 !w-9 !text-sm"
           style={{ background: avatarColor(conversationId) }}
         >
-          {avatarLabel(handle)}
+          {avatarLabel(displayName)}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <p className="truncate text-xs font-extrabold text-[var(--crm-text-main)]">{displayName}</p>
             {personalConversation && (
               <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                Personal
+                {t('inbox.contact.personal')}
               </span>
             )}
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[var(--crm-text-muted)]">
             <span className="truncate">
-              {phoneVisible
-                ? channel === 'whatsapp' || !channel ? handle : `${CHANNEL_LABEL[channel]} · ${handle}`
-                : 'Number hidden'}
+              {channel === 'whatsapp' || !channel ? handle : `${CHANNEL_LABEL[channel]} · ${handle}`}
             </span>
-            <button
-              type="button"
-              onClick={() => setPhoneVisible((v) => !v)}
-              className="shrink-0 rounded-full border border-[var(--crm-border-color)] px-1.5 py-0.5 text-[9px] font-bold hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
-            >
-              {phoneVisible ? 'Hide' : 'Show'}
-            </button>
           </div>
         </div>
         {onHideDetails && (
           <button
             type="button"
             onClick={onHideDetails}
-            title="Hide patient details"
-            aria-label="Hide patient details"
+            title={t('inbox.details.hide')}
+            aria-label={t('inbox.details.hide')}
             className="shrink-0 rounded p-1 text-gray-300 hover:bg-gray-100 hover:text-gray-500 dark:hover:bg-gray-800"
           >
             <HideDetailsIcon />
@@ -152,7 +141,7 @@ export function PatientInfoCard({
           </span>
           {personalConversation && (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-              Personal Conversation
+              {t('inbox.contact.personalConversation')}
             </span>
           )}
         </div>

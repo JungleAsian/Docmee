@@ -8,6 +8,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useActiveClinic } from '../hooks/useActiveClinic'
+import { useI18n } from '../hooks/useI18n'
 import { useAuthStore } from '../store/auth'
 import { can } from '../permissions'
 import { assessSafety } from '../safety'
@@ -28,8 +29,8 @@ function timeOf(iso: string): string {
   return iso.slice(11, 16)
 }
 
-function patientLabel(c: Conversation): string {
-  return c.patientName || c.channelContactHandle || 'Patient'
+function patientLabel(c: Conversation, fallback: string): string {
+  return c.patientName || c.channelContactHandle || fallback
 }
 
 function isClosed(c: Conversation): boolean {
@@ -37,6 +38,7 @@ function isClosed(c: Conversation): boolean {
 }
 
 export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
+  const { t } = useI18n()
   const { clinicId } = useActiveClinic()
   const user = useAuthStore((s) => s.user)
   const canCalendar = can(user?.role, 'calendar')
@@ -101,9 +103,9 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
     <section className="clinic-card overflow-hidden">
       <div className={`clinic-section-surface flex flex-wrap items-start justify-between gap-3 border-x-0 border-t-0 ${compact ? 'p-3' : 'p-4'}`}>
         <div>
-          <h2 className={`${compact ? 'text-sm' : 'text-lg'} font-bold text-gray-950 dark:text-gray-50`}>Today</h2>
+          <h2 className={`${compact ? 'text-sm' : 'text-lg'} font-bold text-gray-950 dark:text-gray-50`}>{t('today.title')}</h2>
           {!compact && <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-            Urgent patient messages, waiting replies, unassigned work, and today's visits in one staff view.
+            {t('today.description')}
           </p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -111,14 +113,14 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
             href="/inbox"
             className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
           >
-            Open inbox
+            {t('today.openInbox')}
           </Link>
           {canCalendar && (
             <Link prefetch={false}
               href="/calendar"
               className="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
             >
-              View calendar
+              {t('today.viewCalendar')}
             </Link>
           )}
         </div>
@@ -132,16 +134,16 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
         </div>
       ) : hasError ? (
         <div className="p-4 text-sm text-red-600 dark:text-red-300">
-          Could not load the live clinic summary. Inbox and calendar are still available.
+          {t('today.error')}
         </div>
       ) : (
           <div className={`grid gap-3 border-t border-gray-200 ${compact ? 'p-3 lg:grid-cols-2' : 'p-4 lg:grid-cols-[1.1fr_0.9fr]'} dark:border-gray-800`}>
             <div className="clinic-nested-surface rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold">Next patient action</h3>
+                <h3 className="text-sm font-bold">{t('today.nextAction')}</h3>
                 {next && (
                   <Link prefetch={false} href={`/inbox?c=${next.id}`} className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400">
-                    Open thread
+                    {t('today.openThread')}
                   </Link>
                 )}
               </div>
@@ -149,44 +151,44 @@ export function TodayCommandCenter({ compact = false }: { compact?: boolean }) {
                 <div className="mt-3 flex items-start gap-3">
                   <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${summary.urgent.includes(next) ? 'bg-red-500' : 'bg-amber-500'}`} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-950 dark:text-gray-50">{patientLabel(next)}</p>
+                    <p className="truncate text-sm font-semibold text-gray-950 dark:text-gray-50">{patientLabel(next, t('inbox.contact.patient'))}</p>
                     <p className="mt-1 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
                       {summary.urgent.includes(next)
-                        ? 'Safety or urgency signal detected. Review before the bot continues.'
+                        ? t('today.urgent')
                         : summary.waiting[0]?.conversation.id === next.id
-                          ? `Patient has waited ${formatWaiting(summary.waiting[0].minutes)} for a reply.`
+                          ? t('today.waiting', { duration: formatWaiting(summary.waiting[0].minutes) })
                           : next.status === 'open'
-                            ? 'Bot is handling this thread. Keep an eye on it for escalation.'
-                            : 'Thread is open and ready for staff review.'}
+                            ? t('today.botHandling')
+                            : t('today.staffReview')}
                     </p>
                   </div>
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No open patient conversations need staff action right now.</p>
+                <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">{t('today.noAction')}</p>
               )}
             </div>
 
             <div className="clinic-nested-surface rounded-lg p-3">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-bold">Next visit</h3>
+                <h3 className="text-sm font-bold">{t('today.nextVisit')}</h3>
                 {canCalendar && (
                   <Link prefetch={false} href="/calendar" className="text-xs font-semibold text-teal-600 hover:text-teal-700 dark:text-teal-400">
-                    Schedule
+                    {t('today.schedule')}
                   </Link>
                 )}
               </div>
               {summary.nextAppointment ? (
                 <div className="mt-3">
                   <p className="text-sm font-semibold text-gray-950 dark:text-gray-50">
-                    {timeOf(summary.nextAppointment.startTime)} · {summary.nextAppointment.patientName || 'Patient'}
+                    {timeOf(summary.nextAppointment.startTime)} · {summary.nextAppointment.patientName || t('inbox.contact.patient')}
                   </p>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {summary.nextAppointment.doctorName || 'No provider assigned'}
+                    {summary.nextAppointment.doctorName || t('today.noProvider')}
                     {summary.nextAppointment.serviceName ? ` · ${summary.nextAppointment.serviceName}` : ''}
                   </p>
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No active visits are scheduled for today.</p>
+                <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">{t('today.noVisits')}</p>
               )}
             </div>
           </div>

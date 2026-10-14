@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { automationTransitionSteps, type ConversationMode } from '../conversationMode'
 import { useAuthStore } from '../store/auth'
+import { useI18n } from '../hooks/useI18n'
 
 const CAN_CHANGE_MODE = new Set(['secretary', 'clinic_admin', 'ia_studio_admin'])
 
@@ -16,6 +17,7 @@ export function AutomationModeToggle({
   patientId: string
   mode: ConversationMode
 }) {
+  const { t } = useI18n()
   const qc = useQueryClient()
   const role = useAuthStore((state) => state.user?.role)
   const canChangeMode = role ? CAN_CHANGE_MODE.has(role) : false
@@ -39,17 +41,17 @@ export function AutomationModeToggle({
     <div className="crm-status-toggle flex min-w-0 flex-col gap-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--crm-text-muted)]">
-          Mode
+          {t('view.mode.title')}
         </span>
         {!canChangeMode && (
           <span className="text-[9px] font-semibold text-[var(--crm-text-muted)]">
-            View only
+            {t('inbox.mode.readOnly')}
           </span>
         )}
       </div>
       <div
         className="crm-status-toggle-options grid grid-cols-2 gap-1 rounded-2xl border border-[var(--crm-border-color)] bg-[var(--crm-soft-bg)] p-1"
-        aria-label="AI or Secretary handling mode"
+        aria-label={t('inbox.mode.label')}
       >
         <button
           type="button"
@@ -58,7 +60,7 @@ export function AutomationModeToggle({
           onClick={() => mutation.mutate('bot')}
           className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${!isSecretaryMode ? 'bg-violet-100 text-violet-700 shadow-sm dark:bg-violet-950/60 dark:text-violet-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-violet-700'}`}
         >
-          AI
+          {t('view.mode.bot')}
         </button>
         <button
           type="button"
@@ -67,11 +69,11 @@ export function AutomationModeToggle({
           onClick={() => mutation.mutate('human')}
           className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold transition disabled:cursor-default disabled:opacity-100 ${isSecretaryMode ? 'bg-emerald-100 text-emerald-700 shadow-sm dark:bg-emerald-950/60 dark:text-emerald-200' : 'text-[var(--crm-text-muted)] hover:bg-[var(--crm-card-bg)] hover:text-emerald-700'}`}
         >
-          Secretary
+          {t('view.mode.human')}
         </button>
       </div>
       {mutation.isError && (
-        <span role="alert" className="text-[10px] font-semibold text-red-600">Mode change failed. Try again.</span>
+        <span role="alert" className="text-[10px] font-semibold text-red-600">{t('inbox.mode.error')}</span>
       )}
     </div>
   )

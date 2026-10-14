@@ -1,9 +1,16 @@
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { translate } from '../i18n'
 import { WorkflowDiagnosticsPanel, WorkflowDiagnosticsTrigger, buildWorkflowDiagnosticsRequest, canUseWorkflowDiagnostics } from './WorkflowDiagnosticsPanel'
 
+const locale = vi.hoisted(() => ({ language: 'en' as 'en' | 'es' }))
+vi.mock('../hooks/useI18n', () => ({
+  useI18n: () => ({ t: (key: string) => translate(locale.language, key) }),
+}))
+
 describe('WorkflowDiagnosticsPanel', () => {
+  beforeEach(() => { locale.language = 'en' })
   it('keeps the diagnostic entry point exclusive to superusers', () => {
     vi.stubGlobal('React', React)
     expect(canUseWorkflowDiagnostics('ia_studio_admin')).toBe(true)
@@ -53,5 +60,26 @@ describe('WorkflowDiagnosticsPanel', () => {
     expect(markup).toContain('Integration readiness')
     expect(markup).toContain('Recent runs')
     expect(markup).toContain('Go to step')
+  })
+
+  it('translates diagnostic controls and statuses, not workflow-authored content', () => {
+    vi.stubGlobal('React', React)
+    locale.language = 'es'
+    const markup = renderToStaticMarkup(
+      <WorkflowDiagnosticsPanel
+        open busy={false} needsInitialSave={false} error={null} onClose={vi.fn()} onRun={vi.fn()} onFocusIssue={vi.fn()}
+        result={{
+          status: 'needs_attention', source: 'saved_graph', startedAt: '', completedAt: '', workflowChecks: [],
+          simulations: [{ name: 'My clinic path', required: true, status: 'completed' }],
+          integrations: [], recentRuns: [{ id: 'test-run', status: 'failed' }],
+        }}
+      />,
+    )
+    expect(markup).toContain('Diagnóstico del flujo')
+    expect(markup).toContain('Necesita atención')
+    expect(markup).toContain('Completado')
+    expect(markup).toContain('Fallido')
+    expect(markup).toContain('My clinic path')
+    expect(markup).not.toContain('Workflow diagnostics')
   })
 })

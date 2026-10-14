@@ -124,16 +124,16 @@ export function NotificationPreferences() {
           {soundEnabled && (
             <div className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
               <div className="mb-3 flex items-center justify-between gap-3 text-sm">
-                <label htmlFor="notification-volume" className="text-xs font-medium">Volume</label>
-                <input id="notification-volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Notification volume" />
+                <label htmlFor="notification-volume" className="text-xs font-medium">{t('notifications.volume')}</label>
+                <input id="notification-volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label={t('notifications.volumeLabel')} />
                 <span className="w-10 text-right text-xs text-gray-500">{Math.round(volume * 100)}%</span>
               </div>
               <div className="mb-3 flex items-center justify-between gap-2 text-sm">
-                <span className="text-xs font-medium">Default chime</span>
-                <select value={soundId} onChange={(e) => setSoundId(e.target.value as SoundPreset)} className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700" aria-label="Default notification chime">
+                <span className="text-xs font-medium">{t('notifications.defaultChime')}</span>
+                <select value={soundId} onChange={(e) => setSoundId(e.target.value as SoundPreset)} className="rounded-md border border-gray-300 bg-transparent px-2 py-1 text-xs dark:border-gray-700" aria-label={t('notifications.defaultChimeLabel')}>
                   {SOUND_PRESETS.map((preset) => <option key={preset} value={preset}>{t(`notif.sound.${preset}` as const)}</option>)}
                 </select>
-                <button type="button" onClick={() => previewSound(soundId, volume)} className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700">Test</button>
+                <button type="button" onClick={() => previewSound(soundId, volume)} className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700">{t('notifications.test')}</button>
               </div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                 {t('notif.prefs.soundsTitle')}

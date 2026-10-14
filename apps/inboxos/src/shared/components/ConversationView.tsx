@@ -160,7 +160,6 @@ export function ConversationView({
   const [emojiPanelPosition, setEmojiPanelPosition] = useState<{ x: number; y: number } | null>(null)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [mediaUncertain, setMediaUncertain] = useState(false)
-  const [patientHandleVisible, setPatientHandleVisible] = useState(false)
   const insertEmoji = (emoji: string) => setDraft((d) => d + emoji)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -213,10 +212,6 @@ export function ConversationView({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages.length])
-
-  useEffect(() => {
-    setPatientHandleVisible(false)
-  }, [conversationId])
 
   useEffect(() => {
     const input = textareaRef.current
@@ -462,38 +457,24 @@ export function ConversationView({
           <div className="min-w-[12rem] flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="truncate text-[18px] font-extrabold text-[var(--crm-text-main)]">
-                {conversation?.patientName || 'Patient'}
+                {conversation?.patientName || t('inbox.contact.patient')}
               </h3>
               {conversation?.channel === 'whatsapp' && (
                 <span className="crm-whatsapp-tag">WhatsApp</span>
               )}
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11.5px] text-[var(--crm-text-soft)]">
-              {/* The raw handle (phone / IGSID) is hidden by default for privacy,
-                  with an explicit reveal control for staff verification. */}
               {conversation?.channelContactHandle && (
-                <>
-                  {patientHandleVisible && (
-                    <>
-                      <span className="truncate">{conversation.channelContactHandle}</span>
-                      <span aria-hidden>·</span>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setPatientHandleVisible((v) => !v)}
-                    className="rounded-full border border-[var(--crm-border-color)] px-2 py-0.5 text-[10px] font-bold text-[var(--crm-text-soft)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
-                  >
-                    {patientHandleVisible ? 'Hide number' : 'Show number'}
-                  </button>
-                  <span aria-hidden>·</span>
-                </>
+                <span className="truncate">{conversation.channelContactHandle}</span>
               )}
               {conversation && conversation.channel !== 'whatsapp' && (
-                <span className={`inline-flex items-center gap-1 font-bold ${CHANNEL_META[conversation.channel].text}`}>
-                  <span aria-hidden className={`h-2 w-2 rounded-full ${CHANNEL_META[conversation.channel].dot}`} />
-                  {CHANNEL_META[conversation.channel].label}
-                </span>
+                <>
+                  {conversation.channelContactHandle && <span aria-hidden>·</span>}
+                  <span className={`inline-flex items-center gap-1 font-bold ${CHANNEL_META[conversation.channel].text}`}>
+                    <span aria-hidden className={`h-2 w-2 rounded-full ${CHANNEL_META[conversation.channel].dot}`} />
+                    {CHANNEL_META[conversation.channel].label}
+                  </span>
+                </>
               )}
               {conversation?.lastMessageAt && (
                 <>
@@ -511,7 +492,7 @@ export function ConversationView({
                   <AutomationModeToggle conversationId={conversationId} patientId={conversation.patientId} mode={mode} />
                 </div>
                 <span className={`crm-chat-header-consent-tag ${interaction === 'opted_out' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300'}`}>
-                  {interaction === 'opted_out' ? 'Opt-out' : 'Opt-in'}
+                  {interaction === 'opted_out' ? t('inbox.consent.optOut') : t('inbox.consent.optIn')}
                 </span>
               </>
             )}
@@ -545,11 +526,11 @@ export function ConversationView({
               <button
                 type="button"
                 onClick={onToggleDetails}
-                aria-label="Show patient details"
-                title="Show patient details"
+                aria-label={t('inbox.details.show')}
+                title={t('inbox.details.show')}
                 className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
               >
-                Show details
+                {t('inbox.details.showShort')}
               </button>
             )}
             {canDelete && conversation && (
@@ -649,7 +630,7 @@ export function ConversationView({
           )}
           {mediaUncertain && (
             <p role="alert" className="px-3 pt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-              ⚠ Delivery outcome is uncertain. Do not resend; staff reconciliation is required.
+              ⚠ {t('media.deliveryUncertain')}
             </p>
           )}
           {/* WhatsApp/Messenger-style composer: attachments, templates, list &
@@ -663,21 +644,21 @@ export function ConversationView({
               onClick={() => window.dispatchEvent(new CustomEvent('docmee:focus-scheduling'))}
               className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-[11px] font-bold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
             >
-              Confirm Appointment
+              {t('inbox.action.confirmAppointment')}
             </button>
             <button
               type="button"
               onClick={() => setDraft((d) => (d.trim() ? `${d}\n${clinicLocationText(clinicQuery.data?.clinic)}` : clinicLocationText(clinicQuery.data?.clinic)))}
               className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-[11px] font-bold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
             >
-              Location
+              {t('inbox.action.location')}
             </button>
             <button
               type="button"
               onClick={() => setDraft((d) => (d.trim() ? `${d}\n${clinicServiceText(servicesQuery.data?.services ?? [])}` : clinicServiceText(servicesQuery.data?.services ?? [])))}
               className="rounded-full border border-[var(--crm-border-color)] bg-[var(--crm-card-bg)] px-3 py-1.5 text-[11px] font-bold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)]"
             >
-              Service Info
+              {t('inbox.action.serviceInfo')}
             </button>
           </div>
           <form onSubmit={onSend} className="flex min-w-0 flex-1 items-end gap-2">

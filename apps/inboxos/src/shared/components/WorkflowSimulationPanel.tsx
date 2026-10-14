@@ -15,6 +15,7 @@ export function createSimulationReplaySession() {
 }
 
 import { useState } from 'react'
+import { useI18n } from '../hooks/useI18n'
 
 export interface WorkflowSimulationView {
   status: 'completed' | 'waiting' | 'paused' | 'failed'
@@ -75,6 +76,8 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
   onFocusNode: (nodeId: string) => void
   defaultExpanded?: boolean
 }) {
+  const { t } = useI18n()
+  const statusLabel = (status: string) => ['completed', 'waiting', 'paused', 'failed', 'skipped', 'warning', 'unknown'].includes(status) ? t(`wf.diagnostics.status.${status}`) : status
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [reply, setReply] = useState('')
   const [optionId, setOptionId] = useState('')
@@ -106,30 +109,30 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
     if (outcome === 'empty' && nodes.find((node) => node.id === providerNodeId)?.type !== 'action.check_availability') setProviderNodeId('')
   }
   return (
-    <section aria-label="Workflow simulator" className="mx-4 mt-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm dark:border-violet-900 dark:bg-violet-950">
+    <section aria-label={t('wf.simulator.label')} className="mx-4 mt-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm dark:border-violet-900 dark:bg-violet-950">
       <div className="flex flex-wrap items-center gap-2">
         <div>
-          <h2 className="font-semibold text-violet-950 dark:text-violet-100">Safe workflow simulator</h2>
-          {expanded && <p className="text-xs text-violet-700 dark:text-violet-300">Providers are mocked. No messages, patient records, appointments, or jobs are created.</p>}
+          <h2 className="font-semibold text-violet-950 dark:text-violet-100">{t('wf.simulator.title')}</h2>
+          {expanded && <p className="text-xs text-violet-700 dark:text-violet-300">{t('wf.simulator.safety')}</p>}
         </div>
         <span className="flex-1" />
-        <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="rounded border border-violet-400 px-3 py-1.5 font-medium hover:bg-violet-100 dark:hover:bg-violet-900/50">{expanded ? 'Hide' : 'Show'}</button>
+        <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="rounded border border-violet-400 px-3 py-1.5 font-medium hover:bg-violet-100 dark:hover:bg-violet-900/50">{t(expanded ? 'wf.simulator.hide' : 'wf.simulator.show')}</button>
         {expanded && <>
-          <button type="button" onClick={() => onRun(scenario)} disabled={busy} className="rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">Run</button>
-          <button type="button" onClick={() => onStep(scenario)} disabled={busy || paused} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Step</button>
+          <button type="button" onClick={() => onRun(scenario)} disabled={busy} className="rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">{t('wf.simulator.run')}</button>
+          <button type="button" onClick={() => onStep(scenario)} disabled={busy || paused} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">{t('wf.simulator.step')}</button>
           {paused
-            ? <button type="button" onClick={onUnpause} disabled={busy} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Resume</button>
-            : <button type="button" onClick={onPause} disabled={busy || !result} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">Pause</button>}
-          <button type="button" onClick={onReset} disabled={busy || !result} className="rounded border border-gray-300 px-3 py-1.5 font-medium disabled:opacity-50">Reset</button>
+            ? <button type="button" onClick={onUnpause} disabled={busy} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">{t('wf.simulator.resume')}</button>
+            : <button type="button" onClick={onPause} disabled={busy || !result} className="rounded border border-violet-400 px-3 py-1.5 font-medium disabled:opacity-50">{t('wf.simulator.pause')}</button>}
+          <button type="button" onClick={onReset} disabled={busy || !result} className="rounded border border-gray-300 px-3 py-1.5 font-medium disabled:opacity-50">{t('wf.simulator.reset')}</button>
         </>}
       </div>
       {expanded && <details className="mt-2 rounded border border-violet-200 bg-white/60 p-2 text-xs dark:border-violet-800 dark:bg-black/20">
-        <summary className="cursor-pointer font-semibold">Mock scenario outcomes</summary>
+        <summary className="cursor-pointer font-semibold">{t('wf.simulator.scenarios')}</summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          <label>Provider step<select value={providerNodeId} onChange={(event) => setProviderNodeId(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="">Choose a provider step</option>{providerNodes.map((node) => <option key={node.id} value={node.id}>{node.id} ({node.type})</option>)}</select></label>
-          <label>Provider outcome<select value={providerOutcome} onChange={(event) => chooseProviderOutcome(event.target.value as SimulationScenarioInput['providerOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="success">Success</option><option value="failure">Mock failure</option><option value="empty">No appointments available (availability checks only)</option></select></label>
-          <label>Intent classification<select value={intentOutcome} onChange={(event) => setIntentOutcome(event.target.value as SimulationScenarioInput['intentOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="high">High confidence</option><option value="low">Low confidence</option><option value="error">Mock error</option></select></label>
-          <label>AI agent outcome<select value={aiAgentOutcome} onChange={(event) => setAiAgentOutcome(event.target.value as SimulationScenarioInput['aiAgentOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="no_match">No match</option><option value="replied">Mock reply</option><option value="handoff">Mock handoff</option><option value="routed">Mock route</option><option value="error">Mock error</option></select></label>
+          <label>{t('wf.simulator.providerStep')}<select value={providerNodeId} onChange={(event) => setProviderNodeId(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="">{t('wf.simulator.chooseProvider')}</option>{providerNodes.map((node) => <option key={node.id} value={node.id}>{node.id} ({node.type})</option>)}</select></label>
+          <label>{t('wf.simulator.providerOutcome')}<select value={providerOutcome} onChange={(event) => chooseProviderOutcome(event.target.value as SimulationScenarioInput['providerOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="success">{t('wf.simulator.success')}</option><option value="failure">{t('wf.simulator.failure')}</option><option value="empty">{t('wf.simulator.empty')}</option></select></label>
+          <label>{t('wf.simulator.intent')}<select value={intentOutcome} onChange={(event) => setIntentOutcome(event.target.value as SimulationScenarioInput['intentOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="high">{t('wf.simulator.high')}</option><option value="low">{t('wf.simulator.low')}</option><option value="error">{t('wf.simulator.error')}</option></select></label>
+          <label>{t('wf.simulator.aiOutcome')}<select value={aiAgentOutcome} onChange={(event) => setAiAgentOutcome(event.target.value as SimulationScenarioInput['aiAgentOutcome'])} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="no_match">{t('wf.simulator.noMatch')}</option><option value="replied">{t('wf.simulator.mockReply')}</option><option value="handoff">{t('wf.simulator.handoff')}</option><option value="routed">{t('wf.simulator.route')}</option><option value="error">{t('wf.simulator.error')}</option></select></label>
         </div>
       </details>}
 
@@ -137,15 +140,15 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)]">
           <div>
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded bg-white/80 px-2 py-1 font-semibold dark:bg-black/20">{paused ? 'paused by operator' : result.status}</span>
-              <span className="rounded bg-white/80 px-2 py-1 dark:bg-black/20">{tested} / {total} steps tested</span>
-              <span className="rounded bg-white/80 px-2 py-1 dark:bg-black/20">Virtual time: {Math.round(result.virtualNowMs / 60_000)} min</span>
+              <span className="rounded bg-white/80 px-2 py-1 font-semibold dark:bg-black/20">{paused ? t('wf.simulator.operatorPaused') : statusLabel(result.status)}</span>
+              <span className="rounded bg-white/80 px-2 py-1 dark:bg-black/20">{t('wf.simulator.tested', { tested, total })}</span>
+              <span className="rounded bg-white/80 px-2 py-1 dark:bg-black/20">{t('wf.simulator.virtualTime', { minutes: Math.round(result.virtualNowMs / 60_000) })}</span>
             </div>
-            <ol className="mt-2 space-y-1" aria-label="Simulation trace">
+            <ol className="mt-2 space-y-1" aria-label={t('wf.simulator.trace')}>
               {result.trace.map((step, index) => (
                 <li key={`${step.nodeId}-${index}`}>
                   <button type="button" onClick={() => onFocusNode(step.nodeId)} className="w-full rounded border border-violet-100 bg-white/80 px-2 py-1 text-left text-xs hover:border-violet-400 dark:border-violet-900 dark:bg-black/20">
-                    {index + 1}. {step.nodeId} · {step.status}
+                    {index + 1}. {step.nodeId} · {statusLabel(step.status)}
                   </button>
                 </li>
               ))}
@@ -154,18 +157,18 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
           <div className="space-y-2">
             {wait && !paused && (
               <div className="rounded border border-violet-200 bg-white/70 p-2 dark:border-violet-800 dark:bg-black/20">
-                <p className="text-xs font-semibold">Waiting for {wait.kind}</p>
+                <p className="text-xs font-semibold">{t('wf.simulator.waiting', { kind: t(`wf.simulator.wait.${wait.kind}`) })}</p>
                 {(wait.kind === 'reply' || wait.kind === 'menu') && <>
-                  <label className="mt-2 block text-xs">Patient reply<input value={reply} onChange={(event) => setReply(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label>
-                  {wait.kind === 'menu' && <label className="mt-2 block text-xs">Menu option ID<input value={optionId} onChange={(event) => setOptionId(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label>}
+                  <label className="mt-2 block text-xs">{t('wf.simulator.patientReply')}<input value={reply} onChange={(event) => setReply(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label>
+                  {wait.kind === 'menu' && <label className="mt-2 block text-xs">{t('wf.simulator.optionId')}<input value={optionId} onChange={(event) => setOptionId(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label>}
                 </>}
-                {wait.kind === 'approval' && <label className="mt-2 block text-xs">Mock approval outcome<select value={approval} onChange={(event) => setApproval(event.target.value as typeof approval)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="timeout">Timed out</option></select></label>}
-                {wait.kind === 'delay' && <div className="mt-2 grid grid-cols-[1fr_auto] gap-2"><label className="block text-xs">Advance virtual time<input type="number" min="0" value={advanceAmount} onChange={(event) => setAdvanceAmount(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label><label className="block text-xs">Unit<select value={advanceUnit} onChange={(event) => setAdvanceUnit(event.target.value as typeof advanceUnit)} className="mt-1 rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="second">Seconds</option><option value="minute">Minutes</option><option value="hour">Hours</option><option value="day">Days</option></select></label></div>}
-                <button type="button" onClick={continueSimulation} disabled={!canContinue || busy} className="mt-2 w-full rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">Continue simulation</button>
+                {wait.kind === 'approval' && <label className="mt-2 block text-xs">{t('wf.simulator.approvalOutcome')}<select value={approval} onChange={(event) => setApproval(event.target.value as typeof approval)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="approved">{t('wf.simulator.approved')}</option><option value="rejected">{t('wf.simulator.rejected')}</option><option value="timeout">{t('wf.simulator.timeout')}</option></select></label>}
+                {wait.kind === 'delay' && <div className="mt-2 grid grid-cols-[1fr_auto] gap-2"><label className="block text-xs">{t('wf.simulator.advance')}<input type="number" min="0" value={advanceAmount} onChange={(event) => setAdvanceAmount(event.target.value)} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /></label><label className="block text-xs">{t('wf.simulator.unit')}<select value={advanceUnit} onChange={(event) => setAdvanceUnit(event.target.value as typeof advanceUnit)} className="mt-1 rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900"><option value="second">{t('wf.simulator.seconds')}</option><option value="minute">{t('wf.simulator.minutes')}</option><option value="hour">{t('wf.simulator.hours')}</option><option value="day">{t('wf.simulator.days')}</option></select></label></div>}
+                <button type="button" onClick={continueSimulation} disabled={!canContinue || busy} className="mt-2 w-full rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">{t('wf.simulator.continue')}</button>
               </div>
             )}
-            {result.effects.length > 0 && <div className="rounded border border-violet-200 bg-white/70 p-2 text-xs dark:border-violet-800 dark:bg-black/20"><p className="font-semibold">Mocked effects</p><ul className="mt-1 list-disc pl-4">{result.effects.map((effect, index) => <li key={`${effect.nodeId}-${index}`}>{effect.summary}</li>)}</ul></div>}
-            {result.errors.map((error, index) => <div key={`${error.nodeId ?? error.code}-${index}`} role="alert" className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"><p className="font-semibold">{error.title}</p><p>{error.whatHappened}</p><p className="mt-1">How to fix: {error.howToFix}</p>{error.nodeId && <button type="button" onClick={() => onFocusNode(error.nodeId!)} className="mt-1 rounded border border-red-300 px-2 py-1 font-medium">Go to step</button>}</div>)}
+            {result.effects.length > 0 && <div className="rounded border border-violet-200 bg-white/70 p-2 text-xs dark:border-violet-800 dark:bg-black/20"><p className="font-semibold">{t('wf.simulator.effects')}</p><ul className="mt-1 list-disc pl-4">{result.effects.map((effect, index) => <li key={`${effect.nodeId}-${index}`}>{effect.summary}</li>)}</ul></div>}
+            {result.errors.map((error, index) => <div key={`${error.nodeId ?? error.code}-${index}`} role="alert" className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"><p className="font-semibold">{error.title}</p><p>{error.whatHappened}</p><p className="mt-1">{t('wf.diagnostics.fix')} {error.howToFix}</p>{error.nodeId && <button type="button" onClick={() => onFocusNode(error.nodeId!)} className="mt-1 rounded border border-red-300 px-2 py-1 font-medium">{t('wf.diagnostics.goToStep')}</button>}</div>)}
           </div>
         </div>
       )}

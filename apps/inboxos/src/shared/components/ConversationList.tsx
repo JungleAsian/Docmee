@@ -367,8 +367,8 @@ export function ConversationList({
               type="button"
               onClick={() => window.dispatchEvent(new CustomEvent('docmee:collapse-conversation-list'))}
               className="hidden rounded-md border border-[var(--crm-border-color)] px-2 py-1 text-[11px] font-semibold text-[var(--crm-text-muted)] hover:bg-[var(--crm-hover-bg)] hover:text-[var(--crm-primary-color)] md:inline-flex"
-              aria-label="Collapse conversation list"
-              title="Collapse conversation list"
+              aria-label={t('conv.collapse')}
+              title={t('conv.collapse')}
             >
               ⇤
             </button>
@@ -426,14 +426,14 @@ export function ConversationList({
         {mediaRepositoryPanel}
         {selectedRows.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b border-[var(--crm-border-color)] bg-[var(--crm-hover-bg)] px-3 py-2 text-xs shadow-sm">
-            <span className="font-bold text-[var(--crm-primary-color)]">{selectedRows.size} selected</span>
+            <span className="font-bold text-[var(--crm-primary-color)]">{t('conv.selectedCount', { n: String(selectedRows.size) })}</span>
             <button
               type="button"
               disabled={bulkMutation.isPending}
               onClick={() => bulkMutation.mutate({ action: 'assign', userId })}
               className="rounded-md border border-[var(--crm-primary-color)] bg-[var(--crm-card-bg)] px-2 py-1 font-semibold text-[var(--crm-primary-color)] disabled:opacity-50"
             >
-              Assign to me
+              {t('conv.assignToMe')}
             </button>
             <button
               type="button"
@@ -441,7 +441,7 @@ export function ConversationList({
               onClick={() => bulkMutation.mutate({ action: 'resolve' })}
               className="rounded-md border border-gray-300 bg-white px-2 py-1 font-semibold text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
             >
-              Resolve
+              {t('conv.resolve')}
             </button>
             <button
               type="button"
@@ -449,14 +449,14 @@ export function ConversationList({
               onClick={() => bulkMutation.mutate({ action: 'archive' })}
               className="rounded-md border border-gray-300 bg-white px-2 py-1 font-semibold text-gray-700 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
             >
-              Archive
+              {t('conv.archive')}
             </button>
             <button
               type="button"
               onClick={() => setSelectedRows(new Set())}
               className="ml-auto rounded-md px-2 py-1 font-semibold text-gray-500 hover:bg-white dark:hover:bg-gray-900"
             >
-              Clear
+              {t('conv.clearSelection')}
             </button>
           </div>
         )}
@@ -552,8 +552,8 @@ export function ConversationList({
                         type="button"
                         onClick={onOpenMediaRepository}
                         className="crm-conversation-media-repository-btn"
-                        aria-label="Open media repository"
-                        title="Open media repository"
+                        aria-label={t('media.repository.open')}
+                        title={t('media.repository.open')}
                       >
                         <ImagesSquare size={20} weight="duotone" aria-hidden="true" />
                       </button>
@@ -687,7 +687,7 @@ function ThreadRow({
           checked={checked}
           onChange={(event) => onCheck(c.id, event.target.checked)}
           onClick={(event) => event.stopPropagation()}
-          aria-label={`Select ${displayName}`}
+          aria-label={t('inbox.contact.select', { name: displayName })}
           className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
         />
         <button
@@ -703,7 +703,7 @@ function ThreadRow({
           <span
             aria-hidden
             title={ch.label}
-            className={`absolute -bottom-0.5 -right-0.5 grid h-[17px] w-[17px] place-items-center rounded-full border-2 border-white text-[9px] font-bold text-white dark:border-gray-900 ${ch.badge}`}
+            className={`absolute -bottom-0.5 -right-0.5 grid h-[17px] w-[17px] place-items-center rounded-full text-[9px] font-bold ${c.channel === 'whatsapp' ? 'text-[#25D366]' : `border-2 border-white text-white dark:border-gray-900 ${ch.badge}`}`}
           >
             <ChannelGlyph channel={c.channel} />
           </span>

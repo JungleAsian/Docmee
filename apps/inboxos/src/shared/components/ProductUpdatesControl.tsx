@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Megaphone } from '@phosphor-icons/react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useI18n } from '../hooks/useI18n'
@@ -24,9 +24,9 @@ const COPY = {
   },
   es: {
     label: 'Novedades',
-    unseen: (count: number) => `Novedades: ${count} ${count === 1 ? 'actualizacion nueva' : 'actualizaciones nuevas'}`,
+    unseen: (count: number) => `Novedades: ${count} ${count === 1 ? 'actualización nueva' : 'actualizaciones nuevas'}`,
     dialog: 'Novedades de Docmee',
-    latest: 'ULTIMA NOVEDAD',
+    latest: 'ÚLTIMA NOVEDAD',
     dismiss: 'Cerrar',
     viewAll: 'Ver todas las novedades',
   },
@@ -118,13 +118,14 @@ export function ProductUpdatePopover({ update, language, onDismiss, onViewAll }:
 let autoOpenedThisPageLoad = false
 let acknowledgedThisPageLoad: string | null = null
 
-export function ProductUpdatesControl() {
+export function ProductUpdatesControl({ open, onOpenChange: setOpen }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter()
   const pathname = usePathname()
   const { language } = useI18n()
   const role = useAuthStore((state) => state.user?.role)
   const { preferences, isLoading, setPreferences } = useUserUiPreferences()
-  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const wasOpen = useRef(open)
   const releases = useMemo(() => updatesForRole(role), [role])
   const lastSeen = acknowledgedThisPageLoad ?? preferences.lastSeenProductUpdateId
   const unseen = useMemo(() => unseenProductUpdates(releases, lastSeen), [releases, lastSeen])
@@ -136,7 +137,7 @@ export function ProductUpdatesControl() {
       autoOpenedThisPageLoad = true
       setOpen(true)
     }
-  }, [isLoading, unseen.length, onUpdatesPage])
+  }, [isLoading, unseen.length, onUpdatesPage, setOpen])
 
   const acknowledgeLatest = useCallback(() => {
     if (!latest) return
@@ -148,21 +149,33 @@ export function ProductUpdatesControl() {
   const dismiss = useCallback(() => {
     setOpen(false)
     acknowledgeLatest()
-  }, [acknowledgeLatest])
+  }, [acknowledgeLatest, setOpen])
+
+  useEffect(() => {
+    if (wasOpen.current && !open) acknowledgeLatest()
+    wasOpen.current = open
+  }, [open, acknowledgeLatest])
 
   useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') dismiss()
     }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) dismiss()
+    }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
   }, [dismiss, open])
 
   if (!latest) return null
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <ProductUpdatesButton
         unseenCount={unseen.length}
         expanded={open}
@@ -171,12 +184,6 @@ export function ProductUpdatesControl() {
       />
       {open && (
         <>
-          <button
-            type="button"
-            aria-label={language === 'es' ? 'Cerrar novedades' : 'Close product updates'}
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={dismiss}
-          />
           <ProductUpdatePopover
             update={latest}
             language={language}

@@ -79,3 +79,12 @@ export function visibleOrderedItems(
   const ordered = appendMissing([...(savedOrder ?? [])], allowedItems)
   return ordered.filter((item) => !hidden.has(item))
 }
+
+/** Keep the requested workspace pair together, including existing saved orders. */
+export function navigationOrderedItems(savedOrder: readonly string[] | undefined, allowedItems: readonly string[], hiddenItems: readonly string[]): string[] {
+  const ordered = visibleOrderedItems(savedOrder, allowedItems, hiddenItems)
+  if (!ordered.includes('/waitlist') || !ordered.includes('/alerts')) return ordered
+  const withoutWaitlist = ordered.filter((item) => item !== '/waitlist')
+  withoutWaitlist.splice(withoutWaitlist.indexOf('/alerts'), 0, '/waitlist')
+  return withoutWaitlist
+}

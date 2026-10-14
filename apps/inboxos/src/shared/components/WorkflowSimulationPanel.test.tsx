@@ -1,9 +1,39 @@
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { translate } from '../i18n'
 import { WorkflowSimulationPanel, buildSimulationRequestInput, providerScenarioNodes, createSimulationReplaySession } from './WorkflowSimulationPanel'
 
+const locale = vi.hoisted(() => ({ language: 'en' as 'en' | 'es' }))
+vi.mock('../hooks/useI18n', () => ({
+  useI18n: () => ({ language: locale.language, t: (key: string, vars?: Record<string, string | number>) => translate(locale.language, key, vars) }),
+}))
+
 describe('WorkflowSimulationPanel', () => {
+  beforeEach(() => { locale.language = 'en' })
+
+  it('translates Spanish simulator controls and statuses without altering workflow identifiers or content', () => {
+    vi.stubGlobal('React', React)
+    locale.language = 'es'
+    const markup = renderToStaticMarkup(
+      <WorkflowSimulationPanel
+        busy={false} paused={false} defaultExpanded
+        nodes={[{ id: 'My availability step', type: 'action.check_availability' }]}
+        onRun={vi.fn()} onStep={vi.fn()} onPause={vi.fn()} onUnpause={vi.fn()} onReset={vi.fn()} onResume={vi.fn()} onFocusNode={vi.fn()}
+        result={{
+          status: 'waiting', trace: [{ nodeId: 'My wait step', type: 'logic.wait_for_reply', status: 'paused', context: {} }],
+          effects: [{ nodeId: 'My wait step', kind: 'message', mocked: true, summary: 'Clinic-authored message' }],
+          context: {}, virtualNowMs: 0, waitingFor: { kind: 'menu', nodeId: 'My wait step' }, errors: [],
+          coverage: { testedNodeIds: ['My wait step'], untestedNodeIds: [], testedEdgeIds: [], untestedEdgeIds: [] },
+          safety: { isolated: true, externalCalls: 0, persistentWrites: 0, queuedJobs: 0 },
+        }}
+      />,
+    )
+    for (const text of ['Simulador seguro de flujos', 'Ejecutar', 'Paso a paso', 'Respuesta del paciente', 'Continuar simulación', 'En espera', 'En pausa', 'Esperando: menú']) expect(markup).toContain(text)
+    expect(markup).toContain('My availability step')
+    expect(markup).toContain('Clinic-authored message')
+    expect(markup).not.toContain('Patient reply')
+  })
   it.each(['graph edit', 'Reset'])('ignores an obsolete deferred replay after %s before the next Step', async () => {
     const session = createSimulationReplaySession()
     const generation = session.generation

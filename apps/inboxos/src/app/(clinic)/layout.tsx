@@ -30,7 +30,8 @@ import { PageMascotBanner } from '@/shared/components/PageMascotBanner'
 import { PageHeroActionsProvider } from '@/shared/components/PageHeroActionsContext'
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
-import { visibleOrderedItems } from '@/shared/userUiPreferences'
+import { navigationOrderedItems, visibleOrderedItems } from '@/shared/userUiPreferences'
+import { useHeaderPanels } from '@/shared/hooks/useHeaderPanels'
 import type { TranslationKey } from '@/shared/i18n'
 
 type OrderedNavGroup = NavGroup & { id: string }
@@ -63,7 +64,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
   // Customize menu (mirrors Admin Studio): hide/show individual side-rail items
   // through the authenticated user preference row. RBAC filters unavailable
   // routes before this preference is applied.
-  const [customizeOpen, setCustomizeOpen] = useState(false)
+  const { customizeOpen, setCustomizeOpen, updatesOpen, setUpdatesOpen } = useHeaderPanels()
   const customizeMenuRef = useRef<HTMLDivElement>(null)
   const [globalSearch, setGlobalSearch] = useState('')
   useEffect(() => {
@@ -76,9 +77,14 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
       }
     }
 
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setCustomizeOpen(false) }
     document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [customizeOpen])
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [customizeOpen, setCustomizeOpen])
   const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   function toggleHidden(href: string) {
     const next = new Set(hiddenItems)
@@ -117,8 +123,8 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
     if (can(role, 'inbox') && show('inbox')) workspace.push({ href: '/inbox', label: t('nav.inbox'), icon: <NavIcon name="inbox" /> })
     if (can(role, 'calendar') && show('calendar')) workspace.push({ href: '/calendar', label: t('nav.calendar'), icon: <NavIcon name="calendar" /> })
     // Alerts center (Screen 11) — available to everyone who can see the inbox.
-    if (can(role, 'inbox') && show('alerts')) workspace.push({ href: '/alerts', label: t('nav.alerts'), icon: <NavIcon name="alerts" /> })
     if (can(role, 'calendar') && show('waitlist')) workspace.push({ href: '/waitlist', label: t('nav.waitlist'), icon: <NavIcon name="clock" /> })
+    if (can(role, 'inbox') && show('alerts')) workspace.push({ href: '/alerts', label: t('nav.alerts'), icon: <NavIcon name="alerts" /> })
     workspace.push({ href: '/help', label: t('nav.help'), icon: <NavIcon name="help" /> })
     workspace.push({ href: '/updates', label: t('nav.productUpdates'), icon: <NavIcon name="updates" /> })
 
@@ -150,7 +156,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
         .filter((group): group is OrderedNavGroup => Boolean(group))
         .map((group) => ({
           ...group,
-          items: visibleOrderedItems(preferences.sideRailItemOrder[group.id], group.items.map((item) => item.href), preferences.hiddenSideRailItems)
+          items: navigationOrderedItems(preferences.sideRailItemOrder[group.id], group.items.map((item) => item.href), preferences.hiddenSideRailItems)
             .map((href) => group.items.find((item) => item.href === href))
             .filter((item): item is NonNullable<typeof item> => Boolean(item)),
         }))
@@ -240,7 +246,7 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
                 </div>
               )}
             </div>
-            <ProductUpdatesControl />
+            <ProductUpdatesControl open={updatesOpen} onOpenChange={setUpdatesOpen} />
             <NotificationBell />
             {user && (
               <div className="crm-user-profile">

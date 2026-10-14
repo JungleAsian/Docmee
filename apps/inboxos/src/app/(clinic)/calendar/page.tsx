@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '@/shared/api/client'
 import { useAuthGuard } from '@/shared/hooks/useAuthGuard'
 import { useActiveClinic } from '@/shared/hooks/useActiveClinic'
+import { bookingScopeKey, defaultDoctorId } from '@/shared/doctorSelection'
 import { rolesWith } from '@/shared/permissions'
 import { useI18n } from '@/shared/hooks/useI18n'
 import { useAuthStore } from '@/shared/store/auth'
@@ -277,6 +278,16 @@ function AppointmentCard({
 }
 
 export default function CalendarPage() {
+  const { clinicId } = useActiveClinic()
+  const doctorsQuery = useQuery({
+    queryKey: ['doctors', clinicId],
+    enabled: Boolean(clinicId),
+    queryFn: () => api.get<{ doctors: Doctor[] }>(`/clinics/${clinicId}/doctors`),
+  })
+  return <ClinicCalendar key={bookingScopeKey(clinicId, 'calendar', doctorsQuery.data?.doctors ?? [])} />
+}
+
+function ClinicCalendar() {
   const { t, language } = useI18n()
   // Role gating: useAuthGuard redirects a role without the 'calendar' capability
   // to /inbox (the codebase's permission-denied convention), so this page only
@@ -285,7 +296,7 @@ export default function CalendarPage() {
   // Screen 6 — the clinic comes from the shared active-clinic context (header switcher).
   const { clinicId } = useActiveClinic()
   const [date, setDate] = useState(todayISO())
-  const [doctorId, setDoctorId] = useState('') // '' = all doctors
+  const [selectedDoctorId, setDoctorId] = useState('') // '' = all doctors when there are multiple
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [booking, setBooking] = useState(false)
   const [prefill, setPrefill] = useState<{ doctorId?: string; start?: string; parallel?: boolean }>({})
@@ -293,11 +304,6 @@ export default function CalendarPage() {
   const [success, setSuccess] = useState<{ patient: string; calendarPending: boolean } | null>(null)
   const role = useAuthStore((state) => state.user?.role)
   const canManuallyBook = canUseParallelBooking(role)
-
-  // A clinic switch invalidates the previously-picked doctor — fall back to all.
-  useEffect(() => {
-    setDoctorId('')
-  }, [clinicId])
 
   // Auto-dismiss the success banner.
   useEffect(() => {
@@ -322,6 +328,7 @@ export default function CalendarPage() {
     () => (doctorsQuery.data?.doctors ?? []).filter((d) => d.isActive),
     [doctorsQuery.data],
   )
+  const doctorId = defaultDoctorId(doctors, selectedDoctorId)
 
   const from = `${date}T00:00:00`
   const to = `${addDays(date, 1)}T00:00:00`
@@ -1103,7 +1110,7 @@ function BookingPanel({
   const { t } = useI18n()
   const qc = useQueryClient()
   const role = useAuthStore((state) => state.user?.role)
-  const [doctorId, setDoctorId] = useState(initialDoctorId ?? doctors[0]?.id ?? '')
+  const [doctorId, setDoctorId] = useState(() => defaultDoctorId(doctors, initialDoctorId))
   const [serviceId, setServiceId] = useState('')
   const [patientId, setPatientId] = useState('')
   const [patientMode, setPatientMode] = useState<'existing' | 'new'>('existing')

@@ -27,6 +27,7 @@ import { PageHeroActionsProvider } from '@/shared/components/PageHeroActionsCont
 import { InAppTutorial } from '@/shared/components/InAppTutorial'
 import { useUserUiPreferences } from '@/shared/hooks/useUserUiPreferences'
 import { visibleOrderedItems } from '@/shared/userUiPreferences'
+import { useHeaderPanels } from '@/shared/hooks/useHeaderPanels'
 
 type OrderedNavGroup = NavGroup & { id: string }
 
@@ -44,7 +45,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const isSuperuser = user?.role === 'ia_studio_admin'
 
   const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
-  const [customizeOpen, setCustomizeOpen] = useState(false)
+  const { customizeOpen, setCustomizeOpen, updatesOpen, setUpdatesOpen } = useHeaderPanels()
   const customizeMenuRef = useRef<HTMLDivElement>(null)
   const [globalSearch, setGlobalSearch] = useState('')
   useEffect(() => {
@@ -57,9 +58,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     }
 
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setCustomizeOpen(false) }
     document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [customizeOpen])
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [customizeOpen, setCustomizeOpen])
   function toggleHidden(href: string) {
     const next = new Set(hiddenItems)
     if (next.has(href)) next.delete(href)
@@ -250,7 +256,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </div>
               )}
             </div>
-            <ProductUpdatesControl />
+            <ProductUpdatesControl open={updatesOpen} onOpenChange={setUpdatesOpen} />
             <PushOptIn />
             {user && (
               <div className="crm-user-profile">

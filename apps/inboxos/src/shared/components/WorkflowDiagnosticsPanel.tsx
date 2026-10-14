@@ -1,5 +1,7 @@
 'use client'
 
+import { useI18n } from '../hooks/useI18n'
+
 export type WorkflowDiagnosticStatus = 'ready' | 'needs_attention' | 'not_ready'
 
 export interface WorkflowDiagnosticFinding {
@@ -55,16 +57,17 @@ export function WorkflowDiagnosticsTrigger({
   busy: boolean
   onOpen: () => void
 }) {
+  const { t } = useI18n()
   if (!canUseWorkflowDiagnostics(role)) return null
   return (
     <button
       type="button"
       onClick={onOpen}
       disabled={busy}
-      title="Check this workflow without contacting patients or external services"
+      title={t('wf.diagnostics.hint')}
       className="rounded-md border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-800 disabled:opacity-40 dark:border-amber-800 dark:text-amber-200"
     >
-      ◇ Diagnose
+      ◇ {t('wf.diagnostics.open')}
     </button>
   )
 }
@@ -75,9 +78,11 @@ const statusCopy: Record<WorkflowDiagnosticStatus, { label: string; style: strin
   not_ready: { label: 'Not ready', style: 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200' },
 }
 
-function readable(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value : 'Unknown'
+function readable(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value : fallback
 }
+
+const diagnosticStatuses = new Set(['ready', 'needs_attention', 'not_ready', 'completed', 'waiting', 'paused', 'failed', 'skipped', 'warning', 'unknown'])
 
 export function WorkflowDiagnosticsPanel({
   open,
@@ -98,42 +103,48 @@ export function WorkflowDiagnosticsPanel({
   onRun: () => void
   onFocusIssue: (finding: WorkflowDiagnosticFinding) => void
 }) {
+  const { t } = useI18n()
   if (!open) return null
   const status = result ? statusCopy[result.status] : null
+  const unknown = t('wf.diagnostics.status.unknown')
+  const statusLabel = (value: unknown) => {
+    const raw = readable(value, 'unknown')
+    return diagnosticStatuses.has(raw) ? t(`wf.diagnostics.status.${raw}`) : raw
+  }
 
   return (
     <aside
-      aria-label="Workflow diagnostics"
+      aria-label={t('wf.diagnostics.title')}
       className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-950"
     >
       <header className="flex items-start justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
         <div>
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100">Workflow diagnostics</h2>
-          <p className="mt-1 text-xs text-gray-500">Superuser tool · safe checks only · no patient messages, bookings, jobs, or provider changes</p>
+          <h2 className="font-semibold text-gray-900 dark:text-gray-100">{t('wf.diagnostics.title')}</h2>
+          <p className="mt-1 text-xs text-gray-500">{t('wf.diagnostics.safety')}</p>
         </div>
-        <button type="button" aria-label="Close workflow diagnostics" onClick={onClose} className="px-2 py-1 text-gray-500 hover:text-gray-900 dark:hover:text-white">✕</button>
+        <button type="button" aria-label={t('wf.diagnostics.close')} onClick={onClose} className="px-2 py-1 text-gray-500 hover:text-gray-900 dark:hover:text-white">✕</button>
       </header>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm">
         {needsInitialSave && (
           <div className="border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-            <p className="font-semibold">Save this workflow once</p>
-            <p className="mt-1 text-xs">Diagnostics need a workflow identity. After the first save, you can test later unsaved edits without saving them.</p>
+            <p className="font-semibold">{t('wf.diagnostics.saveFirst')}</p>
+            <p className="mt-1 text-xs">{t('wf.diagnostics.saveHelp')}</p>
           </div>
         )}
         {error && <div role="alert" className="border border-red-300 bg-red-50 p-3 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">{error}</div>}
         {status && (
           <div className={`border p-3 ${status.style}`}>
-            <p className="font-semibold">{status.label}</p>
-            <p className="mt-1 text-xs">Checked the {result?.source === 'unsaved_graph' ? 'current unsaved editor version' : 'saved workflow'}.</p>
+            <p className="font-semibold">{statusLabel(result?.status)}</p>
+            <p className="mt-1 text-xs">{t(result?.source === 'unsaved_graph' ? 'wf.diagnostics.checkedUnsaved' : 'wf.diagnostics.checkedSaved')}</p>
           </div>
         )}
 
         {result && (
           <>
             <section aria-labelledby="diagnostic-workflow-checks">
-              <h3 id="diagnostic-workflow-checks" className="font-semibold text-gray-900 dark:text-gray-100">Workflow checks</h3>
-              {result.workflowChecks.length === 0 ? <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">No structural problems found.</p> : (
+              <h3 id="diagnostic-workflow-checks" className="font-semibold text-gray-900 dark:text-gray-100">{t('wf.diagnostics.checks')}</h3>
+              {result.workflowChecks.length === 0 ? <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{t('wf.diagnostics.noProblems')}</p> : (
                 <div className="mt-2 space-y-2">
                   {result.workflowChecks.map((finding, index) => (
                     <article key={`${finding.code}-${finding.nodeId ?? finding.edgeId ?? index}`} className="border border-gray-200 p-3 dark:border-gray-800">
@@ -143,11 +154,11 @@ export function WorkflowDiagnosticsPanel({
                           {finding.where && <p className="text-xs text-gray-500">{finding.where}</p>}
                         </div>
                         {(finding.nodeId || finding.edgeId) && (
-                          <button type="button" onClick={() => onFocusIssue(finding)} className="border border-cyan-300 px-2 py-1 text-xs font-medium text-cyan-700 dark:border-cyan-800 dark:text-cyan-200">Go to step</button>
+                          <button type="button" onClick={() => onFocusIssue(finding)} className="border border-cyan-300 px-2 py-1 text-xs font-medium text-cyan-700 dark:border-cyan-800 dark:text-cyan-200">{t('wf.diagnostics.goToStep')}</button>
                         )}
                       </div>
                       {finding.whatHappened && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{finding.whatHappened}</p>}
-                      {finding.howToFix && <p className="mt-1 text-xs font-medium text-gray-700 dark:text-gray-200">Fix: {finding.howToFix}</p>}
+                      {finding.howToFix && <p className="mt-1 text-xs font-medium text-gray-700 dark:text-gray-200">{t('wf.diagnostics.fix')} {finding.howToFix}</p>}
                     </article>
                   ))}
                 </div>
@@ -155,24 +166,24 @@ export function WorkflowDiagnosticsPanel({
             </section>
 
             <section aria-labelledby="diagnostic-safe-test">
-              <h3 id="diagnostic-safe-test" className="font-semibold text-gray-900 dark:text-gray-100">Safe test</h3>
+              <h3 id="diagnostic-safe-test" className="font-semibold text-gray-900 dark:text-gray-100">{t('wf.diagnostics.safeTest')}</h3>
               <div className="mt-2 space-y-2">
-                {result.simulations.length === 0 ? <p className="text-xs text-gray-500">Not requested.</p> : result.simulations.map((simulation) => (
+                {result.simulations.length === 0 ? <p className="text-xs text-gray-500">{t('wf.diagnostics.notRequested')}</p> : result.simulations.map((simulation) => (
                   <div key={simulation.name} className="flex items-start justify-between gap-3 border border-gray-200 p-3 dark:border-gray-800">
                     <div><p className="font-medium">{simulation.name}</p>{simulation.reason && <p className="mt-1 text-xs text-gray-500">{simulation.reason}</p>}</div>
-                    <span className="text-xs font-semibold uppercase text-gray-500">{simulation.status}</span>
+                    <span className="text-xs font-semibold uppercase text-gray-500">{statusLabel(simulation.status)}</span>
                   </div>
                 ))}
               </div>
             </section>
 
             <section aria-labelledby="diagnostic-integrations">
-              <h3 id="diagnostic-integrations" className="font-semibold text-gray-900 dark:text-gray-100">Integration readiness</h3>
-              {result.integrations.length === 0 ? <p className="mt-2 text-xs text-gray-500">This path does not reference a managed integration.</p> : (
+              <h3 id="diagnostic-integrations" className="font-semibold text-gray-900 dark:text-gray-100">{t('wf.diagnostics.integrations')}</h3>
+              {result.integrations.length === 0 ? <p className="mt-2 text-xs text-gray-500">{t('wf.diagnostics.noIntegrations')}</p> : (
                 <div className="mt-2 space-y-2">
                   {result.integrations.map((integration) => (
                     <div key={integration.key} className="border border-gray-200 p-3 dark:border-gray-800">
-                      <div className="flex justify-between gap-3"><p className="font-medium">{integration.label}</p><span className="text-xs font-semibold uppercase text-gray-500">{integration.status}</span></div>
+                      <div className="flex justify-between gap-3"><p className="font-medium">{integration.label}</p><span className="text-xs font-semibold uppercase text-gray-500">{statusLabel(integration.status)}</span></div>
                       {integration.detail && <p className="mt-1 text-xs text-gray-500">{integration.detail}</p>}
                     </div>
                   ))}
@@ -181,12 +192,12 @@ export function WorkflowDiagnosticsPanel({
             </section>
 
             <section aria-labelledby="diagnostic-recent-runs">
-              <h3 id="diagnostic-recent-runs" className="font-semibold text-gray-900 dark:text-gray-100">Recent runs</h3>
-              {result.recentRuns.length === 0 ? <p className="mt-2 text-xs text-gray-500">No recent runs.</p> : (
+              <h3 id="diagnostic-recent-runs" className="font-semibold text-gray-900 dark:text-gray-100">{t('wf.diagnostics.recentRuns')}</h3>
+              {result.recentRuns.length === 0 ? <p className="mt-2 text-xs text-gray-500">{t('wf.diagnostics.noRuns')}</p> : (
                 <div className="mt-2 space-y-2">
                   {result.recentRuns.map((run, index) => (
-                    <div key={readable(run.id) + index} className="flex justify-between gap-3 border border-gray-200 p-3 text-xs dark:border-gray-800">
-                      <span>{readable(run.id)}</span><span className="font-semibold uppercase text-gray-500">{readable(run.status)}</span>
+                    <div key={readable(run.id, unknown) + index} className="flex justify-between gap-3 border border-gray-200 p-3 text-xs dark:border-gray-800">
+                      <span>{readable(run.id, unknown)}</span><span className="font-semibold uppercase text-gray-500">{statusLabel(run.status)}</span>
                     </div>
                   ))}
                 </div>
@@ -203,7 +214,7 @@ export function WorkflowDiagnosticsPanel({
           disabled={busy || needsInitialSave}
           className="w-full bg-cyan-600 px-3 py-2 font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? 'Running safe diagnostics…' : 'Run diagnostics'}
+          {t(busy ? 'wf.diagnostics.running' : 'wf.diagnostics.run')}
         </button>
       </footer>
     </aside>

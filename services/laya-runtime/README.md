@@ -292,7 +292,12 @@ AWS or deletes model/releases. Remove the probe override before normal use.
 
 Windows tests exercise source policy, rendering, real local socket validation and
 ordinary HTTP behavior. Runnable Linux subprocess tests exercise actual inherited
-fd 3 adoption, rejection and closure, but are skipped on Windows. Neither those
+fd 3 across a launcher-to-isolated-interpreter exec, matching PID metadata, HTTP
+health and closure; a CLOEXEC control verifies rejection when fd 3 is not inherited.
+Separate in-process socket cases retain malformed-metadata/type/address/listener
+validation. Synthetic TCP fixtures consistently set SO_REUSEADDR before fixed-port
+binds to avoid TIME_WAIT coupling; production socket policy is unchanged, with no
+SO_REUSEPORT. These Linux tests are skipped on Windows. Neither those
 tests nor source directives prove namespace/seccomp/cgroup/native-library
 enforcement. Linux negative probes, ARM compatibility/model fit, independent
 security review and model qualification remain pending. Docmee routing stays

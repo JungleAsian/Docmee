@@ -1,4 +1,4 @@
-"""Synthetic real-socket tests; Linux subprocesses exercise actual fd 3 adoption."""
+"""Synthetic sockets; Linux covers both exec inheritance and in-process adoption."""
 import contextlib
 from pathlib import Path
 import socket
@@ -110,7 +110,9 @@ class ActivationTests(unittest.TestCase):
 import os, socket, sys, time, types
 sys.path.insert(0,sys.argv[1])
 import server
-sock=socket.socket(); sock.bind(('127.0.0.1',8767)); sock.listen(8)
+sock=socket.socket()
+sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+sock.bind(('127.0.0.1',8767)); sock.listen(8)
 if sock.fileno()!=3:
     os.dup2(sock.fileno(),3); sock.close()
 else: sock.detach()
@@ -141,8 +143,76 @@ raise AssertionError('hung startup escaped kernel deadline')
                 thread.join(1)
         self.assertEqual(runtime.socket.fileno(), -1)
 
-    @unittest.skipUnless(sys.platform == "linux", "requires actual Linux fd inheritance")
-    def test_inherited_fd3_validation_cleanup_and_http_lifecycle(self):
+    @unittest.skipUnless(sys.platform == "linux", "requires actual Linux exec fd inheritance")
+    def test_exec_inherited_fd3_http_closure_and_cloexec_rejection(self):
+        # The launcher, not the target interpreter, creates the activation fd.
+        # Exec keeps the PID, so metadata describes the actual target process.
+        target = r'''
+import errno, os, socket, sys, threading
+case = sys.argv[2]
+assert os.getpid() == int(sys.argv[3])
+assert os.environ['LISTEN_PID'] == str(os.getpid())
+assert os.environ['LISTEN_FDS'] == '1'
+assert os.environ['LISTEN_FDNAMES'] == 'docmee-laya'
+if case == 'cloexec':
+    try: os.fstat(3)
+    except OSError as error: assert error.errno == errno.EBADF
+    else: raise AssertionError('non-inherited descriptor survived exec')
+else:
+    os.fstat(3)  # Must already exist before importing/adopting in the target.
+    assert os.get_inheritable(3)
+sys.path.insert(0, sys.argv[1])
+import server
+if case == 'cloexec':
+    try: server.adopt_systemd_socket()
+    except ValueError: pass
+    else: raise AssertionError('missing inherited fd was accepted')
+    assert not any(name in os.environ for name in ('LISTEN_PID','LISTEN_FDS','LISTEN_FDNAMES'))
+else:
+    listener = server.adopt_systemd_socket()
+    assert listener.fileno() == 3 and not os.get_inheritable(3)
+    with server.RuntimeServer(('127.0.0.1',8767), listener=listener) as runtime:
+        thread = threading.Thread(target=runtime.serve_forever, kwargs={'poll_interval':0.01})
+        thread.start()
+        try:
+            with socket.create_connection(('127.0.0.1',8767),timeout=2) as client:
+                client.sendall(b'GET /health HTTP/1.1\r\nHost: synthetic\r\n\r\n')
+                response = bytearray()
+                while True:
+                    chunk = client.recv(4096)
+                    if not chunk: break
+                    response.extend(chunk)
+                assert b'200 OK' in response and response.endswith(b'{"status":"alive"}')
+        finally:
+            runtime.shutdown(); thread.join(1)
+    assert listener.fileno() == -1
+try: os.fstat(3)
+except OSError as error: assert error.errno == errno.EBADF
+else: raise AssertionError('owned activation descriptor leaked')
+'''
+        launcher = r'''
+import os, socket, sys
+root, case, target = sys.argv[1:]
+sock = socket.socket()
+sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+sock.bind(('127.0.0.1',8767)); sock.listen(8)
+if sock.fileno() != 3:
+    os.dup2(sock.fileno(),3); sock.close()
+else: sock.detach()
+os.set_inheritable(3,case == 'inherited')
+environment = os.environ.copy()
+environment.update(LISTEN_PID=str(os.getpid()),LISTEN_FDS='1',LISTEN_FDNAMES='docmee-laya')
+os.execve(sys.executable,[sys.executable,'-I','-B','-c',target,root,case,str(os.getpid())],environment)
+'''
+        for case in ("inherited", "cloexec"):
+            with self.subTest(case=case):
+                result = subprocess.run([sys.executable, "-I", "-B", "-c", launcher,
+                                         str(ROOT), case, target], capture_output=True, timeout=8)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                self.assertEqual(result.stdout + result.stderr, b"")
+
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux fd 3 adoption")
+    def test_in_process_fd3_validation_cleanup_and_http_lifecycle(self):
         # No model, network namespace, privileges or external traffic involved.
         program = r'''
 import contextlib, io, os, socket, sys, threading, types
@@ -152,6 +222,8 @@ case = sys.argv[2]
 family = socket.AF_INET6 if case == 'family' else socket.AF_INET
 kind = socket.SOCK_DGRAM if case == 'datagram' else socket.SOCK_STREAM
 sock = socket.socket(family, kind)
+if kind == socket.SOCK_STREAM:
+    sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
 host = '::1' if case == 'family' else ('0.0.0.0' if case == 'address' else '127.0.0.1')
 sock.bind((host, 0 if case == 'port' else 8767))
 if kind == socket.SOCK_STREAM and case != 'not-listening': sock.listen(8)

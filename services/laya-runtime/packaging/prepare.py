@@ -44,6 +44,7 @@ SOURCES = ('artifacts.py','backend.py','protocol.py','server.py')
 ORIGINAL_TOKENIZER = (502,'424b69444bf7b5809dc2cd2e36d0bd71b8055124dd24274d6db3c655d38205e7')
 HOSTS = {'files.pythonhosted.org','download-r2.pytorch.org','huggingface.co'}
 REDIRECT_HOSTS = HOSTS | {'download.pytorch.org','cas-bridge.xethub.hf.co',
+                         'us.aws.cdn.hf.co',
                          'cdn-lfs.huggingface.co','cdn-lfs-us-1.hf.co','cdn-lfs-eu-1.hf.co'}
 PINS = {'laya':'0.4.8','torch':'2.14.1+cpu','transformers':'5.20.1',
         'tokenizers':'0.23.3','safetensors':'0.8.0','pip':'26.2.2'}

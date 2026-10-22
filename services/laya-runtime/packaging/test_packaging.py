@@ -301,6 +301,20 @@ class PackagingTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 self.p.validate_url(url,redirect=True)
 
+    def test_documented_hf_cdn_redirect_is_allowed_without_broadening_initial_hosts(self):
+        url = 'https://us.aws.cdn.hf.co/model?signature=public'
+        self.assertEqual(self.p.validate_url(url,redirect=True),url)
+        with self.assertRaises(ValueError):
+            self.p.validate_url(url)
+        for unsafe in ('http://us.aws.cdn.hf.co/model',
+                       'https://us.aws.cdn.hf.co.evil.test/model',
+                       'https://evil.us.aws.cdn.hf.co/model',
+                       'https://user@us.aws.cdn.hf.co/model',
+                       'https://us.aws.cdn.hf.co:443/model',
+                       'https://us.aws.cdn.hf.co/%2e%2e/model'):
+            with self.subTest(url=unsafe), self.assertRaises(ValueError):
+                self.p.validate_url(unsafe,redirect=True)
+
     def test_complete_package_fake_network_and_closed_model_validation(self):
         original = b'{\n  "bos_token": "<bos>",\n  "clean_up_tokenization_spaces": false,\n  "cls_token": "<bos>",\n  "eos_token": "<eos>",\n  "extra_special_tokens": [\n    "<start_of_turn>",\n    "<end_of_turn>"\n  ],\n  "mask_token": "<mask>",\n  "model_input_names": [\n    "input_ids",\n    "attention_mask"\n  ],\n  "model_max_length": 8192,\n  "pad_token": "<pad>",\n  "padding_side": "right",\n  "sep_token": "<eos>",\n  "spaces_between_special_tokens": false,\n  "tokenizer_class": "PreTrainedTokenizerFast",\n  "unk_token": "<unk>"\n}'
         bodies = {name:b'fixture' for name in self.p.MANIFEST}

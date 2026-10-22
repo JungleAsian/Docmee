@@ -97,3 +97,69 @@ Independent review, supported-version CI, a real pinned/calibrated model/backend
 deployment packaging and operational qualification are later gates. These local
 synthetic HTTP tests do not establish model quality, production readiness or owner
 acceptance.
+
+## Source-only offline ARM64 package preparation
+
+The separate `packaging/prepare.py` command now supplies explicit preparation;
+the runtime never invokes it. It targets **Ubuntu 24.04 ARM64, CPython 3.12,
+CPU only**, not this Windows test host. No installation, model inference, service
+setup, deployment, calibration, or qualification has been performed by this work.
+
+```powershell
+python -m unittest discover -s services/laya-runtime/packaging -p test_packaging.py -v
+python services/laya-runtime/packaging/prepare.py --output C:\absolute\new-laya-package
+```
+
+The output must be a new absolute local directory whose parent already exists.
+Existing destinations (including partial packages), unsafe names, symlinks and
+reparse points are rejected. Preparation downloads public locked artifacts only;
+it needs no Hugging Face token or runtime credentials. HTTPS artifact/redirect
+hosts are hardcoded; ambient proxy/authentication/cookie configuration is not used.
+Files stream into size-bounded temporary files and are SHA-256 checked before
+atomic non-overwriting placement. The filesystem must support same-directory
+hard links. An `INCOMPLETE` marker remains on failure: never install/load that
+output, even if some files or `package.json` exist. Choose a fresh destination
+for a new attempt; this tool does not resume, overwrite or recursively delete.
+
+`packaging/arm64-cp312.lock.json` records 35 runtime wheels and one separate
+standalone pip bootstrap wheel, each with exact version, immutable URL, size,
+artifact and METADATA SHA-256, Python requirements, dependencies, extras and
+version-specific provenance. It retains `laya==0.4.8`, the official
+`torch==2.14.1+cpu` ARM wheel, `transformers==5.20.1`, `tokenizers==0.23.3`, and
+`safetensors==0.8.0`. CPU torch has no CUDA/NVIDIA/triton requirements.
+`sympy==1.14.0` requires `mpmath<1.4`, so `mpmath==1.3.0` is deliberately pinned.
+No optional extras are requested. Conditional requirements are evaluated against
+Linux/aarch64/CPython 3.12, never Windows. Requested transitive extras propagate
+to a fixed point. Unknown markers, unsupported version syntax/tags, missing
+dependencies, incompatible versions/Python requirements and unused wheels fail
+closed. The standard-library validator is intentionally a bounded verifier for
+this lock, not a general package resolver.
+
+Preparation reads wheel METADATA without extraction or code execution, fetches
+exactly the five immutable checkpoint files, verifies the original tokenizer
+bytes before the documented normalization, then calls `artifacts.verify_artifacts`
+for final prepared-model validation. The package contains `runtime/`, `model/`,
+`wheels/`, `bootstrap/`, hash-only `requirements.txt`, a lock copy and `package.json`
+with runtime source sizes/SHA-256, source baseline commit and model revision.
+The baseline is not a claim that a dirty checkout equals that commit: the copied
+runtime bytes are identified by their actual hashes.
+
+A later, separately authorized Ubuntu operator may create a venv **without pip**
+and run the locked external bootstrap against that interpreter, for example:
+
+```sh
+python3.12 -m venv --without-pip /absolute/laya-venv
+python3.12 /absolute/package/bootstrap/pip-26.2.2-py3-none-any.whl/pip --isolated --python /absolute/laya-venv/bin/python install --no-index --no-deps --only-binary=:all: --require-hashes --find-links /absolute/package/wheels -r /absolute/package/requirements.txt
+```
+
+These commands are a future installation procedure, not evidence of installation.
+All locked wheels were downloaded into a disposable public-artifact research
+directory and their bytes/METADATA checked on Windows; none were installed or
+executed. Full real model-package preparation and ARM execution remain untested.
+The target interpreter patch version, Ubuntu ABI/shared-library availability,
+native code, dependency behavior and model quality require ARM-side verification.
+One real-symlink test may skip on Windows without symlink privilege; metadata
+fixtures still exercise symlink/reparse rejection. Operators must ensure exclusive
+trusted filesystem access during preparation and later loading and establish
+ownership/permissions on Linux. These path checks do not enforce ownership,
+eliminate concurrent-writer races, create a sandbox or establish production safety.

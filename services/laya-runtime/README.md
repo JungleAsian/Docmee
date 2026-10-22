@@ -1,7 +1,7 @@
 # Private LAYA HTTP boundary
 
 Source-only, **uninstalled and unqualified**. No model, calibration, credentials,
-inference library, model download, DB, action tools or Docmee routing is included.
+inference library installation, model download, DB, action tools or Docmee routing is included.
 Python 3.10+ standard library only; locally tested on Python 3.11.15.
 
 From the repository root:
@@ -11,7 +11,7 @@ python -m unittest discover -s services/laya-runtime/tests -v
 python services/laya-runtime/server.py --host 127.0.0.1 --port 8767
 ```
 
-The CLI has no backend: GET `/health` is process liveness (200), GET `/ready`
+By default the CLI has no backend: GET `/health` is process liveness (200), GET `/ready`
 and POST `/v1/decision` remain unavailable (503). It never pretends to infer.
 Ctrl+C closes the listener. This is not a service installation or deployment.
 
@@ -23,7 +23,48 @@ plain attributes. Nonempty version identifiers are pinned when the server is
 constructed; changes make readiness fail closed. `decide(request)` returns exactly
 the TypeScript adapter response schema. Readiness is not model qualification.
 Backend implementations must neither log nor retain inputs and must not mutate
-the request. No production backend or packaging is supplied here.
+the request. No packaging or qualified production backend is supplied here.
+
+## Explicit pinned offline backend (not qualification)
+
+`--artifact-dir C:\absolute\prepared\checkpoint` opts into `PinnedBackend`.
+Invalid explicit configuration exits 1 with only `backend unavailable` on stderr.
+No arbitrary backend imports or remote model names are accepted by the CLI.
+The default invocation remains unready and needs only the standard library.
+
+The optional loader requires already-installed `laya==0.4.8` and its reviewed
+dependencies. Checkpoint provenance is `convaiinnovations/laya-multilingual` at
+`e4e9ddf21a7b1903b7acffd8814ad4307bf63a67`. `artifacts.py` contains the closed
+size/SHA-256 manifest: exactly five regular files and their ancestor directories;
+absolute paths only, no symlinks, Windows reparse points, traversal or extra files.
+Files are stream-verified before Agent import and again after loading. Runtime
+never downloads, repairs, normalizes, or writes artifact files.
+
+Offline preparation must normalize the upstream tokenizer config (502 bytes,
+SHA-256 `424b69444bf7b5809dc2cd2e36d0bd71b8055124dd24274d6db3c655d38205e7`):
+replace `extra_special_tokens` with the ordered `extra_0`/`extra_1` mapping,
+serialize with Python `json.dumps(indent=2)`, UTF-8 and no terminal newline.
+The resulting 524-byte file must match the built-in digest. Preparation and
+dependency installation are not provided or authorized by this runtime.
+
+Loading sets offline/telemetry environment controls before ML imports, CPU eager
+execution, `compile=False`, `fast=False`, and one torch intra/inter-op thread.
+One fixed Choice question handles each supported task; synthetic option keys map
+back to caller IDs. Patient text and labels are JSON data, not task instructions.
+Missing/malformed answers, incomplete/nonfinite/invalid probability vectors,
+truncation, dropped state tokens and collapsed options abstain. `rawScore` is the
+selected option probability, never upstream confidence. Prompt separation is not
+a model-quality or prompt-injection-resistance qualification.
+
+Ready means loaded only. Identifiers are `laya-multilingual-e4e9ddf21a7b` and
+`upstream-unqualified-v1`. Do not enable live routing based on these identifiers.
+Later packaging must prevent concurrent writes to the actual artifact directory:
+pre/post checks detect mutation but do not eliminate races. Python output is
+discarded during upstream load/inference, without buffering raw output. This is
+not a sandbox for native dependencies or arbitrary logging handlers. No logging
+hooks, tools, credentials, trace sinks, caches or input storage are configured.
+Transient local references are released after calls; no secure erasure or hard
+model cancellation is claimed. Existing HTTP timeout slot retention is unchanged.
 
 ## Resource and privacy boundary
 

@@ -6,6 +6,7 @@ import socket
 import socketserver
 import threading
 import time
+import sys
 from typing import Protocol
 
 from protocol import Invalid, encode_response, parse_request
@@ -287,13 +288,23 @@ def main():
     parser = argparse.ArgumentParser(description="Uninstalled, unqualified LAYA HTTP boundary (no backend)")
     parser.add_argument("--host", default="127.0.0.1", choices=["127.0.0.1"])
     parser.add_argument("--port", type=int, default=8767)
+    parser.add_argument("--artifact-dir", help="absolute prepared pinned offline artifact directory")
     args = parser.parse_args()
-    with RuntimeServer((args.host, args.port)) as server:
+    backend = None
+    if args.artifact_dir is not None:
+        try:
+            from backend import PinnedBackend
+            backend = PinnedBackend(args.artifact_dir)
+        except Exception:
+            print("backend unavailable", file=sys.stderr)
+            return 1
+    with RuntimeServer((args.host, args.port), backend) as server:
         try:
             server.serve_forever(poll_interval=0.1)
         except KeyboardInterrupt:
             pass
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

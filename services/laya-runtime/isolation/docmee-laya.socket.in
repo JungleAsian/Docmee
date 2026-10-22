@@ -1,0 +1,15 @@
+[Unit]
+Description=Isolated LAYA fixed loopback activation socket (unqualified)
+StartLimitIntervalSec=300s
+StartLimitBurst=3
+
+[Socket]
+ListenStream=127.0.0.1:8767
+Accept=no
+Backlog=8
+ReusePort=no
+FileDescriptorName=docmee-laya
+Service=docmee-laya.service
+
+[Install]
+WantedBy=sockets.target

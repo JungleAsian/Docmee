@@ -1,7 +1,9 @@
 """Loopback-only, bounded HTTP boundary. No backend is installed by this module."""
 import argparse
 import math
+import os
 import re
+import signal
 import socket
 import socketserver
 import threading
@@ -15,6 +17,7 @@ MAX_HEADERS = 32
 MAX_HEADER_BYTES = 8192
 MAX_LINE_BYTES = 2048
 MAX_BODY_BYTES = 32768
+STARTUP_TIMEOUT_SECONDS = 60
 ERROR = b'{"error":"unavailable"}'
 REASONS = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed",
            408: "Request Timeout", 413: "Content Too Large", 415: "Unsupported Media Type",
@@ -39,6 +42,48 @@ class Backend(Protocol):
 class Rejected(Exception):
     def __init__(self, status):
         self.status = status
+
+
+def validate_activation_socket(listener):
+    """Validate the one fixed host listener; never bind or replace it."""
+    if (listener.family != socket.AF_INET
+            or listener.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE) != socket.SOCK_STREAM
+            or listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) != 1
+            or listener.getsockname() != ("127.0.0.1", 8767)):
+        raise ValueError("invalid activation socket")
+
+
+def adopt_systemd_socket():
+    """Take ownership of fd 3 only, including on invalid activation metadata.
+
+    Activation is an explicit Linux-only process mode. A failed startup exits;
+    unrelated descriptors are not scanned, guessed, duplicated or imported.
+    """
+    if sys.platform != "linux":
+        raise ValueError("Linux activation required")
+    listener = None
+    try:
+        if (os.environ.get("LISTEN_PID") != str(os.getpid())
+                or os.environ.get("LISTEN_FDS") != "1"
+                or os.environ.get("LISTEN_FDNAMES", "docmee-laya") != "docmee-laya"):
+            raise ValueError("invalid activation metadata")
+        listener = socket.socket(fileno=3)
+        validate_activation_socket(listener)
+        listener.set_inheritable(False)
+        listener.setblocking(True)
+        return listener
+    except (OSError, ValueError) as error:
+        if listener is not None:
+            listener.close()
+        else:
+            try:
+                os.close(3)
+            except OSError:
+                pass
+        raise ValueError("invalid activation") from error
+    finally:
+        for name in ("LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"):
+            os.environ.pop(name, None)
 
 
 def send(sock, status, body=ERROR):
@@ -75,7 +120,16 @@ class RuntimeServer(socketserver.TCPServer):
     request_queue_size = 8
 
     def __init__(self, address, backend=None, *, read_timeout=1.0,
-                 inference_timeout=0.75, max_workers=4):
+                 inference_timeout=0.75, max_workers=4, listener=None):
+        # Caller transfers ownership; close it even if argument validation fails.
+        try:
+            self._initialize(address, backend, read_timeout, inference_timeout, max_workers, listener)
+        except BaseException:
+            if listener is not None:
+                listener.close()
+            raise
+
+    def _initialize(self, address, backend, read_timeout, inference_timeout, max_workers, listener):
         if address[0] != "127.0.0.1":
             raise ValueError("loopback IPv4 required")
         if type(max_workers) is not int or not 2 <= max_workers <= 8:
@@ -93,7 +147,15 @@ class RuntimeServer(socketserver.TCPServer):
         self._closing = False
         # Pins are a startup snapshot, never derived from model output.
         self._pins = self._backend_pins()
-        super().__init__(address, Handler)
+        if listener is None:
+            super().__init__(address, Handler)
+        else:
+            validate_activation_socket(listener)
+            if address != ("127.0.0.1", 8767):
+                raise ValueError("activation address is fixed")
+            # BaseServer initializes bookkeeping without creating another socket.
+            socketserver.BaseServer.__init__(self, address, Handler)
+            self.socket = listener
 
     def _backend_pins(self):
         try:
@@ -289,20 +351,44 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", choices=["127.0.0.1"])
     parser.add_argument("--port", type=int, default=8767)
     parser.add_argument("--artifact-dir", help="absolute prepared pinned offline artifact directory")
+    parser.add_argument("--systemd-socket", action="store_true", help="adopt the fixed Linux fd 3 listener")
     args = parser.parse_args()
-    backend = None
-    if args.artifact_dir is not None:
+    listener = None
+    if args.systemd_socket:
         try:
-            from backend import PinnedBackend
-            backend = PinnedBackend(args.artifact_dir)
-        except Exception:
-            print("backend unavailable", file=sys.stderr)
+            listener = adopt_systemd_socket()
+            if args.port != 8767:
+                raise ValueError("activation port is fixed")
+        except ValueError:
+            if listener is not None:
+                listener.close()
+            print("activation unavailable", file=sys.stderr)
             return 1
-    with RuntimeServer((args.host, args.port), backend) as server:
-        try:
-            server.serve_forever(poll_interval=0.1)
-        except KeyboardInterrupt:
-            pass
+    try:
+        if listener is not None:
+            # Default kernel action terminates even native startup that never
+            # returns to Python. No handler, environment or CLI timeout override.
+            signal.signal(signal.SIGALRM, signal.SIG_DFL)
+            signal.setitimer(signal.ITIMER_REAL, STARTUP_TIMEOUT_SECONDS)
+        backend = None
+        if args.artifact_dir is not None:
+            try:
+                from backend import PinnedBackend
+                backend = PinnedBackend(args.artifact_dir)
+            except Exception:
+                print("backend unavailable", file=sys.stderr)
+                return 1
+        with RuntimeServer((args.host, args.port), backend, listener=listener) as server:
+            if listener is not None:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            try:
+                server.serve_forever(poll_interval=0.1)
+            except KeyboardInterrupt:
+                pass
+    finally:
+        if listener is not None:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            listener.close()
     return 0
 
 

@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+from types import ModuleType
 from urllib.parse import unquote, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 
@@ -103,10 +104,17 @@ def reviewed_sources():
     return {name:checked_source(RUNTIME/name,pin) for name,pin in SOURCE_PINS.items()}
 
 
-# artifacts supplies immutable constants and the closed model verifier. Validate
-# its reviewed bytes before importing it, never import a changed runtime module.
-checked_source(RUNTIME/'artifacts.py',SOURCE_PINS['artifacts.py'])
-from artifacts import MANIFEST, MODEL_REPOSITORY, MODEL_REVISION, verify_artifacts
+# Execute exactly the reviewed bytes, never a timestamp-valid bytecode cache or
+# a preloaded module. This private namespace is not registered in sys.modules.
+_artifacts = ModuleType('_docmee_packaging_artifacts')
+_artifacts.__file__ = str(RUNTIME/'artifacts.py')
+_artifacts_source = checked_source(RUNTIME/'artifacts.py',SOURCE_PINS['artifacts.py'])
+exec(compile(_artifacts_source,_artifacts.__file__,'exec',dont_inherit=True),
+     _artifacts.__dict__)
+MANIFEST = _artifacts.MANIFEST
+MODEL_REPOSITORY = _artifacts.MODEL_REPOSITORY
+MODEL_REVISION = _artifacts.MODEL_REVISION
+verify_artifacts = _artifacts.verify_artifacts
 
 
 def place_bytes(path,body):

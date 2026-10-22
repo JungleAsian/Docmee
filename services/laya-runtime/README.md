@@ -150,7 +150,10 @@ All nine copied runtime/isolation source inputs and the lock must match exact
 size/SHA-256 pins taken from Git blobs at reviewed source baseline
 `6317f8ecf4b75b5fb5923093d3a987289ea0fd21`. A dirty source is rejected, not
 silently blessed with its current hash. Use LF checkout bytes for these inputs;
-CRLF conversion is intentionally not normalized or trusted. `runtime_origin_commit`
+CRLF conversion is intentionally not normalized or trusted. The preparer executes
+its `artifacts.py` helper directly from the retained, hash-checked source bytes in
+a fresh private namespace, ignoring bytecode caches and preloaded `artifacts` modules.
+`runtime_origin_commit`
 retains the earlier backend baseline `d17cd150b11d9ed3efa91ac74d9a0a5dc312f44d`;
 it is not a claim that the later isolation/runtime content equals that old commit.
 The later packaging implementation commit is recorded **outside** the package

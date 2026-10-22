@@ -2,7 +2,11 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import py_compile
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -167,6 +171,52 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(lock['wheels']),36)
         self.v.verify_closure(lock['wheels'],lock['roots']+[lock['bootstrap']])
 
+    def helper_fixture(self):
+        source = self.root/'source'
+        packaging = source/'packaging'
+        packaging.mkdir(parents=True)
+        for name in ('prepare.py','lock_validation.py','release_inventory.py'):
+            shutil.copyfile(HERE/name,packaging/name)
+        shutil.copyfile(HERE.parent/'artifacts.py',source/'artifacts.py')
+        return source,packaging
+
+    def isolated_python(self, packaging, script):
+        result = subprocess.run([sys.executable,'-I','-B','-c',
+                                 'import sys; sys.path[:0]='+repr([str(packaging),str(packaging.parent)])+'; '+script],
+                                capture_output=True,text=True,check=True,timeout=15)
+        return result.stdout.strip()
+
+    def test_checked_helper_ignores_conflicting_timestamp_valid_bytecode(self):
+        source,packaging = self.helper_fixture()
+        path = source/'artifacts.py'
+        original = path.read_bytes()
+        expected = 'e4e9ddf21a7b1903b7acffd8814ad4307bf63a67'
+        conflicting = '0'*40
+        changed = original.replace(expected.encode(),conflicting.encode())
+        self.assertNotEqual(changed,original)
+        self.assertEqual(len(changed),len(original))
+        path.write_bytes(changed)
+        stamp = path.stat()
+        py_compile.compile(str(path),doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+        path.write_bytes(original)
+        os.utime(path,ns=(stamp.st_atime_ns,stamp.st_mtime_ns))
+        # Control: -B still permits this real timestamp/size-valid cache read.
+        self.assertEqual(self.isolated_python(packaging,
+            'import artifacts; print(artifacts.MODEL_REVISION)'),conflicting)
+        self.assertEqual(self.isolated_python(packaging,
+            'import prepare; print(prepare.MODEL_REVISION)'),expected)
+
+    def test_checked_helper_ignores_preloaded_artifacts_module(self):
+        _,packaging = self.helper_fixture()
+        script = ('import types; cached=types.ModuleType("artifacts"); '
+                  'cached.MANIFEST={}; cached.MODEL_REPOSITORY="unreviewed"; '
+                  'cached.MODEL_REVISION="unreviewed"; cached.verify_artifacts=lambda path: None; '
+                  'sys.modules["artifacts"]=cached; import prepare; '
+                  'print(prepare.MODEL_REVISION)')
+        self.assertEqual(self.isolated_python(packaging,script),
+                         'e4e9ddf21a7b1903b7acffd8814ad4307bf63a67')
+
     def test_dirty_runtime_or_isolation_sources_fail_before_network(self):
         import shutil
         source = self.root/'source'
@@ -199,12 +249,11 @@ class PackagingTests(unittest.TestCase):
             self.p.normalize_tokenizer(original+b'\n')
 
     def test_model_tree_uses_production_closed_verifier(self):
-        import artifacts
         model = self.root / 'model'
         model.mkdir()
         (model / 'config.json').write_bytes(b'{}')
         manifest = {'config.json':(2,hashlib.sha256(b'{}').hexdigest())}
-        with patch.object(artifacts,'MANIFEST',manifest):
+        with patch.object(self.p._artifacts,'MANIFEST',manifest):
             self.p.verify_artifacts(model)
             (model / 'extra').write_bytes(b'x')
             with self.assertRaises(ValueError):
@@ -234,9 +283,8 @@ class PackagingTests(unittest.TestCase):
                 self.p.validate_url(url,redirect=True)
 
     def test_complete_package_fake_network_and_closed_model_validation(self):
-        import artifacts
         original = b'{\n  "bos_token": "<bos>",\n  "clean_up_tokenization_spaces": false,\n  "cls_token": "<bos>",\n  "eos_token": "<eos>",\n  "extra_special_tokens": [\n    "<start_of_turn>",\n    "<end_of_turn>"\n  ],\n  "mask_token": "<mask>",\n  "model_input_names": [\n    "input_ids",\n    "attention_mask"\n  ],\n  "model_max_length": 8192,\n  "pad_token": "<pad>",\n  "padding_side": "right",\n  "sep_token": "<eos>",\n  "spaces_between_special_tokens": false,\n  "tokenizer_class": "PreTrainedTokenizerFast",\n  "unk_token": "<unk>"\n}'
-        bodies = {name:b'fixture' for name in artifacts.MANIFEST}
+        bodies = {name:b'fixture' for name in self.p.MANIFEST}
         bodies['tokenizer/tokenizer_config.json'] = self.p.normalize_tokenizer(original)
         manifest = {name:(len(body),hashlib.sha256(body).hexdigest()) for name,body in bodies.items()}
         a, raw = self.wheel()
@@ -245,11 +293,11 @@ class PackagingTests(unittest.TestCase):
         lockfile = self.root/'fixture.lock.json'
         lockfile.write_text(json.dumps(lock))
         streams = {a['url']:raw,pip['url']:bootstrap}
-        prefix = f'https://huggingface.co/{artifacts.MODEL_REPOSITORY}/resolve/{artifacts.MODEL_REVISION}/'
+        prefix = f'https://huggingface.co/{self.p.MODEL_REPOSITORY}/resolve/{self.p.MODEL_REVISION}/'
         streams.update({prefix+name:(original if name=='tokenizer/tokenizer_config.json' else body) for name,body in bodies.items()})
         output = self.root/'complete'
         lock_body = lockfile.read_bytes()
-        with patch.object(self.p,'read_lock',return_value=lock), patch.object(self.p,'LOCK',lockfile), patch.object(self.p,'LOCK_PIN',(len(lock_body),hashlib.sha256(lock_body).hexdigest())), patch.object(self.p,'MANIFEST',manifest), patch.object(artifacts,'MANIFEST',manifest):
+        with patch.object(self.p,'read_lock',return_value=lock), patch.object(self.p,'LOCK',lockfile), patch.object(self.p,'LOCK_PIN',(len(lock_body),hashlib.sha256(lock_body).hexdigest())), patch.object(self.p,'MANIFEST',manifest), patch.object(self.p._artifacts,'MANIFEST',manifest):
             self.p.prepare(output,opener=lambda url:io.BytesIO(streams[url]))
             self.assertFalse((output/'INCOMPLETE').exists())
             self.assertTrue((output/'bootstrap'/pip['filename']).is_file())

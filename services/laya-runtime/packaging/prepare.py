@@ -256,8 +256,11 @@ def prepare(directory, *, opener=open_artifact):
         records[name] = dict(path=name,size=size,sha256=digest)
     for name,body in ((lock_name,lock_body),('requirements.txt',requirements.encode('ascii')),('package.json',metadata_body)):
         records[name] = dict(path=name,size=len(body),sha256=hashlib.sha256(body).hexdigest())
+    # read_lock validated these execution fields. Omit lock-only marker context
+    # from the exact inventory schema; keep the original lock bytes unchanged.
+    inventory_target = {key:lock['target'][key] for key in TARGET}
     inventory = dict(schema_version=1,source_baseline_commit=REVIEWED_SOURCE_BASE,runtime_origin_commit=SOURCE_BASE,
-                     target=lock['target'],model=dict(repository=MODEL_REPOSITORY,revision=MODEL_REVISION),
+                     target=inventory_target,model=dict(repository=MODEL_REPOSITORY,revision=MODEL_REVISION),
                      lock=dict(filename=lock_name,sha256=metadata['lock_sha256']),files=list(records.values()))
     body = inventory_bytes(inventory)
     # Reject all unlisted files AND directories while the failure marker remains.

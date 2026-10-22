@@ -239,6 +239,25 @@ class PackagingTests(unittest.TestCase):
         with patch.object(self.p,'LOCK',lock),self.assertRaises(ValueError):
             self.p.read_lock()
 
+    def test_wrong_required_lock_target_rejected_before_network(self):
+        original = self.p.LOCK.read_bytes()
+        lockfile = self.root/'wrong-target.lock.json'
+        for key in self.v.TARGET:
+            for mode in ('wrong','missing'):
+                lock = json.loads(original)
+                if mode == 'wrong':
+                    lock['target'][key] = 'incorrect'
+                else:
+                    del lock['target'][key]
+                body = json.dumps(lock).encode()
+                lockfile.write_bytes(body)
+                output = self.root/(key+'-'+mode)
+                with self.subTest(key=key,mode=mode), patch.object(self.p,'LOCK',lockfile), patch.object(self.p,'LOCK_PIN',(len(body),hashlib.sha256(body).hexdigest())):
+                    with self.assertRaisesRegex(ValueError,'wrong target lock'):
+                        self.p.prepare(output,opener=lambda url: (_ for _ in ()).throw(AssertionError('network before target validation')))
+                self.assertTrue((output/'INCOMPLETE').is_file())
+                self.assertFalse((output/'release-inventory.json').exists())
+
     def test_tokenizer_original_and_prepared_hashes(self):
         original = b'{\n  "bos_token": "<bos>",\n  "clean_up_tokenization_spaces": false,\n  "cls_token": "<bos>",\n  "eos_token": "<eos>",\n  "extra_special_tokens": [\n    "<start_of_turn>",\n    "<end_of_turn>"\n  ],\n  "mask_token": "<mask>",\n  "model_input_names": [\n    "input_ids",\n    "attention_mask"\n  ],\n  "model_max_length": 8192,\n  "pad_token": "<pad>",\n  "padding_side": "right",\n  "sep_token": "<eos>",\n  "spaces_between_special_tokens": false,\n  "tokenizer_class": "PreTrainedTokenizerFast",\n  "unk_token": "<unk>"\n}'
         result = self.p.normalize_tokenizer(original)
@@ -289,15 +308,18 @@ class PackagingTests(unittest.TestCase):
         manifest = {name:(len(body),hashlib.sha256(body).hexdigest()) for name,body in bodies.items()}
         a, raw = self.wheel()
         pip, bootstrap = self.wheel('pip')
-        lock = dict(wheels=[a,pip],roots=['demo'],bootstrap='pip',target=self.v.TARGET)
-        lockfile = self.root/'fixture.lock.json'
-        lockfile.write_text(json.dumps(lock))
+        # Validate the real lock first, preserving its full target and exact bytes;
+        # replace dependency records/roots with small local fixtures for assembly.
+        actual_lock = self.p.read_lock()
+        lock_body = self.p.LOCK.read_bytes()
+        self.assertEqual(set(actual_lock['target'])-set(self.v.TARGET),
+                         {'extra','platform_release','platform_version'})
+        lock = dict(actual_lock,wheels=[a,pip],roots=['demo'])
         streams = {a['url']:raw,pip['url']:bootstrap}
         prefix = f'https://huggingface.co/{self.p.MODEL_REPOSITORY}/resolve/{self.p.MODEL_REVISION}/'
         streams.update({prefix+name:(original if name=='tokenizer/tokenizer_config.json' else body) for name,body in bodies.items()})
         output = self.root/'complete'
-        lock_body = lockfile.read_bytes()
-        with patch.object(self.p,'read_lock',return_value=lock), patch.object(self.p,'LOCK',lockfile), patch.object(self.p,'LOCK_PIN',(len(lock_body),hashlib.sha256(lock_body).hexdigest())), patch.object(self.p,'MANIFEST',manifest), patch.object(self.p._artifacts,'MANIFEST',manifest):
+        with patch.object(self.p,'read_lock',return_value=lock), patch.object(self.p,'MANIFEST',manifest), patch.object(self.p._artifacts,'MANIFEST',manifest):
             self.p.prepare(output,opener=lambda url:io.BytesIO(streams[url]))
             self.assertFalse((output/'INCOMPLETE').exists())
             self.assertTrue((output/'bootstrap'/pip['filename']).is_file())
@@ -313,6 +335,12 @@ class PackagingTests(unittest.TestCase):
             import release_inventory
             inventory_body = (output/'release-inventory.json').read_bytes()
             inventory = release_inventory.verify_release(output,hashlib.sha256(inventory_body).hexdigest())
+            self.assertEqual(inventory['target'],self.v.TARGET)
+            self.assertEqual((output/'arm64-cp312.lock.json').read_bytes(),lock_body)
+            self.assertEqual(inventory['lock']['sha256'],hashlib.sha256(lock_body).hexdigest())
+            self.assertEqual(metadata['target'],actual_lock['target'])
+            with self.assertRaisesRegex(ValueError,'wrong target'):
+                release_inventory.inventory_bytes(dict(inventory,target=actual_lock['target']))
             self.assertEqual(inventory['source_baseline_commit'],'6317f8ecf4b75b5fb5923093d3a987289ea0fd21')
             self.assertEqual(inventory['runtime_origin_commit'],'d17cd150b11d9ed3efa91ac74d9a0a5dc312f44d')
             expected = {'runtime/'+n for n in ('artifacts.py','backend.py','protocol.py','server.py')}

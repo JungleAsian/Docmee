@@ -11,6 +11,7 @@ import { createClinicsRepository, createKnowledgeLearningRepository, createKnowl
 import { aiAgentHandoffReason, assessKbAnswer, capPatientInput, detectPromptInjection, knowledgeHandoffNotice, medicalSafetyDeferral, parseAiAgentCompletion, parseAiAnswerConfidence, retrieveKbEvidence, screenMedicalSafety, screenPromptLeak, wrapUntrustedKb } from '@docmee/agents'
 import { readAiAssistant, resolveChat, resolveEmbed } from '../lib/ai-assistant.js'
 import { resolveClinicAiKey } from '../lib/clinic-ai-key.js'
+import { getLayaAdapter } from '../lib/laya.js'
 import { isClaudeCliAvailable } from '@docmee/llm'
 import { personaForRole } from '../lib/jzel-personas.js'
 import { withDb } from '../lib/db.js'
@@ -60,8 +61,9 @@ async function buildKbGrounding(input: {
         doctorId: input.doctorId,
         knowledge: createKnowledgeRepository(sql),
         embed: resolveEmbed(input.ai, input.settings),
-        sourcesCurrent: (citations, revision) => learning.sourcesCurrent(input.clinicId, citations, {
-          doctorId: input.doctorId ?? null, retrievalRevision: revision,
+        layaAdapter: getLayaAdapter(),
+        sourcesCurrent: (citations, revision, scope) => learning.sourcesCurrent(input.clinicId, citations, {
+          doctorId: scope.doctorId, language: scope.language, retrievalRevision: revision,
         }),
       })
     })

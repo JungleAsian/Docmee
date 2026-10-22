@@ -16,6 +16,7 @@ describe('@docmee/db — package boundary', () => {
     expect(typeof db.createAppointmentsRepository).toBe('function')
     expect(typeof db.createKnowledgeRepository).toBe('function')
     expect(typeof db.createAuditRepository).toBe('function')
+    expect(typeof db.createLayaControlsRepository).toBe('function')
   })
 
   it('repository factories return objects with expected methods when given a mock sql', () => {
@@ -61,5 +62,8 @@ describe('@docmee/db — package boundary', () => {
     const audit = db.createAuditRepository(mockSql)
     expect(typeof audit.log).toBe('function')
     expect(typeof audit.list).toBe('function')
+
+    const layaControls = db.createLayaControlsRepository(mockSql)
+    expect(typeof layaControls.readForClinic).toBe('function')
   })
 })

@@ -144,6 +144,7 @@ export {
   createWorkflowExecutionsRepository,
   createMediaAssetsRepository,
   createSensitiveRetentionRepository,
+  createLayaControlsRepository,
 } from './repositories/index.js'
 
 export type {

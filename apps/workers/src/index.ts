@@ -29,6 +29,7 @@ import { startMediaCleanupScheduler } from './media-cleanup.js'
 import { startSensitiveDataCleanupScheduler } from './sensitive-data-cleanup.js'
 import { createServiceDbClient } from '@docmee/db'
 import { startScheduledMessagesRuntime } from './scheduled-messages.scheduler.js'
+import { closeLaya } from './laya.js'
 
 // Default-disabled: no delayed staff delivery or reconciliation until explicitly enabled.
 export const scheduledMessagesRuntime = startScheduledMessagesRuntime()
@@ -169,6 +170,11 @@ async function shutdownWorkers(signal: string): Promise<void> {
   clearInterval(sensitiveDataCleanupScheduler)
   if (scheduledMessagesRuntime) clearInterval(scheduledMessagesRuntime.timer)
   await Promise.allSettled(allWorkers.map((w) => w.close()))
+  try {
+    await closeLaya()
+  } catch {
+    console.error('[workers] LAYA controls connection close failed')
+  }
   console.log('[workers] shutdown complete')
   process.exit(0)
 }

@@ -53,6 +53,7 @@ import { chatComplete, defaultChatModel, type ChatProvider } from '@docmee/llm'
 import { activeWhatsAppAccount, resolveWhatsAppInteractiveSender, resolveWhatsAppSender } from './meta-token.js'
 import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
+import { getLayaAdapter } from './laya.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
@@ -1133,9 +1134,10 @@ function buildExecutors(
         doctorId: contextString(ctx, 'doctor_id') || null,
         knowledge,
         embed: resolveEmbedder(clinic.settings),
-        sourcesCurrent: (sourceCitations, revision) => learning.sourcesCurrent(clinicId, sourceCitations, {
-          doctorId: contextString(ctx, 'doctor_id') || null,
-          language,
+        layaAdapter: getLayaAdapter(),
+        sourcesCurrent: (sourceCitations, revision, proofScope) => learning.sourcesCurrent(clinicId, sourceCitations, {
+          doctorId: proofScope.doctorId,
+          language: proofScope.language,
           retrievalRevision: revision,
         }),
         minVectorScore: guardrails.groundingStrictness.minKbConfidence,

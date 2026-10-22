@@ -50,6 +50,8 @@ const h = vi.hoisted(() => ({
   isEmergencyMessage: vi.fn(),
   queueAdd: vi.fn(),
   end: vi.fn(),
+  layaAdapter: undefined as unknown,
+  retrievalAdapters: [] as unknown[],
 }))
 
 vi.mock('@docmee/agents', async () => ({
@@ -91,7 +93,10 @@ vi.mock('@docmee/agents', async () => ({
   isLikelyQuestion: () => false,
   scopeKbToMessage: (_message: string, chunks: unknown[]) => chunks,
   hasDoctorScopedChunks: () => false,
-  retrieveKbEvidence: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).retrieveKbEvidence,
+  retrieveKbEvidence: async (input: Parameters<typeof import('../../../../packages/agents/src/botbase/kb-evidence-pack.js').retrieveKbEvidence>[0]) => {
+    h.retrievalAdapters.push(input.layaAdapter)
+    return (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).retrieveKbEvidence(input)
+  },
   clearSharedKbEvidenceCache: (await import('../../../../packages/agents/src/botbase/kb-evidence-pack.js')).clearSharedKbEvidenceCache,
   readGuardrails: (await import('../../../../packages/agents/src/botbase/guardrails.js')).readGuardrails,
   matchesGuardrailTopic: (await import('../../../../packages/agents/src/botbase/guardrails.js')).matchesGuardrailTopic,
@@ -119,6 +124,7 @@ vi.mock('@docmee/channels', () => ({
 }))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
+vi.mock('../laya.js', () => ({ getLayaAdapter: () => h.layaAdapter }))
 vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }), kbEmbedQueue: { add: h.queueAdd } }))
 
 vi.mock('@docmee/db', async () => ({
@@ -175,6 +181,8 @@ const job = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.layaAdapter = undefined
+  h.retrievalAdapters.length = 0
   clearSharedKbEvidenceCache()
   vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 10))
   h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published', nodes: [], edges: [] })
@@ -225,6 +233,17 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('processWorkflowRunJob automation ownership', () => {
+  it('passes the server-owned adapter to workflow KB retrieval without context overrides', async () => {
+    h.layaAdapter = { assess: vi.fn().mockResolvedValue({ status: 'fallback', apply: false, mode: 'disabled', reason: 'disabled' }) }
+    h.runWorkflow.mockImplementation(async (_definition, ctx, exec) => {
+      await exec.aiAgent({ id: 'laya-boundary', type: 'action.ai_agent', config: { scenarios: [{ id: 'general', name: 'General', action: 'reply' }] } },
+        { ...ctx, message: 'hours?', conversationId: 'conversation-1', layaMode: 'live', layaAdapter: { enabled: true } })
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(h.retrievalAdapters).toEqual([h.layaAdapter])
+  })
+
   it.each(['emergency', 'provider_failure', 'no_match'])('records exactly one redacted terminal outcome for %s', async reason => {
     h.isEmergencyMessage.mockReturnValue(reason === 'emergency')
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})

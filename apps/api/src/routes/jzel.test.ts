@@ -7,6 +7,10 @@ const state = vi.hoisted(() => ({
   kbClinics: [] as string[],
   clinicReads: [] as string[],
   systems: [] as string[],
+  layaAdapter: undefined as unknown,
+  retrievalAdapters: [] as unknown[],
+  retrievalLanguage: 'en' as 'en' | 'es',
+  currentnessScopes: [] as unknown[],
   chatResponse: 'CONFIDENCE: 0.95\nREPLY:\nok',
   hasKey: false,
   user: {
@@ -33,7 +37,10 @@ vi.mock('@docmee/db', () => ({
       state.embedded.push(filters.doctorId); state.active.push(filters.doctorId); return []
     },
   }),
-  createKnowledgeLearningRepository: () => ({ sourcesCurrent: async () => true }),
+  createKnowledgeLearningRepository: () => ({ sourcesCurrent: async (_clinicId: string, _citations: unknown[], scope: unknown) => {
+    state.currentnessScopes.push(scope)
+    return true
+  } }),
 }))
 
 vi.mock('@docmee/agents', () => ({
@@ -52,10 +59,14 @@ vi.mock('@docmee/agents', () => ({
   }),
   aiAgentHandoffReason: (evidence: { groundingScore: number }, confidence: number | null, current: boolean) =>
     !current ? 'stale' : evidence.groundingScore < 1 ? 'ungrounded' : confidence === null || confidence < .8 ? 'low_confidence' : null,
-  retrieveKbEvidence: async (input: { clinicId: string; doctorId?: string | null; knowledge: { searchChunks: (...args: unknown[]) => unknown } }) => {
+  retrieveKbEvidence: async (input: { clinicId: string; doctorId?: string | null; layaAdapter?: unknown;
+    sourcesCurrent?: (citations: unknown[], revision: number, scope: { doctorId: string | null; language: 'en' | 'es' }) => Promise<boolean>;
+    knowledge: { searchChunks: (...args: unknown[]) => unknown } }) => {
+    state.retrievalAdapters.push(input.layaAdapter)
     await input.knowledge.searchChunks('help me', [], { clinicId: input.clinicId, doctorId: input.doctorId }, 40)
+    await input.sourcesCurrent?.([], 1, { doctorId: input.doctorId ?? null, language: state.retrievalLanguage })
     return { status: 'ready', matches: [{ content: 'ok', title: 'KB' }], citations: [], revision: 1,
-      mode: 'keyword', plan: { language: 'en' } }
+      mode: 'keyword', plan: { language: state.retrievalLanguage } }
   },
   searchKb: async () => [],
   expandKbQuery: (query: string) => query,
@@ -86,6 +97,7 @@ vi.mock('../lib/ai-assistant.js', () => ({
 }))
 
 vi.mock('../lib/clinic-ai-key.js', () => ({ resolveClinicAiKey: () => state.hasKey ? 'clinic-key' : undefined }))
+vi.mock('../lib/laya.js', () => ({ getLayaAdapter: () => state.layaAdapter }))
 vi.mock('../lib/db.js', () => ({ withDb: (fn: (sql: unknown) => unknown) => fn({}) }))
 vi.mock('../middleware/auth.js', () => ({
   requireAuth: async (request: { user?: Record<string, unknown> }) => {
@@ -110,6 +122,10 @@ describe('Docmee assistant route branding', () => {
     state.kbClinics.length = 0
     state.clinicReads.length = 0
     state.systems.length = 0
+    state.layaAdapter = undefined
+    state.retrievalAdapters.length = 0
+    state.retrievalLanguage = 'en'
+    state.currentnessScopes.length = 0
     state.hasKey = false
     state.chatResponse = 'CONFIDENCE: 0.95\nREPLY:\nok'
     state.user = {
@@ -124,6 +140,27 @@ describe('Docmee assistant route branding', () => {
 
   afterAll(async () => {
     await app.close()
+  })
+
+  it('passes only the server-owned optional adapter to clinic-scoped retrieval', async () => {
+    state.layaAdapter = { assess: vi.fn() }
+    const response = await app.inject({ method: 'POST', url: '/assist/chat',
+      payload: { message: 'Help me', layaAdapter: { enabled: true }, layaMode: 'live' } })
+    expect(response.statusCode).toBe(409)
+    expect(state.retrievalAdapters).toEqual([state.layaAdapter])
+    expect(state.kbClinics).toEqual(['c-1'])
+  })
+
+  it('keeps retrieval unchanged when the server has no LAYA adapter', async () => {
+    await app.inject({ method: 'POST', url: '/assist/chat', payload: { message: 'Help me' } })
+    expect(state.retrievalAdapters).toEqual([undefined])
+  })
+
+  it('binds the pre-disclosure currentness proof to the server-planned KB language', async () => {
+    state.retrievalLanguage = 'es'
+    await app.inject({ method: 'POST', url: '/assist/chat',
+      payload: { message: '¿Cuáles son los horarios?', doctorId: 'doctor-1', language: 'en' } })
+    expect(state.currentnessScopes).toContainEqual({ doctorId: 'doctor-1', language: 'es', retrievalRevision: 1 })
   })
 
   it('uses Docmee in the user-visible provider setup message', async () => {

@@ -124,6 +124,10 @@ def wheel_compatible(filename):
     match = re.fullmatch(r'([A-Za-z0-9_]+)-([A-Za-z0-9_.+]+)-([A-Za-z0-9_.]+)-([A-Za-z0-9_.]+)-([A-Za-z0-9_.]+)\.whl',filename)
     if not match:
         raise ValueError('not a supported wheel filename')
+    if ('any' in match[5].split('.')
+            and (not all(re.fullmatch(r'py[0-9]+',tag) for tag in match[3].split('.'))
+                 or match[4] != 'none')):
+        raise ValueError('platform-any wheel must be pure Python with ABI none')
     for python, abi, platform in itertools.product(*(p.split('.') for p in match.groups()[2:])):
         linux = re.fullmatch(r'manylinux_2_(\d+)_aarch64',platform)
         platform_ok = (platform in ('any','manylinux2014_aarch64') or linux and 17 <= int(linux[1]) <= 39)

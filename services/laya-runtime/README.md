@@ -106,7 +106,7 @@ CPU only**, not this Windows test host. No installation, model inference, servic
 setup, deployment, calibration, or qualification has been performed by this work.
 
 ```powershell
-python -m unittest discover -s services/laya-runtime/packaging -p test_packaging.py -v
+python -m unittest discover -s services/laya-runtime/packaging -p 'test_*.py' -v
 python services/laya-runtime/packaging/prepare.py --output C:\absolute\new-laya-package
 ```
 
@@ -133,16 +133,57 @@ Linux/aarch64/CPython 3.12, never Windows. Requested transitive extras propagate
 to a fixed point. Unknown markers, unsupported version syntax/tags, missing
 dependencies, incompatible versions/Python requirements and unused wheels fail
 closed. The standard-library validator is intentionally a bounded verifier for
-this lock, not a general package resolver.
+this lock, not a general package resolver. Platform-`any` wheels must have pure
+Python (`py...`) interpreter tags and ABI `none`; native `cp312-cp312-any` and
+`cp310-abi3-any` tags are rejected. Existing versions and artifact hashes are unchanged.
 
 Preparation reads wheel METADATA without extraction or code execution, fetches
 exactly the five immutable checkpoint files, verifies the original tokenizer
 bytes before the documented normalization, then calls `artifacts.verify_artifacts`
 for final prepared-model validation. The package contains `runtime/`, `model/`,
-`wheels/`, `bootstrap/`, hash-only `requirements.txt`, a lock copy and `package.json`
-with runtime source sizes/SHA-256, source baseline commit and model revision.
-The baseline is not a claim that a dirty checkout equals that commit: the copied
-runtime bytes are identified by their actual hashes.
+`wheels/`, `bootstrap/`, `isolation/` (entrypoint, renderer, probe and both unit
+templates), hash-only `requirements.txt`, a lock copy, `package.json`, and
+`release-inventory.json`. No venv, installer, service activation, mutable release
+symlink, routing enablement or deployment is created.
+
+All nine copied runtime/isolation source inputs and the lock must match exact
+size/SHA-256 pins taken from Git blobs at reviewed source baseline
+`6317f8ecf4b75b5fb5923093d3a987289ea0fd21`. A dirty source is rejected, not
+silently blessed with its current hash. Use LF checkout bytes for these inputs;
+CRLF conversion is intentionally not normalized or trusted. `runtime_origin_commit`
+retains the earlier backend baseline `d17cd150b11d9ed3efa91ac74d9a0a5dc312f44d`;
+it is not a claim that the later isolation/runtime content equals that old commit.
+The later packaging implementation commit is recorded **outside** the package
+beside the inventory digest; embedding its own final commit would be self-referential.
+
+### Read-only package integrity verification
+
+The version-1 inventory deterministically records every allowed regular payload
+file's POSIX relative path, byte size and SHA-256, plus reviewed source baseline,
+runtime origin, target, model repository/revision and lock identity. Files are
+sorted; serialization has no timestamp, machine path or inventory self-hash.
+Preparation rejects unexpected files **and directories**, checks the final closed
+tree before removing `INCOMPLETE`, and prints `inventory-sha256: HEX`.
+Retain that digest with the reviewed packaging commit in a trusted record outside
+the package. A digest obtained only from the received package is not a trust anchor.
+
+Run the verifier from a separate **reviewed trusted source checkout**, never
+blindly execute Python from an untrusted received package. For example:
+
+```powershell
+python -I -B C:\trusted\docmee\services\laya-runtime\packaging\release_inventory.py verify C:\absolute\received-package --inventory-sha256 RETAINED_64_LOWERCASE_HEX_DIGEST
+```
+
+This stdlib-only command hashes the inventory **before parsing**, requires the
+out-of-band digest, bounds inventory input to 1 MiB and 4096 entries, requires an
+exact schema, rejects duplicate keys/nonfinite values/unsafe or aliased paths,
+missing/extra files or directories, `INCOMPLETE`, symlinks and Windows reparse
+objects, and stream-checks file sizes/hashes (at most 1 GiB per file). It only
+reads and hashes; it does not import the runtime, download, install, load a model,
+write caches or repair files. Exit 0 / `release:PASS` means integrity matched the
+retained digest, **not** ARM/systemd, privacy, load or model qualification.
+Use trusted exclusive filesystem access during verification and later sealing;
+these checks do not prevent a concurrent writer replacing files afterward.
 
 A later, separately authorized Ubuntu operator may create a venv **without pip**
 and run the locked external bootstrap against that interpreter, for example:
@@ -203,10 +244,11 @@ python -m unittest discover -s services/laya-runtime/isolation -p test_isolation
 
 The immutable release layout is fixed: `venv/bin/python`, `runtime/` (the four
 reviewed runtime sources), `model/` (verified pinned checkpoint), and `isolation/`
-(this entrypoint and probe). Task 3's preparation package does not yet copy the
-isolation directory; a later authorized operator must place reviewed copies,
-verify source hashes and seal the entire release before installation. There is
-no implicit copy/install hook. Use one safe release identity below
+(the reviewed entrypoint, renderer, probe and both templates). The preparation
+package now includes this closed isolation set and a verifiable inventory; it
+does not create `venv/`. A later authorized operator must verify the retained
+inventory digest before installation, then inspect and seal the installed venv
+and entire immutable release. There is no implicit install hook. Use one safe release identity below
 `/opt/docmee-laya/releases`; no dots, whitespace, shell syntax, unit specifiers,
 extra components or mutable `current` symlink. The renderer integrity-checks both
 templates and rejects existing symlink/reparse ancestors on Linux. It can render

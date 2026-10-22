@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import re
-import stat
 import sys
 import tempfile
 from urllib.parse import unquote, urlsplit
@@ -20,11 +19,26 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
 HERE = Path(__file__).resolve().parent
 RUNTIME = HERE.parent
 sys.path.insert(0,str(RUNTIME))
-from artifacts import MANIFEST, MODEL_REPOSITORY, MODEL_REVISION, verify_artifacts
 from lock_validation import TARGET, inspect_wheel, verify_closure
+from release_inventory import INVENTORY, inventory_bytes, ordinary, safe_path, safe_parents, verify_tree
 
 LOCK = HERE / 'arm64-cp312.lock.json'
 SOURCE_BASE = 'd17cd150b11d9ed3efa91ac74d9a0a5dc312f44d'
+REVIEWED_SOURCE_BASE = '6317f8ecf4b75b5fb5923093d3a987289ea0fd21'
+# Exact Git blob bytes from REVIEWED_SOURCE_BASE, not hashes of a dirty checkout.
+# Check out these reviewed files with LF endings; never silently normalize them.
+SOURCE_PINS = {
+    'artifacts.py': (3021, 'e2c668945e8dca897246c53f173bf92b53f200d0c3b633c2b669b4d36a0a1aaf'),
+    'backend.py': (5254, '3ff4183c1afd25f87ce5235fcfa56060dd3f822f8249dab078beb866760051c9'),
+    'protocol.py': (3837, '7dec7e6aa3eef959657c080c831260cbbb6e3a1b3af95aaaf6546894d5f89265'),
+    'server.py': (15540, '51c073125073ac25a749697c4903d3d2fef8426bf322264b25fbbc9f5ccebf77'),
+    'isolation/entrypoint.py': (1523, '9207e8244d271f254a0e0e9cda282e7e92b9e9d627ce002ab3eea20e0b3e3fe1'),
+    'isolation/render.py': (2829, '1c2bb413668ab682fd1486b3d95430ef1622a0024cc89896bc5315276c9b3d73'),
+    'isolation/probe.py': (3001, '1f7448f99399647b0d86b72ad1397933f334d5edb9a82d70e64324c8a438bacd'),
+    'isolation/docmee-laya.service.in': (1785, '21e86e04014b6b8ec9f0b9a1ccf66846134776b026d5664e5df4022a1afcad89'),
+    'isolation/docmee-laya.socket.in': (290, '9ab9bae5060a621e8e1198d5d94c95f3c9c8f19cf4b88d27790c5b8369f05562'),
+}
+LOCK_PIN = (59604, '209fb9cc8378a63e243896676216d73f076946f3a23266a2668fff614eed2655')
 SOURCES = ('artifacts.py','backend.py','protocol.py','server.py')
 ORIGINAL_TOKENIZER = (502,'424b69444bf7b5809dc2cd2e36d0bd71b8055124dd24274d6db3c655d38205e7')
 HOSTS = {'files.pythonhosted.org','download-r2.pytorch.org','huggingface.co'}
@@ -57,31 +71,6 @@ def open_artifact(url):
     return build_opener(ProxyHandler({}),_Redirects()).open(url,timeout=30)
 
 
-def ordinary(path, *, directory=False):
-    info = path.lstat()
-    if stat.S_ISLNK(info.st_mode) or getattr(info,'st_file_attributes',0)&0x400:
-        raise ValueError('symlink or reparse point rejected')
-    if not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)):
-        raise ValueError('nonordinary filesystem object')
-    return info
-
-
-def safe_path(path):
-    if (not path.is_absolute() or '..' in path.parts or str(path).startswith(('\\\\','//'))
-            or any(ord(c)<32 for c in str(path))):
-        raise ValueError('explicit absolute path required')
-    for part in path.parts[1:]:
-        if (':' in part or part.endswith((' ','.')) or
-                re.fullmatch(r'(?i:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?',part)):
-            raise ValueError('unsafe destination name')
-
-
-def safe_parents(path):
-    safe_path(path)
-    for parent in (path,*path.parents):
-        ordinary(parent,directory=True)
-
-
 def new_output(directory):
     root = Path(directory)
     safe_path(root)
@@ -100,6 +89,24 @@ def checked_bytes(body,size,digest):
     if len(body) != size or hashlib.sha256(body).hexdigest() != digest:
         raise ValueError('artifact size or SHA-256 mismatch')
     return body
+
+
+def checked_source(path,pin):
+    safe_parents(path.parent)
+    if ordinary(path).st_size != pin[0]:
+        raise ValueError('unreviewed source size')
+    with path.open('rb') as stream:
+        return checked_bytes(stream.read(pin[0]+1),*pin)
+
+
+def reviewed_sources():
+    return {name:checked_source(RUNTIME/name,pin) for name,pin in SOURCE_PINS.items()}
+
+
+# artifacts supplies immutable constants and the closed model verifier. Validate
+# its reviewed bytes before importing it, never import a changed runtime module.
+checked_source(RUNTIME/'artifacts.py',SOURCE_PINS['artifacts.py'])
+from artifacts import MANIFEST, MODEL_REPOSITORY, MODEL_REVISION, verify_artifacts
 
 
 def place_bytes(path,body):
@@ -161,8 +168,7 @@ def normalize_tokenizer(body):
 
 
 def read_lock():
-    ordinary(LOCK)
-    lock = json.loads(LOCK.read_text(encoding='utf-8'))
+    lock = json.loads(checked_source(LOCK,LOCK_PIN))
     if (lock['schema_version'] != 1 or any(lock['target'].get(k) != v for k,v in TARGET.items())
             or lock['roots'] != list(PINS)[:-1] or lock['bootstrap'] != 'pip'):
         raise ValueError('wrong target lock')
@@ -187,7 +193,10 @@ def prepare(directory, *, opener=open_artifact):
     root = new_output(directory)
     # Any exception preserves INCOMPLETE and all validated artifacts for diagnosis.
     lock = read_lock()
-    for name in ('wheels','bootstrap','model','runtime'):
+    sources = reviewed_sources()
+    # Retain these bytes, rather than rereading a potentially changed lock later.
+    lock_body = checked_source(LOCK,LOCK_PIN)
+    for name in ('wheels','bootstrap','model','runtime','isolation'):
         (root/name).mkdir(mode=0o700)
     for record in lock['wheels']:
         folder = 'bootstrap' if record['name'] == lock['bootstrap'] else 'wheels'
@@ -195,13 +204,14 @@ def prepare(directory, *, opener=open_artifact):
         download(record,path,opener=opener)
         inspect_wheel(path,record)
     source_hashes = {}
-    safe_parents(RUNTIME)
-    for name in SOURCES:
-        path = RUNTIME/name
-        ordinary(path)
-        body = path.read_bytes()
-        place_bytes(root/'runtime'/name,body)
-        source_hashes[name] = {'size':len(body),'sha256':hashlib.sha256(body).hexdigest()}
+    records = {}
+    for name,body in sources.items():
+        destination = name if name.startswith('isolation/') else 'runtime/'+name
+        place_bytes(root/destination,body)
+        size,digest = SOURCE_PINS[name]
+        records[destination] = {'path':destination,'size':size,'sha256':digest}
+        if name in SOURCES:
+            source_hashes[name] = {'size':size,'sha256':digest}
     for name, (size,digest) in MANIFEST.items():
         path = root/'model'/name
         path.parent.mkdir(parents=True,exist_ok=True)
@@ -219,13 +229,33 @@ def prepare(directory, *, opener=open_artifact):
     requirements = ''.join(f"{r['name']}=={r['version']} --hash=sha256:{r['sha256']}\n"
                            for r in lock['wheels'] if r['name'] != lock['bootstrap'])
     place_bytes(root/'requirements.txt',requirements.encode('ascii'))
-    place_bytes(root/LOCK.name,LOCK.read_bytes())
-    metadata = {'schema_version':1,'source_baseline_commit':SOURCE_BASE,
+    lock_name = 'arm64-cp312.lock.json'
+    place_bytes(root/lock_name,lock_body)
+    metadata = {'schema_version':1,'source_baseline_commit':REVIEWED_SOURCE_BASE,
+                'runtime_origin_commit':SOURCE_BASE,
                 'runtime_sources':source_hashes,'model_revision':MODEL_REVISION,
-                'lock_sha256':hashlib.sha256(LOCK.read_bytes()).hexdigest(),
+                'lock_sha256':hashlib.sha256(lock_body).hexdigest(),
                 'target':lock['target'],'status':'prepared-not-installed-not-ARM-executed',
                 'filesystem_isolation':'operator-required; not enforced by this tool'}
-    place_bytes(root/'package.json',json.dumps(metadata,indent=2).encode('utf-8'))
+    metadata_body = json.dumps(metadata,indent=2).encode('utf-8')
+    place_bytes(root/'package.json',metadata_body)
+    for record in lock['wheels']:
+        folder = 'bootstrap' if record['name'] == lock['bootstrap'] else 'wheels'
+        name = folder+'/'+record['filename']
+        records[name] = dict(path=name,size=record['size'],sha256=record['sha256'])
+    for name,(size,digest) in MANIFEST.items():
+        name = 'model/'+name
+        records[name] = dict(path=name,size=size,sha256=digest)
+    for name,body in ((lock_name,lock_body),('requirements.txt',requirements.encode('ascii')),('package.json',metadata_body)):
+        records[name] = dict(path=name,size=len(body),sha256=hashlib.sha256(body).hexdigest())
+    inventory = dict(schema_version=1,source_baseline_commit=REVIEWED_SOURCE_BASE,runtime_origin_commit=SOURCE_BASE,
+                     target=lock['target'],model=dict(repository=MODEL_REPOSITORY,revision=MODEL_REVISION),
+                     lock=dict(filename=lock_name,sha256=metadata['lock_sha256']),files=list(records.values()))
+    body = inventory_bytes(inventory)
+    # Reject all unlisted files AND directories while the failure marker remains.
+    verify_tree(root,inventory,extra_files=('INCOMPLETE',))
+    place_bytes(root/INVENTORY,body)
+    verify_tree(root,inventory,extra_files=('INCOMPLETE',INVENTORY))
     ordinary(root/'INCOMPLETE')
     (root/'INCOMPLETE').unlink()
     return root
@@ -236,11 +266,12 @@ def main():
     parser.add_argument('--output',required=True,help='new absolute output directory; parent must already exist')
     args = parser.parse_args()
     try:
-        prepare(args.output)
+        root = prepare(args.output)
     except (OSError,ValueError,KeyError,TypeError):
         print('package preparation failed; inspect INCOMPLETE output, do not install',file=sys.stderr)
         return 1
     print('package prepared; no install, ARM execution or qualification performed')
+    print('inventory-sha256: '+hashlib.sha256((root/INVENTORY).read_bytes()).hexdigest())
     return 0
 
 

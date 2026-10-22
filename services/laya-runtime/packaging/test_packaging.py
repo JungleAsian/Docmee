@@ -93,8 +93,11 @@ class PackagingTests(unittest.TestCase):
             self.v.verify_closure([a,b,c], ['third'])
 
     def test_wheel_target_compatibility(self):
-        good = ('cp312-cp312-manylinux_2_28_aarch64', 'cp310-abi3-manylinux2014_aarch64', 'py3-none-any')
+        good = ('cp312-cp312-manylinux_2_28_aarch64', 'cp310-abi3-manylinux2014_aarch64',
+                'py3-none-any','py2.py3-none-any')
         bad = ('cp311-cp311-manylinux_2_28_aarch64', 'cp313-abi3-manylinux_2_28_aarch64',
+               'cp312-cp312-any', 'cp310-abi3-any', 'cp312-none-any',
+               'cp312-cp312-any.manylinux_2_28_aarch64',
                'cp312-cp312-manylinux_2_40_aarch64', 'cp312-cp312-win_arm64',
                'cp312-cp312-manylinux_2_28_x86_64', 'cp312-cp312-musllinux_1_2_aarch64')
         for tag in good:
@@ -164,6 +167,28 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(len(lock['wheels']),36)
         self.v.verify_closure(lock['wheels'],lock['roots']+[lock['bootstrap']])
 
+    def test_dirty_runtime_or_isolation_sources_fail_before_network(self):
+        import shutil
+        source = self.root/'source'
+        shutil.copytree(HERE.parent,source,ignore=shutil.ignore_patterns('__pycache__'))
+        for name in ('artifacts.py','backend.py','protocol.py','server.py','isolation/entrypoint.py','isolation/render.py','isolation/probe.py',
+                     'isolation/docmee-laya.service.in','isolation/docmee-laya.socket.in'):
+            path = source/name
+            original = path.read_bytes()
+            for index,body in enumerate((original+b'\n',b'X'+original[1:])):
+                path.write_bytes(body)
+                output = self.root/('dirty-'+str(index)+'-'+name.replace('/','-'))
+                with patch.object(self.p,'RUNTIME',source),self.subTest(name=name,mutation=index),self.assertRaises(ValueError):
+                    self.p.prepare(output,opener=lambda url: (_ for _ in ()).throw(AssertionError('network before source validation')))
+                self.assertTrue((output/'INCOMPLETE').is_file())
+            path.write_bytes(original)
+
+    def test_mutated_lock_bytes_fail_even_with_same_json(self):
+        lock = self.root/'dirty.lock.json'
+        lock.write_bytes(self.p.LOCK.read_bytes()+b'\n')
+        with patch.object(self.p,'LOCK',lock),self.assertRaises(ValueError):
+            self.p.read_lock()
+
     def test_tokenizer_original_and_prepared_hashes(self):
         original = b'{\n  "bos_token": "<bos>",\n  "clean_up_tokenization_spaces": false,\n  "cls_token": "<bos>",\n  "eos_token": "<eos>",\n  "extra_special_tokens": [\n    "<start_of_turn>",\n    "<end_of_turn>"\n  ],\n  "mask_token": "<mask>",\n  "model_input_names": [\n    "input_ids",\n    "attention_mask"\n  ],\n  "model_max_length": 8192,\n  "pad_token": "<pad>",\n  "padding_side": "right",\n  "sep_token": "<eos>",\n  "spaces_between_special_tokens": false,\n  "tokenizer_class": "PreTrainedTokenizerFast",\n  "unk_token": "<unk>"\n}'
         result = self.p.normalize_tokenizer(original)
@@ -223,7 +248,8 @@ class PackagingTests(unittest.TestCase):
         prefix = f'https://huggingface.co/{artifacts.MODEL_REPOSITORY}/resolve/{artifacts.MODEL_REVISION}/'
         streams.update({prefix+name:(original if name=='tokenizer/tokenizer_config.json' else body) for name,body in bodies.items()})
         output = self.root/'complete'
-        with patch.object(self.p,'read_lock',return_value=lock), patch.object(self.p,'LOCK',lockfile), patch.object(self.p,'MANIFEST',manifest), patch.object(artifacts,'MANIFEST',manifest):
+        lock_body = lockfile.read_bytes()
+        with patch.object(self.p,'read_lock',return_value=lock), patch.object(self.p,'LOCK',lockfile), patch.object(self.p,'LOCK_PIN',(len(lock_body),hashlib.sha256(lock_body).hexdigest())), patch.object(self.p,'MANIFEST',manifest), patch.object(artifacts,'MANIFEST',manifest):
             self.p.prepare(output,opener=lambda url:io.BytesIO(streams[url]))
             self.assertFalse((output/'INCOMPLETE').exists())
             self.assertTrue((output/'bootstrap'/pip['filename']).is_file())
@@ -232,7 +258,34 @@ class PackagingTests(unittest.TestCase):
             metadata = json.loads((output/'package.json').read_bytes())
             self.assertEqual(metadata['runtime_sources']['server.py']['sha256'],hashlib.sha256((HERE.parent/'server.py').read_bytes()).hexdigest())
             self.assertEqual(len(metadata['runtime_sources']),4)
+            for name in ('entrypoint.py','render.py','probe.py','docmee-laya.service.in','docmee-laya.socket.in'):
+                self.assertTrue((output/'isolation'/name).is_file(),'isolation asset omitted')
+                self.assertEqual((output/'isolation'/name).read_bytes(), (HERE.parent/'isolation'/name).read_bytes())
             self.assertEqual(len(list((output/'model').rglob('*'))),7)
+            import release_inventory
+            inventory_body = (output/'release-inventory.json').read_bytes()
+            inventory = release_inventory.verify_release(output,hashlib.sha256(inventory_body).hexdigest())
+            self.assertEqual(inventory['source_baseline_commit'],'6317f8ecf4b75b5fb5923093d3a987289ea0fd21')
+            self.assertEqual(inventory['runtime_origin_commit'],'d17cd150b11d9ed3efa91ac74d9a0a5dc312f44d')
+            expected = {'runtime/'+n for n in ('artifacts.py','backend.py','protocol.py','server.py')}
+            expected.update('isolation/'+n for n in ('entrypoint.py','render.py','probe.py','docmee-laya.service.in','docmee-laya.socket.in'))
+            expected.update('model/'+n for n in bodies)
+            expected.update(('wheels/'+a['filename'],'bootstrap/'+pip['filename'],
+                             'requirements.txt','arm64-cp312.lock.json','package.json'))
+            self.assertEqual({r['path'] for r in inventory['files']},expected)
+            second = self.root/'second'
+            self.p.prepare(second,opener=lambda url:io.BytesIO(streams[url]))
+            self.assertEqual((second/'release-inventory.json').read_bytes(),inventory_body)
+            for injected in ('unexpected-file','unexpected-dir'):
+                extra = self.root/injected
+                def inject(url):
+                    if url == a['url']:
+                        (extra/'unexpected').mkdir() if injected.endswith('dir') else (extra/'unexpected').write_bytes(b'x')
+                    return io.BytesIO(streams[url])
+                with self.assertRaises(ValueError):
+                    self.p.prepare(extra,opener=inject)
+                self.assertTrue((extra/'INCOMPLETE').is_file())
+                self.assertFalse((extra/'release-inventory.json').exists())
             bad = self.root/'extra-model-file'
             def injected_extra(url):
                 if url == prefix+'tokenizer/tokenizer_config.json':

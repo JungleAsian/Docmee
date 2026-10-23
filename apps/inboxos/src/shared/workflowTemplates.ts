@@ -248,7 +248,397 @@ function safeAppointmentAssistantTemplate(): WorkflowTemplate {
   }
 }
 
+// ── WhatsApp clinic assistant ──────────────────────────────────────────────
+// The English, ready-to-publish version of the clinic's proven guided flow
+// (main menu → appointments / prices / location / AI / secretary), built so a
+// clinic can publish it without wiring anything. Every choice is a WhatsApp
+// selection (list) menu with a short description under each option; doctors,
+// services, the patient's own appointments, dates and times are live lists.
+// Every menu answers "0" (main menu) and "1" (secretary), unrecognised replies
+// re-show the menu, and every booking result (success / pending / error) has a
+// patient-facing reply, so no path can leave a patient without an answer.
+
+const MENU_FOOTER = 'Reply 0 for the main menu or 1 for a secretary.'
+
+type ListOption = { optionId: string; title: string; description?: string }
+const opt = (optionId: string, title: string, description?: string): ListOption => ({ optionId, title, ...(description ? { description } : {}) })
+const OPT_MAIN_MENU = opt('main_menu', 'Main menu', 'Start again from the main menu.')
+const OPT_END_CHAT = opt('end_chat', 'End chat', 'Finish this conversation.')
+const OPT_SECRETARY = opt('talk_secretary', 'Talk to a secretary', 'A member of our team will reply.')
+const OPT_BOOK = opt('book_appointment', 'Book an appointment', 'See available dates and times.')
+
+function listMenu(
+  id: string,
+  settings: { header: string; message: string; buttonLabel?: string; options: ListOption[]; field?: string },
+  x: number,
+  y: number,
+): WorkflowNode {
+  return n(id, 'action', 'action.interactive_menu', {
+    variant: 'list',
+    optionSource: 'static',
+    header: settings.header,
+    message: settings.message,
+    footer: MENU_FOOTER,
+    buttonLabel: settings.buttonLabel ?? 'View options',
+    options: JSON.stringify(settings.options),
+    ...(settings.field ? { field: settings.field } : {}),
+  }, x, y)
+}
+
+function liveListMenu(
+  id: string,
+  settings: { source: 'clinic_doctors' | 'doctor_services' | 'patient_appointments'; field: string; header: string; message: string; buttonLabel: string; sourceField?: string },
+  x: number,
+  y: number,
+): WorkflowNode {
+  return n(id, 'action', 'action.interactive_menu', {
+    variant: 'list',
+    optionSource: settings.source,
+    field: settings.field,
+    pageSize: '8',
+    header: settings.header,
+    message: settings.message,
+    footer: MENU_FOOTER,
+    buttonLabel: settings.buttonLabel,
+    ...(settings.sourceField !== undefined ? { sourceField: settings.sourceField } : {}),
+  }, x, y)
+}
+
+function slotMenu(id: string, mode: 'date' | 'time', settings: { header: string; message: string; buttonLabel: string }, x: number, y: number): WorkflowNode {
+  return n(id, 'action', 'action.offer_slot_menu', {
+    pickerMode: mode,
+    slotsField: 'available_slots',
+    selectField: mode === 'date' ? 'preferred_date' : 'preferred_time',
+    ...(mode === 'time' ? { dateField: 'preferred_date' } : {}),
+    pageSize: '8',
+    header: settings.header,
+    message: settings.message,
+    footer: MENU_FOOTER,
+    buttonLabel: settings.buttonLabel,
+  }, x, y)
+}
+
+const assistantAiScenarios = JSON.stringify([
+  {
+    id: 'clinic_question',
+    description: 'The patient asks a general question about the clinic, the doctors, the services, or a general educational health question that can be answered safely without evaluating their own case.',
+    action: 'reply',
+  },
+  {
+    id: 'back_to_menu',
+    description: 'The patient wants to book, change, confirm or cancel an appointment, asks about prices, insurance, location or opening hours, or asks for the menu.',
+    action: 'route',
+    routeTarget: 'node',
+    targetNodeId: 'main_menu',
+  },
+  {
+    id: 'human_request',
+    description: 'The patient asks for a secretary, a person, or someone from the clinic.',
+    action: 'handoff',
+  },
+  {
+    id: 'personal_medical',
+    description: 'The patient describes their own symptoms to get a diagnosis, or asks which medicine, dose or treatment they personally should take.',
+    action: 'handoff',
+  },
+  {
+    id: 'emergency',
+    description: 'The patient describes a possible medical emergency or a serious, urgent situation.',
+    action: 'handoff',
+  },
+])
+
+function whatsappClinicAssistantTemplate(): WorkflowTemplate {
+  const nodes: WorkflowNode[] = [
+    // Start: any message opens the main menu (a reply to an open menu resumes it instead).
+    n('trigger', 'trigger', 'trigger.message_keyword', { keywords: 'any words' }, 0, 700),
+    listMenu('main_menu', {
+      header: 'Welcome',
+      message: 'Thank you for contacting {{clinic_name}}. How can we help you today?',
+      options: [
+        OPT_BOOK,
+        opt('my_appointments', 'My appointments', 'Change or cancel an appointment you already have.'),
+        opt('prices', 'Prices & insurance', 'Consultation prices with and without insurance.'),
+        opt('location_hours', 'Location & hours', 'Our address and opening hours.'),
+        opt('ask_question', 'Ask a question', 'Our virtual assistant answers questions about the clinic.'),
+        OPT_SECRETARY,
+        OPT_END_CHAT,
+      ],
+    }, 260, 700),
+
+    // ── Book an appointment ──
+    liveListMenu('doctor_menu', { source: 'clinic_doctors', field: 'doctor_id', header: 'Choose a doctor', message: 'Which doctor would you like to see?', buttonLabel: 'View doctors' }, 560, 120),
+    liveListMenu('service_menu', { source: 'doctor_services', sourceField: 'doctor_id', field: 'service_id', header: 'Choose a service', message: 'What is the appointment for?', buttonLabel: 'View services' }, 860, 120),
+    n('check_availability', 'action', 'action.check_availability', { doctorIdField: 'doctor_id', days: '14', slotsField: 'available_slots' }, 1160, 120),
+    slotMenu('date_menu', 'date', { header: 'Available dates', message: 'Choose a date for your appointment.', buttonLabel: 'View dates' }, 1460, 120),
+    slotMenu('time_menu', 'time', { header: 'Available times', message: 'Choose a time for your appointment.', buttonLabel: 'View times' }, 1760, 120),
+    n('ask_name', 'action', 'action.ask_capture', {
+      field: 'patient_name', validation: 'text', maxAttempts: '3',
+      question: 'Please type your full name (first and last name).',
+      retryQuestion: 'Please type your first and last name so we can book your appointment.',
+    }, 2060, 120),
+    listMenu('email_menu', {
+      header: 'Email (optional)',
+      message: 'Would you like to add your email address to the appointment?',
+      field: 'booking_email_choice',
+      options: [
+        opt('add_email', 'Add my email', 'Receive your appointment details by email.'),
+        opt('skip_email', 'Continue without email', 'You can book without an email address.'),
+      ],
+    }, 2360, 120),
+    n('wait_name', 'logic', 'logic.wait_for_reply', { timeoutMinutes: '1440' }, 2210, 240),
+    n('wait_email', 'logic', 'logic.wait_for_reply', { timeoutMinutes: '1440' }, 2810, 0),
+    n('wait_reason', 'logic', 'logic.wait_for_reply', { timeoutMinutes: '1440' }, 3110, 240),
+    n('ask_email', 'action', 'action.ask_capture', {
+      field: 'patient_email', validation: 'email', maxAttempts: '3',
+      question: 'Please type your email address.',
+      retryQuestion: 'Please type a valid email, for example name@example.com.',
+    }, 2660, 0),
+    n('ask_reason', 'action', 'action.ask_capture', {
+      field: 'reason', validation: 'text', maxAttempts: '3',
+      question: 'Briefly, what is the reason for your visit?',
+      retryQuestion: 'Please write a short reason for your visit.',
+    }, 2960, 120),
+    listMenu('confirm_menu', {
+      header: 'Confirm appointment',
+      message: 'Please confirm the doctor, date and time you selected.',
+      options: [
+        opt('confirm', 'Confirm appointment', 'Book this date and time.'),
+        opt('other_time', 'Choose another time', 'Go back to the available dates.'),
+        OPT_MAIN_MENU,
+      ],
+    }, 3260, 120),
+    n('create_booking', 'action', 'action.create_booking', {
+      doctorIdField: 'doctor_id', serviceIdField: 'service_id', dateField: 'preferred_date', timeField: 'preferred_time',
+      reasonField: 'reason', resultRouting: 'branches',
+    }, 3560, 120),
+    listMenu('booked_menu', {
+      header: 'Appointment booked ✅',
+      message: 'Your appointment is booked. We look forward to seeing you!',
+      options: [OPT_MAIN_MENU, OPT_END_CHAT],
+    }, 3860, 0),
+    n('booking_pending', 'action', 'action.send_message', {
+      text: 'Your appointment is saved. The calendar update is still pending, so the clinic will confirm it with you shortly.',
+    }, 3860, 200),
+    n('notify_pending', 'action', 'action.notify_secretary', {}, 4160, 200),
+    n('booking_error', 'action', 'action.send_message', {
+      text: 'We could not finish your booking automatically. A secretary will help you complete it.',
+    }, 3860, 380),
+    listMenu('no_slots_menu', {
+      header: 'No times available',
+      message: 'There are no available times for that choice right now.',
+      options: [
+        opt('other_doctor', 'Choose another doctor', 'See the other doctors and their times.'),
+        OPT_SECRETARY,
+        OPT_MAIN_MENU,
+      ],
+    }, 1760, 380),
+    n('no_doctors', 'action', 'action.send_message', {
+      text: 'Online booking is not available right now. A secretary will help you book your appointment.',
+    }, 860, 380),
+
+    // ── My appointments (change or cancel) ──
+    liveListMenu('appointments_menu', { source: 'patient_appointments', field: 'appointment_id', header: 'Your appointments', message: 'Choose the appointment you want to manage.', buttonLabel: 'View appointments' }, 560, 720),
+    listMenu('manage_menu', {
+      header: 'Manage appointment',
+      message: 'What would you like to do with this appointment?',
+      field: 'appointment_action',
+      options: [
+        opt('change', 'Change date & time', 'Pick a new date and time.'),
+        opt('cancel', 'Cancel appointment', 'Cancel this appointment.'),
+        OPT_MAIN_MENU,
+      ],
+    }, 860, 720),
+    n('change_availability', 'action', 'action.check_availability', { appointmentIdField: 'appointment_id', dateField: 'reschedule_search_date', days: '14', slotsField: 'available_slots' }, 1160, 640),
+    slotMenu('change_date_menu', 'date', { header: 'New date', message: 'Choose the new date for your appointment.', buttonLabel: 'View dates' }, 1460, 640),
+    slotMenu('change_time_menu', 'time', { header: 'New time', message: 'Choose the new time for your appointment.', buttonLabel: 'View times' }, 1760, 640),
+    listMenu('confirm_change_menu', {
+      header: 'Confirm change',
+      message: 'Move your appointment to the date and time you just selected?',
+      field: 'confirm_change',
+      options: [
+        opt('confirm', 'Confirm change', 'Move my appointment.'),
+        opt('keep', 'Keep appointment', 'Leave my appointment as it is.'),
+      ],
+    }, 2060, 640),
+    n('reschedule_booking', 'action', 'action.reschedule_booking', {
+      appointmentIdField: 'appointment_id', dateField: 'preferred_date', timeField: 'preferred_time', resultRouting: 'branches',
+    }, 2360, 640),
+    n('changed_message', 'action', 'action.send_message', { text: 'Done! Your appointment was moved to the new date and time.' }, 2660, 600),
+    listMenu('confirm_cancel_menu', {
+      header: 'Cancel appointment',
+      message: 'Are you sure you want to cancel this appointment?',
+      field: 'confirm_cancel',
+      options: [
+        opt('confirm', 'Yes, cancel it', 'Cancel this appointment.'),
+        opt('keep', 'Keep appointment', 'Leave my appointment as it is.'),
+      ],
+    }, 1160, 860),
+    n('cancel_booking', 'action', 'action.cancel_booking', { appointmentIdField: 'appointment_id', resultRouting: 'branches' }, 1460, 860),
+    n('cancelled_message', 'action', 'action.send_message', { text: 'Your appointment was cancelled. We hope to see you soon.' }, 1760, 860),
+    n('kept_message', 'action', 'action.send_message', { text: 'No problem, your appointment stays as it is.' }, 2060, 860),
+    listMenu('no_appointments_menu', {
+      header: 'No appointments',
+      message: 'We could not find any upcoming appointments for this number.',
+      options: [OPT_BOOK, OPT_SECRETARY, OPT_MAIN_MENU],
+    }, 860, 980),
+    listMenu('anything_else_menu', {
+      header: 'Anything else?',
+      message: 'Is there anything else we can help you with?',
+      options: [OPT_MAIN_MENU, OPT_END_CHAT],
+    }, 2960, 760),
+
+    // ── Prices & insurance ──
+    listMenu('prices_menu', {
+      header: 'Prices & insurance',
+      message: 'Do you have health insurance?',
+      options: [
+        opt('with_insurance', 'With insurance', 'Copays and the insurers we accept.'),
+        opt('without_insurance', 'Without insurance', 'Consultation price and payment methods.'),
+        OPT_MAIN_MENU,
+      ],
+    }, 560, 1180),
+    listMenu('insured_menu', {
+      header: 'With insurance',
+      message: '[EDIT: explain copays, for example "Your copay is set by your insurer and is usually between $X and $Y."]\n\nInsurers we accept:\n[EDIT: list the insurers you accept]',
+      options: [OPT_BOOK, OPT_SECRETARY, OPT_MAIN_MENU],
+    }, 860, 1120),
+    listMenu('uninsured_menu', {
+      header: 'Without insurance',
+      message: '[EDIT: consultation price, for example "A consultation costs $X."]\n\nPayment methods: [EDIT: cash, card, bank transfer]',
+      options: [OPT_BOOK, OPT_SECRETARY, OPT_MAIN_MENU],
+    }, 860, 1300),
+
+    // ── Location & hours ──
+    listMenu('location_menu', {
+      header: 'Location & hours',
+      message: clinicHoursMessage(),
+      options: [OPT_BOOK, OPT_MAIN_MENU, OPT_END_CHAT],
+    }, 560, 1480),
+
+    // ── Ask a question (AI assistant) ──
+    n('ai_intro', 'action', 'action.send_message', {
+      text: 'Hi! I am the clinic’s virtual assistant. Ask me anything about the clinic and our services. To book or see the menu, just say "menu".',
+    }, 560, -200),
+    n('ai_wait', 'logic', 'logic.wait_for_reply', { timeoutMinutes: '30' }, 860, -200),
+    n('ai_agent', 'action', 'action.ai_agent', {
+      personality: 'You are the friendly virtual assistant of the clinic. You are kind, professional, empathetic and clear. Keep answers short and natural.',
+      communicationStyle: 'friendly',
+      agentMaxTokens: '400',
+      knowledgePolicy: 'clinic_kb_and_general_education',
+      customInstructions: 'Help the patient and answer as many clinic-related questions as you safely can. You may answer general educational health questions, but never diagnose the patient, interpret their own symptoms, or recommend a medicine, dose or treatment for them. Never invent clinic details such as prices, hours, insurers, availability or policies; use only the clinic information you are given. Ask one question at a time and reply in the patient’s language.',
+      scenarios: assistantAiScenarios,
+    }, 1160, -200),
+    n('ai_handoff_message', 'action', 'action.send_message', { text: 'To help you better, I am connecting you with our secretary.' }, 1460, -320),
+    n('ai_no_match_message', 'action', 'action.send_message', { text: 'I could not answer that one. Let me connect you with our secretary.' }, 1460, -200),
+    n('ai_error_message', 'action', 'action.send_message', { text: 'Sorry, something went wrong on my side. Let me connect you with our secretary.' }, 1460, -80),
+
+    // ── Secretary and end ──
+    n('secretary_message', 'action', 'action.send_message', { text: 'Thank you! A secretary will reply to you as soon as possible.' }, 4160, 380),
+    n('handoff', 'action', 'action.handoff_to_secretary', {}, 4460, 380),
+    n('end_message', 'action', 'action.send_message', { text: 'Thank you for contacting us. Have a great day!' }, 4160, 0),
+    n('end', 'action', 'action.end', {}, 4760, 200),
+  ]
+
+  // Every static menu: 0 → main menu, 1 → secretary, anything unrecognised → show it again.
+  const staticMenuIds = ['main_menu', 'email_menu', 'confirm_menu', 'booked_menu', 'no_slots_menu', 'manage_menu', 'confirm_change_menu', 'confirm_cancel_menu', 'no_appointments_menu', 'anything_else_menu', 'prices_menu', 'insured_menu', 'uninsured_menu', 'location_menu']
+  // Live lists and date/time pickers: 0 → main menu, 1 → secretary.
+  const liveMenuIds = ['doctor_menu', 'service_menu', 'date_menu', 'time_menu', 'appointments_menu', 'change_date_menu', 'change_time_menu']
+
+  const edges: WorkflowEdge[] = [
+    e('trigger', 'main_menu'),
+    e('main_menu', 'doctor_menu', 'book_appointment'),
+    e('main_menu', 'appointments_menu', 'my_appointments'),
+    e('main_menu', 'prices_menu', 'prices'),
+    e('main_menu', 'location_menu', 'location_hours'),
+    e('main_menu', 'ai_intro', 'ask_question'),
+    e('main_menu', 'secretary_message', 'talk_secretary'),
+    e('main_menu', 'end_message', 'end_chat'),
+
+    // Booking
+    e('doctor_menu', 'service_menu', 'selected'), e('doctor_menu', 'no_doctors', 'empty'),
+    e('service_menu', 'check_availability', 'selected'),
+    e('service_menu', 'check_availability', 'empty'), // the doctor has no services set up: book without one
+    e('check_availability', 'date_menu'),
+    e('date_menu', 'time_menu', 'selected'), e('date_menu', 'no_slots_menu', 'empty'),
+    e('time_menu', 'ask_name', 'selected'), e('time_menu', 'no_slots_menu', 'empty'),
+    // A question only sends its text; the wait step holds the run until the answer arrives.
+    e('ask_name', 'wait_name'), e('wait_name', 'email_menu'),
+    e('email_menu', 'ask_email', 'add_email'), e('email_menu', 'ask_reason', 'skip_email'),
+    e('ask_email', 'wait_email'), e('wait_email', 'ask_reason'),
+    e('ask_reason', 'wait_reason'), e('wait_reason', 'confirm_menu'),
+    e('confirm_menu', 'create_booking', 'confirm'),
+    e('confirm_menu', 'date_menu', 'other_time'),
+    e('confirm_menu', 'main_menu', 'main_menu'),
+    e('create_booking', 'booked_menu', 'success'),
+    e('create_booking', 'booking_pending', 'pending'),
+    e('create_booking', 'booking_error', 'error'),
+    e('booked_menu', 'main_menu', 'main_menu'), e('booked_menu', 'end_message', 'end_chat'),
+    e('booking_pending', 'notify_pending'), e('notify_pending', 'end_message'),
+    e('booking_error', 'handoff'),
+    e('no_slots_menu', 'doctor_menu', 'other_doctor'), e('no_slots_menu', 'secretary_message', 'talk_secretary'), e('no_slots_menu', 'main_menu', 'main_menu'),
+    e('no_doctors', 'handoff'),
+
+    // My appointments
+    e('appointments_menu', 'manage_menu', 'selected'), e('appointments_menu', 'no_appointments_menu', 'empty'),
+    e('manage_menu', 'change_availability', 'change'), e('manage_menu', 'confirm_cancel_menu', 'cancel'), e('manage_menu', 'main_menu', 'main_menu'),
+    e('change_availability', 'change_date_menu'),
+    e('change_date_menu', 'change_time_menu', 'selected'), e('change_date_menu', 'no_slots_menu', 'empty'),
+    e('change_time_menu', 'confirm_change_menu', 'selected'), e('change_time_menu', 'no_slots_menu', 'empty'),
+    e('confirm_change_menu', 'reschedule_booking', 'confirm'), e('confirm_change_menu', 'kept_message', 'keep'),
+    e('reschedule_booking', 'changed_message', 'success'), e('reschedule_booking', 'booking_pending', 'pending'), e('reschedule_booking', 'booking_error', 'error'),
+    e('confirm_cancel_menu', 'cancel_booking', 'confirm'), e('confirm_cancel_menu', 'kept_message', 'keep'),
+    e('cancel_booking', 'cancelled_message', 'success'), e('cancel_booking', 'booking_pending', 'pending'), e('cancel_booking', 'booking_error', 'error'),
+    e('changed_message', 'anything_else_menu'), e('cancelled_message', 'anything_else_menu'), e('kept_message', 'anything_else_menu'),
+    e('no_appointments_menu', 'doctor_menu', 'book_appointment'), e('no_appointments_menu', 'secretary_message', 'talk_secretary'), e('no_appointments_menu', 'main_menu', 'main_menu'),
+    e('anything_else_menu', 'main_menu', 'main_menu'), e('anything_else_menu', 'end_message', 'end_chat'),
+
+    // Prices and location
+    e('prices_menu', 'insured_menu', 'with_insurance'), e('prices_menu', 'uninsured_menu', 'without_insurance'), e('prices_menu', 'main_menu', 'main_menu'),
+    ...['insured_menu', 'uninsured_menu'].flatMap((id) => [
+      e(id, 'doctor_menu', 'book_appointment'), e(id, 'secretary_message', 'talk_secretary'), e(id, 'main_menu', 'main_menu'),
+    ]),
+    e('location_menu', 'doctor_menu', 'book_appointment'), e('location_menu', 'main_menu', 'main_menu'), e('location_menu', 'end_message', 'end_chat'),
+
+    // AI assistant
+    e('ai_intro', 'ai_wait'),
+    e('ai_wait', 'ai_agent'),
+    e('ai_agent', 'ai_wait', 'replied'),
+    e('ai_agent', 'ai_handoff_message', 'handoff'),
+    e('ai_agent', 'ai_no_match_message', 'no_match'),
+    e('ai_agent', 'ai_error_message', 'error'),
+    e('ai_handoff_message', 'handoff'), e('ai_no_match_message', 'handoff'), e('ai_error_message', 'handoff'),
+
+    // Secretary and end
+    e('secretary_message', 'handoff'),
+    e('handoff', 'end'),
+    e('end_message', 'end'),
+
+    // Standard menu shortcuts
+    ...[...staticMenuIds, ...liveMenuIds].flatMap((id) => [e(id, 'main_menu', 'restart'), e(id, 'secretary_message', 'livechat')]),
+    ...staticMenuIds.map((id) => e(id, id, 'default')),
+  ]
+
+  return {
+    key: 'whatsapp_clinic_assistant',
+    nameKey: 'wf.tpl.whatsappClinicAssistantName',
+    descKey: 'wf.tpl.whatsappClinicAssistantDesc',
+    nodes,
+    edges,
+  }
+}
+
 export function personalizeWorkflowTemplate(template: WorkflowTemplate, clinic?: ClinicTemplateContext): WorkflowNode[] {
+  if (template.key === 'whatsapp_clinic_assistant') {
+    const name = clinic?.name?.trim()
+    return template.nodes.map((node) => {
+      if (node.id === 'location_menu') return { ...node, config: { ...node.config, message: clinicHoursMessage(clinic) } }
+      if (node.id === 'main_menu' && name) {
+        return { ...node, config: { ...node.config, message: `Thank you for contacting ${name}. How can we help you today?` } }
+      }
+      return node
+    })
+  }
   if (template.key !== 'safe_appointment_assistant') return template.nodes
   return template.nodes.map((node) => {
     if (node.id === 'clinic_hours_menu') {
@@ -440,6 +830,7 @@ export function appointmentManagementTemplate(): WorkflowTemplate {
 }
 
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  whatsappClinicAssistantTemplate(),
   appointmentManagementTemplate(),
   safeAppointmentAssistantTemplate(),
   dynamicBookingTemplate(false),

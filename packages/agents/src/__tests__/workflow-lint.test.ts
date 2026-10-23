@@ -23,6 +23,7 @@ function goodBookingFlow(overrides: Partial<Record<string, Record<string, unknow
   const nodes = [
     node('start', 'trigger.message_keyword', { keywords: 'cita, appointment', ...overrides['start'] }),
     node('ask_name', 'action.ask_capture', { field: 'patient_name', question: '¿Cuál es tu nombre?', validation: 'text', ...overrides['ask_name'] }),
+    node('wait_name', 'logic.wait_for_reply'),
     node('check', 'action.check_availability', { days: 7, ...overrides['check'] }),
     node('pick_date', 'action.offer_slot_menu', { pickerMode: 'date', ...overrides['pick_date'] }),
     node('pick_time', 'action.offer_slot_menu', { pickerMode: 'time', ...overrides['pick_time'] }),
@@ -33,7 +34,8 @@ function goodBookingFlow(overrides: Partial<Record<string, Record<string, unknow
   ]
   const edges = [
     edge('start', 'ask_name'),
-    edge('ask_name', 'check'),
+    edge('ask_name', 'wait_name'),
+    edge('wait_name', 'check'),
     edge('check', 'pick_date'),
     edge('pick_date', 'pick_time', 'selected'),
     edge('pick_date', 'handoff', 'empty'),
@@ -81,10 +83,11 @@ describe('lintWorkflow', () => {
     const nodes = [
       node('start', 'trigger.message_keyword', { keywords: 'cancelar' }),
       node('which', 'action.ask_capture', { field: 'appointment_id', question: '¿Qué cita?' }),
+      node('wait', 'logic.wait_for_reply'),
       node('cancel', 'action.cancel_booking', { resultRouting: 'branches' }),
       node('end', 'action.end'),
     ]
-    const edges = [edge('start', 'which'), edge('which', 'cancel'), edge('cancel', 'end', 'success'), edge('cancel', 'end', 'pending'), edge('cancel', 'end', 'error')]
+    const edges = [edge('start', 'which'), edge('which', 'wait'), edge('wait', 'cancel'), edge('cancel', 'end', 'success'), edge('cancel', 'end', 'pending'), edge('cancel', 'end', 'error')]
     expect(lintWorkflow(nodes, edges)).toEqual([])
   })
 
@@ -109,10 +112,12 @@ describe('lintWorkflow', () => {
       node('start', 'trigger.message_keyword', { keywords: 'cita' }),
       node('date', 'action.ask_capture', { field: 'preferred_date', question: '¿Qué día?', validation: 'date' }),
       node('time', 'action.ask_capture', { field: 'preferred_time', question: '¿A qué hora?', validation: 'time' }),
+      node('wait_date', 'logic.wait_for_reply'),
+      node('wait_time', 'logic.wait_for_reply'),
       node('book', 'action.create_booking', { resultRouting: 'branches' }),
       node('end', 'action.end'),
     ]
-    const edges = [edge('start', 'date'), edge('date', 'time'), edge('time', 'book'), edge('book', 'end', 'success'), edge('book', 'end', 'pending'), edge('book', 'end', 'error')]
+    const edges = [edge('start', 'date'), edge('date', 'wait_date'), edge('wait_date', 'time'), edge('time', 'wait_time'), edge('wait_time', 'book'), edge('book', 'end', 'success'), edge('book', 'end', 'pending'), edge('book', 'end', 'error')]
     expect(codes(lintWorkflow(nodes, edges))).toEqual(['booking_without_availability@book'])
   })
 
@@ -149,10 +154,37 @@ describe('lintWorkflow', () => {
       node('start', 'trigger.message_keyword', { keywords: 'hola' }),
       node('tag', 'action.add_tag', {}),
       node('ask', 'action.ask_capture', { field: 'email', validation: 'email' }),
+      node('wait', 'logic.wait_for_reply'),
       node('tpl', 'action.send_template', {}),
     ]
-    const edges = [edge('start', 'tag'), edge('tag', 'ask'), edge('ask', 'tpl')]
+    const edges = [edge('start', 'tag'), edge('tag', 'ask'), edge('ask', 'wait'), edge('wait', 'tpl')]
     expect(codes(lintWorkflow(nodes, edges))).toEqual(['empty_setting@tag', 'empty_setting@ask', 'empty_setting@tpl'])
+  })
+
+  it('warns about template text that was never filled in', () => {
+    const nodes = [
+      node('start', 'trigger.message_keyword', { keywords: 'precio' }),
+      node('price', 'action.send_message', { text: 'A consultation costs [EDIT: price].' }),
+      node('where', 'action.interactive_menu', { variant: 'list', message: '{{clinic_address}}', options: [{ optionId: 'a', title: 'OK' }] }),
+      node('end', 'action.end'),
+    ]
+    const issues = lintWorkflow(nodes, [edge('start', 'price'), edge('price', 'where'), edge('where', 'end', 'a')])
+    expect(codes(issues)).toEqual(['unfilled_placeholder@price', 'unfilled_placeholder@where'])
+    expect(issues[0]!.whatHappened).toContain('[EDIT: price]')
+  })
+
+  it('warns when a question does not wait for the answer', () => {
+    const nodes = [
+      node('start', 'trigger.message_keyword', { keywords: 'hola' }),
+      node('ask_name', 'action.ask_capture', { field: 'patient_name', question: '¿Nombre?', validation: 'text' }),
+      node('ask_phone', 'action.ask_capture', { field: 'patient_phone', question: '¿Teléfono?', validation: 'phone' }),
+      node('wait', 'logic.wait_for_reply'),
+      node('end', 'action.end'),
+    ]
+    const edges = [edge('start', 'ask_name'), edge('ask_name', 'ask_phone'), edge('ask_phone', 'wait'), edge('wait', 'end')]
+    const issues = lintWorkflow(nodes, edges)
+    expect(codes(issues)).toEqual(['question_does_not_wait@ask_name'])
+    expect(issues[0]!.translations?.es?.title).toBe('Esta pregunta no espera la respuesta')
   })
 
   it('needs a doctor before a doctor-services menu', () => {

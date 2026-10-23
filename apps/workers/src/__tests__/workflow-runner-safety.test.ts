@@ -372,6 +372,31 @@ describe('processWorkflowRunJob automation ownership', () => {
     )
   })
 
+  it('continues straight on when the question before the wait was just answered', async () => {
+    let paused: boolean | undefined
+    let captureLeft: unknown = 'not-checked'
+    h.runWorkflow.mockImplementation(async (_workflow, ctx, exec) => {
+      const run = {
+        ...ctx,
+        conversationId: 'conversation-1',
+        capture: { nodeId: 'ask-name', field: 'patient_name', question: 'Name?', retryQuestion: 'Name?', validation: 'text', attempts: 0, maxAttempts: 3, status: 'captured' },
+      }
+      paused = await exec.waitForReply({ id: 'wait-name', type: 'logic.wait_for_reply', config: {} }, 'email-menu', run)
+      captureLeft = run.capture
+      return [{ status: 'completed' }]
+    })
+
+    await processWorkflowRunJob(job)
+
+    // Regression: the run used to pause again here, so the bot stayed silent
+    // until the patient sent another message after answering.
+    expect(paused).toBe(false)
+    expect(captureLeft).toBeUndefined()
+    expect(h.updateConversation).not.toHaveBeenCalledWith(CLINIC, 'conversation-1', expect.objectContaining({
+      metadata: expect.objectContaining({ pendingWorkflowRuns: expect.anything() }),
+    }))
+  })
+
   it('runs a pinned revision rather than the workflow definition edited later', async () => {
     h.findWorkflow.mockResolvedValue({
       id: WORKFLOW,

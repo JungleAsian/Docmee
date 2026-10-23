@@ -494,6 +494,41 @@ describe('runWorkflow — interactive_menu node', () => {
     expect(human.notifySecretary).toHaveBeenCalled()
   })
 
+  describe('menus that loop back to themselves', () => {
+    const selfLoop = {
+      nodes: [node('t', 'trigger', 'trigger.message_keyword'), node('menu', 'action', 'action.interactive_menu', menuConfig), node('book', 'action', 'action.send_message', { text: 'Booking...' })],
+      edges: [edge('t', 'menu'), edge('menu', 'book', 'book_appt'), edge('menu', 'menu', 'default'), edge('menu', 'menu', 'restart')],
+    }
+
+    it.each(['default', 'restart'] as const)('re-sends the menu and waits when the %s handle points back to it', async (outcome) => {
+      const send = vi.fn(async () => true)
+      const onStop = vi.fn()
+      const exec = makeExec({ sendInteractiveMenu: send, matchMenuReply: vi.fn(async (): Promise<SlotMenuReplyOutcome> => outcome) })
+      const trace = await runWorkflow(selfLoop, { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'what?' }, exec, { startNodeId: 'menu', onStop })
+      // Regression: the cycle guard used to end the run here, leaving the patient without a reply.
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(trace.at(-1)).toEqual({ nodeId: 'menu', type: 'action.interactive_menu', status: 'paused' })
+      expect(onStop).not.toHaveBeenCalled()
+    })
+
+    it('still stops as a cycle when the menu cannot pause', async () => {
+      const onStop = vi.fn()
+      const exec = makeExec({ matchMenuReply: vi.fn(async (): Promise<SlotMenuReplyOutcome> => 'default') })
+      await runWorkflow(selfLoop, { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'what?' }, exec, { startNodeId: 'menu', onStop })
+      expect(onStop).toHaveBeenCalledWith('cycle')
+    })
+
+    it('still stops a loop between ordinary steps', async () => {
+      const onStop = vi.fn()
+      const spin = {
+        nodes: [node('t', 'trigger', 'trigger.message_keyword'), node('a', 'action', 'action.send_message', { text: 'a' }), node('b', 'action', 'action.send_message', { text: 'b' })],
+        edges: [edge('t', 'a'), edge('a', 'b'), edge('b', 'a')],
+      }
+      await runWorkflow(spin, {}, makeExec(), { onStop })
+      expect(onStop).toHaveBeenCalledWith('cycle')
+    })
+  })
+
   it('falls through default when it cannot pause (no executor)', async () => {
     const exec = makeExec()
     await runWorkflow(wf, {}, exec)

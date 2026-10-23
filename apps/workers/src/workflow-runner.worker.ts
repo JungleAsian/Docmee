@@ -1460,7 +1460,13 @@ function buildExecutors(
     async waitForReply(node, nextNodeId, ctx) {
       const capture = captureState(ctx)
       const pendingCapture = capture?.status === 'pending' ? capture : null
-      if (capture && !pendingCapture) delete ctx[WORKFLOW_CAPTURE_CONTEXT_KEY]
+      if (capture && !pendingCapture) {
+        // The question before this wait was just answered (or gave up after its
+        // retries): continue now. Pausing again here made the bot go silent until
+        // the patient sent a second, unrelated message. Matches the simulator.
+        delete ctx[WORKFLOW_CAPTURE_CONTEXT_KEY]
+        return false
+      }
       const resumeNodeId = pendingCapture?.nodeId || nextNodeId
       if (!resumeNodeId) return false
       if (!ctx.conversationId) {

@@ -16,8 +16,6 @@ import { validateWorkflowDefinitionDetailed, type WorkflowValidationIssue } from
 
 export type WorkflowLintCode =
   | 'trigger_matches_everything'
-  | 'question_does_not_wait'
-  | 'unfilled_placeholder'
   | 'missing_input_field'
   | 'booking_failure_unhandled'
   | 'booking_without_availability'
@@ -289,32 +287,6 @@ export function lintWorkflow(nodes: WorkflowNode[], edges: WorkflowEdge[], conte
         { title: 'No tag chosen', whatHappened: 'This step has no tag name, so it does nothing useful.', howToFix: 'Open the step and type the tag to add, or remove the step.' },
         { title: 'No se eligió etiqueta', whatHappened: 'Este paso no tiene nombre de etiqueta, así que no hace nada útil.', howToFix: 'Abre el paso y escribe la etiqueta a agregar, o elimina el paso.' },
         `add_tag ${node.id} has empty tag.`))
-    }
-
-    // Template text the clinic was meant to replace before publishing.
-    const texts = node.type === 'action.send_message'
-      ? [cfgString(node, 'text')]
-      : ['action.interactive_menu', 'action.offer_slot_menu', 'action.ask_capture'].includes(node.type)
-        ? ['header', 'message', 'footer', 'question'].map((key) => cfgString(node, key))
-        : []
-    const placeholder = texts.join(' ').match(/\[EDIT[^\]]*\]|\{\{\s*clinic_[a-z_]+\s*\}\}/i)
-    if (placeholder) {
-      issues.push(warning(node, 'unfilled_placeholder',
-        { title: 'Template text still needs your details', whatHappened: `This step still contains “${placeholder[0].slice(0, 80)}”, which patients would see exactly as written.`, howToFix: 'Open the step and replace the bracketed text with your clinic’s real information.' },
-        { title: 'El texto de la plantilla aún necesita tus datos', whatHappened: `Este paso aún contiene “${placeholder[0].slice(0, 80)}”, que los pacientes verían tal cual.`, howToFix: 'Abre el paso y reemplaza el texto entre corchetes con la información real de tu clínica.' },
-        `${node.type} ${node.id} contains placeholder ${placeholder[0].slice(0, 80)}`))
-    }
-
-    if (node.type === 'action.ask_capture') {
-      // A question step only sends its text; without a wait step after it the next
-      // step runs at once (several questions arrive together and answers are lost).
-      const next = edges.filter((edge) => edge.source === node.id).map((edge) => byId.get(edge.target)).filter(Boolean)
-      if (next.length > 0 && !next.every((successor) => successor!.type === 'logic.wait_for_reply')) {
-        issues.push(warning(node, 'question_does_not_wait',
-          { title: 'This question does not wait for the answer', whatHappened: 'The next step runs immediately after the question is sent, so the patient gets several messages at once and the answer is never saved.', howToFix: 'Add a “Wait for reply” step right after this question and connect it to the next step.' },
-          { title: 'Esta pregunta no espera la respuesta', whatHappened: 'El siguiente paso se ejecuta justo después de enviar la pregunta, así que el paciente recibe varios mensajes a la vez y la respuesta nunca se guarda.', howToFix: 'Agrega un paso “Esperar respuesta” justo después de esta pregunta y conéctalo al siguiente paso.' },
-          `ask_capture ${node.id} is followed by ${next.map((successor) => successor!.type).join(', ')} instead of logic.wait_for_reply.`))
-      }
     }
 
     if (node.type === 'action.ask_capture' && !cfgString(node, 'question')) {

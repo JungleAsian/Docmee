@@ -259,15 +259,6 @@ export interface WorkflowRunOutcome {
 
 const MAX_STEPS = 100 // backstop against cycles / runaway graphs
 
-/** Steps that pause the run when reached fresh, so revisiting one in a turn is safe. */
-const REENTRANT_WAITING_TYPES = new Set([
-  'action.interactive_menu',
-  'action.offer_slot_menu',
-  'logic.wait_for_reply',
-  'logic.delay',
-  'action.approval',
-])
-
 export async function runWorkflow(
   workflow: Pick<Workflow, 'nodes' | 'edges'>,
   ctx: WorkflowContext,
@@ -287,13 +278,6 @@ export async function runWorkflow(
     : nodes.find((n) => n.kind === 'trigger')
 
   const visited = new Set<string>()
-  // Waiting steps end the turn as soon as they are reached fresh (a menu is sent,
-  // a reply or approval is awaited), so reaching one again in the same turn is a
-  // conversational loop — an unrecognised reply re-showing its menu, "0" pressed
-  // on the main menu — not a spin. The validator already allows these loops; the
-  // guard used to end the run silently and leave the patient with no reply.
-  // Allow one re-entry per step; a second means it could not pause, so stop.
-  const reentered = new Set<string>()
   const sideEffect = async <T>(node: WorkflowNode, invoke: () => Promise<T>): Promise<T> =>
     exec.runSideEffect ? exec.runSideEffect(node, ctx, invoke) : invoke()
   const isPendingCaptureResume = (node: WorkflowNode): boolean => {
@@ -304,11 +288,8 @@ export async function runWorkflow(
   const stepLimit = Math.min(MAX_STEPS, Math.max(1, Math.floor(opts.maxSteps ?? MAX_STEPS)))
   while (current && trace.length < stepLimit) {
     if (visited.has(current.id)) {
-      if (!REENTRANT_WAITING_TYPES.has(current.type) || reentered.has(current.id)) {
-        opts.onStop?.('cycle')
-        return trace
-      }
-      reentered.add(current.id)
+      opts.onStop?.('cycle')
+      return trace
     }
     visited.add(current.id)
 

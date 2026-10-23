@@ -29,6 +29,8 @@ export { createMediaAssetsRepository }          from './media-assets.repository.
 export { createSensitiveRetentionRepository }   from './sensitive-retention.repository.js'
 export { createLayaControlsRepository } from './laya-controls.repository.js'
 export type { LayaControlRow } from './laya-controls.repository.js'
+export { createLayaObservationsRepository, LAYA_OBSERVATIONS_FLAG } from './laya-observations.repository.js'
+export type { LayaObservationsRepository, NewLayaObservation, LayaObservationAssessment, LayaObservationSummaryRow, LayaObservationReasonRow } from './laya-observations.repository.js'
 
 export type { ClinicsRepository, CreateClinicInput, UpdateClinicInput, ClinicDirectoryStat }     from './clinics.repository.js'
 export type { ChannelAccountsRepository, CreateChannelAccountInput }                             from './channel-accounts.repository.js'

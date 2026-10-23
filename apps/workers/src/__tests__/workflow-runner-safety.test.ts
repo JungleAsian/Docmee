@@ -124,7 +124,7 @@ vi.mock('@docmee/channels', () => ({
 }))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
-vi.mock('../laya.js', () => ({ getLayaAdapter: () => h.layaAdapter }))
+vi.mock('../laya.js', () => ({ getLayaAdapter: () => h.layaAdapter, getLayaDb: () => undefined, runLayaBackground: () => undefined }))
 vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }), kbEmbedQueue: { add: h.queueAdd } }))
 
 vi.mock('@docmee/db', async () => ({

@@ -145,6 +145,8 @@ export {
   createMediaAssetsRepository,
   createSensitiveRetentionRepository,
   createLayaControlsRepository,
+  createLayaObservationsRepository,
+  LAYA_OBSERVATIONS_FLAG,
 } from './repositories/index.js'
 
 export type {
@@ -152,6 +154,11 @@ export type {
   CreateMediaAssetInput,
   SensitiveRetentionRepository,
   SensitiveRetentionPurgeResult,
+  LayaObservationsRepository,
+  NewLayaObservation,
+  LayaObservationAssessment,
+  LayaObservationSummaryRow,
+  LayaObservationReasonRow,
 } from './repositories/index.js'
 
 export type {

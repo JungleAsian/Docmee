@@ -1,4 +1,4 @@
-import { createServerLayaAdapter } from '@docmee/agents'
+import { createServerLayaAdapter, parseLayaQualification } from '@docmee/agents'
 import { createLayaControlsRepository } from '@docmee/db'
 import { withDb } from './db.js'
 
@@ -10,7 +10,8 @@ export function getLayaAdapter(): ReturnType<typeof createServerLayaAdapter> {
     adapter = createServerLayaAdapter({
       endpoint: process.env['DOCMEE_LAYA_ENDPOINT'],
       readRows: clinicId => withDb(sql => createLayaControlsRepository(sql).readForClinic(clinicId)),
-      // No reviewed calibration is installed: even live flags cannot apply a choice.
+      // Server-owned record (see workers/src/laya.ts). Unset = unconfigured; reviewed:false = watch-only.
+      qualification: parseLayaQualification(process.env['DOCMEE_LAYA_QUALIFICATION']),
     })
     initialized = true
   }

@@ -2,7 +2,7 @@
 
 import { useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type { LayaDiagnosticStatus, LayaDiagnosticTest } from '@docmee/shared'
+import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary } from '@docmee/shared'
 import { api, ApiError } from '@/shared/api/client'
 import { useAuthStore } from '@/shared/store/auth'
 import { useI18n } from '@/shared/hooks/useI18n'
@@ -20,6 +20,12 @@ function Diagnostics({ clinicId, userId }: { clinicId: string; userId: string })
   const status = useQuery({
     queryKey: ['laya-status', clinicId, userId],
     queryFn: () => api.get<LayaDiagnosticStatus>(`/clinics/${clinicId}/laya/status`),
+    retry: false,
+    refetchOnWindowFocus: false,
+  })
+  const observations = useQuery({
+    queryKey: ['laya-observations', clinicId, userId],
+    queryFn: () => api.get<LayaObservationSummary>(`/clinics/${clinicId}/laya/observations`),
     retry: false,
     refetchOnWindowFocus: false,
   })
@@ -48,13 +54,17 @@ function Diagnostics({ clinicId, userId }: { clinicId: string; userId: string })
               <div><dt className="font-medium">{t('laya.service')}</dt><dd>{t(`laya.${current.service}`)}</dd></div>
               <div><dt className="font-medium">{t('laya.model')}</dt><dd>{t(`laya.${current.model}`)}</dd></div>
               <div><dt className="font-medium">{t('laya.optIn')}</dt><dd>{t(`laya.${current.clinicOptIn}`)}</dd></div>
-              <div><dt className="font-medium">{t('laya.patientDecisions')}</dt><dd>{t('laya.blocked')}</dd></div>
+              <div><dt className="font-medium">{t('laya.patientDecisions')}</dt><dd>{t(current.patientDecisions === 'live' ? 'laya.live' : 'laya.blocked')}</dd></div>
+              {current.mode && <div><dt className="font-medium">{t('laya.mode')}</dt><dd>{t(`laya.mode.${current.mode}`)}</dd></div>}
+              {current.qualificationRecord && <div><dt className="font-medium">{t('laya.record')}</dt><dd>{t(`laya.record.${current.qualificationRecord}`)}</dd></div>}
+              {current.capture && <div><dt className="font-medium">{t('laya.capture')}</dt><dd>{t(`laya.capture.${current.capture}`)}</dd></div>}
             </dl>
             <p className="mt-3 text-xs">{t('laya.checkedAt')}: <time dateTime={current.checkedAt}>{current.checkedAt}</time></p>
           </>
         )}
       </div>
-      <p className="text-sm"><span className="font-medium">{t('laya.qualification')}: </span>{t('laya.unqualified')}</p>
+      <p className="text-sm"><span className="font-medium">{t('laya.qualification')}: </span>{t(current?.qualification === 'reviewed' ? 'laya.reviewed' : 'laya.unqualified')}</p>
+      <Measurement summary={!observations.isError && isSummary(observations.data) ? observations.data : undefined} failed={observations.isError} loading={observations.isPending} />
       <div className="space-y-3 border-t pt-3">
         <p className="text-sm">{t('laya.syntheticOnly')}</p>
         <div className="flex flex-wrap gap-2">
@@ -76,5 +86,55 @@ function Diagnostics({ clinicId, userId }: { clinicId: string; userId: string })
         </div>
       </div>
     </section>
+  )
+}
+
+function isSummary(value: unknown): value is LayaObservationSummary {
+  return !!value && typeof value === 'object' && Array.isArray((value as LayaObservationSummary).groups)
+    && Array.isArray((value as LayaObservationSummary).reasons)
+}
+
+function Measurement({ summary, failed, loading }: { summary?: LayaObservationSummary; failed: boolean; loading: boolean }) {
+  const { t } = useI18n()
+  const headingId = useId()
+  const cell = 'border-b px-2 py-1 text-left'
+  return (
+    <div className="space-y-2 border-t pt-3" aria-labelledby={headingId}>
+      <h3 id={headingId} className="text-sm font-semibold">{t('laya.obs.title')}</h3>
+      <p className="text-xs">{t('laya.obs.description')}</p>
+      {failed ? <p role="status" className="text-sm">{t('laya.obs.loadError')}</p> : loading ? <p className="text-sm">{t('laya.loading')}</p> : null}
+      {summary && (summary.groups.length === 0 ? <p className="text-sm">{t('laya.obs.empty')}</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className={cell}>{t('laya.obs.task')}</th>
+                <th className={cell}>{t('laya.obs.language')}</th>
+                <th className={cell}>{t('laya.obs.typed')}</th>
+                <th className={cell}>{t('laya.obs.labeled')}</th>
+                <th className={cell}>{t('laya.obs.answered')}</th>
+                <th className={cell}>{t('laya.obs.agreement')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.groups.map(group => (
+                <tr key={`${group.task}:${group.language}`}>
+                  <td className={cell}>{t(`laya.obs.task.${group.task}`)}</td>
+                  <td className={cell}>{group.language}</td>
+                  <td className={cell}>{group.total}</td>
+                  <td className={cell}>{group.labeled}</td>
+                  <td className={cell}>{group.answered}</td>
+                  <td className={cell}>{group.comparable > 0 ? `${Math.round((group.agreed / group.comparable) * 100)}% (${group.agreed}/${group.comparable})` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+      {summary && summary.reasons.length > 0 && (
+        <p className="text-xs"><span className="font-medium">{t('laya.obs.reasons')}: </span>{summary.reasons.map(row => `${row.reason} ${row.count}`).join(' · ')}</p>
+      )}
+      <p className="text-xs">{t('laya.obs.note')}</p>
+    </div>
   )
 }

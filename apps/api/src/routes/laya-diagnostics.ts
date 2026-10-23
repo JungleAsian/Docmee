@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { resolveLayaControls } from '@docmee/agents'
-import { createLayaControlsRepository } from '@docmee/db'
-import type { LayaDiagnosticStatus, LayaDiagnosticTest } from '@docmee/shared'
+import { layaQualificationStatus, parseLayaQualification, resolveLayaControls } from '@docmee/agents'
+import { createLayaControlsRepository, createLayaObservationsRepository } from '@docmee/db'
+import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary } from '@docmee/shared'
 import { withDb } from '../lib/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
@@ -72,20 +72,60 @@ const layaDiagnosticsRoute: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid clinic' })
     const { clinicId } = parsed.data
     let clinicOptIn: LayaDiagnosticStatus['clinicOptIn'] = 'unknown'
+    let mode: NonNullable<LayaDiagnosticStatus['mode']> = 'unknown'
+    let capture: NonNullable<LayaDiagnosticStatus['capture']> = 'unknown'
     try {
       const rows = await withDb(sql => createLayaControlsRepository(sql).readForClinic(clinicId))
-      clinicOptIn = resolveLayaControls(clinicId, rows).enabled ? 'enabled' : 'disabled'
+      const controls = resolveLayaControls(clinicId, rows)
+      clinicOptIn = controls.enabled ? 'enabled' : 'disabled'
+      const order = ['disabled', 'shadow', 'advisory', 'live'] as const
+      mode = !controls.enabled || !controls.tasks.includes('workflow_branch') ? 'disabled'
+        : order[Math.min(order.indexOf(controls.maximumMode), order.indexOf(controls.clinicMode))]!
     } catch { /* Do not misreport failed control reads as confirmed disablement. */ }
+    try {
+      capture = await withDb(sql => createLayaObservationsRepository(sql).isCaptureEnabled(clinicId)) ? 'enabled' : 'disabled'
+    } catch { /* unknown */ }
+    // The same server-owned record the adapters load. A health check or opt-in alone
+    // is never presented as qualification or permission for patient decisions.
+    const qualificationRecord = layaQualificationStatus(parseLayaQualification(process.env['DOCMEE_LAYA_QUALIFICATION']))
+    const reviewed = qualificationRecord === 'reviewed'
     const health = await runtimeJson('/health', 1000)
     const ready = await runtimeJson('/ready', 1000)
     const service = health.kind === 'json' && z.object({ status: z.literal('alive') }).safeParse(health.value).success
       ? 'reachable' : 'unavailable'
     const model = ready.kind === 'json' && z.object({ status: z.literal('ready') }).safeParse(ready.value).success
       ? 'ready' : service === 'reachable' ? 'not_ready' : 'unknown'
-    // getLayaAdapter installs no reviewed calibration. A health check or opt-in
-    // must never be presented as qualification or permission for patient decisions.
-    return { clinicId, checkedAt: new Date().toISOString(), service, model, clinicOptIn,
-      qualification: 'unqualified', patientDecisions: 'blocked' } satisfies LayaDiagnosticStatus
+    return { clinicId, checkedAt: new Date().toISOString(), service, model, clinicOptIn, mode, capture,
+      qualificationRecord, qualification: reviewed ? 'reviewed' : 'unqualified',
+      patientDecisions: reviewed && mode === 'live' ? 'live' : 'blocked' } satisfies LayaDiagnosticStatus
+  })
+
+  // Measurement progress for steps 4–5: aggregate counts only, never patient text.
+  app.get('/clinics/:clinicId/laya/observations', { preHandler: requireRole('ia_studio_admin') }, async (request, reply) => {
+    reply.header('cache-control', 'no-store')
+    const parsed = paramsSchema.safeParse(request.params)
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid clinic' })
+    const { clinicId } = parsed.data
+    try {
+      const { capture, summary } = await withDb(async sql => {
+        const repo = createLayaObservationsRepository(sql)
+        return { capture: await repo.isCaptureEnabled(clinicId), summary: await repo.summary(clinicId) }
+      })
+      const tasks = ['workflow_branch', 'administrative_intent'] as const
+      const languages = ['en', 'es', 'mixed', 'unknown'] as const
+      return {
+        clinicId, checkedAt: new Date().toISOString(), capture: capture ? 'enabled' : 'disabled',
+        groups: summary.rows.flatMap(row => {
+          const task = tasks.find(value => value === row.task)
+          const language = languages.find(value => value === row.language)
+          return task && language ? [{ task, language, total: Number(row.total), labeled: Number(row.labeled),
+            answered: Number(row.answered), comparable: Number(row.comparable), agreed: Number(row.agreed) }] : []
+        }),
+        reasons: summary.reasons.map(row => ({ reason: String(row.reason).slice(0, 32), count: Number(row.count) })),
+      } satisfies LayaObservationSummary
+    } catch {
+      return reply.code(503).send({ error: 'Observations unavailable' })
+    }
   })
 
   app.post('/clinics/:clinicId/laya/test', { preHandler: requireRole('ia_studio_admin') }, async (request, reply) => {

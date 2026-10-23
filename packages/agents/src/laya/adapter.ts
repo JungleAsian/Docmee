@@ -58,6 +58,9 @@ export interface LayaAssessment {
   apply: boolean
   choiceId?: string
   rawScore?: number
+  /** Watch-only record of what the model picked when it was not allowed to act
+   * (unqualified or below threshold). Never routes anything: `apply` stays false. */
+  observedChoiceId?: string
 }
 export interface LayaDiagnostic {
   task: LayaTask
@@ -208,8 +211,10 @@ export function createLayaAdapter(dependencies: LayaAdapterDependencies) {
         const value = response.value
         if (value.abstain || value.choiceId === null) return finish('uncertain', { rawScore: value.rawScore })
         const threshold = controls.qualification.thresholds[`${input.task}:${input.language}`]
-        if (!controls.qualification.reviewed || threshold === undefined) return finish('unqualified', { rawScore: value.rawScore })
-        if (value.rawScore < threshold) return finish('uncertain', { rawScore: value.rawScore })
+        if (!controls.qualification.reviewed || threshold === undefined) {
+          return finish('unqualified', { rawScore: value.rawScore, observedChoiceId: value.choiceId })
+        }
+        if (value.rawScore < threshold) return finish('uncertain', { rawScore: value.rawScore, observedChoiceId: value.choiceId })
         return finish(mode === 'live' ? 'qualified' : 'observe_only', {
           outcome: 'suggestion', choiceId: value.choiceId, rawScore: value.rawScore, apply: mode === 'live',
         })

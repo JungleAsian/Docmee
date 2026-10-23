@@ -1,6 +1,7 @@
 import type { Sql } from '../client.js'
 import { toJson } from '../client.js'
 import { createKnowledgeLearningRepository } from './knowledge-learning.repository.js'
+import { createLayaObservationsRepository } from './laya-observations.repository.js'
 
 const SENSITIVE_TRANSIENT_RETENTION_POLICY = 'sensitive-transient-24h'
 
@@ -84,6 +85,8 @@ export function createSensitiveRetentionRepository(sql: Sql): SensitiveRetention
       `
 
       await createKnowledgeLearningRepository(sql).purgeExpired()
+      // LAYA observations keep their own 90-day expiry; a failure must not stop the 24h sweep.
+      await createLayaObservationsRepository(sql).purgeExpired().catch(() => 0)
       return {
         webhookEvents: count(webhookEvents[0]),
         knowledgeRetrievalEvents: count(knowledgeRetrievalEvents[0]),

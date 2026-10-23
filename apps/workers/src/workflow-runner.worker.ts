@@ -54,6 +54,7 @@ import { activeWhatsAppAccount, resolveWhatsAppInteractiveSender, resolveWhatsAp
 import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { getLayaAdapter } from './laya.js'
+import { labelMenuTap, liveMenuChoice, observeAiAgentText, observeMenuText, type MenuScope } from './laya-observations.js'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
@@ -792,6 +793,16 @@ function buildExecutors(
   captureResume?: (input: { nodeId: string; ms: number; context: WorkflowContext }) => void,
 ): WorkflowExecutors {
   const { clinicId } = data
+  // LAYA watch-only scope for a node. Never carries patient text or contact details.
+  const layaScope = (nodeId: string, ctx: WorkflowContext): MenuScope => ({
+    clinicId,
+    workflowId: data.workflowId,
+    nodeId,
+    ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+    ...(data.workflowRevisionId ? { workflowRevisionId: data.workflowRevisionId } : {}),
+  })
+  // The message that started a fresh run is observed once, at the first menu it reaches.
+  let triggerTextObserved = Boolean(data.startNodeId)
   const notify = async (content: string, ctx: WorkflowContext) =>
     void (await createNotificationsRepository(sql).create({
       clinicId,
@@ -1224,6 +1235,7 @@ function buildExecutors(
       let reply = parsedReply
       const matched = scenarios.find((s) => s.id === scenarioId) ?? catchAllReplyScenario(scenarios)
       ctx['ai_agent_matched_scenario'] = matched?.id ?? ''
+      observeAiAgentText(layaScope(node.id, ctx), message, matched?.id ?? 'no_match')
       if (!matched) {
         await recordOutcome('', parseAiAnswerConfidence(raw), 'no_match')
         ctx['ai_agent_action'] = 'none'
@@ -1511,6 +1523,11 @@ function buildExecutors(
           ]
         : parseMenuOptions(node.config)
       if (dynamic && dynamicPage.items.length === 0) return false
+      if (!triggerTextObserved && page === 0) {
+        triggerTextObserved = true
+        observeMenuText(layaScope(node.id, ctx), contextString(ctx, 'message'), 'menu_trigger',
+          options.filter((o) => o.optionId !== SLOT_MENU_MORE_OPTION_ID))
+      }
       const variant = String(node.config?.['variant'] ?? 'list')
       const rawHeader = String(node.config?.['header'] ?? '').trim()
       const rawMessage = String(node.config?.['message'] ?? '').trim()
@@ -1604,12 +1621,31 @@ function buildExecutors(
 
     async matchMenuReply(node, ctx, page = 0) {
       const replyId = typeof ctx['interactiveReplyId'] === 'string' ? ctx['interactiveReplyId'] : undefined
+      const text = contextString(ctx, 'message')
+      const scope = layaScope(node.id, ctx)
       if (String(node.config?.['optionSource'] ?? 'static') !== 'static') {
         const items = await loadDynamicMenuItems(sql, clinicId, node, ctx)
         const current = dynamicMenuPage(items, page, boundedInteger(node.config?.['pageSize'], 8, 1, 9))
-        return resolveDynamicMenuReply(current.items, replyId, contextString(ctx, 'message'))
+        const result = resolveDynamicMenuReply(current.items, replyId, text)
+        // Dynamic lists are watch-only for LAYA: their rows change between sends.
+        if (result.outcome === 'selected') labelMenuTap(scope, result.value)
+        else if (result.outcome === 'default') {
+          observeMenuText(scope, text, 'menu_unmatched',
+            current.items.map((item) => ({ optionId: item.id, title: item.title, description: item.description })))
+        }
+        return result
       }
-      return resolveMenuHandle(parseMenuOptions(node.config), replyId, contextString(ctx, 'message'))
+      const options = parseMenuOptions(node.config)
+      const handle = resolveMenuHandle(options, replyId, text)
+      if (handle === 'default') {
+        // Returns an option only for a live clinic with a reviewed qualification; otherwise
+        // LAYA just watches in the background and the menu's own default route runs.
+        let chosen: string | null = null
+        try { chosen = await liveMenuChoice(scope, text, options) } catch { chosen = null }
+        return chosen && options.some((o) => o.optionId === chosen) ? chosen : handle
+      }
+      if (handle !== 'restart' && handle !== 'livechat') labelMenuTap(scope, handle)
+      return handle
     },
 
     async sendSlotMenu(node, ctx, page) {

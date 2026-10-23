@@ -30,7 +30,7 @@ vi.mock('@tanstack/react-query', () => ({
 import { LayaStatusPanel } from './LayaStatusPanel'
 
 const clinicId = '84a7f77f-2f4f-45aa-b057-124f94ae41c4'
-const render = () => renderToStaticMarkup(<LayaStatusPanel clinicId={clinicId} />)
+const render = (open = true) => renderToStaticMarkup(<LayaStatusPanel clinicId={clinicId} defaultOpen={open} />)
 describe('LAYA diagnostic panel', () => {
   beforeEach(() => {
     vi.stubGlobal('React', React)
@@ -44,6 +44,23 @@ describe('LAYA diagnostic panel', () => {
     state.role = role
     expect(render()).toBe('')
     expect(state.query).not.toHaveBeenCalled()
+  })
+
+  it('starts collapsed by default and loads nothing until opened', () => {
+    state.status = { clinicId, checkedAt: '2026-10-22T22:00:00.000Z', service: 'reachable', model: 'ready', clinicOptIn: 'disabled', qualification: 'unqualified', patientDecisions: 'blocked' }
+    const html = renderToStaticMarkup(<LayaStatusPanel clinicId={clinicId} />)
+    expect(html).toContain('LAYA diagnostics')
+    expect(html).toContain('Show details')
+    expect(html).toContain('aria-expanded="false"')
+    for (const text of ['Reachable', 'Test English', 'Refresh']) expect(html).not.toContain(text)
+    for (const call of state.query.mock.calls) expect(call[0]).toMatchObject({ enabled: false })
+  })
+
+  it('shows a hide control with the details when open', () => {
+    const html = render()
+    expect(html).toContain('Hide details')
+    expect(html).toContain('aria-expanded="true"')
+    for (const call of state.query.mock.calls) expect(call[0]).toMatchObject({ enabled: true })
   })
 
   it('shows health separately from qualification and never starts a model test on render', () => {

@@ -10,6 +10,8 @@ type Dict = Record<string, string>
 const inboxUiEs: Dict = {
   'laya.title': 'Diagnóstico de LAYA',
   'laya.refresh': 'Actualizar',
+  'laya.show': 'Mostrar detalles',
+  'laya.hide': 'Ocultar detalles',
   'laya.description': 'Comprobaciones del servicio privado de LAYA en este servidor. Solo para superusuarios.',
   'laya.warning': 'Un servicio accesible o un modelo listo no significa que esté calificado para uso clínico. Estas comprobaciones no cambian la configuración ni habilitan el enrutamiento.',
   'laya.loadError': 'No se pudo actualizar el diagnóstico. El estado actual es desconocido; vuelve a intentarlo.',
@@ -279,6 +281,8 @@ const inboxUiEs: Dict = {
 const inboxUiEn: Dict = {
   'laya.title': 'LAYA diagnostics',
   'laya.refresh': 'Refresh',
+  'laya.show': 'Show details',
+  'laya.hide': 'Hide details',
   'laya.description': 'Checks for the private LAYA service on this server. Superusers only.',
   'laya.warning': 'A reachable service or ready model is not qualification for clinic use. These checks do not change settings or enable routing.',
   'laya.loadError': 'Could not refresh diagnostics. Current status is unknown; please retry.',

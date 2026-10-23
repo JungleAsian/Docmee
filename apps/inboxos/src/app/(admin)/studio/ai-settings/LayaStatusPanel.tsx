@@ -1,31 +1,49 @@
 'use client'
 
-import { useId } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary } from '@docmee/shared'
 import { api, ApiError } from '@/shared/api/client'
 import { useAuthStore } from '@/shared/store/auth'
 import { useI18n } from '@/shared/hooks/useI18n'
 
-export function LayaStatusPanel({ clinicId }: { clinicId: string }) {
+// Per-browser convenience only: whether the card was left open.
+const OPEN_KEY = 'docmee.laya-diagnostics.open'
+
+export function LayaStatusPanel({ clinicId, defaultOpen = false }: { clinicId: string; defaultOpen?: boolean }) {
   const user = useAuthStore(s => s.user)
   if (user?.role !== 'ia_studio_admin') return null
   // Unmount results on clinic/operator changes, including in-flight old requests.
-  return <Diagnostics key={`${clinicId}:${user.id}`} clinicId={clinicId} userId={user.id} />
+  return <Diagnostics key={`${clinicId}:${user.id}`} clinicId={clinicId} userId={user.id} defaultOpen={defaultOpen} />
 }
 
-function Diagnostics({ clinicId, userId }: { clinicId: string; userId: string }) {
+function Diagnostics({ clinicId, userId, defaultOpen }: { clinicId: string; userId: string; defaultOpen: boolean }) {
   const { t } = useI18n()
   const headingId = useId()
+  const bodyId = useId()
+  const [open, setOpen] = useState(defaultOpen)
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(OPEN_KEY)
+      if (saved === '1' || saved === '0') setOpen(saved === '1')
+    } catch { /* storage unavailable: keep the default */ }
+  }, [])
+  const toggle = () => setOpen(value => {
+    try { window.localStorage.setItem(OPEN_KEY, value ? '0' : '1') } catch { /* ignore */ }
+    return !value
+  })
+  // Collapsed cards load nothing; opening fetches fresh status.
   const status = useQuery({
     queryKey: ['laya-status', clinicId, userId],
     queryFn: () => api.get<LayaDiagnosticStatus>(`/clinics/${clinicId}/laya/status`),
+    enabled: open,
     retry: false,
     refetchOnWindowFocus: false,
   })
   const observations = useQuery({
     queryKey: ['laya-observations', clinicId, userId],
     queryFn: () => api.get<LayaObservationSummary>(`/clinics/${clinicId}/laya/observations`),
+    enabled: open,
     retry: false,
     refetchOnWindowFocus: false,
   })
@@ -42,8 +60,13 @@ function Diagnostics({ clinicId, userId }: { clinicId: string; userId: string })
     <section className="clinic-card space-y-4 p-4" aria-labelledby={headingId}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id={headingId} className="text-base font-semibold">{t('laya.title')}</h2>
-        <button type="button" className={button} disabled={status.isFetching || test.isPending} onClick={() => void status.refetch()}>{t('laya.refresh')}</button>
+        <div className="flex flex-wrap gap-2">
+          {open && <button type="button" className={button} disabled={status.isFetching || test.isPending} onClick={() => void status.refetch()}>{t('laya.refresh')}</button>}
+          <button type="button" className={button} aria-expanded={open} aria-controls={bodyId} onClick={toggle}>{t(open ? 'laya.hide' : 'laya.show')}</button>
+        </div>
       </div>
+      {open && (
+      <div id={bodyId} className="space-y-4">
       <p className="text-sm">{t('laya.description')}</p>
       <p className="rounded border p-3 text-sm">{t('laya.warning')}</p>
       <div aria-live="polite" aria-busy={status.isFetching}>
@@ -85,6 +108,8 @@ function Diagnostics({ clinicId, userId }: { clinicId: string; userId: string })
           )}
         </div>
       </div>
+      </div>
+      )}
     </section>
   )
 }

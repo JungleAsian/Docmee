@@ -26,6 +26,18 @@ export interface ProductFeature {
 
 export const PRODUCT_UPDATES: ProductUpdate[] = [
   {
+    id: '2026-10-22-laya-diagnostics', publishedAt: '2026-10-23T02:40:00.000Z', version: '2026.10.22', audience: 'platform',
+    title: { en: 'LAYA diagnostics for superusers', es: 'Diagnóstico de LAYA para superusuarios' },
+    summary: {
+      en: 'Check LAYA service health, model readiness, and the selected clinic’s opt-in status in Admin Studio → AI Settings.',
+      es: 'Consulta el estado del servicio LAYA, la disponibilidad del modelo y la habilitación de la clínica seleccionada en Admin Studio → Configuración de IA.',
+    },
+    highlights: [
+      { en: 'Run a fixed synthetic test in English or Spanish and review the result and response time without contacting patients or changing workflow settings.', es: 'Ejecuta una prueba sintética fija en inglés o español y revisa el resultado y el tiempo de respuesta sin contactar pacientes ni cambiar la configuración del flujo.' },
+      { en: 'A matching test result is not clinical qualification. This diagnostics release does not enable clinic routing; patient-facing decisions remain blocked.', es: 'Un resultado coincidente no equivale a validación clínica. Esta versión de diagnóstico no habilita el enrutamiento clínico; las decisiones dirigidas a pacientes siguen bloqueadas.' },
+    ],
+  },
+  {
     id: '2026-10-08-workflow-jzel', publishedAt: '2026-10-08T12:00:00.000Z', version: '2026.10.08', audience: 'platform',
     title: { en: 'Ask J.zel to diagnose or draft a workflow', es: 'Pide a J.zel diagnosticar o diseñar un flujo' },
     summary: { en: 'Superusers can ask J.zel for workflow diagnostics and complete draft proposals in the editor, using the selected clinic’s configured AI service.', es: 'Los superusuarios pueden pedir diagnósticos y propuestas completas de borrador en el editor con el servicio de IA de la clínica seleccionada.' },
@@ -278,6 +290,14 @@ export const PRODUCT_UPDATES: ProductUpdate[] = [
 ]
 
 export const PRODUCT_FEATURES: ProductFeature[] = [
+  {
+    id: 'laya-diagnostics', category: { en: 'AI operations', es: 'Operaciones de IA' }, audience: 'platform', href: '/studio/ai-settings',
+    title: { en: 'LAYA diagnostics', es: 'Diagnóstico de LAYA' },
+    description: {
+      en: 'Superusers can refresh service, model, and clinic opt-in status and run fixed English or Spanish synthetic tests. These checks do not enable patient-facing routing or qualify the model for clinical use.',
+      es: 'Los superusuarios pueden actualizar el estado del servicio, del modelo y de la habilitación clínica, y ejecutar pruebas sintéticas fijas en inglés o español. Estas comprobaciones no habilitan el enrutamiento de pacientes ni validan el modelo para uso clínico.',
+    },
+  },
   {
     id: 'workflow-jzel', category: { en: 'Automation', es: 'Automatización' }, audience: 'platform', href: '/studio/workflows',
     title: { en: 'J.zel workflow assistant', es: 'Asistente de flujos J.zel' },

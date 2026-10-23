@@ -34,6 +34,25 @@ const releases: ProductUpdate[] = [
 ]
 
 describe('product updates', () => {
+  it('announces LAYA diagnostics in both catalogs only to superusers, with test limitations', () => {
+    const update = updatesForRole('ia_studio_admin')[0]
+    const feature = featuresForRole('ia_studio_admin').find((item) => item.id === 'laya-diagnostics')
+    expect(update.id).toBe('2026-10-22-laya-diagnostics')
+    expect(feature?.href).toBe('/studio/ai-settings')
+    for (const language of ['en', 'es'] as const) {
+      expect(update.title[language]).toContain('LAYA')
+      expect(update.summary[language].length).toBeGreaterThan(0)
+      expect(update.highlights.every((item) => item[language].length > 0)).toBe(true)
+      expect(feature?.title[language]).toContain('LAYA')
+      expect(feature?.description[language].length).toBeGreaterThan(0)
+    }
+    expect(update.highlights.map((item) => item.en).join(' ')).toContain('does not enable clinic routing')
+    expect(update.highlights.map((item) => item.es).join(' ')).toContain('no habilita el enrutamiento clínico')
+    for (const role of [undefined, 'clinic_admin', 'secretary']) {
+      expect(updatesForRole(role).some((item) => item.id === update.id)).toBe(false)
+      expect(featuresForRole(role).some((item) => item.id === 'laya-diagnostics')).toBe(false)
+    }
+  })
   it('lists Scheduled Messages in updates and All Features with rollout limits in both languages', () => {
     const update = updatesForRole('secretary').find((item) => item.id === '2026-10-07-scheduled-messages')
     const feature = featuresForRole('secretary').find((item) => item.id === 'scheduled-messages')

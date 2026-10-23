@@ -1,0 +1,135 @@
+{
+  "ssmCommandId": "c3691f52-3571-4a02-afc0-0c76431ce9e3",
+  "ssmStatus": "Success",
+  "ssmResponseCode": 0,
+  "executionStart": "2026-10-23T01:47:11.883Z",
+  "executionEnd": "2026-10-23T01:47:12.883Z",
+  "audit": "full_history_framing_token_budget_v1",
+  "config": {
+    "head_max_len": 256,
+    "max_len": 1024
+  },
+  "helperSourceSha256": "3321b32033bfd0822991f3b98f409bcc47df51e459429e7588d4701432d0bbd1",
+  "modelInferenceRun": false,
+  "reports": [
+    {
+      "caseCount": 36,
+      "casesWithStateClipping": 0,
+      "corpusSha256": "173179e34cbeb6bc9ddbd5467c5c73e56073b8417a2200e98e6ce9378f91c121",
+      "headTokens": [
+        161
+      ],
+      "instructionTokensDropped": [
+        0
+      ],
+      "maxSequenceTokens": 301,
+      "maxStateTokens": 139,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "optionsDistinct": [
+        5
+      ],
+      "split": "calibration",
+      "variant": "json"
+    },
+    {
+      "caseCount": 36,
+      "casesWithStateClipping": 0,
+      "corpusSha256": "173179e34cbeb6bc9ddbd5467c5c73e56073b8417a2200e98e6ce9378f91c121",
+      "headTokens": [
+        128
+      ],
+      "instructionTokensDropped": [
+        0
+      ],
+      "maxSequenceTokens": 226,
+      "maxStateTokens": 97,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "optionsDistinct": [
+        5
+      ],
+      "split": "calibration",
+      "variant": "text"
+    },
+    {
+      "caseCount": 15,
+      "casesWithStateClipping": 0,
+      "corpusSha256": "be7be00275df3dd62ff49018996a756ca50e4f3c6c1caf6f8986c4b9974f5bd5",
+      "headTokens": [
+        161
+      ],
+      "instructionTokensDropped": [
+        0
+      ],
+      "maxSequenceTokens": 453,
+      "maxStateTokens": 291,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "optionsDistinct": [
+        5
+      ],
+      "split": "heldout",
+      "variant": "json"
+    },
+    {
+      "caseCount": 15,
+      "casesWithStateClipping": 0,
+      "corpusSha256": "be7be00275df3dd62ff49018996a756ca50e4f3c6c1caf6f8986c4b9974f5bd5",
+      "headTokens": [
+        128
+      ],
+      "instructionTokensDropped": [
+        0
+      ],
+      "maxSequenceTokens": 297,
+      "maxStateTokens": 168,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "optionsDistinct": [
+        5
+      ],
+      "split": "heldout",
+      "variant": "text"
+    }
+  ],
+  "torchImported": false,
+  "usesPatientData": false,
+  "tokenizerSha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+  "routingChanged": false,
+  "serviceRestarted": false,
+  "diagnosticCollectorFixDeployed": false,
+  "accuracyImprovementProven": false
+}

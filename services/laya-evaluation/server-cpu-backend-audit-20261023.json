@@ -1,0 +1,70 @@
+{
+  "audit": "installed_cpu_backend_feasibility_v1",
+  "target": "app.docmeedevelopment.dev",
+  "ssmCommands": [
+    {"id": "12d5dac4-464a-4bfd-85d2-ec5a79d597ea", "status": "Success", "responseCode": 0, "executionEnd": "2026-10-23T01:53:57.002Z"},
+    {"id": "b684868a-00ac-4c22-b2bf-f3ba0cd321e3", "status": "Success", "responseCode": 0, "executionEnd": "2026-10-23T01:54:22.468Z"},
+    {"id": "45b600d4-442b-43e5-806a-55a402093712", "status": "Success", "responseCode": 0, "executionEnd": "2026-10-23T01:56:12.194Z"},
+    {"id": "153838f0-2d83-4d6f-8b1a-d7ba9ef9221d", "status": "Success", "responseCode": 0, "executionEnd": "2026-10-23T01:56:37.065Z"}
+  ],
+  "installedVersions": {"laya": "0.4.8", "torch": "2.14.1+cpu"},
+  "sourceHashes": {
+    "laya/common.py": "3321b32033bfd0822991f3b98f409bcc47df51e459429e7588d4701432d0bbd1",
+    "laya/agent.py": "5254228009f30f6413fea094973c46cc28a7802b175bfebb602f9a98bbe34e5c",
+    "laya/backends/compile.py": "8f23429302b1f707a37e240ed1d59413e1e13c3cf51d52da6511be3d5f4dc27f",
+    "laya/onnx_agent.py": "1083735c0f82c2e437798557f7ca15df15777b68b4724531054a4d04d7d7f051"
+  },
+  "findings": {
+    "sdpaAlreadyRequestedByEncoderLoader": true,
+    "compileBackendRequiresCuda": true,
+    "onnxAgentSourcePresent": true,
+    "onnxAgentRequiresSequentialOptionLayout": true,
+    "checkpointOptionLayoutExplicit": false,
+    "onnxAgentDefaultOptionLayout": "sequential",
+    "encoder": "jhu-clsp/mmBERT-base",
+    "maxSequenceLength": 1024,
+    "onnxruntimeInstalled": false,
+    "onnxInstalled": false,
+    "optimumInstalled": false,
+    "checkpointRootOnnxFileCount": 0,
+    "packagedOnnxPythonFiles": ["laya/onnx_agent.py"]
+  },
+  "servicesObservedActive": ["docmee", "docmee-laya", "caddy"],
+  "modelInferenceRun": false,
+  "remotePersistentWrites": false,
+  "serviceRestart": false,
+  "runtimeBackendChanged": false,
+  "clinicRoutingChanged": false,
+  "nextCandidate": "isolated_cpu_onnx_feasibility_and_parity_only",
+  "candidateQualified": false,
+  "accuracyImprovementProven": false,
+  "upstreamExportReview": {
+    "repository": "https://github.com/NandhaKishorM/laya",
+    "tag": "v0.4.8",
+    "commit": "4ac226d5ee88ed6df8db288a05c766d7a34ee682",
+    "exporterPath": "scripts/export_onnx.py",
+    "exporterSha256": "3dc6eac8971358ad5531c7124f2e631ddd4da6890a8df8a6237051e56b4594e2",
+    "installedLibraryHashesMatchPinnedSource": ["laya/agent.py", "laya/common.py", "laya/onnx_agent.py"],
+    "exportDevice": "cpu",
+    "opsetVersion": 18,
+    "dynamicAxes": ["batch", "seq_len", "num_markers"],
+    "upstreamTestDefaultModel": "convaiinnovations/laya",
+    "exactMultilingualCheckpointTestedByThisReview": false,
+    "int8Excluded": true,
+    "exportExecuted": false,
+    "dependencyLockPrepared": false,
+    "requiredBeforeExperiment": [
+      "Review and pin ARM64 export/runtime dependencies outside the live environment.",
+      "Use the exact retained multilingual snapshot offline, not the default English model.",
+      "Bound export and inference memory, CPU, threads, duration and storage.",
+      "Verify FP32 graph, dynamic shapes, packing and response-field numerical parity.",
+      "Keep original service, artifact and production deadline unchanged."
+    ]
+  },
+  "limitations": [
+    "Source compatibility defaults do not establish successful export or numerical parity.",
+    "No ONNX dependency installation, graph export, benchmark or runtime switch was performed.",
+    "An earlier broad read-only audit exceeded SSM output limits; its truncated JSON is not used as evidence.",
+    "Upstream performance comments are not measured Docmee results."
+  ]
+}

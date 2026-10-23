@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "audit": "installed-inference-path-and-current-service-resources",
+  "readOnly": true,
+  "inferencePerformed": false,
+  "ssm": {
+    "commandId": "b65147cc-dcbe-4abe-91ee-751e348281af",
+    "supportingAstCommandId": "6921cecc-67ab-4669-8673-748afa6ee8a8",
+    "instanceId": "i-0c86fadeec6758b91",
+    "region": "mx-central-1",
+    "status": "Success",
+    "responseCode": 0,
+    "executionEndDateTime": "2026-10-23T00:51:24.97Z"
+  },
+  "installedSourceFindings": {
+    "systemOneDelegatesToPredictBatch": true,
+    "systemOneAndPredictBatchUseNoGrad": true,
+    "collationPadsToLongestActualItem": true,
+    "fixedMaximumLengthPaddingFoundInEagerPath": false,
+    "ordinaryForwardUsesSingleModelCall": true
+  },
+  "services": {
+    "docmee.service": { "active": true, "pid": 2455289, "restarts": 0 },
+    "docmee-laya.service": { "active": true, "pid": 2461424, "restarts": 0 },
+    "caddy.service": { "active": true, "pid": 46837, "restarts": 0 }
+  },
+  "currentLayaCgroup": {
+    "cpuMax": "100000 100000",
+    "memoryMaxBytes": 3221225472,
+    "memoryCurrentBytes": 1984442368,
+    "cpuUsageUsec": 20894700,
+    "cpuPeriods": 2569,
+    "cpuThrottledPeriods": 10,
+    "cpuThrottledUsec": 1208,
+    "memoryOomEvents": 0,
+    "memoryOomKills": 0
+  },
+  "layaHealth": { "status": "alive" },
+  "publicHealth": {
+    "url": "https://app.docmeedevelopment.dev/api/health",
+    "httpStatus": 200,
+    "ok": true,
+    "buildId": "git-139b000e9947"
+  },
+  "limitations": [
+    "Source inspection is not a per-stage runtime profile or a new accuracy benchmark.",
+    "Cgroup counters describe the current restored service lifetime, not the prior diagnostic benchmark; they cannot establish why those requests were slow.",
+    "No EC2 CPU-credit or sustained-concurrency conclusion is supported by these counters.",
+    "The alive endpoint alone does not establish model readiness or successful decisions.",
+    "No runtime configuration, clinic routing, production deadline or model artifacts changed."
+  ],
+  "disposition": {
+    "nextInvestigation": "Bounded synthetic per-stage timing: tokenization, collation, model forward and result processing; measure per-run resource deltas.",
+    "runtimeChanged": false,
+    "deploymentPerformed": false,
+    "auditExecutionComplete": true,
+    "optimizationComplete": false,
+    "ownerAccepted": false
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "audit": "readonly_preparation_health_v1",
+  "target": "app.docmeedevelopment.dev",
+  "ssm": {
+    "commandId": "929c8fbf-b571-4ba5-87c2-be6e76cfe016",
+    "status": "Success",
+    "responseCode": 0,
+    "executionEnd": "2026-10-23T02:07:54.238Z"
+  },
+  "observedAt": "2026-10-23T02:07:54.367518+00:00",
+  "architecture": "aarch64",
+  "cpuCount": 2,
+  "memory": {"totalKiB": 7991304, "availableKiB": 5003248, "swapKiB": 0},
+  "diskFreeBytes": 57741238272,
+  "services": {
+    "docmee": {"active": true, "running": true, "pid": 2455289, "restartCount": 0},
+    "caddy": {"active": true, "running": true, "pid": 46837, "restartCount": 0},
+    "laya": {
+      "active": true,
+      "running": true,
+      "pid": 2462670,
+      "restartCount": 0,
+      "cpuQuotaPerSecond": "1s",
+      "memoryMaxBytes": 3221225472,
+      "memorySwapMaxBytes": 0,
+      "tasksMax": 16,
+      "dynamicUser": true,
+      "privateNetwork": true
+    }
+  },
+  "localHealth": {"docmeeHttpStatus": 200, "layaReadyHttpStatus": 200},
+  "externalHealth": {
+    "observedAt": "2026-10-23T02:08:07.2106752+00:00",
+    "httpStatus": 200,
+    "ok": true,
+    "buildId": "git-139b000e9947"
+  },
+  "modelInference": false,
+  "remotePersistentWrites": false,
+  "runtimeBackendChanged": false,
+  "clinicRoutingChanged": false,
+  "onnxExportCapacityQualified": false,
+  "accuracyImprovementProven": false,
+  "limitations": [
+    "Memory availability is a point-in-time observation, not sustained load or export peak-memory evidence.",
+    "Systemd property values do not independently prove all sandbox enforcement.",
+    "This audit did not install dependencies, export a graph or benchmark an ONNX backend."
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "ssmCommandId": "27f59901-faa1-4328-8204-416444edebab",
+  "ssmStatus": "Success",
+  "ssmResponseCode": 0,
+  "executionStart": "2026-10-23T00:38:45.853Z",
+  "executionEnd": "2026-10-23T00:38:46.853Z",
+  "audit": "workflow_branch_token_budget_v1",
+  "config": {
+    "head_max_len": 256,
+    "max_len": 1024
+  },
+  "modelInferenceRun": false,
+  "reports": [
+    {
+      "caseCount": 36,
+      "casesWithStateClipping": 0,
+      "framing": "plaintext",
+      "headTokens": 128,
+      "instructionTokensDropped": 0,
+      "instructionTokensFull": 40,
+      "instructionTokensUsed": 40,
+      "maxSequenceTokens": 218,
+      "maxStateTokens": 89,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "optionTokensFull": [
+        15,
+        16,
+        15,
+        17,
+        17
+      ],
+      "optionTokensUsed": [
+        15,
+        16,
+        15,
+        17,
+        17
+      ],
+      "optionsDistinct": 5,
+      "secondaryOptionCap": null,
+      "stateRoom": 895,
+      "task": "workflow_branch",
+      "variant": "baseline"
+    },
+    {
+      "caseCount": 36,
+      "casesWithStateClipping": 0,
+      "framing": "production_json",
+      "headTokens": 161,
+      "instructionTokensDropped": 0,
+      "instructionTokensFull": 40,
+      "instructionTokensUsed": 40,
+      "maxSequenceTokens": 301,
+      "maxStateTokens": 139,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "optionTokensFull": [
+        20,
+        21,
+        20,
+        30,
+        22
+      ],
+      "optionTokensUsed": [
+        20,
+        21,
+        20,
+        30,
+        22
+      ],
+      "optionsDistinct": 5,
+      "secondaryOptionCap": null,
+      "stateRoom": 862,
+      "task": "workflow_branch",
+      "variant": "baseline"
+    },
+    {
+      "caseCount": 36,
+      "casesWithStateClipping": 0,
+      "framing": "plaintext",
+      "headTokens": 234,
+      "instructionTokensDropped": 0,
+      "instructionTokensFull": 40,
+      "instructionTokensUsed": 40,
+      "maxSequenceTokens": 324,
+      "maxStateTokens": 89,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "optionTokensFull": [
+        33,
+        38,
+        38,
+        36,
+        41
+      ],
+      "optionTokensUsed": [
+        33,
+        38,
+        38,
+        36,
+        41
+      ],
+      "optionsDistinct": 5,
+      "secondaryOptionCap": null,
+      "stateRoom": 789,
+      "task": "workflow_branch",
+      "variant": "distinct"
+    },
+    {
+      "caseCount": 36,
+      "casesWithStateClipping": 0,
+      "framing": "production_json",
+      "headTokens": 259,
+      "instructionTokensDropped": 9,
+      "instructionTokensFull": 40,
+      "instructionTokensUsed": 31,
+      "maxSequenceTokens": 399,
+      "maxStateTokens": 139,
+      "maxStateTokensDropped": 0,
+      "optionTokensDropped": [
+        0,
+        0,
+        0,
+        15,
+        11
+      ],
+      "optionTokensFull": [
+        38,
+        43,
+        43,
+        63,
+        59
+      ],
+      "optionTokensUsed": [
+        38,
+        43,
+        43,
+        48,
+        48
+      ],
+      "optionsDistinct": 5,
+      "secondaryOptionCap": null,
+      "stateRoom": 764,
+      "task": "workflow_branch",
+      "variant": "distinct"
+    }
+  ],
+  "routingChanged": false,
+  "serviceStatesAfter": {
+    "caddy.service": [
+      "MainPID=46837",
+      "NRestarts=0",
+      "ActiveState=active",
+      "SubState=running"
+    ],
+    "docmee-laya.service": [
+      "MainPID=2461424",
+      "NRestarts=0",
+      "ActiveState=active",
+      "SubState=running"
+    ],
+    "docmee.service": [
+      "MainPID=2455289",
+      "NRestarts=0",
+      "ActiveState=active",
+      "SubState=running"
+    ]
+  },
+  "serviceStatesBefore": {
+    "caddy.service": [
+      "MainPID=46837",
+      "NRestarts=0",
+      "ActiveState=active",
+      "SubState=running"
+    ],
+    "docmee-laya.service": [
+      "MainPID=2461424",
+      "NRestarts=0",
+      "ActiveState=active",
+      "SubState=running"
+    ],
+    "docmee.service": [
+      "MainPID=2455289",
+      "NRestarts=0",
+      "ActiveState=active",
+      "SubState=running"
+    ]
+  },
+  "serviceStatesUnchanged": true,
+  "tokenizerSha256": "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
+  "usesPatientData": false
+}

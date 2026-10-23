@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "experiment": "matched-json-versus-language-preserving-plaintext-framing",
+  "evidenceType": "redacted-summary-of-ssm-output",
+  "ssm": {
+    "commandId": "adf6c3da-9495-4859-a0d2-1b6701234b7d",
+    "status": "Failed",
+    "responseCode": 1,
+    "executionStartDateTime": "2026-10-23T01:30:16.278Z",
+    "executionEndDateTime": "2026-10-23T01:32:51.278Z",
+    "error": "failed to run commands: exit status 1"
+  },
+  "target": {
+    "instanceId": "i-0c86fadeec6758b91",
+    "region": "mx-central-1",
+    "servedBuildId": "git-139b000e9947",
+    "remoteSourceCommit": "ed963a989c3c49b96c869020598d40a2ea7046d1",
+    "diagnosticDirectory": "/opt/docmee-laya/diagnostics/framing-20261023-a",
+    "modelVersion": "laya-multilingual-e4e9ddf21a7b"
+  },
+  "scope": {
+    "syntheticOnly": true,
+    "executesDocmeeWorkflow": false,
+    "sendsExternalMessages": false,
+    "usesPatientData": false,
+    "patientRoutingChanged": false,
+    "applicationDeploymentPerformed": false,
+    "productionDeadlineMs": 750,
+    "diagnosticDeadlineMs": 4000,
+    "clientDeadlineMs": 5000,
+    "cpuQuotaCores": 1,
+    "memoryLimitBytes": 3221225472,
+    "stdoutAndStderr": "null"
+  },
+  "protocol": {
+    "corpusVersion": "docmee-framing-v1",
+    "identicalFullHistoryLanguageCandidatesAndInstructions": true,
+    "variantOrder": ["json", "text"],
+    "randomizedOrder": false,
+    "plannedDecisionsPerVariant": 51,
+    "retryPerformed": false
+  },
+  "jsonObservedRegression": {
+    "corpusSha256": "173179e34cbeb6bc9ddbd5467c5c73e56073b8417a2200e98e6ce9378f91c121",
+    "complete": true,
+    "planned": 36,
+    "attempted": 36,
+    "validResponses": 36,
+    "correct": 17,
+    "accuracy": 0.4722222222222222,
+    "abstained": 0,
+    "notRun": 0,
+    "maxElapsedMs": 2960.44,
+    "byLanguage": {
+      "en": {"total": 18, "correct": 8, "maxElapsedMs": 2506.44},
+      "es": {"total": 9, "correct": 3, "maxElapsedMs": 2960.44},
+      "mixed": {"total": 9, "correct": 6, "maxElapsedMs": 2886.52}
+    },
+    "memoryPeakBytes": 2014158848,
+    "oomEvents": 0,
+    "oomKills": 0,
+    "caveat": "Previously observed cases replayed with this experiment's full-history framing; do not compare scores directly with differently framed earlier experiments."
+  },
+  "jsonFreshHeldoutIncomplete": {
+    "corpusSha256": "be7be00275df3dd62ff49018996a756ca50e4f3c6c1caf6f8986c4b9974f5bd5",
+    "complete": false,
+    "planned": 15,
+    "attempted": 10,
+    "validResponses": 9,
+    "correct": 4,
+    "accuracy": null,
+    "abstained": 0,
+    "notRun": 5,
+    "maxElapsedMs": 4002.89,
+    "byLanguage": {
+      "en": {"planned": 5, "attempted": 5, "validResponses": 5, "correct": 1, "maxElapsedMs": 3124.55},
+      "es": {"planned": 5, "attempted": 5, "validResponses": 4, "correct": 3, "maxElapsedMs": 4002.89},
+      "mixed": {"planned": 5, "attempted": 0, "validResponses": 0, "correct": 0, "maxElapsedMs": null}
+    },
+    "stopCase": {"id": "framing-es.turn-5", "outcome": "http_unavailable", "elapsedMs": 4002.89},
+    "memoryPeakBytes": 2025132032,
+    "oomEvents": 0,
+    "oomKills": 0,
+    "caveat": "Request unavailability occurred at approximately the diagnostic deadline. This output alone does not establish the underlying timeout or host-resource cause. These observed held-out cases cannot be reused as unseen validation."
+  },
+  "plaintext": {
+    "attempted": 0,
+    "reason": "Fail-fast after incomplete JSON baseline; comparison was not reached."
+  },
+  "restoration": {
+    "originalRuntimeRestored": true,
+    "runtimeReady": true,
+    "originalDeadlineMs": 750,
+    "docmeeAndCaddyProcessesUnchanged": true,
+    "applicationHealthHttp": 200,
+    "sandboxAndNullLoggingPreserved": true,
+    "patientRoutingChanged": false
+  },
+  "externalHealth": {
+    "checkedAt": "2026-10-23T01:33:17.0326364+00:00",
+    "url": "https://app.docmeedevelopment.dev/api/health",
+    "http": 200,
+    "ok": true,
+    "buildId": "git-139b000e9947"
+  },
+  "localVerification": {"harnessTestsPassed": 60, "senderValidated": true, "assetCount": 5, "payloadCharacters": 20642},
+  "conclusion": {
+    "comparisonComplete": false,
+    "accuracyImprovementDemonstrated": false,
+    "promotionPerformed": false,
+    "optimizationComplete": false,
+    "ownerAccepted": false,
+    "nextStep": "Investigate the baseline deadline failure with bounded read-only evidence before proposing a revised experiment; do not blindly retry or enlarge production deadlines/resources."
+  }
+}

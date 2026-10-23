@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "experiment": "synthetic-stage-timing-first-collector",
+  "ssm": {
+    "commandId": "63edcbfc-d127-4d98-ba3c-9d66e1c363e2",
+    "status": "Failed",
+    "responseCode": 1,
+    "executionStartDateTime": "2026-10-23T01:01:02.352Z",
+    "executionEndDateTime": "2026-10-23T01:02:34.352Z"
+  },
+  "modelReplay": {
+    "validResponses": 36,
+    "calibration": {"total": 24, "correct": 19, "maxLatencyMs": 1431.21},
+    "previouslyObservedHeldout": {"total": 12, "correct": 10, "maxLatencyMs": 1423.85},
+    "diagnosticDeadlineMs": 4000,
+    "productionDeadlineMs": 750
+  },
+  "collectorFailure": {
+    "errorType": "AssertionError",
+    "numericRecordsCollected": 0,
+    "rootCause": "The service intentionally routes stdout and stderr to null; journal collection could not receive emitted timing records.",
+    "readOnlyDiagnosisCommandId": "b357b874-8a34-4826-b3b6-f30a33bb7bbb",
+    "diagnosisStatus": "Success",
+    "resolution": "A separately tested diagnostic-only RAM snapshot uses the existing validated loopback health handler. Null logging remains unchanged. This failed experiment is not overwritten."
+  },
+  "restoration": {
+    "originalRuntimeRestored": true,
+    "readyHttp": 200,
+    "docmeeAndCaddyProcessesUnchanged": true,
+    "applicationHealthHttp": 200,
+    "buildId": "git-139b000e9947",
+    "memoryPeakBytes": 2035109888,
+    "oomEvents": 0,
+    "oomKills": 0,
+    "patientRoutingChanged": false
+  },
+  "qualification": {
+    "timingEvidenceComplete": false,
+    "deploymentPerformed": false,
+    "optimizationComplete": false,
+    "ownerAccepted": false
+  }
+}

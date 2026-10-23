@@ -1,0 +1,711 @@
+{
+  "ssmCommandId": "5bb53894-87ac-4f74-ac42-d719d5746cfd",
+  "targetHost": "app.docmeedevelopment.dev",
+  "region": "mx-central-1",
+  "status": "Success",
+  "responseCode": 0,
+  "finished": "2026-10-22T23:59:12.859Z",
+  "events": [
+    {
+      "phase": "preflight",
+      "health": {
+        "http": 200,
+        "ok": true,
+        "buildId": "git-139b000e9947"
+      },
+      "sourceCommit": "ed963a989c3c49b96c869020598d40a2ea7046d1",
+      "sandbox": {
+        "Restart": "on-failure",
+        "MainPID": "2460470",
+        "NRestarts": "0",
+        "ExecStart": "{ path=/opt/docmee-laya/releases/release-20261022-a/venv/bin/python ; argv[]=/opt/docmee-laya/releases/release-20261022-a/venv/bin/python -I -B /opt/docmee-laya/releases/release-20261022-a/isolation/entrypoint.py ; ignore_errors=no ; start_time=[Thu 2026-10-22 23:42:01 UTC] ; stop_time=[n/a] ; pid=2460470 ; code=(null) ; status=0/0 }",
+        "ControlGroup": "/system.slice/docmee-laya.service",
+        "CPUQuotaPerSecUSec": "1s",
+        "MemoryMax": "3221225472",
+        "MemorySwapMax": "0",
+        "TasksMax": "16",
+        "CapabilityBoundingSet": "",
+        "DynamicUser": "yes",
+        "PrivateDevices": "yes",
+        "PrivateNetwork": "yes",
+        "ProtectHome": "yes",
+        "ProtectSystem": "strict",
+        "NoNewPrivileges": "yes",
+        "SystemCallFilter": "_llseek _newselect accept accept4 access add_key alarm arch_prctl arm_fadvise64_64 bind brk cacheflush capget capset chdir chmod chown chown32 clock_getres clock_getres_time64 clock_gettime clock_gettime64 clock_nanosleep clock_nanosleep_time64 clone clone3 close close_range copy_file_range creat dup dup2 dup3 epoll_create epoll_create1 epoll_ctl epoll_ctl_old epoll_pwait epoll_pwait2 epoll_wait epoll_wait_old eventfd eventfd2 execve execveat exit exit_group faccessat faccessat2 fadvise64 fadvise64_64 fallocate fchdir fchmod fchmodat fchmodat2 fchown fchown32 fchownat fcntl fcntl64 fdatasync fgetxattr flistxattr flock fork fremovexattr fsetxattr fstat fstat64 fstatat64 fstatfs fstatfs64 fsync ftruncate ftruncate64 futex futex_time64 futex_waitv futimesat get_mempolicy get_robust_list get_thread_area getcpu getcwd getdents getdents64 getegid getegid32 geteuid geteuid32 getgid getgid32 getgroups getgroups32 getitimer getpeername getpgid getpgrp getpid getppid getpriority getrandom getresgid getresgid32 getresuid getresuid32 getrlimit getrusage getsid getsockname getsockopt gettid gettimeofday getuid getuid32 getxattr inotify_add_watch inotify_init inotify_init1 inotify_rm_watch io_cancel io_destroy io_getevents io_pgetevents io_pgetevents_time64 io_setup io_submit ioctl ioprio_get ioprio_set ipc kcmp keyctl kill lchown lchown32 lgetxattr link linkat listen listxattr llistxattr lremovexattr lseek lsetxattr lstat lstat64 madvise mbind membarrier memfd_create migrate_pages mkdir mkdirat mknod mknodat mlock mlock2 mlockall mmap mmap2 move_pages mprotect mq_getsetattr mq_notify mq_open mq_timedreceive mq_timedreceive_time64 mq_timedsend mq_timedsend_time64 mq_unlink mremap msgctl msgget msgrcv msgsnd msync munlock munlockall munmap name_to_handle_at nanosleep newfstatat nice oldfstat oldlstat oldolduname oldstat olduname open openat openat2 pause personality pidfd_open pidfd_send_signal pipe pipe2 poll ppoll ppoll_time64 prctl pread64 preadv preadv2 prlimit64 process_madvise process_vm_readv process_vm_writev pselect6 pselect6_time64 pwrite64 pwritev pwritev2 read readahead readdir readlink readlinkat readv recv recvfrom recvmmsg recvmmsg_time64 recvmsg remap_file_pages removexattr rename renameat renameat2 request_key restart_syscall riscv_flush_icache rmdir rseq rt_sigaction rt_sigpending rt_sigprocmask rt_sigqueueinfo rt_sigreturn rt_sigsuspend rt_sigtimedwait rt_sigtimedwait_time64 rt_tgsigqueueinfo sched_get_priority_max sched_get_priority_min sched_getaffinity sched_getattr sched_getparam sched_getscheduler sched_rr_get_interval sched_rr_get_interval_time64 sched_setaffinity sched_setattr sched_setparam sched_setscheduler sched_yield select semctl semget semop semtimedop semtimedop_time64 send sendfile sendfile64 sendmmsg sendmsg sendto set_mempolicy set_mempolicy_home_node set_robust_list set_thread_area set_tid_address set_tls setfsgid setfsgid32 setfsuid setfsuid32 setgid setgid32 setgroups setgroups32 setitimer setns setpgid setpriority setregid setregid32 setresgid setresgid32 setresuid setresuid32 setreuid setreuid32 setrlimit setsid setsockopt setuid setuid32 setxattr shmat shmctl shmdt shmget shutdown sigaction sigaltstack signal signalfd signalfd4 sigpending sigprocmask sigreturn sigsuspend socket socketcall socketpair splice stat stat64 statfs statfs64 statx swapcontext symlink symlinkat sync sync_file_range sync_file_range2 syncfs sysinfo tee tgkill time timer_create timer_delete timer_getoverrun timer_gettime timer_gettime64 timer_settime timer_settime64 timerfd_create timerfd_gettime timerfd_gettime64 timerfd_settime timerfd_settime64 times tkill truncate truncate64 ugetrlimit umask uname unlink unlinkat unshare userfaultfd utime utimensat utimensat_time64 utimes vfork vmsplice wait4 waitid waitpid write writev",
+        "RestrictAddressFamilies": "AF_INET",
+        "ActiveState": "active",
+        "SubState": "running",
+        "DropInPaths": ""
+      },
+      "sendsExternalMessages": false
+    },
+    {
+      "phase": "conversation_report",
+      "variant": "plaintext",
+      "split": "calibration",
+      "report": {
+        "schemaVersion": 1,
+        "corpusVersion": "docmee-conversations-v1",
+        "corpusSha256": "87f6d3a7b2e96ffd2e3d04ff171a5d2b123ba0945add685292142023e157ba2b",
+        "split": "calibration",
+        "modelVersion": "laya-multilingual-e4e9ddf21a7b",
+        "calibrationVersion": "plaintext-unqualified-v1",
+        "clientDeadlineMs": 5000,
+        "complete": true,
+        "activationApproved": false,
+        "summary": {
+          "planned": 12,
+          "attempted": 12,
+          "validResponses": 12,
+          "correct": 10,
+          "abstained": 0,
+          "notRun": 0,
+          "accuracy": 0.8333333333333334,
+          "maxElapsedMs": 2080.7
+        },
+        "byTaskLanguage": {
+          "workflow_branch/en": {
+            "planned": 6,
+            "attempted": 6,
+            "validResponses": 6,
+            "correct": 5,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.8333333333333334,
+            "maxElapsedMs": 2080.7
+          },
+          "workflow_branch/es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2066.15
+          },
+          "workflow_branch/mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2066.18
+          }
+        },
+        "simulationMode": "scripted_transcript_route_replay",
+        "executesDocmeeWorkflow": false,
+        "sendsExternalMessages": false,
+        "usesPatientData": false,
+        "assistantContext": "fixed_script",
+        "byConversation": {
+          "booking-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2031.49
+          },
+          "change-es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2066.15
+          },
+          "switch-mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2066.18
+          },
+          "existing-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2080.7
+          }
+        },
+        "mismatches": [
+          {
+            "id": "switch-mixed.turn-3",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 2066.18,
+            "choiceId": "booking",
+            "rawScore": 0.4463,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "existing-en.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 1831.74,
+            "choiceId": "cancel",
+            "rawScore": 0.9934,
+            "abstain": false,
+            "correct": false
+          }
+        ]
+      },
+      "counters": {
+        "memoryPeakBytes": 2005843968,
+        "oom": 0,
+        "oomKill": 0
+      }
+    },
+    {
+      "phase": "conversation_report",
+      "variant": "plaintext",
+      "split": "heldout",
+      "report": {
+        "schemaVersion": 1,
+        "corpusVersion": "docmee-conversations-heldout-v1",
+        "corpusSha256": "a14d8205949d1c90fc09180dd25bbc6b71142a67165e3ecd9725f56472e5e8ce",
+        "split": "heldout",
+        "modelVersion": "laya-multilingual-e4e9ddf21a7b",
+        "calibrationVersion": "plaintext-unqualified-v1",
+        "clientDeadlineMs": 5000,
+        "complete": true,
+        "activationApproved": false,
+        "summary": {
+          "planned": 12,
+          "attempted": 12,
+          "validResponses": 12,
+          "correct": 7,
+          "abstained": 0,
+          "notRun": 0,
+          "accuracy": 0.5833333333333334,
+          "maxElapsedMs": 2127.25
+        },
+        "byTaskLanguage": {
+          "workflow_branch/en": {
+            "planned": 6,
+            "attempted": 6,
+            "validResponses": 6,
+            "correct": 4,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2056.8
+          },
+          "workflow_branch/es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 2127.25
+          },
+          "workflow_branch/mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2072.08
+          }
+        },
+        "simulationMode": "scripted_transcript_route_replay",
+        "executesDocmeeWorkflow": false,
+        "sendsExternalMessages": false,
+        "usesPatientData": false,
+        "assistantContext": "fixed_script",
+        "byConversation": {
+          "unseen-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2017.98
+          },
+          "unseen-es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 2127.25
+          },
+          "unseen-mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2072.08
+          },
+          "unseen-context": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 2056.8
+          }
+        },
+        "mismatches": [
+          {
+            "id": "unseen-es.turn-2",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "unseen-es",
+            "outcome": "decision",
+            "elapsedMs": 1854.78,
+            "choiceId": "cancel",
+            "rawScore": 0.4419,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-es.turn-3",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "unseen-es",
+            "outcome": "decision",
+            "elapsedMs": 2127.25,
+            "choiceId": "information",
+            "rawScore": 0.6274,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-mixed.turn-3",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "unseen-mixed",
+            "outcome": "decision",
+            "elapsedMs": 2072.08,
+            "choiceId": "booking",
+            "rawScore": 0.746,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-context.turn-1",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "unseen-context",
+            "outcome": "decision",
+            "elapsedMs": 1540.71,
+            "choiceId": "cancel",
+            "rawScore": 0.622,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-context.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "unseen-context",
+            "outcome": "decision",
+            "elapsedMs": 1791.79,
+            "choiceId": "cancel",
+            "rawScore": 0.443,
+            "abstain": false,
+            "correct": false
+          }
+        ]
+      },
+      "counters": {
+        "memoryPeakBytes": 2006974464,
+        "oom": 0,
+        "oomKill": 0
+      }
+    },
+    {
+      "phase": "conversation_report",
+      "variant": "current-turn",
+      "split": "calibration",
+      "report": {
+        "schemaVersion": 1,
+        "corpusVersion": "docmee-conversations-v1",
+        "corpusSha256": "87f6d3a7b2e96ffd2e3d04ff171a5d2b123ba0945add685292142023e157ba2b",
+        "split": "calibration",
+        "modelVersion": "laya-multilingual-e4e9ddf21a7b",
+        "calibrationVersion": "current-turn-unqualified-v1",
+        "clientDeadlineMs": 5000,
+        "complete": true,
+        "activationApproved": false,
+        "summary": {
+          "planned": 12,
+          "attempted": 12,
+          "validResponses": 12,
+          "correct": 11,
+          "abstained": 0,
+          "notRun": 0,
+          "accuracy": 0.9166666666666666,
+          "maxElapsedMs": 1385.62
+        },
+        "byTaskLanguage": {
+          "workflow_branch/en": {
+            "planned": 6,
+            "attempted": 6,
+            "validResponses": 6,
+            "correct": 5,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.8333333333333334,
+            "maxElapsedMs": 1383.7
+          },
+          "workflow_branch/es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 1363.57
+          },
+          "workflow_branch/mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 1385.62
+          }
+        },
+        "simulationMode": "scripted_transcript_route_replay",
+        "executesDocmeeWorkflow": false,
+        "sendsExternalMessages": false,
+        "usesPatientData": false,
+        "assistantContext": "fixed_script",
+        "byConversation": {
+          "booking-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 1366.86
+          },
+          "change-es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 1363.57
+          },
+          "switch-mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 1385.62
+          },
+          "existing-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1383.7
+          }
+        },
+        "mismatches": [
+          {
+            "id": "existing-en.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 1360.68,
+            "choiceId": "cancel",
+            "rawScore": 0.7834,
+            "abstain": false,
+            "correct": false
+          }
+        ]
+      },
+      "counters": {
+        "memoryPeakBytes": 2000470016,
+        "oom": 0,
+        "oomKill": 0
+      }
+    },
+    {
+      "phase": "conversation_report",
+      "variant": "current-turn",
+      "split": "heldout",
+      "report": {
+        "schemaVersion": 1,
+        "corpusVersion": "docmee-conversations-heldout-v1",
+        "corpusSha256": "a14d8205949d1c90fc09180dd25bbc6b71142a67165e3ecd9725f56472e5e8ce",
+        "split": "heldout",
+        "modelVersion": "laya-multilingual-e4e9ddf21a7b",
+        "calibrationVersion": "current-turn-unqualified-v1",
+        "clientDeadlineMs": 5000,
+        "complete": true,
+        "activationApproved": false,
+        "summary": {
+          "planned": 12,
+          "attempted": 12,
+          "validResponses": 12,
+          "correct": 8,
+          "abstained": 0,
+          "notRun": 0,
+          "accuracy": 0.6666666666666666,
+          "maxElapsedMs": 1414.22
+        },
+        "byTaskLanguage": {
+          "workflow_branch/en": {
+            "planned": 6,
+            "attempted": 6,
+            "validResponses": 6,
+            "correct": 4,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1381.35
+          },
+          "workflow_branch/es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1397.41
+          },
+          "workflow_branch/mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1414.22
+          }
+        },
+        "simulationMode": "scripted_transcript_route_replay",
+        "executesDocmeeWorkflow": false,
+        "sendsExternalMessages": false,
+        "usesPatientData": false,
+        "assistantContext": "fixed_script",
+        "byConversation": {
+          "unseen-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 1381.15
+          },
+          "unseen-es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1397.41
+          },
+          "unseen-mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1414.22
+          },
+          "unseen-context": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 1381.35
+          }
+        },
+        "mismatches": [
+          {
+            "id": "unseen-es.turn-2",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "unseen-es",
+            "outcome": "decision",
+            "elapsedMs": 1397.41,
+            "choiceId": "booking",
+            "rawScore": 0.646,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-mixed.turn-1",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "unseen-mixed",
+            "outcome": "decision",
+            "elapsedMs": 1414.22,
+            "choiceId": "secretary",
+            "rawScore": 0.6791,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-context.turn-1",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "unseen-context",
+            "outcome": "decision",
+            "elapsedMs": 1350.41,
+            "choiceId": "cancel",
+            "rawScore": 0.6304,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "unseen-context.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "unseen-context",
+            "outcome": "decision",
+            "elapsedMs": 1347.81,
+            "choiceId": "cancel",
+            "rawScore": 0.5106,
+            "abstain": false,
+            "correct": false
+          }
+        ]
+      },
+      "counters": {
+        "memoryPeakBytes": 2001113088,
+        "oom": 0,
+        "oomKill": 0
+      }
+    },
+    {
+      "phase": "comparison",
+      "summaries": {
+        "plaintext": {
+          "calibration": {
+            "planned": 12,
+            "attempted": 12,
+            "validResponses": 12,
+            "correct": 10,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.8333333333333334,
+            "maxElapsedMs": 2080.7
+          },
+          "heldout": {
+            "planned": 12,
+            "attempted": 12,
+            "validResponses": 12,
+            "correct": 7,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.5833333333333334,
+            "maxElapsedMs": 2127.25
+          }
+        },
+        "current-turn": {
+          "calibration": {
+            "planned": 12,
+            "attempted": 12,
+            "validResponses": 12,
+            "correct": 11,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.9166666666666666,
+            "maxElapsedMs": 1385.62
+          },
+          "heldout": {
+            "planned": 12,
+            "attempted": 12,
+            "validResponses": 12,
+            "correct": 8,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 1414.22
+          }
+        }
+      },
+      "activationApproved": false
+    },
+    {
+      "phase": "restored",
+      "health": {
+        "http": 200,
+        "ok": true,
+        "buildId": "git-139b000e9947"
+      },
+      "runtimeReady": true,
+      "originalDeadlineMs": 750,
+      "patientRoutingChanged": false,
+      "testerInstalled": "/opt/docmee-laya/diagnostics/conversations-20261022-c"
+    }
+  ],
+  "stderr": "",
+  "externalHealthAfterRestoration": {
+    "statusCode": 200,
+    "ok": true,
+    "service": "docmee-api",
+    "buildId": "git-139b000e9947"
+  },
+  "limits": [
+    "Synthetic route replay, not end-to-end Docmee workflow or WhatsApp delivery.",
+    "Current-turn comparison removes history, transcript framing, and transcript routing directive together.",
+    "Previously unseen cases are now observed and must not be reused as unseen after tuning.",
+    "No patient-facing routing activation or web application deployment.",
+    "Accuracy target not met; latency remains above the normal 750ms deadline."
+  ]
+}

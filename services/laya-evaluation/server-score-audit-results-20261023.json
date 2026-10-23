@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "audit": "saved-synthetic-report-score-and-deadline-audit",
+  "readOnly": true,
+  "inferencePerformed": false,
+  "ssm": {
+    "commandId": "76579329-9197-40a6-b92d-d02802a6575c",
+    "instanceId": "i-0c86fadeec6758b91",
+    "region": "mx-central-1",
+    "status": "Success",
+    "responseCode": 0
+  },
+  "productionDeadlineMs": 750,
+  "totalResponsesAudited": 72,
+  "responsesWithinProductionDeadline": 0,
+  "reports": [
+    {
+      "variant": "baseline",
+      "split": "calibration",
+      "count": 24,
+      "correct": 19,
+      "maxElapsedMs": 1388.89,
+      "sha256": "2acf790e70d6d27a48be2f3cee225f54e581e6b153c96809434d4412a26c82e7",
+      "examinedScoreCutoff": 0.8,
+      "scoreOnlyAccepted": 13,
+      "scoreOnlyErrors": 0,
+      "scoreAndDeadlineAccepted": 0
+    },
+    {
+      "variant": "baseline",
+      "split": "previously-observed-heldout",
+      "count": 12,
+      "correct": 10,
+      "maxElapsedMs": 1434.12,
+      "sha256": "fcc6a910d3aa92b25d84f7792066151dfcd88671e476d48de59b125570308bd0",
+      "examinedScoreCutoff": 0.8,
+      "scoreOnlyAccepted": 6,
+      "scoreOnlyErrors": 0,
+      "scoreAndDeadlineAccepted": 0
+    },
+    {
+      "variant": "distinct",
+      "split": "calibration",
+      "count": 24,
+      "correct": 19,
+      "maxElapsedMs": 2379.54,
+      "sha256": "1b3572921e9aa1df508b13a811b5202cf65a552a2ee3fceb5b0c9e6374b7b147",
+      "examinedScoreCutoff": 0.6,
+      "scoreOnlyAccepted": 11,
+      "scoreOnlyErrors": 0,
+      "scoreAndDeadlineAccepted": 0
+    },
+    {
+      "variant": "distinct",
+      "split": "previously-observed-heldout",
+      "count": 12,
+      "correct": 6,
+      "maxElapsedMs": 2371.58,
+      "sha256": "c72156cfdc4c089e489b75d9a4de05b902d54d18b539640a1367b47f3d04b163",
+      "examinedScoreCutoff": 0.6,
+      "scoreOnlyAccepted": 5,
+      "scoreOnlyErrors": 0,
+      "scoreAndDeadlineAccepted": 0
+    }
+  ],
+  "publicHealth": {
+    "url": "https://app.docmeedevelopment.dev/api/health",
+    "httpStatus": 200,
+    "ok": true,
+    "buildId": "git-139b000e9947"
+  },
+  "services": {
+    "docmee.service": { "active": true, "pid": 2455289, "restarts": 0 },
+    "docmee-laya.service": { "active": true, "pid": 2461424, "restarts": 0 },
+    "caddy.service": { "active": true, "pid": 46837, "restarts": 0 }
+  },
+  "limitations": [
+    "Synthetic route replay, not real patient conversations or end-to-end WhatsApp/workflow execution.",
+    "Held-out answers were observed before this retrospective audit; new tuning needs a separately frozen unseen evaluation split.",
+    "Zero observed errors among retained cases does not establish perfect overall accuracy or calibrated confidence.",
+    "All audited decisions exceeded the production deadline, including those retained by score cutoff.",
+    "This audit neither changes production thresholds/routing nor qualifies activation, concurrency capacity or owner acceptance."
+  ],
+  "disposition": {
+    "distinctDescriptionCandidate": "reject",
+    "baselineCutoff": "experimental-only-needs-fresh-validation",
+    "nextInvestigation": "CPU latency on the existing isolated server, followed by fresh domain evaluation",
+    "runtimeChanged": false,
+    "deploymentPerformed": false,
+    "auditExecutionComplete": true,
+    "optimizationComplete": false,
+    "ownerAccepted": false
+  }
+}

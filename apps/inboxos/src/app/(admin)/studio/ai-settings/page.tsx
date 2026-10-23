@@ -10,6 +10,7 @@
 // grid, Google Calendar/Sheets, license, review link, etc.) stay where they were
 // — only the AI-specific settings moved here.
 import { useState } from 'react'
+import { LayaStatusPanel } from './LayaStatusPanel'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CollapsibleSettingsSection } from './CollapsibleSettingsSection'
 import { api } from '@/shared/api/client'
@@ -701,6 +702,7 @@ export default function AiSettingsPage() {
           <BotToneLanguageSection clinic={clinic} />
           <AiAssistantConfigSection clinic={clinic} />
           <GuardrailsSection key={clinic.id} clinic={clinic} />
+          <LayaStatusPanel clinicId={clinic.id} />
           <AiProvidersPanel clinic={clinic} />
         </>
       )}

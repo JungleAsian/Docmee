@@ -50,6 +50,7 @@ import aiCredentialsRoute from './routes/ai-credentials.js'
 import launchReadinessRoute from './routes/launch-readiness.js'
 import governanceRoute from './routes/governance.js'
 import credentialHealthRoute from './routes/credential-health.js'
+import layaDiagnosticsRoute from './routes/laya-diagnostics.js'
 import emailDeliveryRoute from './routes/email-delivery.js'
 import changeLogRoute from './routes/change-log.js'
 import setupCheckRoute from './routes/setup-check.js'
@@ -131,6 +132,7 @@ export async function buildApp() {
   await app.register(launchReadinessRoute)
   await app.register(governanceRoute)
   await app.register(credentialHealthRoute)
+  await app.register(layaDiagnosticsRoute)
   await app.register(emailDeliveryRoute)
   await app.register(conversationsRoute, { prefix: '/conversations' })
   await app.register(scheduledMessagesRoute)

@@ -1,0 +1,568 @@
+{
+  "commandId": "884998a9-f8a2-44c7-a851-da2184535c10",
+  "instanceId": "i-0c86fadeec6758b91",
+  "status": "Success",
+  "responseCode": 0,
+  "executionStart": "2026-10-22T23:40:26.428Z",
+  "executionEnd": "2026-10-22T23:42:22.428Z",
+  "sourceCommit": "ed963a989c3c49b96c869020598d40a2ea7046d1",
+  "preflightHealth": {
+    "http": 200,
+    "ok": true,
+    "buildId": "git-139b000e9947"
+  },
+  "reports": [
+    {
+      "phase": "conversation_report",
+      "variant": "baseline",
+      "report": {
+        "schemaVersion": 1,
+        "corpusVersion": "docmee-conversations-v1",
+        "corpusSha256": "87f6d3a7b2e96ffd2e3d04ff171a5d2b123ba0945add685292142023e157ba2b",
+        "split": "calibration",
+        "modelVersion": "laya-multilingual-e4e9ddf21a7b",
+        "calibrationVersion": "upstream-unqualified-v1",
+        "clientDeadlineMs": 5000,
+        "complete": true,
+        "activationApproved": false,
+        "summary": {
+          "planned": 12,
+          "attempted": 12,
+          "validResponses": 12,
+          "correct": 6,
+          "abstained": 0,
+          "notRun": 0,
+          "accuracy": 0.5,
+          "maxElapsedMs": 2725.73
+        },
+        "byTaskLanguage": {
+          "workflow_branch/en": {
+            "planned": 6,
+            "attempted": 6,
+            "validResponses": 6,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.5,
+            "maxElapsedMs": 2562.66
+          },
+          "workflow_branch/es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 2725.73
+          },
+          "workflow_branch/mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2709.52
+          }
+        },
+        "cases": [
+          {
+            "id": "booking-en.turn-1",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "booking-en",
+            "outcome": "decision",
+            "elapsedMs": 1958.85,
+            "choiceId": "secretary",
+            "rawScore": 0.2997,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "booking-en.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "booking-en",
+            "outcome": "decision",
+            "elapsedMs": 2223.22,
+            "choiceId": "information",
+            "rawScore": 0.6371,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "booking-en.turn-3",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "booking-en",
+            "outcome": "decision",
+            "elapsedMs": 2562.66,
+            "choiceId": "secretary",
+            "rawScore": 0.4928,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "change-es.turn-1",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "change-es",
+            "outcome": "decision",
+            "elapsedMs": 2049.72,
+            "choiceId": "reschedule",
+            "rawScore": 0.4648,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "change-es.turn-2",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "change-es",
+            "outcome": "decision",
+            "elapsedMs": 2612.4,
+            "choiceId": "reschedule",
+            "rawScore": 0.5245,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "change-es.turn-3",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "change-es",
+            "outcome": "decision",
+            "elapsedMs": 2725.73,
+            "choiceId": "reschedule",
+            "rawScore": 0.509,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "switch-mixed.turn-1",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 2062.75,
+            "choiceId": "cancel",
+            "rawScore": 0.5016,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "switch-mixed.turn-2",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 2256.18,
+            "choiceId": "information",
+            "rawScore": 0.2573,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "switch-mixed.turn-3",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 2709.52,
+            "choiceId": "secretary",
+            "rawScore": 0.5118,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "existing-en.turn-1",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 2017.45,
+            "choiceId": "cancel",
+            "rawScore": 0.6576,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "existing-en.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 2415.4,
+            "choiceId": "cancel",
+            "rawScore": 0.9473,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "existing-en.turn-3",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 2463.06,
+            "choiceId": "reschedule",
+            "rawScore": 0.469,
+            "abstain": false,
+            "correct": false
+          }
+        ],
+        "simulationMode": "scripted_transcript_route_replay",
+        "executesDocmeeWorkflow": false,
+        "sendsExternalMessages": false,
+        "usesPatientData": false,
+        "assistantContext": "fixed_script",
+        "byConversation": {
+          "booking-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2562.66
+          },
+          "change-es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 2725.73
+          },
+          "switch-mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2709.52
+          },
+          "existing-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 1,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.3333333333333333,
+            "maxElapsedMs": 2463.06
+          }
+        }
+      },
+      "counters": {
+        "memoryPeakBytes": 2007232512,
+        "oom": 0,
+        "oomKill": 0
+      }
+    },
+    {
+      "phase": "conversation_report",
+      "variant": "plaintext",
+      "report": {
+        "schemaVersion": 1,
+        "corpusVersion": "docmee-conversations-v1",
+        "corpusSha256": "87f6d3a7b2e96ffd2e3d04ff171a5d2b123ba0945add685292142023e157ba2b",
+        "split": "calibration",
+        "modelVersion": "laya-multilingual-e4e9ddf21a7b",
+        "calibrationVersion": "plaintext-unqualified-v1",
+        "clientDeadlineMs": 5000,
+        "complete": true,
+        "activationApproved": false,
+        "summary": {
+          "planned": 12,
+          "attempted": 12,
+          "validResponses": 12,
+          "correct": 10,
+          "abstained": 0,
+          "notRun": 0,
+          "accuracy": 0.8333333333333334,
+          "maxElapsedMs": 2395.62
+        },
+        "byTaskLanguage": {
+          "workflow_branch/en": {
+            "planned": 6,
+            "attempted": 6,
+            "validResponses": 6,
+            "correct": 5,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.8333333333333334,
+            "maxElapsedMs": 2395.62
+          },
+          "workflow_branch/es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2152.45
+          },
+          "workflow_branch/mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2073.6
+          }
+        },
+        "cases": [
+          {
+            "id": "booking-en.turn-1",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "booking-en",
+            "outcome": "decision",
+            "elapsedMs": 1599.81,
+            "choiceId": "booking",
+            "rawScore": 0.9924,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "booking-en.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "booking-en",
+            "outcome": "decision",
+            "elapsedMs": 1836.85,
+            "choiceId": "information",
+            "rawScore": 0.835,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "booking-en.turn-3",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "booking-en",
+            "outcome": "decision",
+            "elapsedMs": 2019.21,
+            "choiceId": "secretary",
+            "rawScore": 0.4547,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "change-es.turn-1",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "change-es",
+            "outcome": "decision",
+            "elapsedMs": 1563.74,
+            "choiceId": "reschedule",
+            "rawScore": 0.5532,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "change-es.turn-2",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "change-es",
+            "outcome": "decision",
+            "elapsedMs": 1822.15,
+            "choiceId": "cancel",
+            "rawScore": 0.8175,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "change-es.turn-3",
+            "task": "workflow_branch",
+            "language": "es",
+            "category": "change-es",
+            "outcome": "decision",
+            "elapsedMs": 2152.45,
+            "choiceId": "secretary",
+            "rawScore": 0.8873,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "switch-mixed.turn-1",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 1559.39,
+            "choiceId": "booking",
+            "rawScore": 0.9996,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "switch-mixed.turn-2",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 1823.03,
+            "choiceId": "information",
+            "rawScore": 0.7413,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "switch-mixed.turn-3",
+            "task": "workflow_branch",
+            "language": "mixed",
+            "category": "switch-mixed",
+            "outcome": "decision",
+            "elapsedMs": 2073.6,
+            "choiceId": "booking",
+            "rawScore": 0.4463,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "existing-en.turn-1",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 1522.97,
+            "choiceId": "cancel",
+            "rawScore": 0.9996,
+            "abstain": false,
+            "correct": true
+          },
+          {
+            "id": "existing-en.turn-2",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 2395.62,
+            "choiceId": "cancel",
+            "rawScore": 0.9934,
+            "abstain": false,
+            "correct": false
+          },
+          {
+            "id": "existing-en.turn-3",
+            "task": "workflow_branch",
+            "language": "en",
+            "category": "existing-en",
+            "outcome": "decision",
+            "elapsedMs": 2300.59,
+            "choiceId": "cancel",
+            "rawScore": 0.9268,
+            "abstain": false,
+            "correct": true
+          }
+        ],
+        "simulationMode": "scripted_transcript_route_replay",
+        "executesDocmeeWorkflow": false,
+        "sendsExternalMessages": false,
+        "usesPatientData": false,
+        "assistantContext": "fixed_script",
+        "byConversation": {
+          "booking-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2019.21
+          },
+          "change-es": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 3,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 1,
+            "maxElapsedMs": 2152.45
+          },
+          "switch-mixed": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2073.6
+          },
+          "existing-en": {
+            "planned": 3,
+            "attempted": 3,
+            "validResponses": 3,
+            "correct": 2,
+            "abstained": 0,
+            "notRun": 0,
+            "accuracy": 0.6666666666666666,
+            "maxElapsedMs": 2395.62
+          }
+        }
+      },
+      "counters": {
+        "memoryPeakBytes": 2005929984,
+        "oom": 0,
+        "oomKill": 0
+      }
+    }
+  ],
+  "comparison": {
+    "phase": "comparison",
+    "baseline": {
+      "planned": 12,
+      "attempted": 12,
+      "validResponses": 12,
+      "correct": 6,
+      "abstained": 0,
+      "notRun": 0,
+      "accuracy": 0.5,
+      "maxElapsedMs": 2725.73
+    },
+    "plaintext": {
+      "planned": 12,
+      "attempted": 12,
+      "validResponses": 12,
+      "correct": 10,
+      "abstained": 0,
+      "notRun": 0,
+      "accuracy": 0.8333333333333334,
+      "maxElapsedMs": 2395.62
+    },
+    "activationApproved": false
+  },
+  "restored": {
+    "phase": "restored",
+    "health": {
+      "http": 200,
+      "ok": true,
+      "buildId": "git-139b000e9947"
+    },
+    "runtimeReady": true,
+    "originalDeadlineMs": 750,
+    "patientRoutingChanged": false,
+    "testerInstalled": "/opt/docmee-laya/diagnostics/conversations-20261022-b"
+  },
+  "limitations": [
+    "Twelve synthetic calibration turns, not held-out qualification.",
+    "Fixed scripted assistant history; does not execute the Docmee workflow or send WhatsApp.",
+    "Plaintext variant changes serialization and removes language metadata, not an isolated single-variable experiment.",
+    "Original runtime and 750ms inference deadline restored; revised variant is not active for patient routing."
+  ]
+}

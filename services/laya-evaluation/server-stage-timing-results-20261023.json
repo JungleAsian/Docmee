@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "experiment": "synthetic-stage-timing-corrected-collector",
+  "ssm": {
+    "commandId": "de1c2736-01b4-4356-946a-02891d9ba225",
+    "status": "Success",
+    "responseCode": 0,
+    "executionStartDateTime": "2026-10-23T01:10:31.921Z",
+    "executionEndDateTime": "2026-10-23T01:12:04.921Z"
+  },
+  "target": {
+    "instanceId": "i-0c86fadeec6758b91",
+    "region": "mx-central-1",
+    "servedBuildId": "git-139b000e9947",
+    "remoteSourceCommit": "ed963a989c3c49b96c869020598d40a2ea7046d1",
+    "diagnosticDirectory": "/opt/docmee-laya/diagnostics/timing-20261023-b",
+    "modelVersion": "laya-multilingual-e4e9ddf21a7b"
+  },
+  "scope": {
+    "syntheticOnly": true,
+    "executesDocmeeWorkflow": false,
+    "sendsExternalMessages": false,
+    "usesPatientData": false,
+    "patientRoutingChanged": false,
+    "applicationDeploymentPerformed": false,
+    "productionDeadlineMs": 750,
+    "diagnosticDeadlineMs": 4000,
+    "cpuQuotaCores": 1,
+    "memoryLimitBytes": 3221225472,
+    "stdoutAndStderr": "null"
+  },
+  "regressionReplay": {
+    "calibration": {"total": 24, "validResponses": 24, "correct": 19, "maxElapsedMs": 1654.22},
+    "previouslyObservedHeldout": {"total": 12, "validResponses": 12, "correct": 10, "maxElapsedMs": 1576.29},
+    "freshValidation": false,
+    "activationApproved": false
+  },
+  "instrumentedTiming": {
+    "count": 36,
+    "allResponsesExceedProductionDeadline": true,
+    "wallMs": {"min": 1335.94, "median": 1390.463, "max": 1648.453},
+    "cpuMs": {"min": 1335.023, "median": 1388.854, "max": 1648.308},
+    "cumulativeStagesOverlap": true,
+    "stages": {
+      "agent._forward": {"samples": 36, "meanMs": 1407.811, "maxMs": 1644.446},
+      "agent._infer": {"samples": 36, "meanMs": 1407.706, "maxMs": 1644.295},
+      "agent.predict_batch": {"samples": 36, "meanMs": 1408.177, "maxMs": 1644.879},
+      "agent.system_one": {"samples": 36, "meanMs": 1410.609, "maxMs": 1647.792},
+      "common.collate_items": {"samples": 36, "meanMs": 0.429, "maxMs": 1.07},
+      "common.forward": {"samples": 36, "meanMs": 1368.705, "maxMs": 1644.125},
+      "tokenizer.__call__": {"samples": 36, "meanMs": 1.319, "maxMs": 1.621},
+      "tokenizer._encode_plus": {"samples": 36, "meanMs": 1.163, "maxMs": 1.452}
+    },
+    "cpuCgroupDelta": {"usage_usec": 50954121, "nr_periods": 510, "nr_throttled": 47, "throttled_usec": 49899},
+    "memoryPeakBytes": 2007519232,
+    "oomEvents": 0,
+    "oomKills": 0,
+    "caveat": "cProfile instrumentation adds overhead; these are 36 serial synthetic requests, not a capacity or sustained-concurrency benchmark. Cgroup CPU covers the replay measurement window."
+  },
+  "restoration": {
+    "originalRuntimeRestored": true,
+    "runtimeReady": true,
+    "originalDeadlineMs": 750,
+    "docmeeAndCaddyProcessesUnchanged": true,
+    "applicationHealthHttp": 200,
+    "sandboxAndNullLoggingPreserved": true
+  },
+  "externalHealth": {
+    "checkedAt": "2026-10-23T01:12:16.8591301Z",
+    "url": "https://app.docmeedevelopment.dev/api/health",
+    "http": 200,
+    "ok": true,
+    "buildId": "git-139b000e9947"
+  },
+  "conclusion": {
+    "bottleneck": "Model forward dominates the measured native path; tokenization and collation do not explain the observed latency.",
+    "accuracyImprovementDemonstrated": false,
+    "timingAuditExecutionComplete": true,
+    "optimizationComplete": false,
+    "ownerAccepted": false,
+    "remainingGates": ["CPU inference candidate benchmark within existing limits", "fresh frozen accuracy and score-calibration evaluation", "production deadline", "sustained concurrency and memory", "fallback", "process reload"]
+  }
+}

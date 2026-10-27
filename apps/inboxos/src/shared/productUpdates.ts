@@ -33,6 +33,7 @@ export const PRODUCT_UPDATES: ProductUpdate[] = [
       es: 'Consulta el estado del servicio LAYA, la disponibilidad del modelo y la habilitación de la clínica seleccionada en Admin Studio → Configuración de IA.',
     },
     highlights: [
+      { en: 'The diagnostics panel starts collapsed and remembers your choice in this browser. Open it to load service status and observation summaries.', es: 'El panel de diagnóstico comienza contraído y recuerda tu elección en este navegador. Ábrelo para cargar el estado del servicio y los resúmenes de observaciones.' },
       { en: 'Run a fixed synthetic test in English or Spanish and review the result and response time without contacting patients or changing workflow settings.', es: 'Ejecuta una prueba sintética fija en inglés o español y revisa el resultado y el tiempo de respuesta sin contactar pacientes ni cambiar la configuración del flujo.' },
       { en: 'A matching test result is not clinical qualification. This diagnostics release does not enable clinic routing; patient-facing decisions remain blocked.', es: 'Un resultado coincidente no equivale a validación clínica. Esta versión de diagnóstico no habilita el enrutamiento clínico; las decisiones dirigidas a pacientes siguen bloqueadas.' },
     ],

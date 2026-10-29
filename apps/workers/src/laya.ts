@@ -1,4 +1,4 @@
-import { createServerLayaAdapter, parseLayaQualification } from '@docmee/agents'
+import { createServerLayaAdapter, parseLayaQualification, parseLayaTimeoutMs } from '@docmee/agents'
 import { createLayaControlsRepository, createServiceDbClient, type Sql } from '@docmee/db'
 
 let initialized = false
@@ -21,6 +21,7 @@ export function getLayaAdapter(): ReturnType<typeof createServerLayaAdapter> {
       // Server-owned record. Unset/malformed = unconfigured (every response rejected);
       // reviewed:false = watch-only; only a reviewed record with thresholds can apply.
       qualification: parseLayaQualification(process.env['DOCMEE_LAYA_QUALIFICATION']),
+      timeoutMs: parseLayaTimeoutMs(process.env['DOCMEE_LAYA_TIMEOUT_MS']),
     })
     initialized = true
   }

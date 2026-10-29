@@ -18,6 +18,10 @@ MAX_HEADER_BYTES = 8192
 MAX_LINE_BYTES = 2048
 MAX_BODY_BYTES = 32768
 STARTUP_TIMEOUT_SECONDS = 60
+# Installed-service caller deadline. The ARM64 host (CPUQuota=100%, one torch thread)
+# measured ~1.4 s median / 1.65 s max per decision on 2026-10-23, so 0.75 s rejected
+# every request. Still within the class bound of <=5 s; tests keep their own values.
+PRODUCTION_INFERENCE_TIMEOUT_SECONDS = 2.0
 ERROR = b'{"error":"unavailable"}'
 REASONS = {200: "OK", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed",
            408: "Request Timeout", 413: "Content Too Large", 415: "Unsupported Media Type",
@@ -378,7 +382,8 @@ def main():
             except Exception:
                 print("backend unavailable", file=sys.stderr)
                 return 1
-        with RuntimeServer((args.host, args.port), backend, listener=listener) as server:
+        with RuntimeServer((args.host, args.port), backend, listener=listener,
+                           inference_timeout=PRODUCTION_INFERENCE_TIMEOUT_SECONDS) as server:
             if listener is not None:
                 signal.setitimer(signal.ITIMER_REAL, 0)
             try:

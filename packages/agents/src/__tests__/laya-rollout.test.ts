@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createLayaAdapter, type LayaControls, type LayaRequest } from '../laya/adapter.js'
 import { isObservableTypedReply, layaLanguageOf, menuBranchCandidates, redactPatientText } from '../laya/observations.js'
 import { layaQualificationStatus, parseLayaQualification } from '../laya/qualification.js'
+import { parseLayaTimeoutMs } from '../laya/server.js'
 
 const watchOnly = { reviewed: false, modelVersion: 'laya-multilingual-e4e9ddf21a7b', calibrationVersion: 'upstream-unqualified-v1', thresholds: {} }
 
@@ -90,5 +91,15 @@ describe('LAYA observation helpers', () => {
     expect(menuBranchCandidates([])).toBeNull()
     expect(menuBranchCandidates(Array.from({ length: 8 }, (_, i) => ({ optionId: `o${i}`, title: `Option ${i}` })))).toBeNull()
     expect(menuBranchCandidates([{ optionId: 'a', title: 'A' }, { optionId: 'a', title: 'B' }])).toBeNull()
+  })
+})
+
+describe('LAYA caller deadline setting', () => {
+  it('accepts whole milliseconds from 100 to 5000', () => {
+    expect(parseLayaTimeoutMs('2500')).toBe(2500)
+    expect(parseLayaTimeoutMs(' 750 ')).toBe(750)
+  })
+  it.each([undefined, '', '99', '5001', '2.5', '2500ms', '-1', '25000'])('ignores %s', raw => {
+    expect(parseLayaTimeoutMs(raw)).toBeUndefined()
   })
 })

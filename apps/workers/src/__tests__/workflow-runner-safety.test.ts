@@ -584,6 +584,35 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(results).toEqual(['default', 'other_time'])
   })
 
+  it('preselects from the opening message once per fresh run, never a booking-committing option, never on resume', async () => {
+    const menu = { id: 'confirm_menu', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu',
+      config: { message: 'Confirm?', options: [{ optionId: 'confirm', title: 'Confirm appointment' }, { optionId: 'other_time', title: 'Choose another time' }] } }
+    h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published',
+      nodes: [{ id: 'trigger', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 }, menu,
+        { id: 'create_booking', kind: 'action', type: 'action.create_booking', config: {}, x: 0, y: 0 },
+        { id: 'date_menu', kind: 'action', type: 'action.offer_slot_menu', config: {}, x: 0, y: 0 }],
+      edges: [{ id: 'e0', source: 'trigger', target: 'confirm_menu' },
+        { id: 'e1', source: 'confirm_menu', sourceHandle: 'confirm', target: 'create_booking' },
+        { id: 'e2', source: 'confirm_menu', sourceHandle: 'other_time', target: 'date_menu' }] })
+    const results: unknown[] = []
+    h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext, exec: WorkflowExecutors) => {
+      const c = { ...ctx, conversationId: 'conversation-1', message: 'otra hora por favor' }
+      results.push(await exec.preselectMenuOption?.(menu, c), await exec.preselectMenuOption?.(menu, c))
+      return [{ status: 'completed' }]
+    })
+    h.liveMenuChoice.mockResolvedValueOnce('other_time')
+    await processWorkflowRunJob(job)
+    expect(h.liveMenuChoice).toHaveBeenCalledTimes(1)
+    expect(h.liveMenuChoice.mock.calls[0]?.[3]).toBe('menu_trigger')
+    h.liveMenuChoice.mockResolvedValueOnce('confirm')
+    await processWorkflowRunJob(job)
+    const resumed = { ...(job as { id: string; data: Record<string, unknown> }), data: { ...(job as { data: Record<string, unknown> }).data, startNodeId: 'confirm_menu' } }
+    h.findRun.mockResolvedValue({ id: 'run-1' })
+    await processWorkflowRunJob(resumed as never)
+    expect(results).toEqual(['other_time', null, null, null, null, null])
+    expect(h.liveMenuChoice).toHaveBeenCalledTimes(2) // the resumed run never asked LAYA
+  })
+
   it.each(['interactive', 'slots'])('records native versus fallback delivery for the %s menu', async (kind: string) => {
     h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext, exec: MenuExecutors) => {
       const menuCtx = { ...ctx, conversationId: 'conversation-1', available_slots: [{ start: '2027-09-15T09:00:00', end: '2027-09-15T09:30:00' }] }

@@ -1621,6 +1621,18 @@ function buildExecutors(
       return true
     },
 
+    // The message that started a fresh run may already clearly pick an option on the first
+    // static menu ("quiero una cita" -> Book). Live + reviewed LAYA only; booking-committing
+    // options are never preselected. Otherwise the menu is shown as usual.
+    async preselectMenuOption(node, ctx) {
+      if (triggerTextObserved) return null
+      triggerTextObserved = true
+      const options = parseMenuOptions(node.config)
+      let chosen: string | null = null
+      try { chosen = await liveMenuChoice(layaScope(node.id, ctx), contextString(ctx, 'message'), options, 'menu_trigger') } catch { chosen = null }
+      return chosen && options.some((o) => o.optionId === chosen) && !layaBlocked.get(node.id)?.has(chosen) ? chosen : null
+    },
+
     async matchMenuReply(node, ctx, page = 0) {
       const replyId = typeof ctx['interactiveReplyId'] === 'string' ? ctx['interactiveReplyId'] : undefined
       const text = contextString(ctx, 'message')

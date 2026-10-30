@@ -104,11 +104,13 @@ export function labelMenuTap(scope: MenuScope, choiceId: string): void {
  * For an unmatched typed reply: returns the option LAYA is allowed to route to, or null.
  * Only `live` mode is awaited (adds up to the adapter deadline); shadow/advisory never block.
  */
-export async function liveMenuChoice(scope: MenuScope, text: string, options: MenuOption[]): Promise<string | null> {
-  try { return await liveMenuChoiceUnsafe(scope, text, options) } catch { return null }
+export async function liveMenuChoice(scope: MenuScope, text: string, options: MenuOption[],
+  source: 'menu_trigger' | 'menu_unmatched' = 'menu_unmatched'): Promise<string | null> {
+  try { return await liveMenuChoiceUnsafe(scope, text, options, source) } catch { return null }
 }
 
-async function liveMenuChoiceUnsafe(scope: MenuScope, text: string, options: MenuOption[]): Promise<string | null> {
+async function liveMenuChoiceUnsafe(scope: MenuScope, text: string, options: MenuOption[],
+  source: 'menu_trigger' | 'menu_unmatched'): Promise<string | null> {
   if (!isObservableTypedReply(text)) return null
   const adapter = getLayaAdapter()
   const redacted = redactPatientText(text)
@@ -118,12 +120,12 @@ async function liveMenuChoiceUnsafe(scope: MenuScope, text: string, options: Men
     try { mode = await adapter.taskMode(scope.clinicId, 'workflow_branch') } catch { mode = null }
   }
   if (mode !== 'live' || !candidates || !redacted) {
-    observeMenuText(scope, text, 'menu_unmatched', options)
+    observeMenuText(scope, text, source, options)
     return null
   }
   let scored: { result: LayaAssessment; latencyMs: number } | null = null
   try { scored = await scoreBranch(scope, redacted, candidates) } catch { scored = null }
-  runLayaBackground(() => record(scope, 'menu_unmatched', redacted, candidates, scored))
+  runLayaBackground(() => record(scope, source, redacted, candidates, scored))
   const result = scored?.result
   if (!result || !result.apply || result.outcome !== 'suggestion' || !result.choiceId) return null
   return candidates.some(candidate => candidate.id === result.choiceId) ? result.choiceId : null

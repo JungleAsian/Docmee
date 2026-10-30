@@ -206,6 +206,9 @@ export interface WorkflowExecutors {
   /** On resume, resolve the patient's reply to one of the menu's output handles
    *  (an optionId, or a reserved `restart`/`livechat`/`default`). */
   matchMenuReply?: (node: WorkflowNode, ctx: WorkflowContext, page?: number) => Promise<string | MenuReplyOutcome> | string | MenuReplyOutcome
+  /** First arrival at a static menu: an option id to take without showing the menu (e.g. the
+   *  message that started the run already clearly picks one), or null to show it as usual. */
+  preselectMenuOption?: (node: WorkflowNode, ctx: WorkflowContext) => Promise<string | null> | string | null
   /** Send page `page` (0-based) of the slot menu and pause. Same return
    *  contract as `sendInteractiveMenu`: true when paused, false when it
    *  could not send (including "nothing to show on this page"). */
@@ -375,6 +378,17 @@ export async function runWorkflow(
           }
           delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
           break
+        }
+        if (String(node.config?.['optionSource'] ?? 'static') === 'static' && exec.preselectMenuOption) {
+          const options = parseMenuOptions(node.config)
+          const preselected = await exec.preselectMenuOption(node, ctx)
+          const selected = preselected ? options.find((o) => o.optionId === preselected) : undefined
+          if (selected) {
+            const field = String(node.config?.['field'] ?? '')
+            if (field) ctx[field] = selected.title
+            handle = selected.optionId
+            break
+          }
         }
         const paused = exec.sendInteractiveMenu ? await exec.sendInteractiveMenu(node, ctx, 0) : false
         if (paused) {

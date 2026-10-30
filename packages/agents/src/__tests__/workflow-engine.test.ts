@@ -468,6 +468,23 @@ describe('runWorkflow — interactive_menu node', () => {
     expect(exec.sendMessage).not.toHaveBeenCalled()
   })
 
+  it('takes a preselected option on first arrival without showing the menu', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ sendInteractiveMenu: send, preselectMenuOption: vi.fn(async () => 'book_appt') })
+    await runWorkflow(wf, { message: 'quiero una cita' }, exec)
+    expect(send).not.toHaveBeenCalled()
+    expect(exec.sendMessage).toHaveBeenCalledWith('Booking...', expect.any(Object))
+  })
+
+  it.each([null, 'not_an_option'])('shows the menu as usual when preselection returns %s', async (picked) => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ sendInteractiveMenu: send, preselectMenuOption: vi.fn(async () => picked) })
+    const trace = await runWorkflow(wf, { message: 'hola' }, exec)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(trace.at(-1)).toEqual({ nodeId: 'menu', type: 'action.interactive_menu', status: 'paused' })
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
   it('resumes and routes out of the matched option handle', async () => {
     const exec = makeExec({ matchMenuReply: vi.fn(async () => 'book_appt') })
     const ctx = { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'Book an appointment' }

@@ -637,6 +637,46 @@ body {
     box-shadow: 0 12px 24px rgba(36, 126, 163, 0.24);
   }
 
+  /* Clicked link while the route loads: instant feedback so a slow round-trip
+     never reads as a dead click. */
+  .crm-nav-item-pending,
+  .crm-sidebar .crm-nav-item-pending {
+    color: #ffffff;
+    background: rgba(255, 255, 255, .16);
+    cursor: progress;
+    animation: crm-nav-pending-pulse 1s ease-in-out infinite;
+  }
+
+  @keyframes crm-nav-pending-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .62; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .crm-nav-item-pending,
+    .crm-sidebar .crm-nav-item-pending { animation: none; }
+  }
+
+  /* Larger touch targets on touch devices. */
+  @media (pointer: coarse) {
+    .crm-sidebar .crm-nav-item,
+    .crm-nav-group-toggle {
+      min-height: 44px;
+    }
+  }
+
+  /* Mobile drawer: full-height, scrollable, never wider than the screen. */
+  .crm-mobile-drawer-panel {
+    display: flex;
+    height: 100%;
+    max-width: min(300px, 86vw);
+  }
+
+  .crm-mobile-drawer-panel .crm-sidebar {
+    height: 100%;
+    max-width: 100%;
+  }
+
   .crm-sidebar-footer {
     display: flex;
     flex: 0 0 auto;
@@ -1424,7 +1464,9 @@ body {
   }
 
   @media (max-width: 1024px) {
-    .crm-sidebar {
+    /* Only the expanded rail widens on tablets; the collapsed icon rail must stay
+       80px (this rule used to override it, leaving a 260px empty rail). */
+    .crm-sidebar:not(.crm-sidebar-collapsed) {
       width: 260px;
     }
 

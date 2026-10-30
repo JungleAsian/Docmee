@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -161,22 +161,47 @@ export function InAppTutorial() {
   const active = steps[Math.min(step, steps.length - 1)]
   const Icon = active?.icon
 
+  const onLoginPage = pathname === '/login'
+
+  // Manual open (sidebar "Tutorial" button).
   useEffect(() => {
-    if (!storageKey || pathname === '/login') return
+    if (!storageKey || onLoginPage) return
     const openTour = () => {
       setStep(0)
       setOpen(true)
     }
     window.addEventListener(OPEN_EVENT, openTour)
-    try {
-      if (!localStorage.getItem(storageKey)) {
-        window.setTimeout(openTour, 700)
-      }
-    } catch {
-      window.setTimeout(openTour, 700)
-    }
     return () => window.removeEventListener(OPEN_EVENT, openTour)
-  }, [pathname, storageKey])
+  }, [storageKey, onLoginPage])
+
+  // First-run auto-open: at most once per session. It used to re-fire 700ms after
+  // every navigation until dismissed, dropping a full-screen overlay over the side
+  // rail right after the user clicked it.
+  const autoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (!storageKey || onLoginPage || autoOpenedRef.current) return
+    let seen = false
+    try {
+      seen = Boolean(localStorage.getItem(storageKey)) || Boolean(sessionStorage.getItem(storageKey))
+    } catch {
+      // Storage unavailable: still show it once for this mount.
+    }
+    if (seen) return
+    autoOpenedRef.current = true
+    try { sessionStorage.setItem(storageKey, '1') } catch { /* non-critical */ }
+    const timer = window.setTimeout(() => {
+      setStep(0)
+      setOpen(true)
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [storageKey, onLoginPage])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
 
   const close = (done = true) => {
     if (done && storageKey) {

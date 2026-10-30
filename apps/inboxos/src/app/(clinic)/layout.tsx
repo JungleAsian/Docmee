@@ -108,8 +108,20 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
     enabled: Boolean(clinicId),
     queryFn: () => api.get<{ clinic: { id: string; settings?: RoleAccessSettings | null } }>(`/clinics/${clinicId}`),
   })
-  const settings = clinicQuery.data?.clinic.settings ?? {}
+  // Stable reference: a fresh `{}` each render rebuilt the nav groups on every render.
+  const clinicSettings = clinicQuery.data?.clinic.settings
+  const settings = useMemo<RoleAccessSettings>(() => clinicSettings ?? {}, [clinicSettings])
   useHeartbeat()
+
+  // Mobile drawer: close on navigation and on Escape (taps inside the drawer —
+  // group toggles, language/theme — must not dismiss it).
+  useEffect(() => { setDrawerOpen(false) }, [pathname])
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [drawerOpen])
 
   // Req 2: nav links derive from the shared RBAC matrix (mirrors the API's
   // requireRole gating) so a role only ever sees surfaces it can actually use.
@@ -193,8 +205,8 @@ export default function ClinicLayout({ children }: { children: React.ReactNode }
             onClick={() => setDrawerOpen(false)}
             className="absolute inset-0 bg-black/40"
           />
-          <div className="relative z-10" onClick={() => setDrawerOpen(false)}>
-            <Sidebar groups={visibleGroups} title={t('nav.inbox')} />
+          <div className="crm-mobile-drawer-panel relative z-10" role="dialog" aria-modal="true" aria-label={t('nav.inbox')}>
+            <Sidebar groups={visibleGroups} title={t('nav.inbox')} onNavigate={() => setDrawerOpen(false)} />
           </div>
         </div>
       )}

@@ -44,6 +44,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useHeartbeat()
   const isSuperuser = user?.role === 'ia_studio_admin'
 
+  // Mobile drawer: close on navigation and on Escape (taps inside the drawer —
+  // group toggles, language/theme — must not dismiss it).
+  useEffect(() => { setDrawerOpen(false) }, [pathname])
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [drawerOpen])
+
   const hiddenItems = useMemo(() => new Set(preferences.hiddenSideRailItems), [preferences.hiddenSideRailItems])
   const { customizeOpen, setCustomizeOpen, updatesOpen, setUpdatesOpen } = useHeaderPanels()
   const customizeMenuRef = useRef<HTMLDivElement>(null)
@@ -203,8 +213,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             onClick={() => setDrawerOpen(false)}
             className="absolute inset-0 bg-black/40"
           />
-          <div className="relative z-10" onClick={() => setDrawerOpen(false)}>
-            <Sidebar groups={visibleGroups} title={t('studio.title')} />
+          <div className="crm-mobile-drawer-panel relative z-10" role="dialog" aria-modal="true" aria-label={t('studio.title')}>
+            <Sidebar groups={visibleGroups} title={t('studio.title')} onNavigate={() => setDrawerOpen(false)} />
           </div>
         </div>
       )}

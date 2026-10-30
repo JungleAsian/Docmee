@@ -52,6 +52,7 @@ export function Sidebar({
   title,
   collapsed = false,
   railToggle,
+  onNavigate,
 }: {
   links?: NavLink[]
   groups?: NavGroup[]
@@ -63,6 +64,8 @@ export function Sidebar({
     onToggle: () => void
     label: string
   }
+  /** Called when a nav link is activated (the mobile drawer closes itself here). */
+  onNavigate?: () => void
 }) {
   const pathname = usePathname()
   const { t, language } = useI18n()
@@ -71,6 +74,15 @@ export function Sidebar({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
     getDefaultExpandedGroups(navGroups, pathname),
   )
+  // Immediate click feedback: the clicked link shows a pending state until the
+  // route actually changes, so a slow server round-trip never looks like a dead click.
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  useEffect(() => { setPendingHref(null) }, [pathname])
+
+  // Re-sync expansion only when the group structure or the route changes — not on
+  // every parent render (parents rebuild the groups array often), which used to
+  // snap a just-collapsed active group back open.
+  const groupSignature = groups ? groups.map(getGroupKey).join('||') : ''
 
   useEffect(() => {
     if (!groups) return
@@ -89,7 +101,8 @@ export function Sidebar({
     } catch {
       setExpandedGroups(getDefaultExpandedGroups(groups, pathname))
     }
-  }, [groups, pathname])
+    // Keyed on groupSignature (not `groups`) so new-but-equal arrays don't reset user toggles.
+  }, [groupSignature, pathname])
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((current) => {
@@ -119,14 +132,22 @@ export function Sidebar({
         </span>
       )
     }
+    const pending = pendingHref === link.href && !active
     return (
       <Link
         key={link.href}
         href={link.href}
-        prefetch={false}
         title={labelTitle}
         aria-current={active ? 'page' : undefined}
-        className={`crm-nav-item ${active ? 'crm-nav-item-active' : ''}`}
+        aria-busy={pending || undefined}
+        data-pending={pending ? 'true' : undefined}
+        onClick={(event) => {
+          // Let modified clicks (new tab/window) behave natively.
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
+          if (!active) setPendingHref(link.href)
+          onNavigate?.()
+        }}
+        className={`crm-nav-item ${active ? 'crm-nav-item-active' : ''} ${pending ? 'crm-nav-item-pending' : ''}`}
       >
         {link.icon ? <span className="crm-nav-item-icon shrink-0 text-[20px] opacity-90">{link.icon as never}</span> : null}
         {!collapsed && <span className="crm-nav-item-label">{link.label}</span>}

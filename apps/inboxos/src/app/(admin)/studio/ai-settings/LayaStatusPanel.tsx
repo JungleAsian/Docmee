@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary } from '@docmee/shared'
+import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary, LayaTrainingExport } from '@docmee/shared'
 import { api, ApiError } from '@/shared/api/client'
 import { useAuthStore } from '@/shared/store/auth'
 import { useI18n } from '@/shared/hooks/useI18n'
@@ -88,6 +88,7 @@ function Diagnostics({ clinicId, userId, defaultOpen }: { clinicId: string; user
       </div>
       <p className="text-sm"><span className="font-medium">{t('laya.qualification')}: </span>{t(current?.qualification === 'reviewed' ? 'laya.reviewed' : 'laya.unqualified')}</p>
       <Measurement summary={!observations.isError && isSummary(observations.data) ? observations.data : undefined} failed={observations.isError} loading={observations.isPending} />
+      <SimulatorTraining clinicId={clinicId} summary={!observations.isError && isSummary(observations.data) ? observations.data : undefined} />
       <div className="space-y-3 border-t pt-3">
         <p className="text-sm">{t('laya.syntheticOnly')}</p>
         <div className="flex flex-wrap gap-2">
@@ -111,6 +112,34 @@ function Diagnostics({ clinicId, userId, defaultOpen }: { clinicId: string; user
       </div>
       )}
     </section>
+  )
+}
+
+function SimulatorTraining({ clinicId, summary }: { clinicId: string; summary?: LayaObservationSummary }) {
+  const { t } = useI18n()
+  const headingId = useId()
+  const download = useMutation({
+    mutationFn: () => api.get<LayaTrainingExport>(`/clinics/${clinicId}/laya/training-examples`),
+    retry: false,
+    onSuccess: (data) => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `laya-simulator-training-${clinicId.slice(0, 8)}-${data.exportedAt.slice(0, 10)}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+    },
+  })
+  const counts = summary?.simulation
+  return (
+    <div className="space-y-2 border-t pt-3" aria-labelledby={headingId}>
+      <h3 id={headingId} className="text-sm font-semibold">{t('laya.sim.title')}</h3>
+      {counts && <p className="text-sm">{t('laya.sim.counts', counts)}</p>}
+      <button type="button" onClick={() => download.mutate()} disabled={download.isPending || !counts?.labeled}
+        className="rounded border px-3 py-2 text-sm font-medium disabled:opacity-50">{t('laya.sim.download')}</button>
+      {download.isError && <p role="alert" className="text-sm">{t('laya.sim.downloadError')}</p>}
+      <p className="text-xs">{t('laya.sim.note')}</p>
+    </div>
   )
 }
 

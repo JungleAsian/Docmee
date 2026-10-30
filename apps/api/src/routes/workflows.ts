@@ -15,6 +15,7 @@ import type { WorkflowNode, WorkflowEdge, WorkflowDocumentV2 } from '@docmee/db'
 import { checkWorkflow, materializeWorkflowDocument, simulateWorkflow, SIMULATION_REPLAY_LIMITS, validateWorkflowDefinition, validateWorkflowDefinitionDetailed } from '@docmee/agents'
 import { readAiAssistant, resolveChat } from '../lib/ai-assistant.js'
 import { withDb } from '../lib/db.js'
+import { layaSimulationHooksFor } from '../lib/laya-simulation.js'
 import { workflowLintContext } from '../lib/setup-check.js'
 import { validate } from '../lib/validate.js'
 import { resolveClinicScope } from '../lib/scope.js'
@@ -84,8 +85,8 @@ const simulationReplaySchema = z.object({
   })).max(SIMULATION_REPLAY_LIMITS.steps),
   effects: z.array(z.object({
     nodeId: z.string().min(1),
-    kind: z.enum(['message', 'template', 'notification', 'tag', 'draft', 'approval', 'provider', 'handoff']),
-    mocked: z.literal(true),
+    kind: z.enum(['message', 'template', 'notification', 'tag', 'draft', 'approval', 'provider', 'handoff', 'laya']),
+    mocked: z.boolean(),
     summary: z.string().max(SIMULATION_REPLAY_LIMITS.summaryCharacters),
   })).max(SIMULATION_REPLAY_LIMITS.effects),
   virtualNowMs: z.number().nonnegative(),
@@ -385,7 +386,10 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       if (!workflow) return reply.code(404).send({ error: 'Workflow not found' })
       const graph = parsed.data.graph ?? { nodes: workflow.nodes, edges: workflow.edges }
       if (!validateGraph(graph.nodes, graph.edges, true, reply)) return
-      const outcome = await simulateWorkflow(graph, parsed.data.input)
+      // Typed menu replies go through the real LAYA model with the same gate as WhatsApp, and what
+      // the tester confirms or corrects is saved as a training example (LAYA clinics only).
+      const hooks = await layaSimulationHooksFor({ clinicId, workflowId: workflow.id, revisionId: workflow.activeRevisionId })
+      const outcome = await simulateWorkflow(graph, parsed.data.input, hooks)
       return { simulation: { ...outcome, simulated: true } }
     },
   )

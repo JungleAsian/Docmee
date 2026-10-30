@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { layaQualificationStatus, parseLayaQualification, resolveLayaControls } from '@docmee/agents'
-import { createLayaControlsRepository, createLayaObservationsRepository } from '@docmee/db'
-import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary } from '@docmee/shared'
+import { layaQualificationStatus, parseLayaQualification, parseMenuOptions, resolveLayaControls } from '@docmee/agents'
+import { createLayaControlsRepository, createLayaObservationsRepository, createWorkflowsRepository } from '@docmee/db'
+import type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary, LayaTrainingExport } from '@docmee/shared'
 import { withDb } from '../lib/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
@@ -107,9 +107,10 @@ const layaDiagnosticsRoute: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid clinic' })
     const { clinicId } = parsed.data
     try {
-      const { capture, summary } = await withDb(async sql => {
+      const { capture, summary, simulation } = await withDb(async sql => {
         const repo = createLayaObservationsRepository(sql)
-        return { capture: await repo.isCaptureEnabled(clinicId), summary: await repo.summary(clinicId) }
+        return { capture: await repo.isCaptureEnabled(clinicId), summary: await repo.summary(clinicId),
+          simulation: await repo.simulationCounts(clinicId) }
       })
       const tasks = ['workflow_branch', 'administrative_intent'] as const
       const languages = ['en', 'es', 'mixed', 'unknown'] as const
@@ -122,9 +123,49 @@ const layaDiagnosticsRoute: FastifyPluginAsync = async app => {
             answered: Number(row.answered), comparable: Number(row.comparable), agreed: Number(row.agreed) }] : []
         }),
         reasons: summary.reasons.map(row => ({ reason: String(row.reason).slice(0, 32), count: Number(row.count) })),
+        simulation,
       } satisfies LayaObservationSummary
     } catch {
       return reply.code(503).send({ error: 'Observations unavailable' })
+    }
+  })
+
+  // Labelled examples from the Automation Center simulator, for the next fine-tune.
+  // Only staff-typed simulator rows; patient text never leaves through this route.
+  app.get('/clinics/:clinicId/laya/training-examples', { preHandler: requireRole('ia_studio_admin') }, async (request, reply) => {
+    reply.header('cache-control', 'no-store')
+    const parsed = paramsSchema.safeParse(request.params)
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid clinic' })
+    const { clinicId } = parsed.data
+    try {
+      const { examples, titles } = await withDb(async sql => {
+        const examples = await createLayaObservationsRepository(sql).simulationTrainingExamples(clinicId)
+        const workflows = createWorkflowsRepository(sql)
+        const titles = new Map<string, Map<string, string>>()
+        for (const workflowId of new Set(examples.map(example => example.workflowId))) {
+          const workflow = await workflows.findById(clinicId, workflowId)
+          for (const node of workflow?.nodes ?? []) {
+            if (node.type !== 'action.interactive_menu') continue
+            titles.set(`${workflowId}:${node.id}`, new Map(parseMenuOptions(node.config).map(option => [option.optionId, option.title])))
+          }
+        }
+        return { examples, titles }
+      })
+      return {
+        clinicId, exportedAt: new Date().toISOString(), source: 'simulation', count: examples.length,
+        examples: examples.map(example => {
+          const menu = titles.get(`${example.workflowId}:${example.nodeId}`)
+          return {
+            id: example.id, workflowId: example.workflowId, nodeId: example.nodeId, language: example.language,
+            text: example.text, options: example.candidateIds.map(id => ({ id, title: menu?.get(id) ?? null })),
+            layaChoiceId: example.layaChoiceId, layaRawScore: example.layaRawScore,
+            labelChoiceId: example.labelChoiceId, labelTitle: menu?.get(example.labelChoiceId) ?? null,
+            labelSource: example.labelSource, createdAt: example.createdAt,
+          }
+        }),
+      } satisfies LayaTrainingExport
+    } catch {
+      return reply.code(503).send({ error: 'Training examples unavailable' })
     }
   })
 

@@ -64,7 +64,12 @@ export {
   type WorkflowSimulationWait,
   type WorkflowSimulationError,
   type SimulationProviderOutcome,
+  type WorkflowSimulationHooks,
+  type WorkflowSimulationLayaStats,
+  type LayaSimulationPick,
+  LAYA_SIMULATION_EXAMPLE_KEY,
 } from './workflow-simulator.js'
 export { validCapturedReply } from './capture-validation.js'
+export { decideLayaMenuReply, decideLayaPreselect, readPendingReadback, LAYA_READBACK_CONTEXT_KEY, type LayaReadback, type LayaMenuChooser, type LayaMenuDecision } from './laya-menu.js'
 export { resolveAiAgentSettings } from './ai-agent-settings.js'
 export { buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt, withAiAgentReplyTimeout } from './ai-agent-answer.js'

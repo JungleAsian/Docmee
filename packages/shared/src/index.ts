@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 
 export type ID = string
-export type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary } from './laya-diagnostics.js'
+export type { LayaDiagnosticStatus, LayaDiagnosticTest, LayaObservationSummary, LayaTrainingExport } from './laya-diagnostics.js'
 export { scheduledMessagesEnabled, scheduledDeliveryTimeReason, scheduledTextWindowOpen, isSafeScheduledTemplate } from './scheduled-messages.js'
 export type { ScheduledMessageStatus } from './scheduled-messages.js'
 

@@ -89,13 +89,15 @@ export function observeMenuText(scope: MenuScope, text: string, source: 'menu_tr
   })
 }
 
-/** A real tap labels the open typed observations for this same menu. Background only. */
-export function labelMenuTap(scope: MenuScope, choiceId: string): void {
+/** A real tap (or a clear YES to LAYA's read-back) labels the open typed observations for this
+ * same menu. Background only. */
+export function labelMenuTap(scope: MenuScope, choiceId: string, labelSource: 'next_tap' | 'readback_yes' = 'next_tap'): void {
   safely(() => {
     if (!scope.conversationId || !choiceId) return
     const conversationId = scope.conversationId
     runLayaBackground(() => observations().labelOpenForMenu({
       clinicId: scope.clinicId, conversationId, workflowId: scope.workflowId, nodeId: scope.nodeId, choiceId,
+      ...(labelSource === 'readback_yes' ? { labelSource } : {}),
     }))
   })
 }

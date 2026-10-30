@@ -17,7 +17,6 @@ import {
   WORKFLOW_SLOT_MENU_CONTEXT_KEY,
   SLOT_MENU_MORE_OPTION_ID,
   parseMenuOptions,
-  resolveMenuHandle,
   parseAiAgentScenarios,
   resolveAiAgentSettings,
   buildAiAgentSystemPrompt, parseAiAnswerConfidence, parseAiAgentCompletion, catchAllReplyScenario, aiAgentHandoffReason, buildAiAgentFallbackPrompt,
@@ -56,13 +55,9 @@ import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { getLayaAdapter } from './laya.js'
 import { labelMenuTap, liveMenuChoice, observeAiAgentText, observeMenuText, type MenuScope } from './laya-observations.js'
 import {
-  layaCommittingMenuOptions, layaLanguageOf, layaReadbackText, readbackConfirmed,
-  MENU_HOLD_OUTCOME, MENU_RESEND_OUTCOME,
+  decideLayaMenuReply, decideLayaPreselect, layaCommittingMenuOptions, readPendingReadback,
+  LAYA_READBACK_CONTEXT_KEY, MENU_HOLD_OUTCOME,
 } from '@docmee/agents'
-
-/** Context key for a LAYA pick waiting on the patient's YES/NO read-back check. */
-const LAYA_READBACK_KEY = 'layaReadback'
-type LayaReadback = { nodeId: string; optionId: string; title: string }
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
@@ -1645,16 +1640,17 @@ function buildExecutors(
     async preselectMenuOption(node, ctx) {
       if (triggerTextObserved) return null
       triggerTextObserved = true
-      const options = parseMenuOptions(node.config)
-      const text = contextString(ctx, 'message')
-      let chosen: string | null = null
-      try { chosen = await liveMenuChoice(layaScope(node.id, ctx), text, options, 'menu_trigger') } catch { chosen = null }
-      const option = chosen ? options.find((o) => o.optionId === chosen) : undefined
-      // A booking-committing first menu is shown normally rather than preselected.
-      if (!option || layaCommitting.get(node.id)?.has(option.optionId)) return null
+      const scope = layaScope(node.id, ctx)
+      // Same decision as the Automation Center simulator (packages/agents workflows/laya-menu.ts).
+      const picked = await decideLayaPreselect({
+        options: parseMenuOptions(node.config), text: contextString(ctx, 'message'),
+        committing: layaCommitting.get(node.id),
+        choose: (typed, options) => liveMenuChoice(scope, typed, options, 'menu_trigger'),
+      })
+      if (!picked) return null
       // Correction mechanism: say what was understood; "0" returns to the main menu.
-      await sendWorkflowMessage(layaReadbackText('routed', layaLanguageOf(text), option.title), ctx)
-      return option.optionId
+      await sendWorkflowMessage(picked.message, ctx)
+      return picked.optionId
     },
 
     async matchMenuReply(node, ctx, page = 0) {
@@ -1674,48 +1670,31 @@ function buildExecutors(
         return result
       }
       const options = parseMenuOptions(node.config)
-      // Read-back check pending from a previous LAYA pick on this menu.
-      const pending = ctx[LAYA_READBACK_KEY] as LayaReadback | undefined
-      if (pending) {
-        delete ctx[LAYA_READBACK_KEY]
-        if (pending.nodeId === node.id) {
-          const trimmed = text.trim()
-          if (trimmed === '0') return 'restart'
-          if (trimmed === '1') return 'livechat'
-          if (replyId && options.some((o) => o.optionId === replyId)) {
-            labelMenuTap(scope, replyId)
-            return replyId // the patient tapped an option instead: that tap wins
-          }
-          // Only a clear YES continues; NO or anything else shows the menu again.
-          return readbackConfirmed(text) ? pending.optionId : MENU_RESEND_OUTCOME
-        }
+      // A read-back check from an earlier LAYA pick is answered once, then cleared.
+      const pending = readPendingReadback(ctx[LAYA_READBACK_CONTEXT_KEY])
+      delete ctx[LAYA_READBACK_CONTEXT_KEY]
+      // Same decision as the Automation Center simulator (packages/agents workflows/laya-menu.ts).
+      // liveMenuChoice returns an option only for a live clinic with a reviewed qualification;
+      // otherwise LAYA just watches in the background and the menu's own default route runs.
+      const decision = await decideLayaMenuReply({
+        nodeId: node.id, options, replyId, text, pending, committing: layaCommitting.get(node.id),
+        choose: (typed, menuOptions) => liveMenuChoice(scope, typed, menuOptions),
+      })
+      if (decision.pickedOptionId) labelMenuTap(scope, decision.pickedOptionId)
+      if (decision.confirmedOptionId) labelMenuTap(scope, decision.confirmedOptionId, 'readback_yes')
+      if (decision.handle === MENU_HOLD_OUTCOME && decision.pending && decision.message) {
+        // Booking create/reschedule/cancel (owner decision 2026-10-30): echo what was understood
+        // and wait for YES/NO before anything changes on the calendar.
+        ctx[LAYA_READBACK_CONTEXT_KEY] = decision.pending
+        await sendWorkflowMessage(decision.message, ctx)
+        const menuState = (ctx[WORKFLOW_MENU_CONTEXT_KEY] as Record<string, unknown> | undefined) ?? { nodeId: node.id, page, status: 'pending' }
+        if (await pauseAtMenu(node, ctx, { ...menuState, nodeId: node.id, status: 'pending' }, decision.message)) return MENU_HOLD_OUTCOME
+        delete ctx[LAYA_READBACK_CONTEXT_KEY]
+        return 'default'
       }
-      const handle = resolveMenuHandle(options, replyId, text)
-      if (handle === 'default') {
-        // Returns an option only for a live clinic with a reviewed qualification; otherwise
-        // LAYA just watches in the background and the menu's own default route runs.
-        let chosen: string | null = null
-        try { chosen = await liveMenuChoice(scope, text, options) } catch { chosen = null }
-        const option = chosen ? options.find((o) => o.optionId === chosen) : undefined
-        if (!option) return handle
-        const language = layaLanguageOf(text)
-        if (layaCommitting.get(node.id)?.has(option.optionId)) {
-          // Booking create/reschedule/cancel (owner decision 2026-10-30): echo what was understood
-          // and wait for YES/NO before anything changes on the calendar.
-          const prompt = layaReadbackText('confirm', language, option.title, text)
-          ctx[LAYA_READBACK_KEY] = { nodeId: node.id, optionId: option.optionId, title: option.title } satisfies LayaReadback
-          await sendWorkflowMessage(prompt, ctx)
-          const menuState = (ctx[WORKFLOW_MENU_CONTEXT_KEY] as Record<string, unknown> | undefined) ?? { nodeId: node.id, page, status: 'pending' }
-          if (await pauseAtMenu(node, ctx, { ...menuState, nodeId: node.id, status: 'pending' }, prompt)) return MENU_HOLD_OUTCOME
-          delete ctx[LAYA_READBACK_KEY]
-          return handle
-        }
-        // Correction mechanism: say what was understood; "0" returns to the main menu.
-        await sendWorkflowMessage(layaReadbackText('routed', language, option.title), ctx)
-        return option.optionId
-      }
-      if (handle !== 'restart' && handle !== 'livechat') labelMenuTap(scope, handle)
-      return handle
+      // Correction mechanism: say what was understood; "0" returns to the main menu.
+      if (decision.message) await sendWorkflowMessage(decision.message, ctx)
+      return decision.handle
     },
 
     async sendSlotMenu(node, ctx, page) {

@@ -159,6 +159,9 @@ export type {
   LayaObservationAssessment,
   LayaObservationSummaryRow,
   LayaObservationReasonRow,
+  LayaLabelSource,
+  LayaTrainingExample,
+  LayaSimulationCounts,
 } from './repositories/index.js'
 
 export type {

@@ -5,6 +5,10 @@ const isUuid = (value: unknown): value is string => typeof value === 'string' &&
 
 export const LAYA_OBSERVATIONS_FLAG = 'docmee_laya_observations'
 
+function retentionDays(value: number | undefined): number {
+  return Number.isInteger(value) && value! >= 1 && value! <= 365 ? value! : 90
+}
+
 export interface NewLayaObservation {
   clinicId: string
   conversationId?: string | null
@@ -12,12 +16,33 @@ export interface NewLayaObservation {
   workflowRevisionId?: string | null
   nodeId: string
   task: 'workflow_branch' | 'administrative_intent'
-  source: 'menu_trigger' | 'menu_unmatched' | 'ai_agent'
+  /** 'simulation' = typed by clinic staff in the Automation Center simulator, not by a patient. */
+  source: 'menu_trigger' | 'menu_unmatched' | 'ai_agent' | 'simulation'
   language: 'en' | 'es' | 'mixed' | 'unknown'
   /** Must already be redacted by the caller. */
   redactedText: string
   candidateIds: string[]
+  /** Defaults to 90 days. Simulator rows hold no patient text and are kept longer for training. */
+  retentionDays?: number
 }
+
+export type LayaLabelSource = 'next_tap' | 'ai_scenario' | 'readback_yes'
+
+export interface LayaTrainingExample {
+  id: string
+  workflowId: string
+  nodeId: string
+  language: string
+  text: string
+  candidateIds: string[]
+  layaChoiceId: string | null
+  layaRawScore: number | null
+  labelChoiceId: string
+  labelSource: string
+  createdAt: string
+}
+
+export interface LayaSimulationCounts { total: number; labeled: number; confirmed: number; corrected: number }
 
 export interface LayaObservationAssessment {
   mode: string
@@ -57,11 +82,12 @@ export function createLayaObservationsRepository(sql: Sql) {
       if (!isUuid(input.clinicId) || !isUuid(input.workflowId) || !input.redactedText.trim()) return null
       const rows = await sql<{ id: string }[]>`
         INSERT INTO laya_observations (clinic_id, conversation_id, workflow_id, workflow_revision_id, node_id,
-          task, source, language, redacted_text, candidate_ids)
+          task, source, language, redacted_text, candidate_ids, expires_at)
         VALUES (${input.clinicId}, ${isUuid(input.conversationId) ? input.conversationId : null}, ${input.workflowId},
           ${isUuid(input.workflowRevisionId) ? input.workflowRevisionId : null}, ${input.nodeId.slice(0, 128)},
           ${input.task}, ${input.source}, ${input.language}, ${input.redactedText.slice(0, 1600)},
-          ${sql.array(input.candidateIds.slice(0, 10).map(id => id.slice(0, 128)))})
+          ${sql.array(input.candidateIds.slice(0, 10).map(id => id.slice(0, 128)))},
+          NOW() + (${retentionDays(input.retentionDays)} * INTERVAL '1 day'))
         RETURNING id
       `
       return rows[0]?.id ?? null
@@ -81,7 +107,7 @@ export function createLayaObservationsRepository(sql: Sql) {
     },
 
     /** Labels a single observation directly (AI-agent rows carry the agent's own scenario as baseline). */
-    async labelById(clinicId: string, id: string, choiceId: string, source: 'next_tap' | 'ai_scenario'): Promise<void> {
+    async labelById(clinicId: string, id: string, choiceId: string, source: LayaLabelSource): Promise<void> {
       if (!isUuid(clinicId) || !isUuid(id) || !choiceId) return
       await sql`
         UPDATE laya_observations SET label_choice_id = ${choiceId.slice(0, 128)}, label_source = ${source},
@@ -96,6 +122,8 @@ export function createLayaObservationsRepository(sql: Sql) {
      */
     async labelOpenForMenu(input: {
       clinicId: string; conversationId: string; workflowId: string; nodeId: string; choiceId: string; windowMinutes?: number
+      /** 'readback_yes' when the patient confirmed LAYA's pick instead of tapping. */
+      labelSource?: 'next_tap' | 'readback_yes'
     }): Promise<number> {
       if (!isUuid(input.clinicId) || !isUuid(input.conversationId) || !isUuid(input.workflowId) || !input.choiceId) return 0
       const windowMinutes = Math.max(1, Math.min(input.windowMinutes ?? 30, 120))
@@ -110,7 +138,8 @@ export function createLayaObservationsRepository(sql: Sql) {
           ORDER BY created_at DESC
           LIMIT 20
         )
-        UPDATE laya_observations o SET label_choice_id = ${input.choiceId.slice(0, 128)}, label_source = 'next_tap',
+        UPDATE laya_observations o SET label_choice_id = ${input.choiceId.slice(0, 128)},
+          label_source = ${input.labelSource === 'readback_yes' ? 'readback_yes' : 'next_tap'},
           label_distance = open.distance, labeled_at = NOW()
         FROM open WHERE o.id = open.id
         RETURNING o.id
@@ -132,18 +161,64 @@ export function createLayaObservationsRepository(sql: Sql) {
           COUNT(*) FILTER (WHERE label_choice_id IS NOT NULL AND laya_choice_id = label_choice_id
             AND label_source = 'next_tap' AND label_distance = 0)::int AS agreed
         FROM laya_observations
-        WHERE clinic_id = ${clinicId} AND created_at >= NOW() - (${days} * INTERVAL '1 day')
+        WHERE clinic_id = ${clinicId} AND source <> 'simulation' AND created_at >= NOW() - (${days} * INTERVAL '1 day')
         GROUP BY task, language
         ORDER BY task, language
       `
       const reasons = await sql<LayaObservationReasonRow[]>`
         SELECT COALESCE(laya_reason, 'not_run') AS reason, COUNT(*)::int AS count
         FROM laya_observations
-        WHERE clinic_id = ${clinicId} AND created_at >= NOW() - (${days} * INTERVAL '1 day')
+        WHERE clinic_id = ${clinicId} AND source <> 'simulation' AND created_at >= NOW() - (${days} * INTERVAL '1 day')
         GROUP BY 1 ORDER BY 2 DESC
         LIMIT 20
       `
       return { rows: [...rows], reasons: [...reasons] }
+    },
+
+    /** Labels one simulator example. Never touches patient rows, even with a guessed id. */
+    async labelSimulationExample(clinicId: string, id: string, choiceId: string, source: 'next_tap' | 'readback_yes'): Promise<boolean> {
+      if (!isUuid(clinicId) || !isUuid(id) || !choiceId) return false
+      const rows = await sql<{ id: string }[]>`
+        UPDATE laya_observations SET label_choice_id = ${choiceId.slice(0, 128)}, label_source = ${source},
+          label_distance = 0, labeled_at = NOW()
+        WHERE clinic_id = ${clinicId} AND id = ${id} AND source = 'simulation' AND label_choice_id IS NULL
+          AND ${choiceId.slice(0, 128)} = ANY(candidate_ids)
+        RETURNING id
+      `
+      return rows.length === 1
+    },
+
+    /** Simulator training progress: counts only. */
+    async simulationCounts(clinicId: string): Promise<LayaSimulationCounts> {
+      if (!isUuid(clinicId)) return { total: 0, labeled: 0, confirmed: 0, corrected: 0 }
+      const rows = await sql<LayaSimulationCounts[]>`
+        SELECT COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE label_choice_id IS NOT NULL)::int AS labeled,
+          COUNT(*) FILTER (WHERE label_choice_id IS NOT NULL AND label_choice_id = laya_choice_id)::int AS confirmed,
+          COUNT(*) FILTER (WHERE label_choice_id IS NOT NULL AND laya_choice_id IS NOT NULL
+            AND label_choice_id <> laya_choice_id)::int AS corrected
+        FROM laya_observations
+        WHERE clinic_id = ${clinicId} AND source = 'simulation' AND task = 'workflow_branch'
+      `
+      const row = rows[0]
+      return { total: Number(row?.total ?? 0), labeled: Number(row?.labeled ?? 0),
+        confirmed: Number(row?.confirmed ?? 0), corrected: Number(row?.corrected ?? 0) }
+    },
+
+    /** Labelled simulator examples for the next fine-tune. Staff-typed text only: patient rows never leave. */
+    async simulationTrainingExamples(clinicId: string, limit = 5000): Promise<LayaTrainingExample[]> {
+      if (!isUuid(clinicId)) return []
+      const rows = await sql<LayaTrainingExample[]>`
+        SELECT id, workflow_id, node_id, language, redacted_text AS text, candidate_ids,
+          laya_choice_id, laya_raw_score, label_choice_id, label_source, created_at
+        FROM laya_observations
+        WHERE clinic_id = ${clinicId} AND source = 'simulation' AND task = 'workflow_branch'
+          AND label_choice_id IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5000))}
+      `
+      return rows.map(row => ({ ...row, createdAt: new Date(row.createdAt).toISOString(),
+        layaRawScore: row.layaRawScore === null ? null : Number(row.layaRawScore) }))
     },
 
     async purgeExpired(now = new Date()): Promise<number> {

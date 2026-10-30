@@ -20,7 +20,7 @@ import { useI18n } from '../hooks/useI18n'
 export interface WorkflowSimulationView {
   status: 'completed' | 'waiting' | 'paused' | 'failed'
   trace: Array<{ nodeId: string; type: string; status: string; context: Record<string, unknown> }>
-  effects: Array<{ nodeId: string; kind: string; mocked: true; summary: string }>
+  effects: Array<{ nodeId: string; kind: string; mocked: boolean; summary: string }>
   context: Record<string, unknown>
   virtualNowMs: number
   waitingFor?: { kind: 'reply' | 'menu' | 'approval' | 'delay'; nodeId: string; remainingMs?: number; resumeAtMs?: number }
@@ -28,6 +28,8 @@ export interface WorkflowSimulationView {
   errors: Array<{ nodeId?: string; code: string; title: string; whatHappened: string; howToFix: string }>
   coverage: { testedNodeIds: string[]; untestedNodeIds: string[]; testedEdgeIds: string[]; untestedEdgeIds: string[] }
   safety: { isolated: true; externalCalls: 0; persistentWrites: 0; queuedJobs: 0 }
+  /** Present when the clinic has LAYA on: typed replies scored and training examples saved. */
+  laya?: { calls: number; examplesSaved: number; labelsSaved: number }
 }
 
 export interface SimulationResumeInput {
@@ -41,11 +43,13 @@ export interface SimulationScenarioInput {
   providerOutcome: 'success' | 'failure' | 'empty'
   intentOutcome: 'high' | 'low' | 'error'
   aiAgentOutcome: 'replied' | 'handoff' | 'no_match' | 'error' | 'routed'
+  /** What the patient writes to start the conversation (LAYA can route it straight away). */
+  firstMessage?: string
 }
 
 export function buildSimulationRequestInput({ mode, replay, resumeInput, scenario }: { mode: 'run' | 'step' | 'resume'; replay?: unknown; resumeInput?: SimulationResumeInput; scenario?: SimulationScenarioInput }) {
   return {
-    ...(mode === 'run' ? { context: {} } : { replay }),
+    ...(mode === 'run' || !replay ? { context: scenario?.firstMessage?.trim() ? { message: scenario.firstMessage.trim() } : {} } : { replay }),
     ...(mode === 'step' ? { maxSteps: 1 } : {}),
     ...resumeInput,
     ...(scenario ? { scenarios: {
@@ -88,6 +92,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
   const [providerOutcome, setProviderOutcome] = useState<SimulationScenarioInput['providerOutcome']>('success')
   const [intentOutcome, setIntentOutcome] = useState<SimulationScenarioInput['intentOutcome']>('high')
   const [aiAgentOutcome, setAiAgentOutcome] = useState<SimulationScenarioInput['aiAgentOutcome']>('no_match')
+  const [firstMessage, setFirstMessage] = useState('')
   const wait = result?.waitingFor
   const canContinue = wait?.kind === 'delay' || wait?.kind === 'approval' || Boolean(reply.trim() || optionId.trim())
   const continueSimulation = () => {
@@ -102,7 +107,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
 
   const tested = result?.coverage.testedNodeIds.length ?? 0
   const total = tested + (result?.coverage.untestedNodeIds.length ?? 0)
-  const scenario = { providerNodeId: providerNodeId || undefined, providerOutcome, intentOutcome, aiAgentOutcome }
+  const scenario = { providerNodeId: providerNodeId || undefined, providerOutcome, intentOutcome, aiAgentOutcome, firstMessage: firstMessage.trim() || undefined }
   const providerNodes = providerScenarioNodes(nodes, providerOutcome)
   const chooseProviderOutcome = (outcome: SimulationScenarioInput['providerOutcome']) => {
     setProviderOutcome(outcome)
@@ -126,6 +131,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
           <button type="button" onClick={onReset} disabled={busy || !result} className="rounded border border-gray-300 px-3 py-1.5 font-medium disabled:opacity-50">{t('wf.simulator.reset')}</button>
         </>}
       </div>
+      {expanded && <label className="mt-2 block text-xs">{t('wf.simulator.firstMessage')}<input value={firstMessage} onChange={(event) => setFirstMessage(event.target.value)} placeholder={t('wf.simulator.firstMessageExample')} className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 dark:bg-gray-900" /><span className="mt-1 block text-violet-700 dark:text-violet-300">{t('wf.simulator.layaHint')}</span></label>}
       {expanded && <details className="mt-2 rounded border border-violet-200 bg-white/60 p-2 text-xs dark:border-violet-800 dark:bg-black/20">
         <summary className="cursor-pointer font-semibold">{t('wf.simulator.scenarios')}</summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -143,6 +149,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
               <span className="rounded bg-white/80 px-2 py-1 font-semibold dark:bg-black/20">{paused ? t('wf.simulator.operatorPaused') : statusLabel(result.status)}</span>
               <span className="rounded bg-white/80 px-2 py-1 dark:bg-black/20">{t('wf.simulator.tested', { tested, total })}</span>
               <span className="rounded bg-white/80 px-2 py-1 dark:bg-black/20">{t('wf.simulator.virtualTime', { minutes: Math.round(result.virtualNowMs / 60_000) })}</span>
+              {result.laya && <span className="rounded bg-sky-100 px-2 py-1 text-sky-900 dark:bg-sky-950 dark:text-sky-100">{t('wf.simulator.layaStats', { calls: result.laya.calls, saved: result.laya.examplesSaved, labelled: result.laya.labelsSaved })}</span>}
             </div>
             <ol className="mt-2 space-y-1" aria-label={t('wf.simulator.trace')}>
               {result.trace.map((step, index) => (
@@ -167,7 +174,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
                 <button type="button" onClick={continueSimulation} disabled={!canContinue || busy} className="mt-2 w-full rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">{t('wf.simulator.continue')}</button>
               </div>
             )}
-            {result.effects.length > 0 && <div className="rounded border border-violet-200 bg-white/70 p-2 text-xs dark:border-violet-800 dark:bg-black/20"><p className="font-semibold">{t('wf.simulator.effects')}</p><ul className="mt-1 list-disc pl-4">{result.effects.map((effect, index) => <li key={`${effect.nodeId}-${index}`}>{effect.summary}</li>)}</ul></div>}
+            {result.effects.length > 0 && <div className="rounded border border-violet-200 bg-white/70 p-2 text-xs dark:border-violet-800 dark:bg-black/20"><p className="font-semibold">{t('wf.simulator.effects')}</p><ul className="mt-1 list-disc pl-4">{result.effects.map((effect, index) => <li key={`${effect.nodeId}-${index}`} className={effect.kind === 'laya' ? 'font-medium text-sky-800 dark:text-sky-200' : undefined}>{effect.kind === 'laya' ? `LAYA · ${effect.summary}` : effect.summary}</li>)}</ul></div>}
             {result.errors.map((error, index) => <div key={`${error.nodeId ?? error.code}-${index}`} role="alert" className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"><p className="font-semibold">{error.title}</p><p>{error.whatHappened}</p><p className="mt-1">{t('wf.diagnostics.fix')} {error.howToFix}</p>{error.nodeId && <button type="button" onClick={() => onFocusNode(error.nodeId!)} className="mt-1 rounded border border-red-300 px-2 py-1 font-medium">{t('wf.diagnostics.goToStep')}</button>}</div>)}
           </div>
         </div>

@@ -5,6 +5,7 @@ type MenuExecutors = Required<Pick<WorkflowExecutors, 'sendInteractiveMenu' | 's
 
 const h = vi.hoisted(() => ({
   liveMenuChoice: vi.fn(),
+  labelMenuTap: vi.fn(),
   findWorkflow: vi.fn(),
   findRevision: vi.fn(),
   findPatient: vi.fn(),
@@ -66,6 +67,10 @@ vi.mock('@docmee/agents', async () => ({
   layaLanguageOf: (await import('../../../../packages/agents/src/laya/observations.js')).layaLanguageOf,
   layaReadbackText: (await import('../../../../packages/agents/src/laya/observations.js')).layaReadbackText,
   readbackConfirmed: (await import('../../../../packages/agents/src/laya/observations.js')).readbackConfirmed,
+  decideLayaMenuReply: (await import('../../../../packages/agents/src/workflows/laya-menu.js')).decideLayaMenuReply,
+  decideLayaPreselect: (await import('../../../../packages/agents/src/workflows/laya-menu.js')).decideLayaPreselect,
+  readPendingReadback: (await import('../../../../packages/agents/src/workflows/laya-menu.js')).readPendingReadback,
+  LAYA_READBACK_CONTEXT_KEY: (await import('../../../../packages/agents/src/workflows/laya-menu.js')).LAYA_READBACK_CONTEXT_KEY,
   validateWorkflowDefinition: () => [],
   runWorkflow: h.runWorkflow,
   runWorkflowWithOutcome: async (...args: unknown[]) => {
@@ -133,7 +138,7 @@ vi.mock('@docmee/channels', () => ({
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
 vi.mock('../laya-observations.js', () => ({
-  labelMenuTap: vi.fn(), observeMenuText: vi.fn(), observeAiAgentText: vi.fn(), liveMenuChoice: h.liveMenuChoice,
+  labelMenuTap: h.labelMenuTap, observeMenuText: vi.fn(), observeAiAgentText: vi.fn(), liveMenuChoice: h.liveMenuChoice,
 }))
 vi.mock('../laya.js', () => ({ getLayaAdapter: () => h.layaAdapter, getLayaDb: () => undefined, runLayaBackground: () => undefined }))
 vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }), kbEmbedQueue: { add: h.queueAdd } }))
@@ -614,6 +619,9 @@ describe('processWorkflowRunJob automation ownership', () => {
     await processWorkflowRunJob(job)
     expect(result).toBe(expected)
     expect(h.liveMenuChoice).not.toHaveBeenCalled() // the check is deterministic, not another model call
+    // A clear YES labels LAYA's pick as confirmed training data; a tap labels it as the tapped option.
+    const labels = h.labelMenuTap.mock.calls.map((call: unknown[]) => [call[1], call[2] ?? 'next_tap'])
+    expect(labels).toEqual(message === 'sí' ? [['confirm', 'readback_yes']] : interactiveReplyId ? [[interactiveReplyId, 'next_tap']] : [])
   })
 
   it('preselects from the opening message once per fresh run and never on resume', async () => {

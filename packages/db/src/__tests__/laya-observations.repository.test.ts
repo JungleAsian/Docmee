@@ -57,6 +57,47 @@ describe('LAYA observations repository', () => {
     for (const call of calls) expect(call.query).not.toContain('redacted_text')
   })
 
+  it('keeps simulator rows out of the patient summary', async () => {
+    const { sql, calls } = recorder([])
+    await createLayaObservationsRepository(sql).summary(clinicId)
+    for (const call of calls) expect(call.query).toContain("source <> 'simulation'")
+  })
+
+  it('stores simulator rows with longer retention', async () => {
+    const { sql, calls } = recorder([{ id: 'sim' }])
+    await createLayaObservationsRepository(sql).create({
+      clinicId, workflowId, nodeId: 'main_menu', task: 'workflow_branch', source: 'simulation', language: 'es',
+      redactedText: 'quiero una cita', candidateIds: ['book'], retentionDays: 365,
+    })
+    expect(calls[0]!.values).toContain('simulation')
+    expect(calls[0]!.values).toContain(365)
+    const { sql: other, calls: otherCalls } = recorder([{ id: 'x' }])
+    await createLayaObservationsRepository(other).create({
+      clinicId, workflowId, nodeId: 'main_menu', task: 'workflow_branch', source: 'menu_unmatched', language: 'es',
+      redactedText: 'hola', candidateIds: [], retentionDays: 9999,
+    })
+    expect(otherCalls[0]!.values).toContain(90) // out-of-range retention falls back to the default
+  })
+
+  it('labels only an open simulator row whose menu offered the chosen option', async () => {
+    const { sql, calls } = recorder([{ id: 'sim' }])
+    const ok = await createLayaObservationsRepository(sql).labelSimulationExample(clinicId, conversationId, 'keep', 'readback_yes')
+    expect(ok).toBe(true)
+    expect(calls[0]!.query).toContain("source = 'simulation' AND label_choice_id IS NULL")
+    expect(calls[0]!.query).toContain('= ANY(candidate_ids)')
+    expect(calls[0]!.values).toContain('readback_yes')
+    const { sql: none } = recorder([])
+    expect(await createLayaObservationsRepository(none).labelSimulationExample(clinicId, conversationId, 'keep', 'next_tap')).toBe(false)
+    expect(await createLayaObservationsRepository(none).labelSimulationExample(clinicId, 'not-a-uuid', 'keep', 'next_tap')).toBe(false)
+  })
+
+  it('exports only labelled simulator rows', async () => {
+    const { sql, calls } = recorder([{ id: 'a', layaRawScore: '0.9', createdAt: '2026-10-31T00:00:00Z' }])
+    const rows = await createLayaObservationsRepository(sql).simulationTrainingExamples(clinicId)
+    expect(calls[0]!.query).toContain("source = 'simulation' AND task = 'workflow_branch' AND label_choice_id IS NOT NULL")
+    expect(rows[0]!.layaRawScore).toBe(0.9)
+  })
+
   it('purges by expiry', async () => {
     const { sql, calls } = recorder([{ deletedCount: 4 }])
     expect(await createLayaObservationsRepository(sql).purgeExpired(new Date('2026-12-01T00:00:00Z'))).toBe(4)

@@ -1,7 +1,17 @@
 import type { Workflow, WorkflowEdge, WorkflowNode } from '@docmee/db'
+import { layaCommittingMenuOptions } from '../laya/observations.js'
 import { validCapturedReply } from './capture-validation.js'
 import {
+  decideLayaMenuReply,
+  decideLayaPreselect,
+  readPendingReadback,
+  LAYA_READBACK_CONTEXT_KEY,
+  type LayaMenuDecision,
+} from './laya-menu.js'
+import {
   runWorkflowWithOutcome,
+  MENU_HOLD_OUTCOME,
+  type WorkflowMenuOption,
   WORKFLOW_MENU_CONTEXT_KEY,
   WORKFLOW_CAPTURE_CONTEXT_KEY,
   type WorkflowCaptureState,
@@ -54,10 +64,38 @@ export interface WorkflowSimulationStep {
 
 export interface WorkflowSimulationEffect {
   nodeId: string
-  kind: 'message' | 'template' | 'notification' | 'tag' | 'draft' | 'approval' | 'provider' | 'handoff'
-  mocked: true
+  /** 'laya' = the real LAYA model scored a typed reply (not mocked). Everything else is mocked. */
+  kind: 'message' | 'template' | 'notification' | 'tag' | 'draft' | 'approval' | 'provider' | 'handoff' | 'laya'
+  mocked: boolean
   summary: string
 }
+
+/** What LAYA made of one typed reply, as reported by the server hook. */
+export interface LayaSimulationPick {
+  /** Option LAYA may route to (clinic live, reviewed qualification, above threshold), else null. */
+  choiceId: string | null
+  /** What LAYA would pick even when it may not act. */
+  observedChoiceId?: string | null
+  score?: number | null
+  /** Short machine reason: qualified, uncertain, unqualified, disabled, timeout, ... */
+  reason?: string
+  /** Opaque reference to the saved training example, used to label it later. */
+  ref?: string
+}
+
+/**
+ * Optional server hooks that let a simulation use the real LAYA model and save what the tester
+ * confirms or corrects as training examples. Without hooks the simulator stays fully offline.
+ */
+export interface WorkflowSimulationHooks {
+  layaChoose?: (input: { nodeId: string; text: string; options: WorkflowMenuOption[]; source: 'menu_trigger' | 'menu_unmatched' }) => Promise<LayaSimulationPick | null>
+  layaLabel?: (input: { ref: string; nodeId: string; optionId: string; how: 'next_tap' | 'readback_yes' }) => Promise<boolean>
+}
+
+export interface WorkflowSimulationLayaStats { calls: number; examplesSaved: number; labelsSaved: number }
+
+/** Context key: the latest saved, still unlabelled LAYA example for a menu. */
+export const LAYA_SIMULATION_EXAMPLE_KEY = 'layaSimulationExample'
 
 export type WorkflowSimulationWait =
   | { kind: 'reply' | 'menu' | 'approval'; nodeId: string }
@@ -88,6 +126,8 @@ export interface WorkflowSimulationResult {
     untestedEdgeIds: string[]
   }
   safety: { isolated: true; externalCalls: 0; persistentWrites: 0; queuedJobs: 0 }
+  /** Present when the server let this simulation use LAYA: model calls and training rows saved. */
+  laya?: WorkflowSimulationLayaStats
 }
 
 class MockProviderFailure extends Error {
@@ -104,6 +144,18 @@ class MockProviderFailure extends Error {
 export async function simulateWorkflow(
   workflow: Pick<Workflow, 'nodes' | 'edges'>,
   input: WorkflowSimulationInput = {},
+  hooks: WorkflowSimulationHooks = {},
+): Promise<WorkflowSimulationResult> {
+  const stats: WorkflowSimulationLayaStats = { calls: 0, examplesSaved: 0, labelsSaved: 0 }
+  const result = await simulate(workflow, input, hooks, stats)
+  return hooks.layaChoose ? { ...result, laya: stats } : result
+}
+
+async function simulate(
+  workflow: Pick<Workflow, 'nodes' | 'edges'>,
+  input: WorkflowSimulationInput,
+  hooks: WorkflowSimulationHooks,
+  stats: WorkflowSimulationLayaStats,
 ): Promise<WorkflowSimulationResult> {
   const prior = input.replay
   const ctx: WorkflowContext = { ...(prior?.context ?? {}), ...(input.context ?? {}) }
@@ -181,6 +233,102 @@ export async function simulateWorkflow(
     }
     return items.slice(Math.max(0, page) * size, (Math.max(0, page) + 1) * size)
   }
+  // ── LAYA (only when the server passed hooks) ─────────────────────────────
+  // Same decision as the live WhatsApp worker: packages/agents workflows/laya-menu.ts.
+  const committing = layaCommittingMenuOptions(workflow.nodes, workflow.edges)
+  let triggerTextUsed = Boolean(prior)
+  const note = (nodeId: string, summary: string) => {
+    effects.push({ nodeId, kind: 'laya', mocked: false, summary: summary.slice(0, SIMULATION_REPLAY_LIMITS.summaryCharacters) })
+  }
+  const titleOf = (options: WorkflowMenuOption[], optionId: string | null | undefined) =>
+    options.find((option) => option.optionId === optionId)?.title ?? optionId ?? ''
+  const askLaya = async (nodeId: string, text: string, options: WorkflowMenuOption[], source: 'menu_trigger' | 'menu_unmatched') => {
+    if (!hooks.layaChoose) return null
+    stats.calls++
+    let pick: LayaSimulationPick | null = null
+    try { pick = await hooks.layaChoose({ nodeId, text, options, source }) } catch { pick = null }
+    if (pick?.ref) {
+      stats.examplesSaved++
+      ctx[LAYA_SIMULATION_EXAMPLE_KEY] = { nodeId, ref: pick.ref, layaChoiceId: pick.choiceId ?? pick.observedChoiceId ?? null }
+    }
+    return pick
+  }
+  const describePick = (nodeId: string, options: WorkflowMenuOption[], pick: LayaSimulationPick | null, decision?: Pick<LayaMenuDecision, 'laya'> | null) => {
+    if (!pick) { note(nodeId, 'LAYA unavailable: the menu’s own default route runs.'); return }
+    const score = typeof pick.score === 'number' ? ` (score ${pick.score.toFixed(2)})` : ''
+    const saved = pick.ref ? ' Saved as a training example.' : ''
+    if (decision?.laya?.check === 'confirm') note(nodeId, `LAYA picked “${decision.laya.title}”${score}. Booking change: asking YES/NO first.${saved}`)
+    else if (decision?.laya) note(nodeId, `LAYA picked “${decision.laya.title}”${score} and routed.${saved}`)
+    else if (pick.observedChoiceId) note(nodeId, `LAYA would pick “${titleOf(options, pick.observedChoiceId)}”${score} but may not act (${pick.reason ?? 'not allowed'}).${saved}`)
+    else note(nodeId, `LAYA had no confident pick (${pick.reason ?? 'uncertain'}).${saved}`)
+  }
+  const labelExample = async (nodeId: string, options: WorkflowMenuOption[], optionId: string, how: 'next_tap' | 'readback_yes') => {
+    const example = ctx[LAYA_SIMULATION_EXAMPLE_KEY] as { nodeId?: unknown; ref?: unknown; layaChoiceId?: unknown } | undefined
+    if (!hooks.layaLabel || !example || example.nodeId !== nodeId || typeof example.ref !== 'string') return
+    delete ctx[LAYA_SIMULATION_EXAMPLE_KEY]
+    let saved = false
+    try { saved = await hooks.layaLabel({ ref: example.ref, nodeId, optionId, how }) } catch { saved = false }
+    if (!saved) return
+    stats.labelsSaved++
+    const layaChoice = typeof example.layaChoiceId === 'string' ? example.layaChoiceId : null
+    note(nodeId, how === 'readback_yes'
+      ? `Confirmed with YES: training example labelled “${titleOf(options, optionId)}”.`
+      : layaChoice && layaChoice !== optionId
+        ? `Corrected: training example labelled “${titleOf(options, optionId)}” (LAYA picked “${titleOf(options, layaChoice)}”).`
+        : `Training example labelled “${titleOf(options, optionId)}”.`)
+  }
+  const layaMenuReply = async (node: WorkflowNode, page: number): Promise<string> => {
+    activeNodeId = node.id
+    const options = parseMenuOptions(node.config)
+    const pending = readPendingReadback(ctx[LAYA_READBACK_CONTEXT_KEY])
+    delete ctx[LAYA_READBACK_CONTEXT_KEY]
+    let pick: LayaSimulationPick | null = null
+    let asked = false
+    const decision = await decideLayaMenuReply({
+      nodeId: node.id, options, replyId: input.reply?.optionId, text: input.reply?.text ?? '', pending,
+      committing: committing.get(node.id),
+      choose: async (typed, menuOptions) => {
+        asked = true
+        pick = await askLaya(node.id, typed, menuOptions, 'menu_unmatched')
+        return pick?.choiceId ?? null
+      },
+    })
+    if (asked) describePick(node.id, options, pick, decision)
+    if (decision.pickedOptionId) await labelExample(node.id, options, decision.pickedOptionId, 'next_tap')
+    if (decision.confirmedOptionId) await labelExample(node.id, options, decision.confirmedOptionId, 'readback_yes')
+    if (decision.handle === MENU_HOLD_OUTCOME && decision.pending && decision.message) {
+      ctx[LAYA_READBACK_CONTEXT_KEY] = decision.pending
+      record('message', decision.message)
+      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending' } satisfies WorkflowMenuState
+      pausedAt = { kind: 'menu', nodeId: node.id, resumeNodeId: node.id }
+      return MENU_HOLD_OUTCOME
+    }
+    if (decision.message) record('message', decision.message)
+    return decision.handle
+  }
+  const layaPreselect = async (node: WorkflowNode): Promise<string | null> => {
+    if (triggerTextUsed) return null
+    triggerTextUsed = true
+    const text = String(ctx.message ?? '')
+    if (!text.trim()) return null
+    activeNodeId = node.id
+    const options = parseMenuOptions(node.config)
+    let pick: LayaSimulationPick | null = null
+    let asked = false
+    const picked = await decideLayaPreselect({
+      options, text, committing: committing.get(node.id),
+      choose: async (typed, menuOptions) => {
+        asked = true
+        pick = await askLaya(node.id, typed, menuOptions, 'menu_trigger')
+        return pick?.choiceId ?? null
+      },
+    })
+    if (asked) describePick(node.id, options, pick, picked ? { laya: { optionId: picked.optionId, title: picked.title, check: 'routed' } } : null)
+    if (!picked) return null
+    record('message', picked.message)
+    return picked.optionId
+  }
+
   const matchItems = (items: { id: string; title: string }[], slot: boolean) => {
     const text = (input.reply?.text ?? '').trim()
     if (text === '0') return { outcome: 'restart' }
@@ -272,7 +420,10 @@ export async function simulateWorkflow(
         record('message', dynamic ? `Interactive menu mocked: ${items.map((item) => `${item.title} (${item.id})`).join(', ')}` : 'Interactive menu mocked')
         return true
       },
-      matchMenuReply: (node, _context, page = 0) => String(node.config?.optionSource ?? 'static') === 'static' ? resolveMenuHandle(parseMenuOptions(node.config), input.reply?.optionId, input.reply?.text) : matchItems(menuItems(node, page), false),
+      matchMenuReply: (node, _context, page = 0) => String(node.config?.optionSource ?? 'static') !== 'static'
+        ? matchItems(menuItems(node, page), false)
+        : hooks.layaChoose ? layaMenuReply(node, page) : resolveMenuHandle(parseMenuOptions(node.config), input.reply?.optionId, input.reply?.text),
+      ...(hooks.layaChoose ? { preselectMenuOption: (node: WorkflowNode) => layaPreselect(node) } : {}),
       sendSlotMenu: (node, _context, page) => {
         activeNodeId = node.id
         const items = menuItems(node, page, true)

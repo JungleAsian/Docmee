@@ -32,6 +32,30 @@ export type LayaObservationSummary = {
     agreed: number
   }>
   reasons: Array<{ reason: string; count: number }>
+  /** Training examples typed in the Automation Center simulator (kept apart from patient rows). */
+  simulation?: { total: number; labeled: number; confirmed: number; corrected: number }
+}
+
+/** Labelled simulator examples for the next LAYA fine-tune. Staff-typed text only. */
+export type LayaTrainingExport = {
+  clinicId: string
+  exportedAt: string
+  source: 'simulation'
+  count: number
+  examples: Array<{
+    id: string
+    workflowId: string
+    nodeId: string
+    language: string
+    text: string
+    options: Array<{ id: string; title: string | null }>
+    layaChoiceId: string | null
+    layaRawScore: number | null
+    labelChoiceId: string
+    labelTitle: string | null
+    labelSource: string
+    createdAt: string
+  }>
 }
 
 export type LayaDiagnosticTest = {

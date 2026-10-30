@@ -49,7 +49,9 @@ export function isObservableTypedReply(text: string): boolean {
   return /\p{L}/u.test(trimmed)
 }
 
-/** Menu options → LAYA branch candidates. Null when the menu cannot be scored (LAYA takes 1–7). */
+/** Menu options → LAYA branch candidates (titles only: the fine-tuned menu model was trained on
+ * titles, and long descriptions push 7-option menus past the runtime deadline).
+ * Null when the menu cannot be scored (LAYA takes 1–7). */
 export function menuBranchCandidates(
   options: { optionId: string; title: string; description?: string }[],
 ): LayaCandidate[] | null {
@@ -57,7 +59,29 @@ export function menuBranchCandidates(
   if (usable.length < 1 || usable.length > 7) return null
   const candidates = usable.map(option => ({
     id: option.optionId.slice(0, 128),
-    label: (option.description ? `${option.title} — ${option.description}` : option.title).slice(0, 1200),
+    label: option.title.slice(0, 1200),
   }))
   return new Set(candidates.map(candidate => candidate.id)).size === candidates.length ? candidates : null
+}
+
+/** Node types that commit a booking change. LAYA may never be the one to choose a path into them. */
+export const LAYA_COMMITTING_NODE_TYPES = ['action.create_booking', 'action.reschedule_booking', 'action.cancel_booking'] as const
+
+/**
+ * Menu options LAYA must not pick in live mode: options whose edge leads straight to a node that
+ * creates, moves or cancels a booking. A typed reply that maps to one falls back to "please tap".
+ */
+export function layaBlockedMenuOptions(
+  nodes: { id: string; type: string }[],
+  edges: { source: string; target: string; sourceHandle?: string | null }[],
+): Map<string, Set<string>> {
+  const committing = new Set(nodes.filter(node => (LAYA_COMMITTING_NODE_TYPES as readonly string[]).includes(node.type)).map(node => node.id))
+  const blocked = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    if (!edge.sourceHandle || !committing.has(edge.target)) continue
+    const set = blocked.get(edge.source) ?? new Set<string>()
+    set.add(edge.sourceHandle)
+    blocked.set(edge.source, set)
+  }
+  return blocked
 }

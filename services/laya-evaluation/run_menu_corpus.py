@@ -26,11 +26,14 @@ def language_of(text):
     return 'mixed' if es and en else 'es' if es else 'en' if en else 'unknown'
 
 
-def candidates_for(options):
-    """Port of menuBranchCandidates."""
+def candidates_for(options, labels='full'):
+    """Port of menuBranchCandidates. labels='title' drops descriptions (experiment)."""
     usable = [o for o in options if o.get('id') and o.get('title') and o['id'] != '__more__']
-    return [{'id': o['id'][:128], 'label': (f"{o['title']} — {o['description']}" if o.get('description') else o['title'])[:1200]}
-            for o in usable]
+    def label(o):
+        if labels == 'title' or not o.get('description'):
+            return o['title']
+        return f"{o['title']} — {o['description']}"
+    return [{'id': o['id'][:128], 'label': label(o)[:1200]} for o in usable]
 
 
 def decide(text, language, candidates):
@@ -52,13 +55,25 @@ def decide(text, language, candidates):
         conn.close()
 
 
+def arg(name, default):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+
 def main():
+    """Options: --labels full|title, --lang bucket|true, --split all|calibration|heldout, --menus a,b"""
+    labels, lang_mode, split = arg('--labels', 'full'), arg('--lang', 'bucket'), arg('--split', 'all')
+    only = set(arg('--menus', '').split(',')) - {''}
+    labelmap = json.load(open(arg('--labelmap', ''), encoding='utf-8')) if '--labelmap' in sys.argv else None
     cases = json.load(open(sys.argv[1], encoding='utf-8'))
     menus = {m['id']: m['options'] for m in json.load(open(sys.argv[2], encoding='utf-8'))}
     print('id,status,ms,choice,score,abstain,bucket', flush=True)
     for case in cases:
-        candidates = candidates_for(menus[case['menu']])
-        bucket = language_of(case['text'])
+        if (split != 'all' and case['split'] != split) or (only and case['menu'] not in only):
+            continue
+        candidates = candidates_for(menus[case['menu']], labels)
+        if labelmap:  # experiment: replace option labels from a {menu: {optionId: label}} file
+            candidates = [{'id': x['id'], 'label': labelmap[case['menu']][x['id']]} for x in candidates]
+        bucket = language_of(case['text']) if lang_mode == 'bucket' else case['lang']
         status, elapsed, out = decide(case['text'], bucket, candidates)
         if status in (0, 503):
             time.sleep(3)  # the single inference slot may still be busy; retry once

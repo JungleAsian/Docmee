@@ -74,7 +74,7 @@ class BackendTests(unittest.TestCase):
             (self.root / 'encoder/config.json').write_bytes(b'abd')
             return object()
         with patch.object(self.backend, 'verify_artifacts',
-                          side_effect=lambda path: self.artifacts.verify_artifacts(path, self.manifest)):
+                          side_effect=lambda path, _manifest=None: self.artifacts.verify_artifacts(path, self.manifest)):
             with self.assertRaisesRegex(ValueError, '^backend unavailable$'):
                 self.load(mutate)
 
@@ -106,7 +106,9 @@ class BackendTests(unittest.TestCase):
 
     def test_loader_offline_configuration_and_double_verification(self):
         calls = []
-        def verify(path):
+        def verify(path, manifest=None):
+            # The loader must verify against the active (installed) checkpoint, not the base default.
+            self.assertIs(manifest, self.backend.ACTIVE_MANIFEST)
             calls.append('verify')
         def factory(**kwargs):
             calls.append('load')
@@ -162,8 +164,8 @@ class BackendTests(unittest.TestCase):
             self.assertEqual(response['rawScore'], .8)
             self.assertFalse(response['abstain'])
             self.assertEqual(response['requestId'], self.request()['requestId'])
-            self.assertEqual(response['modelVersion'], 'laya-multilingual-e4e9ddf21a7b')
-            self.assertEqual(response['calibrationVersion'], 'upstream-unqualified-v1')
+            self.assertEqual(response['modelVersion'], 'laya-docmee-menus-r2s1-23e90a006b5a')
+            self.assertEqual(response['calibrationVersion'], 'docmee-menus-final2-20261030')
 
     def test_malformed_truncated_collapsed_abstain(self):
         cases = [None, {}, {'answers': {}}, RuntimeError('secret')]

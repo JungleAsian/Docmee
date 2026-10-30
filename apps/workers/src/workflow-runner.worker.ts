@@ -55,6 +55,7 @@ import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { getLayaAdapter } from './laya.js'
 import { labelMenuTap, liveMenuChoice, observeAiAgentText, observeMenuText, type MenuScope } from './laya-observations.js'
+import { layaBlockedMenuOptions } from '@docmee/agents'
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
@@ -791,6 +792,7 @@ function buildExecutors(
   data: WorkflowRunJobData,
   workflowRunId: string,
   captureResume?: (input: { nodeId: string; ms: number; context: WorkflowContext }) => void,
+  layaBlocked: Map<string, Set<string>> = new Map(),
 ): WorkflowExecutors {
   const { clinicId } = data
   // LAYA watch-only scope for a node. Never carries patient text or contact details.
@@ -1642,7 +1644,8 @@ function buildExecutors(
         // LAYA just watches in the background and the menu's own default route runs.
         let chosen: string | null = null
         try { chosen = await liveMenuChoice(scope, text, options) } catch { chosen = null }
-        return chosen && options.some((o) => o.optionId === chosen) ? chosen : handle
+        // Never let LAYA commit a booking change: those options always need a real tap.
+        return chosen && options.some((o) => o.optionId === chosen) && !layaBlocked.get(node.id)?.has(chosen) ? chosen : handle
       }
       if (handle !== 'restart' && handle !== 'livechat') labelMenuTap(scope, handle)
       return handle
@@ -2154,7 +2157,8 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
     const approvals = createWorkflowApprovalsRepository(sql)
     if (data.approvalId && !(await approvals.claimResume(data.clinicId, data.approvalId))) return
     const pendingResumeRef: { current: { nodeId: string; ms: number; context: WorkflowContext } | null } = { current: null }
-    const exec = buildExecutors(sql, data, run.id, (resume) => { pendingResumeRef.current = resume })
+    const exec = buildExecutors(sql, data, run.id, (resume) => { pendingResumeRef.current = resume },
+      layaBlockedMenuOptions(workflow.nodes, workflow.edges))
     const outcome = await runWorkflowWithOutcome(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
     if (data.approvalId) await approvals.markResumed(data.clinicId, data.approvalId)
     // Persist transport evidence only, never menu text, recipients, or raw

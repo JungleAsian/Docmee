@@ -13,6 +13,27 @@ MANIFEST = {
     'tokenizer/tokenizer.json': (34363188, '609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f'),
     'tokenizer/tokenizer_config.json': (524, '6c6b2d8e3c84ce0e671c129cd6b374b235d6f9863042a5836358d00a89bbb5a1'),
 }
+BASE_MODEL_VERSION = 'laya-multilingual-e4e9ddf21a7b'
+BASE_CALIBRATION_VERSION = 'upstream-unqualified-v1'
+
+# Docmee menu fine-tune of the pinned base (services/laya-evaluation: menu_training_data_v2.py,
+# finetune_menus.py; run r2-s1-e4, laya.train soft-ce, 4 epochs, seed 1, option-order shuffle).
+# Frozen final2 evaluation 2026-10-30: 98.1% precision at threshold 0.95, 78% coverage.
+DOCMEE_MENUS_MANIFEST = {
+    'encoder/config.json': (2018, 'd47190c341517364f62f9d8971544f9ea553474fd5d691b520335b81fad4e2b9'),
+    'model.safetensors': (643835524, '23e90a006b5a77543c936e519dfd815167e3242ee1a3b67b904fb896b8e038c0'),
+    'rl_agent_config.json': (5194, 'bbc0fc638b4015df4433c4b6563994ddabc82077305be4a6406418c86afc2ffe'),
+    'tokenizer/tokenizer.json': (34363285, 'dbba919c6e5e492bc22beb80abb64e6fcc7e8744dc696e8388b8c977767afa4b'),
+    'tokenizer/tokenizer_config.json': (648, '5f36fa307ecb9e70c9b058ca0621530f6bd3e89b371c4d6c0279c48d9dbd2629'),
+}
+DOCMEE_MENUS_MODEL_VERSION = 'laya-docmee-menus-r2s1-23e90a006b5a'
+DOCMEE_MENUS_CALIBRATION_VERSION = 'docmee-menus-final2-20261030'
+
+MODEL_MANIFESTS = {BASE_MODEL_VERSION: MANIFEST, DOCMEE_MENUS_MODEL_VERSION: DOCMEE_MENUS_MANIFEST}
+CALIBRATIONS = {BASE_MODEL_VERSION: BASE_CALIBRATION_VERSION, DOCMEE_MENUS_MODEL_VERSION: DOCMEE_MENUS_CALIBRATION_VERSION}
+# The checkpoint an installed release loads. MANIFEST (above) stays the base for packaging/prepare.py.
+ACTIVE_MODEL_VERSION = DOCMEE_MENUS_MODEL_VERSION
+ACTIVE_CALIBRATION_VERSION = CALIBRATIONS[ACTIVE_MODEL_VERSION]
 
 
 def _ordinary(path):

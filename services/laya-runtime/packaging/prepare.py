@@ -29,10 +29,10 @@ REVIEWED_SOURCE_BASE = '6317f8ecf4b75b5fb5923093d3a987289ea0fd21'
 # Exact Git blob bytes from REVIEWED_SOURCE_BASE, not hashes of a dirty checkout.
 # Check out these reviewed files with LF endings; never silently normalize them.
 SOURCE_PINS = {
-    'artifacts.py': (3021, 'e2c668945e8dca897246c53f173bf92b53f200d0c3b633c2b669b4d36a0a1aaf'),
-    'backend.py': (5254, '3ff4183c1afd25f87ce5235fcfa56060dd3f822f8249dab078beb866760051c9'),
+    'artifacts.py': (4551, 'a4ad7b8000f8b261f2f36587f9b3a97490f7597bfff60948e40c7f7e09b157a5'),
+    'backend.py': (5426, 'be60d1779c8819a271691ac3e91c36c330f21d8a70ada89a7405cb7c570f1512'),
     'protocol.py': (3837, '7dec7e6aa3eef959657c080c831260cbbb6e3a1b3af95aaaf6546894d5f89265'),
-    'server.py': (15540, '51c073125073ac25a749697c4903d3d2fef8426bf322264b25fbbc9f5ccebf77'),
+    'server.py': (15922, 'e1bd27984689aa54cabe021771ecf515ea8fc4e2ea164c7bf23d8c8e19efa10c'),
     'isolation/entrypoint.py': (1523, '9207e8244d271f254a0e0e9cda282e7e92b9e9d627ce002ab3eea20e0b3e3fe1'),
     'isolation/render.py': (2829, '1c2bb413668ab682fd1486b3d95430ef1622a0024cc89896bc5315276c9b3d73'),
     'isolation/probe.py': (3001, '1f7448f99399647b0d86b72ad1397933f334d5edb9a82d70e64324c8a438bacd'),

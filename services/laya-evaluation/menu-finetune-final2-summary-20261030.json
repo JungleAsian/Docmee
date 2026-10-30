@@ -1,0 +1,64 @@
+{
+ "model": "laya-docmee-menus-r2s1-23e90a006b5a",
+ "calibration": "docmee-menus-final2-20261030",
+ "base": "convaiinnovations/laya-multilingual@e4e9ddf21a7b1903b7acffd8814ad4307bf63a67",
+ "training": {
+  "script": "finetune_menus.py",
+  "data": "menu_training_data_v2.py (4604 rows; v2 eval texts excluded)",
+  "epochs": 4,
+  "seed": 1,
+  "loss": "soft-ce",
+  "shuffle_options": [
+   "choice"
+  ],
+  "device": "RTX 4060"
+ },
+ "selection": {
+  "split": "tune2 (107 cases)",
+  "rule": "max coverage with precision>=97% and 0 should-not-route routed",
+  "chosen_threshold": 0.95,
+  "tune2": {
+   "precision": 0.973,
+   "coverage": 0.745
+  }
+ },
+ "final2": {
+  "cases": 149,
+  "frozen_sha256": "f5c3b8733e6d8412eda0f53a147540c840e50aca6190be3c120e8d1e2c059383",
+  "threshold": 0.95,
+  "routed": 107,
+  "correct": 105,
+  "precision": 0.981,
+  "precision_wilson_low95": 0.934,
+  "should_not_route_routed": 0,
+  "coverage": 0.784,
+  "result": "PASS (bar: precision>=97%, 0 should-not-route, coverage>=30%)",
+  "mistakes": [
+   [
+    "main_menu",
+    "el primer horario disponible",
+    "book_appointment",
+    "location_hours"
+   ],
+   [
+    "main_menu",
+    "el tratamiento de acne lo cubre el seguro?",
+    "ask_question",
+    "prices"
+   ]
+  ]
+ },
+ "round1_history": {
+  "base_model_top1": 0.54,
+  "round1_finetune_final": {
+   "precision": 0.936,
+   "result": "FAIL"
+  }
+ },
+ "caveats": [
+  "synthetic phrasings, not real patients",
+  "trained for the published English clinic workflow menus",
+  "local GPU parity with server CPU verified on the base model (153/154 same choice)",
+  "booking create/reschedule/cancel options are never routed by LAYA (worker safety rule)"
+ ]
+}

@@ -5,7 +5,10 @@ import json
 import math
 import os
 
-from artifacts import DISTRIBUTION_VERSION, verify_artifacts
+from artifacts import (ACTIVE_CALIBRATION_VERSION, ACTIVE_MODEL_VERSION, DISTRIBUTION_VERSION, MODEL_MANIFESTS,
+                       verify_artifacts)
+
+ACTIVE_MANIFEST = MODEL_MANIFESTS[ACTIVE_MODEL_VERSION]
 from protocol import validate_request
 
 INSTRUCTIONS = {
@@ -37,15 +40,15 @@ def _agent(**kwargs):
 
 
 class PinnedBackend:
-    model_version = 'laya-multilingual-e4e9ddf21a7b'
-    calibration_version = 'upstream-unqualified-v1'
+    model_version = ACTIVE_MODEL_VERSION
+    calibration_version = ACTIVE_CALIBRATION_VERSION
 
     def __init__(self, artifact_dir, *, agent_factory=_agent, version_reader=version,
                  torch_loader=_torch):
         self.ready = False
         self._agent = None
         try:
-            verify_artifacts(artifact_dir)
+            verify_artifacts(artifact_dir, ACTIVE_MANIFEST)
             for key in ('HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE', 'HF_HUB_DISABLE_TELEMETRY',
                         'DO_NOT_TRACK'):
                 os.environ[key] = '1'
@@ -58,7 +61,7 @@ class PinnedBackend:
                 torch.set_num_interop_threads(1)
                 agent = agent_factory(model_id_or_path=str(artifact_dir), device='cpu',
                                       backend='eager', compile=False, fast=False)
-                verify_artifacts(artifact_dir)
+                verify_artifacts(artifact_dir, ACTIVE_MANIFEST)
             self._agent = agent
             self.ready = True
         except Exception:

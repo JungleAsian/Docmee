@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createLayaAdapter, type LayaControls, type LayaRequest } from '../laya/adapter.js'
-import { isObservableTypedReply, layaLanguageOf, menuBranchCandidates, redactPatientText } from '../laya/observations.js'
+import { isObservableTypedReply, layaBlockedMenuOptions, layaLanguageOf, menuBranchCandidates, redactPatientText } from '../laya/observations.js'
 import { layaQualificationStatus, parseLayaQualification } from '../laya/qualification.js'
 import { parseLayaTimeoutMs } from '../laya/server.js'
 
@@ -87,7 +87,7 @@ describe('LAYA observation helpers', () => {
 
   it('maps 1–7 menu options to candidates and skips anything LAYA cannot score', () => {
     expect(menuBranchCandidates([{ optionId: 'book', title: 'Book', description: 'See dates' }, { optionId: '__more__', title: 'See more' }]))
-      .toEqual([{ id: 'book', label: 'Book — See dates' }])
+      .toEqual([{ id: 'book', label: 'Book' }])
     expect(menuBranchCandidates([])).toBeNull()
     expect(menuBranchCandidates(Array.from({ length: 8 }, (_, i) => ({ optionId: `o${i}`, title: `Option ${i}` })))).toBeNull()
     expect(menuBranchCandidates([{ optionId: 'a', title: 'A' }, { optionId: 'a', title: 'B' }])).toBeNull()
@@ -101,5 +101,26 @@ describe('LAYA caller deadline setting', () => {
   })
   it.each([undefined, '', '99', '5001', '2.5', '2500ms', '-1', '25000'])('ignores %s', raw => {
     expect(parseLayaTimeoutMs(raw)).toBeUndefined()
+  })
+})
+
+describe('LAYA live-routing safety', () => {
+  it('blocks options that lead straight to booking create, reschedule or cancel', () => {
+    const nodes = [
+      { id: 'confirm_menu', type: 'action.interactive_menu' }, { id: 'create_booking', type: 'action.create_booking' },
+      { id: 'confirm_cancel_menu', type: 'action.interactive_menu' }, { id: 'cancel_booking', type: 'action.cancel_booking' },
+      { id: 'manage_menu', type: 'action.interactive_menu' }, { id: 'date_menu', type: 'action.offer_slot_menu' },
+    ]
+    const edges = [
+      { source: 'confirm_menu', sourceHandle: 'confirm', target: 'create_booking' },
+      { source: 'confirm_menu', sourceHandle: 'other_time', target: 'date_menu' },
+      { source: 'confirm_cancel_menu', sourceHandle: 'confirm', target: 'cancel_booking' },
+      { source: 'manage_menu', sourceHandle: 'cancel', target: 'confirm_cancel_menu' },
+      { source: 'create_booking', sourceHandle: 'success', target: 'manage_menu' },
+    ]
+    const blocked = layaBlockedMenuOptions(nodes, edges)
+    expect([...(blocked.get('confirm_menu') ?? [])]).toEqual(['confirm'])
+    expect([...(blocked.get('confirm_cancel_menu') ?? [])]).toEqual(['confirm'])
+    expect(blocked.has('manage_menu')).toBe(false) // cancel there still asks for confirmation
   })
 })

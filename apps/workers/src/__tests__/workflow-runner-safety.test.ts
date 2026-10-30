@@ -4,6 +4,7 @@ import type { WorkflowContext, WorkflowExecutors } from '@docmee/agents'
 type MenuExecutors = Required<Pick<WorkflowExecutors, 'sendInteractiveMenu' | 'sendSlotMenu'>>
 
 const h = vi.hoisted(() => ({
+  liveMenuChoice: vi.fn(),
   findWorkflow: vi.fn(),
   findRevision: vi.fn(),
   findPatient: vi.fn(),
@@ -58,6 +59,8 @@ vi.mock('@docmee/agents', async () => ({
   ...(await import('../../../../packages/agents/src/workflows/ai-agent-answer.js')),
   resolveAiAgentSettings: (await import('../../../../packages/agents/src/workflows/ai-agent-settings.js')).resolveAiAgentSettings,
   validCapturedReply: (await import('../../../../packages/agents/src/workflows/capture-validation.js')).validCapturedReply,
+  layaBlockedMenuOptions: (await import('../../../../packages/agents/src/laya/observations.js')).layaBlockedMenuOptions,
+  resolveMenuHandle: (await import('../../../../packages/agents/src/workflows/workflow-engine.js')).resolveMenuHandle,
   validateWorkflowDefinition: () => [],
   runWorkflow: h.runWorkflow,
   runWorkflowWithOutcome: async (...args: unknown[]) => {
@@ -124,6 +127,9 @@ vi.mock('@docmee/channels', () => ({
 }))
 vi.mock('../follow-up.js', () => ({ scheduleNoResponseFollowUp: vi.fn() }))
 vi.mock('../bot-handoff.js', () => ({ pauseBotForHandoff: vi.fn() }))
+vi.mock('../laya-observations.js', () => ({
+  labelMenuTap: vi.fn(), observeMenuText: vi.fn(), observeAiAgentText: vi.fn(), liveMenuChoice: h.liveMenuChoice,
+}))
 vi.mock('../laya.js', () => ({ getLayaAdapter: () => h.layaAdapter, getLayaDb: () => undefined, runLayaBackground: () => undefined }))
 vi.mock('@docmee/queue', () => ({ createQueue: () => ({ add: h.queueAdd }), kbEmbedQueue: { add: h.queueAdd } }))
 
@@ -182,6 +188,7 @@ const job = {
 beforeEach(() => {
   vi.clearAllMocks()
   h.layaAdapter = undefined
+  h.liveMenuChoice.mockResolvedValue(null)
   h.retrievalAdapters.length = 0
   clearSharedKbEvidenceCache()
   vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 10))
@@ -553,6 +560,28 @@ describe('processWorkflowRunJob automation ownership', () => {
     await processWorkflowRunJob(job)
     expect(h.sendWhatsAppInteractiveList).toHaveBeenCalledTimes(1)
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
+  })
+
+  it('never lets a live LAYA pick commit a booking change; other picks route normally', async () => {
+    const menu = { id: 'confirm_menu', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu',
+      config: { message: 'Confirm?', options: [{ optionId: 'confirm', title: 'Confirm appointment' }, { optionId: 'other_time', title: 'Choose another time' }] } }
+    h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published',
+      nodes: [{ id: 'trigger', kind: 'trigger', type: 'trigger.message_keyword', config: {}, x: 0, y: 0 }, menu,
+        { id: 'create_booking', kind: 'action', type: 'action.create_booking', config: {}, x: 0, y: 0 },
+        { id: 'date_menu', kind: 'action', type: 'action.offer_slot_menu', config: {}, x: 0, y: 0 }],
+      edges: [{ id: 'e0', source: 'trigger', target: 'confirm_menu' },
+        { id: 'e1', source: 'confirm_menu', sourceHandle: 'confirm', target: 'create_booking' },
+        { id: 'e2', source: 'confirm_menu', sourceHandle: 'other_time', target: 'date_menu' }] })
+    const results: unknown[] = []
+    h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext, exec: WorkflowExecutors) => {
+      results.push(await exec.matchMenuReply?.(menu, { ...ctx, conversationId: 'conversation-1', message: 'yes please' }))
+      return [{ status: 'completed' }]
+    })
+    h.liveMenuChoice.mockResolvedValueOnce('confirm')
+    await processWorkflowRunJob(job)
+    h.liveMenuChoice.mockResolvedValueOnce('other_time')
+    await processWorkflowRunJob(job)
+    expect(results).toEqual(['default', 'other_time'])
   })
 
   it.each(['interactive', 'slots'])('records native versus fallback delivery for the %s menu', async (kind: string) => {

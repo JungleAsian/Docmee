@@ -55,7 +55,14 @@ import { extractVoiceBookingDetails } from './voice-booking.js'
 import { resolveClinicAiKey, resolveEmbedder } from './clinic-ai-key.js'
 import { getLayaAdapter } from './laya.js'
 import { labelMenuTap, liveMenuChoice, observeAiAgentText, observeMenuText, type MenuScope } from './laya-observations.js'
-import { layaBlockedMenuOptions } from '@docmee/agents'
+import {
+  layaCommittingMenuOptions, layaLanguageOf, layaReadbackText, readbackConfirmed,
+  MENU_HOLD_OUTCOME, MENU_RESEND_OUTCOME,
+} from '@docmee/agents'
+
+/** Context key for a LAYA pick waiting on the patient's YES/NO read-back check. */
+const LAYA_READBACK_KEY = 'layaReadback'
+type LayaReadback = { nodeId: string; optionId: string; title: string }
 import { appendPatientHistoryEntry } from './voice-storage.js'
 import { scheduleNoResponseFollowUp } from './follow-up.js'
 import { pauseBotForHandoff } from './bot-handoff.js'
@@ -792,7 +799,7 @@ function buildExecutors(
   data: WorkflowRunJobData,
   workflowRunId: string,
   captureResume?: (input: { nodeId: string; ms: number; context: WorkflowContext }) => void,
-  layaBlocked: Map<string, Set<string>> = new Map(),
+  layaCommitting: Map<string, Set<string>> = new Map(),
 ): WorkflowExecutors {
   const { clinicId } = data
   // LAYA watch-only scope for a node. Never carries patient text or contact details.
@@ -824,6 +831,40 @@ function buildExecutors(
     await conversations.update(clinicId, ctx.conversationId, {
       metadata: { ...conv.metadata, tags: [...existing, tag] },
     })
+  }
+
+  // Persist a paused interactive menu so the patient's next reply resumes this node.
+  const pauseAtMenu = async (
+    node: { id: string; config?: Record<string, unknown> },
+    ctx: WorkflowContext,
+    menuState: Record<string, unknown>,
+    recoveryPrompt: string,
+  ): Promise<boolean> => {
+    if (!ctx.conversationId) return false
+    ctx[WORKFLOW_MENU_CONTEXT_KEY] = menuState
+    const conversations = createConversationsRepository(sql)
+    const conversation = await conversations.findById(clinicId, ctx.conversationId)
+    if (!conversation) return false
+    const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
+    const metadata = writePendingWorkflowRun(conversation.metadata, {
+      workflowId: data.workflowId,
+      workflowRevisionId: data.workflowRevisionId,
+      sourceEventId: data.trigger.sourceEventId,
+      resumeNodeId: node.id,
+      context: { ...ctx },
+      expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
+    })
+    await conversations.update(clinicId, ctx.conversationId, { metadata })
+    if (ctx.patientId) {
+      await scheduleNoResponseFollowUp({
+        clinicId,
+        patientId: ctx.patientId,
+        conversationId: ctx.conversationId,
+        silentSinceIso: new Date().toISOString(),
+        recoveryPrompt,
+      })
+    }
+    return true
   }
 
   const sendWorkflowMessage = async (text: string, ctx: WorkflowContext): Promise<string | null> => {
@@ -1594,43 +1635,26 @@ function buildExecutors(
         return false
       }
 
-      ctx[WORKFLOW_MENU_CONTEXT_KEY] = { nodeId: node.id, page, status: 'pending', deliveryMode, ...(fallbackReason ? { fallbackReason } : {}) }
-      const conversations = createConversationsRepository(sql)
-      const conversation = await conversations.findById(clinicId, ctx.conversationId)
-      if (!conversation) return false
-
-      const timeoutMinutes = boundedInteger(node.config?.['timeoutMinutes'], 1_440, 5, 43_200)
-      const metadata = writePendingWorkflowRun(conversation.metadata, {
-        workflowId: data.workflowId,
-        workflowRevisionId: data.workflowRevisionId,
-        sourceEventId: data.trigger.sourceEventId,
-        resumeNodeId: node.id,
-        context: { ...ctx },
-        expiresAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
-      })
-      await conversations.update(clinicId, ctx.conversationId, { metadata })
-      if (ctx.patientId) {
-        await scheduleNoResponseFollowUp({
-          clinicId,
-          patientId: ctx.patientId,
-          conversationId: ctx.conversationId,
-          silentSinceIso: new Date().toISOString(),
-          recoveryPrompt: message || 'Please choose an option.',
-        })
-      }
-      return true
+      return pauseAtMenu(node, ctx, { nodeId: node.id, page, status: 'pending', deliveryMode, ...(fallbackReason ? { fallbackReason } : {}) },
+        message || 'Please choose an option.')
     },
 
     // The message that started a fresh run may already clearly pick an option on the first
-    // static menu ("quiero una cita" -> Book). Live + reviewed LAYA only; booking-committing
-    // options are never preselected. Otherwise the menu is shown as usual.
+    // static menu ("quiero una cita" -> Book). Live + reviewed LAYA only; otherwise the menu
+    // is shown as usual.
     async preselectMenuOption(node, ctx) {
       if (triggerTextObserved) return null
       triggerTextObserved = true
       const options = parseMenuOptions(node.config)
+      const text = contextString(ctx, 'message')
       let chosen: string | null = null
-      try { chosen = await liveMenuChoice(layaScope(node.id, ctx), contextString(ctx, 'message'), options, 'menu_trigger') } catch { chosen = null }
-      return chosen && options.some((o) => o.optionId === chosen) && !layaBlocked.get(node.id)?.has(chosen) ? chosen : null
+      try { chosen = await liveMenuChoice(layaScope(node.id, ctx), text, options, 'menu_trigger') } catch { chosen = null }
+      const option = chosen ? options.find((o) => o.optionId === chosen) : undefined
+      // A booking-committing first menu is shown normally rather than preselected.
+      if (!option || layaCommitting.get(node.id)?.has(option.optionId)) return null
+      // Correction mechanism: say what was understood; "0" returns to the main menu.
+      await sendWorkflowMessage(layaReadbackText('routed', layaLanguageOf(text), option.title), ctx)
+      return option.optionId
     },
 
     async matchMenuReply(node, ctx, page = 0) {
@@ -1650,14 +1674,45 @@ function buildExecutors(
         return result
       }
       const options = parseMenuOptions(node.config)
+      // Read-back check pending from a previous LAYA pick on this menu.
+      const pending = ctx[LAYA_READBACK_KEY] as LayaReadback | undefined
+      if (pending) {
+        delete ctx[LAYA_READBACK_KEY]
+        if (pending.nodeId === node.id) {
+          const trimmed = text.trim()
+          if (trimmed === '0') return 'restart'
+          if (trimmed === '1') return 'livechat'
+          if (replyId && options.some((o) => o.optionId === replyId)) {
+            labelMenuTap(scope, replyId)
+            return replyId // the patient tapped an option instead: that tap wins
+          }
+          // Only a clear YES continues; NO or anything else shows the menu again.
+          return readbackConfirmed(text) ? pending.optionId : MENU_RESEND_OUTCOME
+        }
+      }
       const handle = resolveMenuHandle(options, replyId, text)
       if (handle === 'default') {
         // Returns an option only for a live clinic with a reviewed qualification; otherwise
         // LAYA just watches in the background and the menu's own default route runs.
         let chosen: string | null = null
         try { chosen = await liveMenuChoice(scope, text, options) } catch { chosen = null }
-        // Never let LAYA commit a booking change: those options always need a real tap.
-        return chosen && options.some((o) => o.optionId === chosen) && !layaBlocked.get(node.id)?.has(chosen) ? chosen : handle
+        const option = chosen ? options.find((o) => o.optionId === chosen) : undefined
+        if (!option) return handle
+        const language = layaLanguageOf(text)
+        if (layaCommitting.get(node.id)?.has(option.optionId)) {
+          // Booking create/reschedule/cancel (owner decision 2026-10-30): echo what was understood
+          // and wait for YES/NO before anything changes on the calendar.
+          const prompt = layaReadbackText('confirm', language, option.title, text)
+          ctx[LAYA_READBACK_KEY] = { nodeId: node.id, optionId: option.optionId, title: option.title } satisfies LayaReadback
+          await sendWorkflowMessage(prompt, ctx)
+          const menuState = (ctx[WORKFLOW_MENU_CONTEXT_KEY] as Record<string, unknown> | undefined) ?? { nodeId: node.id, page, status: 'pending' }
+          if (await pauseAtMenu(node, ctx, { ...menuState, nodeId: node.id, status: 'pending' }, prompt)) return MENU_HOLD_OUTCOME
+          delete ctx[LAYA_READBACK_KEY]
+          return handle
+        }
+        // Correction mechanism: say what was understood; "0" returns to the main menu.
+        await sendWorkflowMessage(layaReadbackText('routed', language, option.title), ctx)
+        return option.optionId
       }
       if (handle !== 'restart' && handle !== 'livechat') labelMenuTap(scope, handle)
       return handle
@@ -2170,7 +2225,7 @@ export async function processWorkflowRunJob(job: Job): Promise<void> {
     if (data.approvalId && !(await approvals.claimResume(data.clinicId, data.approvalId))) return
     const pendingResumeRef: { current: { nodeId: string; ms: number; context: WorkflowContext } | null } = { current: null }
     const exec = buildExecutors(sql, data, run.id, (resume) => { pendingResumeRef.current = resume },
-      layaBlockedMenuOptions(workflow.nodes, workflow.edges))
+      layaCommittingMenuOptions(workflow.nodes, workflow.edges))
     const outcome = await runWorkflowWithOutcome(workflow, ctx, exec, data.startNodeId ? { startNodeId: data.startNodeId } : {})
     if (data.approvalId) await approvals.markResumed(data.clinicId, data.approvalId)
     // Persist transport evidence only, never menu text, recipients, or raw

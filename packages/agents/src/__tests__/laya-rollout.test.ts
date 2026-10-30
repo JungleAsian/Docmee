@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createLayaAdapter, type LayaControls, type LayaRequest } from '../laya/adapter.js'
-import { isObservableTypedReply, layaBlockedMenuOptions, layaLanguageOf, menuBranchCandidates, redactPatientText } from '../laya/observations.js'
+import { isObservableTypedReply, layaCommittingMenuOptions, layaLanguageOf, layaReadbackText, menuBranchCandidates, readbackConfirmed, redactPatientText } from '../laya/observations.js'
 import { layaQualificationStatus, parseLayaQualification } from '../laya/qualification.js'
 import { parseLayaTimeoutMs } from '../laya/server.js'
 
@@ -104,23 +104,30 @@ describe('LAYA caller deadline setting', () => {
   })
 })
 
-describe('LAYA live-routing safety', () => {
-  it('blocks options that lead straight to booking create, reschedule or cancel', () => {
-    const nodes = [
-      { id: 'confirm_menu', type: 'action.interactive_menu' }, { id: 'create_booking', type: 'action.create_booking' },
-      { id: 'confirm_cancel_menu', type: 'action.interactive_menu' }, { id: 'cancel_booking', type: 'action.cancel_booking' },
-      { id: 'manage_menu', type: 'action.interactive_menu' }, { id: 'date_menu', type: 'action.offer_slot_menu' },
-    ]
-    const edges = [
-      { source: 'confirm_menu', sourceHandle: 'confirm', target: 'create_booking' },
-      { source: 'confirm_menu', sourceHandle: 'other_time', target: 'date_menu' },
-      { source: 'confirm_cancel_menu', sourceHandle: 'confirm', target: 'cancel_booking' },
-      { source: 'manage_menu', sourceHandle: 'cancel', target: 'confirm_cancel_menu' },
-      { source: 'create_booking', sourceHandle: 'success', target: 'manage_menu' },
-    ]
-    const blocked = layaBlockedMenuOptions(nodes, edges)
-    expect([...(blocked.get('confirm_menu') ?? [])]).toEqual(['confirm'])
-    expect([...(blocked.get('confirm_cancel_menu') ?? [])]).toEqual(['confirm'])
-    expect(blocked.has('manage_menu')).toBe(false) // cancel there still asks for confirmation
+describe('LAYA correction mechanism helpers', () => {
+  it('finds options that lead straight to booking create, reschedule or cancel', () => {
+    const nodes = [{ id: 'confirm_cancel_menu', type: 'action.interactive_menu' }, { id: 'cancel_booking', type: 'action.cancel_booking' },
+      { id: 'manage_menu', type: 'action.interactive_menu' }]
+    const edges = [{ source: 'confirm_cancel_menu', sourceHandle: 'confirm', target: 'cancel_booking' },
+      { source: 'confirm_cancel_menu', sourceHandle: 'keep', target: 'manage_menu' },
+      { source: 'manage_menu', sourceHandle: 'cancel', target: 'confirm_cancel_menu' }]
+    const map = layaCommittingMenuOptions(nodes, edges)
+    expect([...(map.get('confirm_cancel_menu') ?? [])]).toEqual(['confirm'])
+    expect(map.has('manage_menu')).toBe(false)
+  })
+
+  it.each(['yes', 'Sí', 'si, adelante', 'ok', 'Confirmo', 'de acuerdo', 'YES!'])('treats %s as a confirmation', text => {
+    expect(readbackConfirmed(text)).toBe(true)
+  })
+
+  it.each(['no', 'No, mantener', 'si pero no', 'yes no', "don't", 'wrong', 'cancel', 'what?', '', 'sí claro que sí lo quiero hacer ahora mismo'])(
+    'treats %s as not confirmed (safe default)', text => {
+      expect(readbackConfirmed(text)).toBe(false)
+    })
+
+  it('writes the read-back in the patient language', () => {
+    expect(layaReadbackText('routed', 'es', 'Book an appointment')).toContain('Responda 0')
+    expect(layaReadbackText('confirm', 'en', 'Yes, cancel it', 'no la cancele')).toBe(
+      'You wrote: “no la cancele”. I understood: “Yes, cancel it”. Reply YES to continue or NO to choose again.')
   })
 })

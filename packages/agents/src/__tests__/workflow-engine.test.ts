@@ -485,6 +485,26 @@ describe('runWorkflow — interactive_menu node', () => {
     expect(exec.sendMessage).not.toHaveBeenCalled()
   })
 
+  it('stays paused without routing when the reply outcome is hold', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ sendInteractiveMenu: send, matchMenuReply: vi.fn(async () => '__hold__') })
+    const ctx = { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'yes please' }
+    const trace = await runWorkflow(wf, ctx, exec, { startNodeId: 'menu' })
+    expect(trace.at(-1)).toEqual({ nodeId: 'menu', type: 'action.interactive_menu', status: 'paused' })
+    expect(send).not.toHaveBeenCalled()
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('shows the same menu again when the reply outcome is resend', async () => {
+    const send = vi.fn(async () => true)
+    const exec = makeExec({ sendInteractiveMenu: send, matchMenuReply: vi.fn(async () => '__resend__') })
+    const ctx = { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'no' }
+    const trace = await runWorkflow(wf, ctx, exec, { startNodeId: 'menu' })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(trace.at(-1)).toEqual({ nodeId: 'menu', type: 'action.interactive_menu', status: 'paused' })
+    expect(exec.sendMessage).not.toHaveBeenCalled()
+  })
+
   it('resumes and routes out of the matched option handle', async () => {
     const exec = makeExec({ matchMenuReply: vi.fn(async () => 'book_appt') })
     const ctx = { workflowMenu: { nodeId: 'menu', status: 'pending' }, message: 'Book an appointment' }

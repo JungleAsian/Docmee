@@ -56,6 +56,11 @@ export interface WorkflowMenuOption {
  *  unmatched reply falls through `default` (re-show the menu). */
 export const MENU_RESERVED_HANDLES = ['restart', 'livechat', 'default'] as const
 
+/** matchMenuReply outcomes that do not route: stay paused on this menu (the executor already
+ *  persisted the pause, e.g. while a read-back confirmation is pending) or show it again. */
+export const MENU_HOLD_OUTCOME = '__hold__'
+export const MENU_RESEND_OUTCOME = '__resend__'
+
 export type MenuReplyOutcome = {
   outcome: string
   value?: string
@@ -352,6 +357,20 @@ export async function runWorkflow(
           const outcome: MenuReplyOutcome = typeof result === 'string' ? { outcome: result } : result
           handle = outcome.outcome
           const dynamic = String(node.config?.['optionSource'] ?? 'static') !== 'static'
+          if (handle === MENU_HOLD_OUTCOME) {
+            recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
+            return trace
+          }
+          if (handle === MENU_RESEND_OUTCOME) {
+            delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
+            const paused = exec.sendInteractiveMenu ? await exec.sendInteractiveMenu(node, ctx, menu.page ?? 0) : false
+            if (paused) {
+              recordStep({ nodeId: node.id, type: node.type, status: 'paused' })
+              return trace
+            }
+            handle = 'default'
+            break
+          }
           if (dynamic && (handle === 'more' || handle === 'default')) {
             delete ctx[WORKFLOW_MENU_CONTEXT_KEY]
             const nextPage = handle === 'more' ? (menu.page ?? 0) + 1 : (menu.page ?? 0)

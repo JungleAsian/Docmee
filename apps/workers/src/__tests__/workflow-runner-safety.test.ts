@@ -59,8 +59,13 @@ vi.mock('@docmee/agents', async () => ({
   ...(await import('../../../../packages/agents/src/workflows/ai-agent-answer.js')),
   resolveAiAgentSettings: (await import('../../../../packages/agents/src/workflows/ai-agent-settings.js')).resolveAiAgentSettings,
   validCapturedReply: (await import('../../../../packages/agents/src/workflows/capture-validation.js')).validCapturedReply,
-  layaBlockedMenuOptions: (await import('../../../../packages/agents/src/laya/observations.js')).layaBlockedMenuOptions,
   resolveMenuHandle: (await import('../../../../packages/agents/src/workflows/workflow-engine.js')).resolveMenuHandle,
+  MENU_HOLD_OUTCOME: (await import('../../../../packages/agents/src/workflows/workflow-engine.js')).MENU_HOLD_OUTCOME,
+  MENU_RESEND_OUTCOME: (await import('../../../../packages/agents/src/workflows/workflow-engine.js')).MENU_RESEND_OUTCOME,
+  layaCommittingMenuOptions: (await import('../../../../packages/agents/src/laya/observations.js')).layaCommittingMenuOptions,
+  layaLanguageOf: (await import('../../../../packages/agents/src/laya/observations.js')).layaLanguageOf,
+  layaReadbackText: (await import('../../../../packages/agents/src/laya/observations.js')).layaReadbackText,
+  readbackConfirmed: (await import('../../../../packages/agents/src/laya/observations.js')).readbackConfirmed,
   validateWorkflowDefinition: () => [],
   runWorkflow: h.runWorkflow,
   runWorkflowWithOutcome: async (...args: unknown[]) => {
@@ -562,7 +567,7 @@ describe('processWorkflowRunJob automation ownership', () => {
     expect(h.sendWhatsAppText).not.toHaveBeenCalled()
   })
 
-  it('never lets a live LAYA pick commit a booking change; other picks route normally', async () => {
+  it('routes live LAYA picks, including booking-committing options (owner decision 2026-10-30)', async () => {
     const menu = { id: 'confirm_menu', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu',
       config: { message: 'Confirm?', options: [{ optionId: 'confirm', title: 'Confirm appointment' }, { optionId: 'other_time', title: 'Choose another time' }] } }
     h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published',
@@ -577,14 +582,41 @@ describe('processWorkflowRunJob automation ownership', () => {
       results.push(await exec.matchMenuReply?.(menu, { ...ctx, conversationId: 'conversation-1', message: 'yes please' }))
       return [{ status: 'completed' }]
     })
-    h.liveMenuChoice.mockResolvedValueOnce('confirm')
-    await processWorkflowRunJob(job)
     h.liveMenuChoice.mockResolvedValueOnce('other_time')
     await processWorkflowRunJob(job)
-    expect(results).toEqual(['default', 'other_time'])
+    h.liveMenuChoice.mockResolvedValueOnce('confirm')
+    await processWorkflowRunJob(job)
+    // A normal pick routes and says what was understood; a booking-committing pick holds for YES/NO.
+    expect(results).toEqual(['other_time', '__hold__'])
+    const sent = h.sendWhatsAppText.mock.calls.map((call: unknown[]) => String(call.at(-1)))
+    expect(sent).toContain('Got it: “Choose another time”. Not right? Reply 0 for the main menu.')
+    expect(sent).toContain('You wrote: “yes please”. I understood: “Confirm appointment”. Reply YES to continue or NO to choose again.')
+    const saved = JSON.parse(h.updateConversation.mock.calls.at(-1)?.[2].metadata.pendingWorkflowRuns[0].context)
+    expect(saved.layaReadback).toEqual({ nodeId: 'confirm_menu', optionId: 'confirm', title: 'Confirm appointment' })
+    expect(saved.menu).toEqual(expect.objectContaining({ nodeId: 'confirm_menu', status: 'pending' }))
   })
 
-  it('preselects from the opening message once per fresh run, never a booking-committing option, never on resume', async () => {
+  it.each([
+    ['sí', undefined, 'confirm'],
+    ['no, otra hora', undefined, '__resend__'],
+    ['what?', undefined, '__resend__'],
+    ['Choose another time', 'other_time', 'other_time'],
+    ['0', undefined, 'restart'],
+  ])('answers a pending read-back check: %s', async (message, interactiveReplyId, expected) => {
+    const menu = { id: 'confirm_menu', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu',
+      config: { message: 'Confirm?', options: [{ optionId: 'confirm', title: 'Confirm appointment' }, { optionId: 'other_time', title: 'Choose another time' }] } }
+    let result: unknown
+    h.runWorkflow.mockImplementation(async (_workflow: unknown, ctx: WorkflowContext, exec: WorkflowExecutors) => {
+      result = await exec.matchMenuReply?.(menu, { ...ctx, conversationId: 'conversation-1', message, interactiveReplyId,
+        layaReadback: { nodeId: 'confirm_menu', optionId: 'confirm', title: 'Confirm appointment' } })
+      return [{ status: 'completed' }]
+    })
+    await processWorkflowRunJob(job)
+    expect(result).toBe(expected)
+    expect(h.liveMenuChoice).not.toHaveBeenCalled() // the check is deterministic, not another model call
+  })
+
+  it('preselects from the opening message once per fresh run and never on resume', async () => {
     const menu = { id: 'confirm_menu', kind: 'action' as const, x: 0, y: 0, type: 'action.interactive_menu',
       config: { message: 'Confirm?', options: [{ optionId: 'confirm', title: 'Confirm appointment' }, { optionId: 'other_time', title: 'Choose another time' }] } }
     h.findWorkflow.mockResolvedValue({ id: WORKFLOW, name: 'Booking', status: 'published',
@@ -609,6 +641,7 @@ describe('processWorkflowRunJob automation ownership', () => {
     const resumed = { ...(job as { id: string; data: Record<string, unknown> }), data: { ...(job as { data: Record<string, unknown> }).data, startNodeId: 'confirm_menu' } }
     h.findRun.mockResolvedValue({ id: 'run-1' })
     await processWorkflowRunJob(resumed as never)
+    // A booking-committing option on the first menu is shown normally instead of preselected.
     expect(results).toEqual(['other_time', null, null, null, null, null])
     expect(h.liveMenuChoice).toHaveBeenCalledTimes(2) // the resumed run never asked LAYA
   })

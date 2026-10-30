@@ -8,6 +8,8 @@ export {
   SLOT_MENU_MORE_OPTION_ID,
   parseMenuOptions,
   resolveMenuHandle,
+  MENU_HOLD_OUTCOME,
+  MENU_RESEND_OUTCOME,
   parseAiAgentScenarios,
   type WorkflowContext,
   type WorkflowExecutors,

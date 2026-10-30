@@ -1,0 +1,68 @@
+{
+ "targetPrecision": 0.97,
+ "cases": 316,
+ "answered": 175,
+ "notAnswered": {
+  "503": 141
+ },
+ "latencyMs": {
+  "median": 1327,
+  "p95": 1910,
+  "max": 1979
+ },
+ "rawTop1": {
+  "cases": 175,
+  "routed": 175,
+  "correct": 94,
+  "wrong": 81,
+  "precision": 0.5371,
+  "precisionLow95": 0.4633,
+  "coverage": 0.5562
+ },
+ "buckets": {
+  "en": {
+   "threshold": null,
+   "calibration": null,
+   "heldout": null,
+   "heldoutNoThreshold": {
+    "cases": 21,
+    "routed": 21,
+    "correct": 9,
+    "wrong": 12,
+    "precision": 0.4286,
+    "precisionLow95": 0.2447,
+    "coverage": 0.4737
+   }
+  },
+  "es": {
+   "threshold": null,
+   "calibration": null,
+   "heldout": null,
+   "heldoutNoThreshold": {
+    "cases": 8,
+    "routed": 8,
+    "correct": 4,
+    "wrong": 4,
+    "precision": 0.5,
+    "precisionLow95": 0.2152,
+    "coverage": 0.6667
+   }
+  },
+  "unknown": {
+   "threshold": null,
+   "calibration": null,
+   "heldout": null,
+   "heldoutNoThreshold": {
+    "cases": 65,
+    "routed": 65,
+    "correct": 38,
+    "wrong": 27,
+    "precision": 0.5846,
+    "precisionLow95": 0.4634,
+    "coverage": 0.6032
+   }
+  }
+ },
+ "thresholds": {},
+ "mistakes": []
+}

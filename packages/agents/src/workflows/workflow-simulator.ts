@@ -125,7 +125,8 @@ export interface WorkflowSimulationResult {
     testedEdgeIds: string[]
     untestedEdgeIds: string[]
   }
-  safety: { isolated: true; externalCalls: 0; persistentWrites: 0; queuedJobs: 0 }
+  /** externalCalls / persistentWrites stay 0 unless LAYA ran: then they count its model calls and training rows. */
+  safety: { isolated: true; externalCalls: number; persistentWrites: number; queuedJobs: 0 }
   /** Present when the server let this simulation use LAYA: model calls and training rows saved. */
   laya?: WorkflowSimulationLayaStats
 }
@@ -148,7 +149,13 @@ export async function simulateWorkflow(
 ): Promise<WorkflowSimulationResult> {
   const stats: WorkflowSimulationLayaStats = { calls: 0, examplesSaved: 0, labelsSaved: 0 }
   const result = await simulate(workflow, input, hooks, stats)
-  return hooks.layaChoose ? { ...result, laya: stats } : result
+  if (!hooks.layaChoose) return result
+  // LAYA is the one thing that is not mocked: report its model calls and saved training rows honestly.
+  return {
+    ...result,
+    safety: { ...result.safety, externalCalls: stats.calls, persistentWrites: stats.examplesSaved + stats.labelsSaved },
+    laya: stats,
+  }
 }
 
 async function simulate(

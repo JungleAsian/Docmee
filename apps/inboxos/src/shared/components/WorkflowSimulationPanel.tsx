@@ -27,7 +27,7 @@ export interface WorkflowSimulationView {
   replay?: unknown
   errors: Array<{ nodeId?: string; code: string; title: string; whatHappened: string; howToFix: string }>
   coverage: { testedNodeIds: string[]; untestedNodeIds: string[]; testedEdgeIds: string[]; untestedEdgeIds: string[] }
-  safety: { isolated: true; externalCalls: 0; persistentWrites: 0; queuedJobs: 0 }
+  safety: { isolated: true; externalCalls: number; persistentWrites: number; queuedJobs: 0 }
   /** Present when the clinic has LAYA on: typed replies scored and training examples saved. */
   laya?: { calls: number; examplesSaved: number; labelsSaved: number }
 }
@@ -118,7 +118,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
       <div className="flex flex-wrap items-center gap-2">
         <div>
           <h2 className="font-semibold text-violet-950 dark:text-violet-100">{t('wf.simulator.title')}</h2>
-          {expanded && <p className="text-xs text-violet-700 dark:text-violet-300">{t('wf.simulator.safety')}</p>}
+          {expanded && <p className="text-xs text-violet-700 dark:text-violet-300">{t(result?.laya ? 'wf.simulator.safetyLaya' : 'wf.simulator.safety')}</p>}
         </div>
         <span className="flex-1" />
         <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="rounded border border-violet-400 px-3 py-1.5 font-medium hover:bg-violet-100 dark:hover:bg-violet-900/50">{t(expanded ? 'wf.simulator.hide' : 'wf.simulator.show')}</button>

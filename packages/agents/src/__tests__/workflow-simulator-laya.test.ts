@@ -49,6 +49,7 @@ describe('simulateWorkflow with LAYA', () => {
     expect(messages(result)).toContain('Entendí: “Book an appointment”. ¿No es correcto? Responda 0 para volver al menú principal.')
     expect(notes(result)[0]).toContain('LAYA picked “Book an appointment” (score 0.98) and routed')
     expect(result.laya).toEqual({ calls: 1, examplesSaved: 1, labelsSaved: 0 })
+    expect(result.safety).toEqual({ isolated: true, externalCalls: 1, persistentWrites: 1, queuedJobs: 0 })
   })
 
   it('holds a booking change for YES/NO, shows the menu again on NO, and labels the correcting tap', async () => {
@@ -115,6 +116,7 @@ describe('simulateWorkflow with LAYA', () => {
     const result = await simulateWorkflow(workflow, { replay: atMain.replay, reply: { text: 'quiero una cita' } })
     expect(result.laya).toBeUndefined()
     expect(result.effects.some((effect) => effect.kind === 'laya')).toBe(false)
+    expect(result.safety).toEqual({ isolated: true, externalCalls: 0, persistentWrites: 0, queuedJobs: 0 })
   })
 })
 

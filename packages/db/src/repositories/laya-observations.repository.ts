@@ -26,7 +26,7 @@ export interface NewLayaObservation {
   retentionDays?: number
 }
 
-export type LayaLabelSource = 'next_tap' | 'ai_scenario' | 'readback_yes'
+export type LayaLabelSource = 'next_tap' | 'ai_scenario' | 'readback_yes' | 'tester_review'
 
 export interface LayaTrainingExample {
   id: string
@@ -182,6 +182,22 @@ export function createLayaObservationsRepository(sql: Sql) {
         UPDATE laya_observations SET label_choice_id = ${choiceId.slice(0, 128)}, label_source = ${source},
           label_distance = 0, labeled_at = NOW()
         WHERE clinic_id = ${clinicId} AND id = ${id} AND source = 'simulation' AND label_choice_id IS NULL
+          AND ${choiceId.slice(0, 128)} = ANY(candidate_ids)
+        RETURNING id
+      `
+      return rows.length === 1
+    },
+
+    /**
+     * A tester's explicit Correct/Wrong mark in the simulator. It is the strongest label, so it
+     * replaces an automatic one (next tap, YES) and a later mark replaces an earlier one.
+     */
+    async reviewSimulationExample(clinicId: string, workflowId: string, id: string, choiceId: string): Promise<boolean> {
+      if (!isUuid(clinicId) || !isUuid(workflowId) || !isUuid(id) || !choiceId) return false
+      const rows = await sql<{ id: string }[]>`
+        UPDATE laya_observations SET label_choice_id = ${choiceId.slice(0, 128)}, label_source = 'tester_review',
+          label_distance = 0, labeled_at = NOW()
+        WHERE clinic_id = ${clinicId} AND id = ${id} AND workflow_id = ${workflowId} AND source = 'simulation'
           AND ${choiceId.slice(0, 128)} = ANY(candidate_ids)
         RETURNING id
       `

@@ -8,7 +8,7 @@
 //   DELETE /clinics/:id/workflows/:workflowId    (clinic_admin, ia_studio_admin)
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { z } from 'zod'
-import { createAuditRepository, createClinicsRepository, createConversationsRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
+import { createAuditRepository, createClinicsRepository, createConversationsRepository, createLayaObservationsRepository, createWorkflowApprovalsRepository, createWorkflowExecutionsRepository, createWorkflowsRepository, normalizeWorkflowStatus } from '@docmee/db'
 import type { Clinic } from '@docmee/db'
 import { createQueue } from '@docmee/queue'
 import type { WorkflowNode, WorkflowEdge, WorkflowDocumentV2 } from '@docmee/db'
@@ -88,6 +88,11 @@ const simulationReplaySchema = z.object({
     kind: z.enum(['message', 'template', 'notification', 'tag', 'draft', 'approval', 'provider', 'handoff', 'laya']),
     mocked: z.boolean(),
     summary: z.string().max(SIMULATION_REPLAY_LIMITS.summaryCharacters),
+    review: z.object({
+      ref: z.string().uuid(),
+      pickedId: z.string().max(128).nullable(),
+      options: z.array(z.object({ id: z.string().min(1).max(128), title: z.string().max(200) })).max(10),
+    }).optional(),
   })).max(SIMULATION_REPLAY_LIMITS.effects),
   virtualNowMs: z.number().nonnegative(),
   waitingFor: z.union([
@@ -110,6 +115,7 @@ const simulationInputSchema = z.object({
     slots: z.array(z.string().max(200)).max(100).optional(),
   }).optional(),
 })
+const layaReviewSchema = z.object({ ref: z.string().uuid(), choiceId: z.string().min(1).max(128) })
 const simulateSchema = z.object({
   graph: z.object({ nodes: z.array(nodeSchema).max(500), edges: z.array(edgeSchema).max(1_000) }).optional(),
   input: simulationInputSchema.default({}),
@@ -391,6 +397,23 @@ const workflowsRoute: FastifyPluginAsync = async (app) => {
       const hooks = await layaSimulationHooksFor({ clinicId, workflowId: workflow.id, revisionId: workflow.activeRevisionId })
       const outcome = await simulateWorkflow(graph, parsed.data.input, hooks)
       return { simulation: { ...outcome, simulated: true } }
+    },
+  )
+
+  // Tester marks a LAYA pick in the simulator Correct or Wrong (→ the option meant). Labels only
+  // this clinic's own simulator rows for this workflow; patient rows can't be touched.
+  app.post<{ Params: { id: string; workflowId: string } }>(
+    '/clinics/:id/workflows/:workflowId/simulate/laya-review',
+    { preHandler: requireRole('clinic_admin', 'ia_studio_admin') },
+    async (request, reply) => {
+      const parsed = validate(layaReviewSchema, request.body, reply)
+      if (!parsed.ok) return
+      const clinicId = resolveClinicScope(request, request.params.id)
+      if (!clinicId) return reply.code(403).send({ error: 'Forbidden' })
+      const saved = await withDb((sql) => createLayaObservationsRepository(sql)
+        .reviewSimulationExample(clinicId, request.params.workflowId, parsed.data.ref, parsed.data.choiceId))
+      if (!saved) return reply.code(404).send({ error: 'Training example not found' })
+      return { saved: true }
     },
   )
 

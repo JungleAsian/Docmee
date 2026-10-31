@@ -116,6 +116,36 @@ describe('WorkflowSimulationPanel', () => {
     })
   })
 
+  it('offers Correct / Wrong under a LAYA note only when reviews can be saved', () => {
+    vi.stubGlobal('React', React)
+    const options = [{ id: 'book', title: 'Book' }, { id: 'manage', title: 'Manage' }]
+    const view = (onLayaReview?: (ref: string, choiceId: string) => Promise<void>) => renderToStaticMarkup(
+      <WorkflowSimulationPanel
+        busy={false} paused={false} defaultExpanded
+        onRun={vi.fn()} onStep={vi.fn()} onPause={vi.fn()} onUnpause={vi.fn()} onReset={vi.fn()} onResume={vi.fn()} onFocusNode={vi.fn()}
+        onLayaReview={onLayaReview}
+        result={{
+          status: 'waiting', trace: [], context: {}, virtualNowMs: 0, errors: [],
+          effects: [
+            { nodeId: 'main', kind: 'laya', mocked: false, summary: 'LAYA picked “Book”', review: { ref: '00000000-0000-4000-8000-000000000001', pickedId: 'book', options } },
+            { nodeId: 'main', kind: 'laya', mocked: false, summary: 'LAYA had no confident pick', review: { ref: '00000000-0000-4000-8000-000000000002', pickedId: null, options } },
+          ],
+          coverage: { testedNodeIds: [], untestedNodeIds: [], testedEdgeIds: [], untestedEdgeIds: [] },
+          safety: { isolated: true, externalCalls: 2, persistentWrites: 2, queuedJobs: 0 },
+          laya: { calls: 2, examplesSaved: 2, labelsSaved: 0 },
+        }}
+      />,
+    )
+    const markup = view(async () => {})
+    expect(markup.match(/>Correct</g)).toHaveLength(1)
+    expect(markup).toContain('Wrong…')
+    expect(markup).toContain('Which option did they mean?')
+    expect(markup).toContain('the real model reads what you type')
+    const readOnly = view()
+    expect(readOnly).not.toContain('>Correct<')
+    expect(readOnly).not.toContain('Which option did they mean?')
+  })
+
   it('only permits availability checks as targets for the no-appointments outcome', () => {
     expect(providerScenarioNodes([
       { id: 'availability', type: 'action.check_availability' },

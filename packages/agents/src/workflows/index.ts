@@ -65,7 +65,7 @@ export {
   type WorkflowSimulationError,
   type SimulationProviderOutcome,
   type WorkflowSimulationHooks,
-  type WorkflowSimulationLayaStats,
+  type WorkflowSimulationLayaStats, type WorkflowSimulationLayaReview,
   type LayaSimulationPick,
   LAYA_SIMULATION_EXAMPLE_KEY,
 } from './workflow-simulator.js'

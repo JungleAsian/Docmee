@@ -68,6 +68,17 @@ export interface WorkflowSimulationEffect {
   kind: 'message' | 'template' | 'notification' | 'tag' | 'draft' | 'approval' | 'provider' | 'handoff' | 'laya'
   mocked: boolean
   summary: string
+  /** On a LAYA note with a saved training example: lets the tester mark the pick Correct or Wrong. */
+  review?: WorkflowSimulationLayaReview
+}
+
+/** A saved LAYA example the tester can label from the simulator (Correct / Wrong → which option). */
+export interface WorkflowSimulationLayaReview {
+  /** Opaque training-example reference from the server hook. */
+  ref: string
+  /** What LAYA picked or would pick; null when it had no pick. */
+  pickedId: string | null
+  options: Array<{ id: string; title: string }>
 }
 
 /** What LAYA made of one typed reply, as reported by the server hook. */
@@ -244,8 +255,15 @@ async function simulate(
   // Same decision as the live WhatsApp worker: packages/agents workflows/laya-menu.ts.
   const committing = layaCommittingMenuOptions(workflow.nodes, workflow.edges)
   let triggerTextUsed = Boolean(prior)
-  const note = (nodeId: string, summary: string) => {
-    effects.push({ nodeId, kind: 'laya', mocked: false, summary: summary.slice(0, SIMULATION_REPLAY_LIMITS.summaryCharacters) })
+  const note = (nodeId: string, summary: string, review?: WorkflowSimulationLayaReview) => {
+    effects.push({ nodeId, kind: 'laya', mocked: false, summary: summary.slice(0, SIMULATION_REPLAY_LIMITS.summaryCharacters), ...(review ? { review } : {}) })
+  }
+  // Same candidate rule as the server (menuBranchCandidates): titled options, no "more" page.
+  const reviewFor = (options: WorkflowMenuOption[], pick: LayaSimulationPick, pickedId: string | null): WorkflowSimulationLayaReview | undefined => {
+    if (!pick.ref) return undefined
+    const choices = options.filter((option) => option.optionId && option.title && option.optionId !== '__more__').slice(0, 10)
+      .map((option) => ({ id: option.optionId.slice(0, 128), title: option.title.slice(0, 200) }))
+    return choices.length ? { ref: pick.ref, pickedId: pickedId && choices.some((choice) => choice.id === pickedId) ? pickedId : null, options: choices } : undefined
   }
   const titleOf = (options: WorkflowMenuOption[], optionId: string | null | undefined) =>
     options.find((option) => option.optionId === optionId)?.title ?? optionId ?? ''
@@ -264,10 +282,11 @@ async function simulate(
     if (!pick) { note(nodeId, 'LAYA unavailable: the menu’s own default route runs.'); return }
     const score = typeof pick.score === 'number' ? ` (score ${pick.score.toFixed(2)})` : ''
     const saved = pick.ref ? ' Saved as a training example.' : ''
-    if (decision?.laya?.check === 'confirm') note(nodeId, `LAYA picked “${decision.laya.title}”${score}. Booking change: asking YES/NO first.${saved}`)
-    else if (decision?.laya) note(nodeId, `LAYA picked “${decision.laya.title}”${score} and routed.${saved}`)
-    else if (pick.observedChoiceId) note(nodeId, `LAYA would pick “${titleOf(options, pick.observedChoiceId)}”${score} but may not act (${pick.reason ?? 'not allowed'}).${saved}`)
-    else note(nodeId, `LAYA had no confident pick (${pick.reason ?? 'uncertain'}).${saved}`)
+    const review = reviewFor(options, pick, decision?.laya?.optionId ?? pick.choiceId ?? pick.observedChoiceId ?? null)
+    if (decision?.laya?.check === 'confirm') note(nodeId, `LAYA picked “${decision.laya.title}”${score}. Booking change: asking YES/NO first.${saved}`, review)
+    else if (decision?.laya) note(nodeId, `LAYA picked “${decision.laya.title}”${score} and routed.${saved}`, review)
+    else if (pick.observedChoiceId) note(nodeId, `LAYA would pick “${titleOf(options, pick.observedChoiceId)}”${score} but may not act (${pick.reason ?? 'not allowed'}).${saved}`, review)
+    else note(nodeId, `LAYA had no confident pick (${pick.reason ?? 'uncertain'}).${saved}`, review)
   }
   const labelExample = async (nodeId: string, options: WorkflowMenuOption[], optionId: string, how: 'next_tap' | 'readback_yes') => {
     const example = ctx[LAYA_SIMULATION_EXAMPLE_KEY] as { nodeId?: unknown; ref?: unknown; layaChoiceId?: unknown } | undefined

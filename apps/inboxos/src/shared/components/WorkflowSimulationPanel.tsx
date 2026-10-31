@@ -14,13 +14,13 @@ export function createSimulationReplaySession() {
   }
 }
 
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import { useI18n } from '../hooks/useI18n'
 
 export interface WorkflowSimulationView {
   status: 'completed' | 'waiting' | 'paused' | 'failed'
   trace: Array<{ nodeId: string; type: string; status: string; context: Record<string, unknown> }>
-  effects: Array<{ nodeId: string; kind: string; mocked: boolean; summary: string }>
+  effects: Array<{ nodeId: string; kind: string; mocked: boolean; summary: string; review?: LayaReviewView }>
   context: Record<string, unknown>
   virtualNowMs: number
   waitingFor?: { kind: 'reply' | 'menu' | 'approval' | 'delay'; nodeId: string; remainingMs?: number; resumeAtMs?: number }
@@ -66,7 +66,49 @@ export function providerScenarioNodes(nodes: Array<{ id: string; type: string }>
   return nodes.filter((node) => PROVIDER_NODE_TYPES.has(node.type) && (outcome !== 'empty' || node.type === 'action.check_availability'))
 }
 
-export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRun, onStep, onPause, onUnpause, onReset, onResume, onFocusNode, defaultExpanded = false }: {
+/** A saved LAYA example the tester can mark Correct or Wrong. */
+export type LayaReviewView = { ref: string; pickedId: string | null; options: Array<{ id: string; title: string }> }
+
+/** Correct / Wrong → which option, under a LAYA note. One click labels the training example. */
+function LayaReviewControls({ review, onReview }: { review: LayaReviewView; onReview: (ref: string, choiceId: string) => Promise<void> }) {
+  const { t } = useI18n()
+  const selectId = useId()
+  const [state, setState] = useState<'idle' | 'fixing' | 'saving' | 'saved' | 'error'>('idle')
+  const [choice, setChoice] = useState('')
+  const [savedTitle, setSavedTitle] = useState('')
+  const titleOf = (id: string) => review.options.find((option) => option.id === id)?.title ?? id
+  const save = async (choiceId: string) => {
+    setState('saving')
+    try {
+      await onReview(review.ref, choiceId)
+      setSavedTitle(titleOf(choiceId))
+      setState('saved')
+    } catch {
+      setState('error')
+    }
+  }
+  if (state === 'saved') return <span className="mt-1 block font-normal text-emerald-800 dark:text-emerald-200">{t('wf.simulator.layaReviewSaved', { title: savedTitle })}</span>
+  const others = review.options.filter((option) => option.id !== review.pickedId)
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1 font-normal">
+      {state === 'fixing' ? <>
+        <label htmlFor={selectId} className="sr-only">{t('wf.simulator.layaPickOption')}</label>
+        <select id={selectId} value={choice} onChange={(event) => setChoice(event.target.value)} className="min-h-[32px] rounded border border-gray-300 bg-white px-2 py-1 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+          <option value="">{t('wf.simulator.layaPickOption')}</option>
+          {others.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
+        </select>
+        <button type="button" onClick={() => void save(choice)} disabled={!choice} className="min-h-[32px] rounded bg-sky-700 px-2 py-1 font-medium text-white disabled:opacity-50">{t('wf.simulator.layaSaveLabel')}</button>
+        <button type="button" onClick={() => setState('idle')} className="min-h-[32px] rounded border border-gray-300 px-2 py-1">{t('common.cancel')}</button>
+      </> : <>
+        {review.pickedId && <button type="button" onClick={() => void save(review.pickedId!)} disabled={state === 'saving'} className="min-h-[32px] rounded border border-emerald-500 px-2 py-1 font-medium text-emerald-800 disabled:opacity-50 dark:text-emerald-200">{t('wf.simulator.layaCorrect')}</button>}
+        <button type="button" onClick={() => setState('fixing')} disabled={state === 'saving'} className="min-h-[32px] rounded border border-amber-500 px-2 py-1 font-medium text-amber-900 disabled:opacity-50 dark:text-amber-200">{review.pickedId ? t('wf.simulator.layaWrong') : t('wf.simulator.layaWhichOption')}</button>
+      </>}
+      {state === 'error' && <span role="alert" className="text-red-700 dark:text-red-300">{t('wf.simulator.layaReviewError')}</span>}
+    </span>
+  )
+}
+
+export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRun, onStep, onPause, onUnpause, onReset, onResume, onFocusNode, onLayaReview, defaultExpanded = false }: {
   result: WorkflowSimulationView | null
   busy: boolean
   paused: boolean
@@ -78,6 +120,8 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
   onReset: () => void
   onResume: (input: SimulationResumeInput) => void
   onFocusNode: (nodeId: string) => void
+  /** Saves the tester's Correct/Wrong mark on a LAYA training example. */
+  onLayaReview?: (ref: string, choiceId: string) => Promise<void>
   defaultExpanded?: boolean
 }) {
   const { t } = useI18n()
@@ -174,7 +218,7 @@ export function WorkflowSimulationPanel({ result, busy, paused, nodes = [], onRu
                 <button type="button" onClick={continueSimulation} disabled={!canContinue || busy} className="mt-2 w-full rounded bg-violet-700 px-3 py-1.5 font-medium text-white disabled:opacity-50">{t('wf.simulator.continue')}</button>
               </div>
             )}
-            {result.effects.length > 0 && <div className="rounded border border-violet-200 bg-white/70 p-2 text-xs dark:border-violet-800 dark:bg-black/20"><p className="font-semibold">{t('wf.simulator.effects')}</p><ul className="mt-1 list-disc pl-4">{result.effects.map((effect, index) => <li key={`${effect.nodeId}-${index}`} className={effect.kind === 'laya' ? 'font-medium text-sky-800 dark:text-sky-200' : undefined}>{effect.kind === 'laya' ? `LAYA · ${effect.summary}` : effect.summary}</li>)}</ul></div>}
+            {result.effects.length > 0 && <div className="rounded border border-violet-200 bg-white/70 p-2 text-xs dark:border-violet-800 dark:bg-black/20"><p className="font-semibold">{t('wf.simulator.effects')}</p><ul className="mt-1 list-disc pl-4">{result.effects.map((effect, index) => <li key={`${effect.nodeId}-${index}`} className={effect.kind === 'laya' ? 'font-medium text-sky-800 dark:text-sky-200' : undefined}>{effect.kind === 'laya' ? `LAYA · ${effect.summary}` : effect.summary}{effect.kind === 'laya' && effect.review && onLayaReview && <LayaReviewControls key={effect.review.ref} review={effect.review} onReview={onLayaReview} />}</li>)}</ul></div>}
             {result.errors.map((error, index) => <div key={`${error.nodeId ?? error.code}-${index}`} role="alert" className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"><p className="font-semibold">{error.title}</p><p>{error.whatHappened}</p><p className="mt-1">{t('wf.diagnostics.fix')} {error.howToFix}</p>{error.nodeId && <button type="button" onClick={() => onFocusNode(error.nodeId!)} className="mt-1 rounded border border-red-300 px-2 py-1 font-medium">{t('wf.diagnostics.goToStep')}</button>}</div>)}
           </div>
         </div>

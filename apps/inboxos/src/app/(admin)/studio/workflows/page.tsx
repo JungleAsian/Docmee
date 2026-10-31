@@ -1032,6 +1032,9 @@ function WorkflowEditor({
           onReset={resetSimulation}
           onResume={(resumeInput) => simulation.mutate({ mode: 'resume', resumeInput })}
           onFocusNode={(nodeId) => setFocusedIssue({ nodeId })}
+          onLayaReview={async (ref, choiceId) => {
+            await api.post(`/clinics/${clinicId}/workflows/${persistedWorkflow.id}/simulate/laya-review`, { ref, choiceId })
+          }}
         />
         </div>
       )}

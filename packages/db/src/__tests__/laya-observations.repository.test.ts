@@ -91,6 +91,19 @@ describe('LAYA observations repository', () => {
     expect(await createLayaObservationsRepository(none).labelSimulationExample(clinicId, 'not-a-uuid', 'keep', 'next_tap')).toBe(false)
   })
 
+  it('lets a tester review replace an earlier label, only on this workflow\'s simulator rows', async () => {
+    const { sql, calls } = recorder([{ id: 'sim' }])
+    const ok = await createLayaObservationsRepository(sql).reviewSimulationExample(clinicId, conversationId, conversationId, 'keep')
+    expect(ok).toBe(true)
+    expect(calls[0]!.query).toContain("label_source = 'tester_review'")
+    expect(calls[0]!.query).toContain("AND workflow_id = ?")
+    expect(calls[0]!.query).toContain("source = 'simulation'")
+    expect(calls[0]!.query).not.toContain('label_choice_id IS NULL')
+    expect(calls[0]!.query).toContain('= ANY(candidate_ids)')
+    const { sql: none } = recorder([])
+    expect(await createLayaObservationsRepository(none).reviewSimulationExample(clinicId, 'nope', conversationId, 'keep')).toBe(false)
+  })
+
   it('exports only labelled simulator rows', async () => {
     const { sql, calls } = recorder([{ id: 'a', layaRawScore: '0.9', createdAt: '2026-10-31T00:00:00Z' }])
     const rows = await createLayaObservationsRepository(sql).simulationTrainingExamples(clinicId)

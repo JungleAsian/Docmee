@@ -50,6 +50,9 @@ describe('simulateWorkflow with LAYA', () => {
     expect(notes(result)[0]).toContain('LAYA picked “Book an appointment” (score 0.98) and routed')
     expect(result.laya).toEqual({ calls: 1, examplesSaved: 1, labelsSaved: 0 })
     expect(result.safety).toEqual({ isolated: true, externalCalls: 1, persistentWrites: 1, queuedJobs: 0 })
+    expect(result.effects.find((effect) => effect.kind === 'laya')?.review).toEqual({
+      ref: 'ref-1', pickedId: 'book', options: [{ id: 'book', title: 'Book an appointment' }, { id: 'manage', title: 'My appointments' }],
+    })
   })
 
   it('holds a booking change for YES/NO, shows the menu again on NO, and labels the correcting tap', async () => {
@@ -106,6 +109,8 @@ describe('simulateWorkflow with LAYA', () => {
     const atMain = await simulateWorkflow(workflow, {}, h)
     const result = await simulateWorkflow(workflow, { replay: atMain.replay, reply: { text: 'tengo una cita' } }, h)
     expect(notes(result).at(-1)).toBe('LAYA would pick “My appointments” (score 0.62) but may not act (uncertain). Saved as a training example.')
+    // Unlabelled by the flow (default route), but the tester can still mark it from the note.
+    expect(result.effects.filter((effect) => effect.kind === 'laya').at(-1)?.review?.pickedId).toBe('manage')
     // Not allowed to act: the menu's own default route runs, exactly as on WhatsApp.
     expect(result.trace.at(-1)?.nodeId).toBe('help')
     expect(result.context.layaSimulationExample).toEqual({ nodeId: 'main', ref: 'ref-x', layaChoiceId: 'manage' })
